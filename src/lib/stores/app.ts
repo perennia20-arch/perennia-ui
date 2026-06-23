@@ -76,8 +76,26 @@ export interface Plant {
 }
 
 // ==========================================
+// LEVEL 3: TREASURY (Inventory & Projections)
+// No simulated numbers allowed. Default to 0.00 until true data arrives.
+// ==========================================
+export interface WalletInventoryItem {
+    asset: TokenAsset;
+    balance: number;      // True on-chain balance
+    usdValue: number;     // USD value based on live oracles
+}
+
+export interface GlobalProtocolStats {
+    totalValueLockedUsd: number;
+    perenniaApy: number;
+}
+
+// ==========================================
 // MASTER MEMORY ARRAYS
 // ==========================================
 export const workers = writable<Worker[]>([]);
 export const silos = writable<Silo[]>([]);
 export const plants = writable<Plant[]>([]);
+
+export const walletInventory = writable<WalletInventoryItem[]>([]);
+export const globalStats = writable<GlobalProtocolStats>({ totalValueLockedUsd: 0, perenniaApy: 0 });
