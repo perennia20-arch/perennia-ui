@@ -1,6 +1,8 @@
 <script lang="ts">
     import '../app.css';
-    import { hasEntered, activeTab, systemMode } from '$lib/stores/app';
+    import { onMount, onDestroy } from 'svelte';
+    import { get } from 'svelte/store';
+    import { hasEntered, activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, walletInventory, taxEvents, tokenRegistry } from '$lib/stores/app';        
     import { isWalletConnected, walletAddress, connectWallet, disconnectWallet } from '$lib/stores/wallet';
     
     import EntryView from '$lib/views/EntryView.svelte';
@@ -11,13 +13,120 @@
     import TaxFortressView from '$lib/views/TaxFortressView.svelte';
 
     const tabs = ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS'];
+
+    let engineInterval: ReturnType<typeof setInterval>;
+    let priceInterval: ReturnType<typeof setInterval>;
+    let telemetryInterval: ReturnType<typeof setInterval>;
+
+    async function fetchPriceData() {
+        try {
+            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_24hr_change=true');
+            if (res.ok) {
+                const data = await res.json();
+                if (data?.kaspa) { globalKasPrice.set(data.kaspa.usd); globalKasChange.set(data.kaspa.usd_24h_change || 0); }
+            }
+        } catch(e) {}
+    }
+
+    async function fetchTelemetryData() {
+        if (get(isWalletConnected) && get(walletAddress)) {
+            try { 
+                const response = await fetch('/api/telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ walletAddress: get(walletAddress), clientWorkers: get(workers) }) }); 
+                if (response.ok) {
+                    const data = await response.json(); 
+                    if (data.success) { 
+                        globalNodeStatus.set(data.nodeStatus);
+                        
+                        // STRICTLY REAL PHYSICAL BALANCES ONLY
+                        if (data.livePoolBalance !== undefined) {
+                            walletInventory.update(currentInv => {
+                                let newInv = [...currentInv];
+                                const kasItem = newInv.find(i => i.asset.ticker === 'KAS');
+                                if (kasItem) {
+                                    kasItem.balance = data.livePoolBalance;
+                                    kasItem.usdValue = data.livePoolBalance * get(globalKasPrice);
+                                } else {
+                                    const kasAsset = tokenRegistry.find(t => t.ticker === 'KAS');
+                                    if (kasAsset) {
+                                        newInv.push({ asset: kasAsset, balance: data.livePoolBalance, usdValue: data.livePoolBalance * get(globalKasPrice) });
+                                    }
+                                }
+                                return newInv;
+                            });
+                        }
+
+                        if (data.serverWorkers && data.serverWorkers.length > 0) {
+                            workers.update(currentWorkers => {
+                                return currentWorkers.map(cw => {
+                                    const sw = data.serverWorkers.find((s: any) => s.id === cw.id);
+                                    if (sw) return { ...cw, hashRate: sw.hashRate, isOnline: sw.isOnline, ipAddress: sw.ipAddress, hardwareType: sw.hardwareType };
+                                    return cw;
+                                });
+                            });
+                        }
+                    }
+                } else { globalNodeStatus.set('unreachable'); }
+            } catch (error) { globalNodeStatus.set('offline'); } 
+        }
+    }
+
+    async function executeYieldTick() {
+        if (!get(isWalletConnected)) return;
+
+        const currentWorkers = get(workers);
+        const totalAppHashrate = currentWorkers.reduce((acc, curr) => acc + curr.hashRate, 0);
+        globalNetworkHashrate.set(totalAppHashrate);
+
+        try {
+            const response = await fetch('/api/settlement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ walletAddress: get(walletAddress), workers: get(workers), silos: get(silos), currentKasPrice: get(globalKasPrice) || 0.16 }) });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    silos.set(data.updatedSilos);
+                    if (data.transactions && data.transactions.length > 0) {
+                        walletInventory.update(currentInv => {
+                            let newInv = [...currentInv];
+                            data.transactions.forEach((tx: any) => {
+                                // STRICT ANTI-FLUCTUATION RULE: Do NOT let simulated API add fake KAS to wallet!
+                                if (tx.asset.ticker === 'KAS') return; 
+                                
+                                const existing = newInv.find(i => i.asset.ticker === tx.asset.ticker);
+                                if (existing) { existing.balance += tx.amount; existing.usdValue = existing.balance * tx.asset.priceUsd; } 
+                                else { newInv.push({ asset: tx.asset, balance: tx.amount, usdValue: tx.usdValueAtTime }); }
+                            });
+                            return newInv;
+                        });
+                        taxEvents.update(currentEvents => {
+                            const formattedTxs = data.transactions.map((tx: any) => ({ ...tx, timestamp: new Date(tx.timestamp).toLocaleTimeString() }));
+                            let updated = [...formattedTxs, ...currentEvents];
+                            if (updated.length > 150) updated = updated.slice(0, 150);
+                            return updated;
+                        });
+                    }
+                }
+            }
+        } catch (error) { }
+    }
+
+    onMount(() => {
+        fetchPriceData();
+        fetchTelemetryData();
+        priceInterval = setInterval(fetchPriceData, 15000); 
+        telemetryInterval = setInterval(fetchTelemetryData, 5000); 
+        engineInterval = setInterval(executeYieldTick, 1000); 
+    });
+
+    onDestroy(() => {
+        clearInterval(priceInterval);
+        clearInterval(telemetryInterval);
+        clearInterval(engineInterval);
+    });
 </script>
 
 {#if !$hasEntered}
     <EntryView />
 {:else}
     <div class="h-screen w-screen bg-[#050505] text-white flex flex-col font-sans selection:bg-teal-500/30 overflow-hidden animate-[fade-in_1s_ease-out]">
-        
         <header class="h-16 border-b border-neutral-800/80 bg-[#0a0a0a]/95 backdrop-blur-xl px-6 lg:px-10 flex justify-between items-center z-50 shrink-0">
             <div class="flex items-center gap-3">
                 <div class="w-8 h-8 bg-gradient-to-br from-teal-400 to-teal-600 rounded shadow-[0_0_15px_rgba(20,184,166,0.3)] flex items-center justify-center">
@@ -42,8 +151,8 @@
                 {:else}
                     <div class="flex items-center gap-2 bg-[#111] border border-neutral-800 rounded-xl p-1 pr-3">
                         <div class="bg-[#1a1a1a] rounded-lg px-4 py-2 flex items-center gap-2 border border-neutral-800/50">
-                            <div class="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse shadow-[0_0_8px_rgba(20,184,166,0.8)]"></div>
-                            <span class="text-teal-400 font-mono text-[11px] font-bold">
+                            <div class="w-1.5 h-1.5 rounded-full { $globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse shadow-[0_0_8px_rgba(20,184,166,0.8)]' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600' }"></div>
+                            <span class="{ $globalNodeStatus === 'online' ? 'text-teal-400' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-500' } font-mono text-[11px] font-bold">
                                 {$walletAddress?.substring(0,6)}...{$walletAddress?.substring($walletAddress.length-4)}
                             </span>
                         </div>
