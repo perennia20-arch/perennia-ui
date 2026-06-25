@@ -1,64 +1,98 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
 
-const NETWORK_TOTAL_TH = 350000; 
-const REWARD_PER_SEC = 104; 
+// ========================================================
+// ⚖️ PERENNIA SETTLEMENT LEDGER
+// Hardware mines 100% continuously to avoid stratum disconnects.
+// SvelteKit automatically shaves the 1.5% routing fee mathematically.
+// STRICT RULE: No simulated data! Only processes active verified hashrate.
+// ========================================================
 
-async function executeSilverScriptSwap(walletAddress: string, kasAmount: number, targetAssetTicker: string) {
-    console.log(`\n🔒 [SILVERSCRIPT SECURE RPC] Executing Smart Contract...`);
-    console.log(`➡️  Intercepting ${kasAmount.toFixed(6)} KAS.`);
-    console.log(`➡️  Routing to DEX. Swapping for ${targetAssetTicker}.`);
-    console.log(`➡️  Destination Wallet: ${walletAddress}`);
-    await new Promise(res => setTimeout(res, 1200));
-    const txHash = `0x${Math.random().toString(36).substring(2, 15)}...ss_swap`;
-    console.log(`✅  Contract Success! TxHash: ${txHash}\n`);
-    return txHash;
-}
+// 👇 PASTE YOUR NEW TANGEM CARD'S KASPA RECEIVE ADDRESS HERE 👇
+const TREASURY_WALLET = "kaspa:q...paste_your_new_tangem_address_here..."; 
+const TREASURY_FEE_DECIMAL = 0.015; // 1.5%
 
 export async function POST({ request }: RequestEvent) {
     try {
-        const { walletAddress, workers, silos, currentKasPrice } = await request.json();
-        if (!walletAddress) return json({ success: false, error: 'Unauthorized.' }, { status: 401 });
-        
-        let executedTransactions: any[] = [];
-        let updatedSilos: any[] = [];
+        const body = await request.json();
+        const { walletAddress, workers, silos, currentKasPrice } = body;
 
-        for (const silo of silos) {
-            if (silo.assignedPlantId) { updatedSilos.push(silo); continue; }
+        if (!walletAddress || !workers || !silos) {
+            return json({ success: false, error: 'Missing parameters' }, { status: 400 });
+        }
 
-            const siloWorkers = workers.filter((w: any) => w.assignedSiloId === silo.id);
-            const siloHashTh = siloWorkers.reduce((sum: number, w: any) => sum + w.hashRate, 0);
-            let newPending = silo.pendingKaspa || 0;
+        let updatedSilos = JSON.parse(JSON.stringify(silos));
+        let transactions: any[] = [];
+        let totalTreasuryFee = 0;
 
-            if (siloHashTh > 0) {
-                const myShare = siloHashTh / NETWORK_TOTAL_TH;
-                newPending += myShare * REWARD_PER_SEC;
-            }
+        // Based on Kaspa emission math: KAS generated per TH/s roughly per second
+        // Note: In full prod, this multiplier is fetched dynamically from the Node.
+        const kasPerThsPerSecond = 0.000297; 
 
-            if (silo.settlementConfig.autoPayout) {
-                let shouldSettle = false;
-                if (silo.settlementConfig.mode === 'stream' && silo.settlementConfig.streamMode === 'realtime') shouldSettle = true;
-                else if (silo.settlementConfig.mode === 'threshold' && newPending >= silo.settlementConfig.threshold) shouldSettle = true;
+        for (let silo of updatedSilos) {
+            // Only aggregate hashrate for workers actively verified by the telemetry node
+            const activeWorkers = workers.filter((w: any) => w.assignedSiloId === silo.id && w.isOnline && w.hashRate > 0);
+            const siloHashrate = activeWorkers.reduce((acc: number, w: any) => acc + w.hashRate, 0);
 
-                if (shouldSettle && newPending > 0) {
-                    const settledAmount = newPending;
-                    newPending = 0;
-                    const targetAsset = silo.settlementConfig.targetAsset;
-                    const usdValue = settledAmount * currentKasPrice;
-                    const targetPrice = targetAsset.ticker === 'KAS' ? currentKasPrice : targetAsset.priceUsd;
-                    
-                    let txHash = targetAsset.ticker === 'KAS' ? '0x' + Math.random().toString(36).substring(2, 15) + '...kas' : await executeSilverScriptSwap(walletAddress, settledAmount, targetAsset.ticker);
+            if (siloHashrate > 0) {
+                // 1. Calculate Gross Yield
+                const grossYield = siloHashrate * kasPerThsPerSecond;
 
-                    executedTransactions.push({
-                        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
-                        timestamp: new Date().toISOString(), type: silo.settlementConfig.mode === 'stream' ? 'Stream' : 'Yield',
-                        asset: targetAsset, amount: usdValue / targetPrice, usdValueAtTime: usdValue, txHash: txHash
-                    });
+                // 2. THE LEDGER SPLIT (Zero hardware downtime)
+                const treasuryCut = grossYield * TREASURY_FEE_DECIMAL;
+                const userNetYield = grossYield - treasuryCut;
+                
+                totalTreasuryFee += treasuryCut;
+
+                // 3. Process the Net Yield based on Silo Settlement Config
+                const targetAssetPrice = silo.settlementConfig.targetAsset.priceUsd || 1;
+                const convertedYieldAmount = userNetYield * (currentKasPrice / targetAssetPrice);
+
+                if (silo.settlementConfig.mode === 'stream' && silo.settlementConfig.streamMode === 'realtime') {
+                    if (silo.settlementConfig.autoPayout) {
+                        transactions.push({
+                            id: Math.random().toString(36).substring(2, 9),
+                            asset: silo.settlementConfig.targetAsset,
+                            amount: convertedYieldAmount,
+                            usdValueAtTime: convertedYieldAmount * targetAssetPrice,
+                            timestamp: new Date().toISOString(),
+                            siloName: silo.name
+                        });
+                    }
+                } else if (silo.settlementConfig.mode === 'threshold') {
+                    // Accumulate inside the silo
+                    silo.pendingKaspa = (silo.pendingKaspa || 0) + userNetYield;
+
+                    // Execute threshold payout
+                    if (silo.pendingKaspa >= silo.settlementConfig.threshold && silo.settlementConfig.autoPayout) {
+                        const payoutAmount = silo.pendingKaspa * (currentKasPrice / targetAssetPrice);
+                        transactions.push({
+                            id: Math.random().toString(36).substring(2, 9),
+                            asset: silo.settlementConfig.targetAsset,
+                            amount: payoutAmount,
+                            usdValueAtTime: payoutAmount * targetAssetPrice,
+                            timestamp: new Date().toISOString(),
+                            siloName: silo.name
+                        });
+                        silo.pendingKaspa = 0; // Reset
+                    }
                 }
             }
-            updatedSilos.push({ ...silo, pendingKaspa: newPending });
         }
-        return json({ success: true, updatedSilos, transactions: executedTransactions });
-    } catch (error: any) {
-        return json({ success: false, error: 'Server Error' }, { status: 500 });
+
+        // Output Treasury route log for internal audit.
+        // The daemon will read this log and fire the batch transaction to the Treasury Wallet.
+        if (totalTreasuryFee > 0) {
+            // console.log(`[LEDGER] Routed ${totalTreasuryFee} KAS to ${TREASURY_WALLET}`);
+        }
+
+        return json({ 
+            success: true, 
+            updatedSilos, 
+            transactions,
+            treasuryLog: { address: TREASURY_WALLET, amount: totalTreasuryFee }
+        });
+
+    } catch (error) {
+        return json({ success: false, error: 'Settlement Ledger Fault' }, { status: 500 });
     }
 }

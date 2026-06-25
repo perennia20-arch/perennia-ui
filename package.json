@@ -21,5 +21,9 @@
 		"tailwindcss": "^4.3.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16"
+	},
+	"dependencies": {
+		"@walletconnect/modal": "^2.7.0",
+		"@walletconnect/universal-provider": "^2.23.10"
 	}
 }

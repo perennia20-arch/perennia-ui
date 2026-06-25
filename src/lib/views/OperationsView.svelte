@@ -12,7 +12,6 @@
     let copyModalWorker = $state<Worker | null>(null);
     let fundModalWorker = $state<Worker | null>(null);
 
-    // Configuration Modal is strictly for renaming now. 
     let configModalWorker = $state<Worker | null>(null);
     let configFormName = $state('');
     
@@ -296,10 +295,14 @@
                 <span class="font-mono font-black text-[11px] xl:text-[13px] leading-none transition-colors" style="color: {hashrate > 0 ? assetTheme.hex : '#737373'};">{hashrate.toFixed(2)} <span class="text-[8px] xl:text-[9px] font-normal ml-0.5" style="color: {hashrate > 0 ? assetTheme.hex : '#525252'}; opacity: 0.8;">TH/s</span></span>
             </div>
             {#if !inPlant}
-                <button aria-label="Resize Sector" onmousedown={(e) => e.stopPropagation()} onclick={(e) => {e.stopPropagation(); toggleSiloWidth(silo.id);}} class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-white rounded hover:bg-[#222] transition-colors cursor-pointer" title="Toggle Size"><span class="font-bold tracking-widest text-[12px]">[ ]</span></button>
+                <div onmousedown={(e) => e.stopPropagation()}>
+                    <button aria-label="Resize Sector" onclick={(e) => {e.stopPropagation(); toggleSiloWidth(silo.id);}} class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-white rounded hover:bg-[#222] transition-colors cursor-pointer" title="Toggle Size"><span class="font-bold tracking-widest text-[12px]">[ ]</span></button>
+                </div>
             {/if}
             <div class="relative">
-                <button aria-label="Sector Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); closeAllMenus(); activeSiloMenu = activeSiloMenu === silo.id ? null : silo.id; }} class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer z-30"><span class="font-bold pb-1 text-sm">⋮</span></button>
+                <div onmousedown={(e) => e.stopPropagation()}>
+                    <button aria-label="Sector Menu" onclick={(e) => { e.stopPropagation(); closeAllMenus(); activeSiloMenu = activeSiloMenu === silo.id ? null : silo.id; }} class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer z-30"><span class="font-bold pb-1 text-sm">⋮</span></button>
+                </div>
                 {#if activeSiloMenu === silo.id}
                     <div class="absolute top-10 right-0 w-48 bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl z-40 flex flex-col overflow-hidden" onmousedown={(e) => e.stopPropagation()}>
                         <button aria-label="Rename Sector" onclick={(e) => {e.stopPropagation(); renameSilo(silo.id);}} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors cursor-pointer">Rename Sector</button>
@@ -374,14 +377,14 @@
 </div>
 {/snippet}
 
-<div class="w-full h-full p-3 md:p-6 overflow-y-auto" onclick={closeAllMenus}>
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-6 max-w-[2000px] mx-auto pb-24 items-start">
+<div class="w-full h-full p-4 md:p-6 lg:p-10 overflow-y-auto" onclick={closeAllMenus} role="presentation">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-6 w-full max-w-[1600px] mx-auto pb-24 items-start">
         
         <div class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2" ondragover={(e) => handleDragOver(e, 'field', 'field')} ondragleave={handleDragLeave} ondrop={(e) => handleDrop(e, 'field', null)}>
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2><span class="text-[9px] font-mono text-neutral-600">{$workers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
             </div>
-            <div class="flex flex-col xl:flex-row gap-2">
+            <div class="flex flex-col gap-2">
                 <button aria-label="Add Physical Worker" onclick={() => addWorker('physical')} disabled={!$isWalletConnected} class="flex-1 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-teal-500/50 text-white text-[9px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">+ PHYS</button>
                 <button aria-label="Add Capital Worker" onclick={() => addWorker('capital')} disabled={!$isWalletConnected} class="flex-1 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-purple-500/50 text-white text-[9px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">+ CAP</button>
             </div>
@@ -395,7 +398,7 @@
             </div>
         </div>
 
-        <div class="flex flex-col gap-4 lg:col-span-6 xl:col-span-7">
+        <div class="flex flex-col gap-4 lg:col-span-6 xl:col-span-8">
             
             {#if $isWalletConnected}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2 animate-[fade-in-up_0.5s_ease-out]">
@@ -446,7 +449,7 @@
                 <button aria-label="Add Nexus" disabled class="flex-1 max-w-[200px] bg-[#0a0a0a] border border-neutral-900 text-neutral-700 text-[10px] font-bold uppercase tracking-widest py-3 rounded-xl cursor-not-allowed">+ Nexus</button>
             </div>
 
-            <div class="flex-1 border border-neutral-800/50 rounded-2xl bg-[#0a0a0a] p-4 md:p-6 min-h-[500px] relative shadow-inner" style="background-image: linear-gradient(#14b8a608 1px, transparent 1px), linear-gradient(90deg, #14b8a608 1px, transparent 1px); background-size: 24px 24px;">
+            <div class="flex-1 border border-neutral-800/50 rounded-2xl bg-[#0a0a0a] p-4 md:p-6 min-h-[500px] relative shadow-inner w-full" style="background-image: linear-gradient(#14b8a608 1px, transparent 1px), linear-gradient(90deg, #14b8a608 1px, transparent 1px); background-size: 24px 24px;">
                 
                 {#if !$isWalletConnected}
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 z-20">
@@ -465,9 +468,9 @@
                     <div class="flex flex-col gap-10 relative z-10 w-full h-full">
                         
                         {#if $plants.length > 0}
-                            <div class="flex flex-col gap-4">
+                            <div class="flex flex-col gap-4 w-full">
                                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-purple-500/80 mb-2 border-b border-purple-900/30 pb-2">Synthesis Plants</h2>
-                                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 relative z-10">
+                                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 relative z-10 w-full">
                                     {#each $plants as plant (plant.id)}
                                         {@const plantSilos = $silos.filter(s => s.assignedPlantId === plant.id)}
                                         {@const color1 = plantSilos[0] ? assetColors[plantSilos[0].settlementConfig.targetAsset.assetClass]?.pastel : '#a855f7'}
@@ -475,7 +478,7 @@
                                         
                                         <div ondragover={(e) => handleDragOver(e, plant.id, 'plant')} ondragleave={handleDragLeave} ondrop={(e) => handleDrop(e, 'plant', plant.id)}
                                              style="background-image: linear-gradient(to bottom right, #111, #0a0a0a); box-shadow: 0 0 40px {color1}15, inset 0 0 20px {color2}0a; border-color: {color1}40;"
-                                             class="border rounded-[28px] p-6 transition-all duration-500 flex flex-col {targetDropId === plant.id && dragType === 'silo' ? 'scale-[1.02] bg-[#161616]' : ''}">
+                                             class="border rounded-[28px] p-6 transition-all duration-500 flex flex-col w-full {targetDropId === plant.id && dragType === 'silo' ? 'scale-[1.02] bg-[#161616]' : ''}">
                                             
                                             <div class="flex justify-between items-center mb-6 border-b border-neutral-800/80 pb-4 shrink-0">
                                                 <div class="flex items-center gap-3 pointer-events-none">
@@ -487,7 +490,9 @@
                                                         {plant.liquidityDeposit.isActive ? 'Liquidity Synthesized' : 'Awaiting Silos'}
                                                     </span>
                                                     <div class="relative pointer-events-auto">
-                                                        <button aria-label="Plant Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); closeAllMenus(); activePlantMenu = activePlantMenu === plant.id ? null : plant.id; }} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer relative"><span class="font-bold pb-1 text-sm">⋮</span></button>
+                                                        <div onmousedown={(e) => e.stopPropagation()}>
+                                                            <button aria-label="Plant Menu" onclick={(e) => { e.stopPropagation(); closeAllMenus(); activePlantMenu = activePlantMenu === plant.id ? null : plant.id; }} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer relative"><span class="font-bold pb-1 text-sm">⋮</span></button>
+                                                        </div>
                                                         {#if activePlantMenu === plant.id}
                                                             <div class="absolute top-8 right-0 w-48 bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl z-40 flex flex-col overflow-hidden" onmousedown={(e) => e.stopPropagation()}>
                                                                 <button aria-label="Dismantle Plant" onclick={(e) => {e.stopPropagation(); deletePlant(plant.id);}} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-[#222] transition-colors cursor-pointer">Dismantle Plant</button>
@@ -532,7 +537,7 @@
                             {#if $silos.filter(s => s.assignedPlantId === null).length > 0} <div class="w-full h-px bg-neutral-800/50 my-2"></div> {/if}
                         {/if}
 
-                        <div class="flex flex-col gap-4">
+                        <div class="flex flex-col gap-4 w-full">
                             {#if $plants.length > 0 && $silos.filter(s => s.assignedPlantId === null).length > 0} <h2 class="text-[10px] font-bold uppercase tracking-widest text-teal-500/80 mb-2 border-b border-teal-900/30 pb-2">Standalone Sectors</h2> {/if}
                             <div ondragover={(e) => handleDragOver(e, 'canvas', 'canvas')} ondragleave={handleDragLeave} ondrop={(e) => handleDrop(e, 'canvas', null)}
                                  class="grid grid-cols-1 md:grid-cols-12 gap-6 relative z-10 content-start w-full min-h-[200px] transition-colors duration-300 {targetDropType === 'canvas' && dragType === 'silo' ? 'bg-teal-500/5 border border-dashed border-teal-500/30 rounded-3xl p-4 -m-4' : ''}">
@@ -547,16 +552,16 @@
             </div>
         </div>
 
-        <div class="flex flex-col gap-4 lg:col-span-3 xl:col-span-3 min-w-0 bg-[#0a0a0a]/80 border border-neutral-800/50 rounded-[32px] p-5 shadow-2xl h-full pb-20">
+        <div class="flex flex-col gap-4 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0a0a]/80 border border-neutral-800/50 rounded-[32px] p-5 shadow-2xl h-full pb-20 w-full">
             
             {#if $isWalletConnected}
-                <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 pointer-events-none">
+                <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 pointer-events-none w-full">
                     <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-5">
-                        <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Hashrate Distribution</h2>
+                        <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Hashrate Dist</h2>
                     </div>
                     
                     <div class="flex flex-col items-center">
-                        <div class="relative w-36 h-36 mb-6 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]">
+                        <div class="relative w-28 h-28 mb-6 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]">
                             <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
                                 <circle cx="50" cy="50" r="40" fill="transparent" stroke="#161616" stroke-width="14"></circle>
                                 {#if effortData.segments.length === 0}
@@ -567,19 +572,19 @@
                                 {/each}
                             </svg>
                             <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <span class="text-2xl font-mono font-light text-white leading-none">{$globalNetworkHashrate.toFixed(2)}</span>
+                                <span class="text-xl font-mono font-light text-white leading-none">{$globalNetworkHashrate.toFixed(2)}</span>
                                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-600 mt-1">TH/s</span>
                             </div>
                         </div>
                         
-                        <div class="w-full flex flex-col gap-2.5 px-2">
+                        <div class="w-full flex flex-col gap-2.5 px-1">
                             {#each effortData.segments as seg}
                                 <div class="flex items-center justify-between bg-[#111] p-2 rounded-lg border border-neutral-800/50">
-                                    <div class="flex items-center gap-2.5">
-                                        <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor]" style="background-color: {seg.hex}; color: {seg.hex};"></div>
-                                        <span class="text-[10px] uppercase tracking-widest font-bold text-neutral-300">{seg.cls.substring(0, 8)}{seg.cls.length > 8 ? '.' : ''}</span>
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor] shrink-0" style="background-color: {seg.hex}; color: {seg.hex};"></div>
+                                        <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-300 truncate max-w-[60px]">{seg.cls.substring(0, 6)}</span>
                                     </div>
-                                    <span class="text-[10px] font-mono text-white font-bold">{seg.pct.toFixed(0)}%</span>
+                                    <span class="text-[9px] font-mono text-white font-bold">{seg.pct.toFixed(0)}%</span>
                                 </div>
                             {/each}
                             {#if effortData.segments.length === 0}
@@ -590,14 +595,14 @@
                 </div>
             {/if}
 
-            <div class="mt-auto pointer-events-none flex flex-col gap-4">
+            <div class="mt-auto pointer-events-none flex flex-col gap-4 w-full">
                 <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                     <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Node Sync</h2>
-                    <span class="text-[8px] xl:text-[9px] font-mono flex items-center gap-1.5 {$globalNodeStatus === 'online' ? 'text-teal-500' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-600'} transition-colors"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"></div>{$globalNodeStatus === 'online' ? 'Node Live' : $globalNodeStatus === 'unreachable' ? 'Node Pending' : 'Offline'}</span>
+                    <span class="text-[8px] font-mono flex items-center gap-1.5 {$globalNodeStatus === 'online' ? 'text-teal-500' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-600'} transition-colors"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"></div>{$globalNodeStatus === 'online' ? 'Live' : 'Offline'}</span>
                 </div>
-                <div class="bg-gradient-to-br from-[#0c0c0c] to-[#111] border border-neutral-800 p-5 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[120px]">
-                    <div class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-2">Total Treasury Value</div>
-                    <div class="text-2xl xl:text-3xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all">${($walletInventory || []).reduce((acc: number, item: WalletInventoryItem) => acc + item.usdValue, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                <div class="bg-gradient-to-br from-[#0c0c0c] to-[#111] border border-neutral-800 p-4 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[100px] w-full">
+                    <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-1">Total Treasury Value</div>
+                    <div class="text-xl xl:text-2xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">${($walletInventory || []).reduce((acc: number, item: WalletInventoryItem) => acc + item.usdValue, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                 </div>
             </div>
 
@@ -607,7 +612,7 @@
 
 {#if settlementModalSilo && editSettlementParams}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement};}}></button>
+        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement};}}></div>
         
         {#if !isAssetPickerOpen}
             <div class="relative z-10 w-full max-w-[420px] bg-[#111] border border-neutral-800 rounded-[28px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {editSettlementParams.autoPayout ? (editSettlementParams.mode === 'stream' ? 'border-t-emerald-500' : editSettlementParams.mode === 'appointment' ? 'border-t-blue-500' : 'border-t-amber-500') : 'border-t-neutral-600'} animate-[fade-in-up_0.2s_ease-out]">
@@ -621,7 +626,13 @@
                         <span class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold ml-1 block">Target Asset Route</span>
                         <button aria-label="Target Asset Route" onclick={() => {isAssetPickerOpen = true; assetPickerStep = 'class'; selectedAssetClass = null; assetSearchQuery = '';}} class="w-full bg-[#0c0c0c] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-white/20 rounded-xl px-4 py-3 flex items-center justify-between transition-colors cursor-pointer group shadow-inner">
                             <div class="flex items-center gap-3">
-                                <div class="w-7 h-7 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center text-[11px] font-black" style="color: {assetColors[editSettlementParams.targetAsset.assetClass]?.hex || '#ffffff'};">{editSettlementParams.targetAsset.ticker[0]}</div>
+                                <div class="w-7 h-7 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center text-[11px] font-black overflow-hidden" style="color: {assetColors[editSettlementParams.targetAsset.assetClass]?.hex || '#ffffff'};">
+                                    {#if editSettlementParams.targetAsset.imgUrl}
+                                        <img src={editSettlementParams.targetAsset.imgUrl} class="w-4 h-4 object-contain" alt="logo" />
+                                    {:else}
+                                        {editSettlementParams.targetAsset.ticker[0]}
+                                    {/if}
+                                </div>
                                 <div class="flex flex-col items-start"><span class="text-[12px] font-bold text-white leading-none mb-0.5">{editSettlementParams.targetAsset.ticker}</span><span class="text-[9px] font-mono text-neutral-500 truncate max-w-[150px]">{editSettlementParams.targetAsset.name}</span></div>
                             </div>
                             <span class="text-[8px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded bg-[#1a1a1a] text-neutral-500 border border-neutral-800">{editSettlementParams.targetAsset.assetClass}</span>
@@ -726,7 +737,13 @@
                             {#each filteredAssets as asset}
                                 <button aria-label="Select Asset" onclick={() => { editSettlementParams.targetAsset = asset; isAssetPickerOpen = false; assetPickerStep = 'class'; selectedAssetClass = null; }} class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#1a1a1a] transition-colors cursor-pointer group border border-transparent hover:border-neutral-800">
                                     <div class="flex items-center gap-3 pointer-events-none">
-                                        <div class="w-8 h-8 rounded-full bg-[#0c0c0c] border border-neutral-800 flex items-center justify-center text-[10px] font-black" style="color: {assetColors[asset.assetClass]?.hex || '#ffffff'};">{asset.ticker.substring(0,1)}</div>
+                                        <div class="w-8 h-8 rounded-full bg-[#0c0c0c] border border-neutral-800 flex items-center justify-center text-[10px] font-black overflow-hidden" style="color: {assetColors[asset.assetClass]?.hex || '#ffffff'};">
+                                            {#if asset.imgUrl}
+                                                <img src={asset.imgUrl} class="w-4 h-4 object-contain" alt="logo" />
+                                            {:else}
+                                                {asset.ticker.substring(0,1)}
+                                            {/if}
+                                        </div>
                                         <div class="flex flex-col items-start"><span class="text-xs font-bold text-white tracking-widest">{asset.ticker}</span><span class="text-[10px] text-neutral-500">{asset.name}</span></div>
                                     </div>
                                     <span class="text-[8px] font-mono uppercase tracking-widest px-2 py-1 rounded bg-[#0c0c0c] text-neutral-500 border border-neutral-800 pointer-events-none">{asset.assetClass}</span>
@@ -745,7 +762,7 @@
 
 {#if configModalWorker}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => configModalWorker = null}></button>
+        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => configModalWorker = null}></div>
         <div class="relative z-10 w-full max-w-sm bg-[#111] border border-neutral-800 rounded-[24px] shadow-2xl flex flex-col p-6 animate-[fade-in-up_0.2s_ease-out]">
             <h3 class="text-white font-bold tracking-wide text-md mb-4 text-center uppercase">Rename Hardware</h3>
             
@@ -767,7 +784,7 @@
 
 {#if fundModalWorker}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => fundModalWorker = null}></button>
+        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => fundModalWorker = null}></div>
         <div class="relative z-10 w-full max-w-sm bg-[#111] border border-neutral-800 rounded-[24px] shadow-2xl flex flex-col p-6 animate-[fade-in-up_0.2s_ease-out]">
             <h3 class="text-purple-400 font-bold tracking-wide text-md mb-2 text-center uppercase">Fund Capital Worker</h3>
             <p class="text-[10px] text-neutral-500 font-mono text-center mb-6 leading-relaxed">Deposit stablecoins to synthesize virtual kHeavyHash power instantly.</p>
@@ -789,7 +806,7 @@
 
 {#if copyModalWorker}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => copyModalWorker = null}></button>
+        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => copyModalWorker = null}></div>
         <div class="relative z-10 w-full max-w-sm bg-[#111] border border-neutral-800 rounded-[24px] shadow-2xl flex flex-col p-5 animate-[fade-in-up_0.2s_ease-out]">
             <h3 class="text-white font-bold tracking-wide text-md mb-4 text-center">Hardware Config</h3>
             <div class="flex flex-col gap-3">

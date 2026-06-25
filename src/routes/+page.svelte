@@ -1,17 +1,20 @@
 <script lang="ts">
     import { fade } from 'svelte/transition';
-    import { activeTab } from '$lib/stores/app';
+    import { activeTab, hasEntered } from '$lib/stores/app';
+    
     import SwapView from '$lib/views/SwapView.svelte';
     import OperationsView from '$lib/views/OperationsView.svelte';
-
-    let hasEntered = $state(false);
+    import ForgeView from '$lib/views/ForgeView.svelte';
+    import TreasuryView from '$lib/views/TreasuryView.svelte';
+    import TaxFortressView from '$lib/views/TaxFortressView.svelte';
 
     function enterPerennia() {
-        hasEntered = true;
+        // Flipping this global store instantly wakes up +layout.svelte!
+        $hasEntered = true;
     }
 </script>
 
-{#if !hasEntered}
+{#if !$hasEntered}
     <main out:fade={{ duration: 600 }} class="fixed inset-0 flex flex-col items-center justify-center bg-black overflow-hidden z-[100]">
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
             <h1 class="animate-subliminal-text text-4xl md:text-5xl font-light tracking-[0.4em] uppercase text-center px-4">
@@ -24,23 +27,25 @@
             </button>
         </div>
     </main>
+{:else}
+    <div class="w-full h-full" in:fade={{duration: 600}}>
+        {#if $activeTab === 'DEX'}
+            <div in:fade={{duration: 200}} class="w-full h-full"><SwapView /></div>
+        {:else if $activeTab === 'OPERATIONS'}
+            <div in:fade={{duration: 200}} class="w-full h-full"><OperationsView /></div>
+        {:else if $activeTab === 'FORGE'}
+            <div in:fade={{duration: 200}} class="w-full h-full"><ForgeView /></div>
+        {:else if $activeTab === 'TREASURY'}
+            <div in:fade={{duration: 200}} class="w-full h-full"><TreasuryView /></div>
+        {:else if $activeTab === 'TAX FORTRESS'}
+            <div in:fade={{duration: 200}} class="w-full h-full"><TaxFortressView /></div>
+        {:else}
+            <div in:fade={{duration: 200}} class="w-full h-full flex items-center justify-center">
+                <span class="text-neutral-600 font-mono text-sm uppercase tracking-widest">{$activeTab} Offline</span>
+            </div>
+        {/if}
+    </div>
 {/if}
-
-<div class="w-full h-full" style="opacity: {hasEntered ? 1 : 0}; transition: opacity 0.6s ease-in-out;">
-    {#if $activeTab === 'DEX'}
-        <div in:fade={{duration: 200}} class="w-full h-full">
-            <SwapView />
-        </div>
-    {:else if $activeTab === 'OPERATIONS'}
-        <div in:fade={{duration: 200}} class="w-full h-full">
-            <OperationsView />
-        </div>
-    {:else}
-        <div in:fade={{duration: 200}} class="w-full h-full flex items-center justify-center">
-            <span class="text-neutral-600 font-mono text-sm uppercase tracking-widest">{$activeTab} Offline</span>
-        </div>
-    {/if}
-</div>
 
 <style>
     .animate-subliminal-text { animation: slow-zoom 5s ease-out forwards; }
