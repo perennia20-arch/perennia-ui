@@ -1,13 +1,11 @@
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
-    import { isWalletConnected, connectWallet } from '$lib/stores/wallet';
-    import { globalKasPrice } from '$lib/stores/app';
+    import { isWalletConnected, walletBalance, connectWallet } from '$lib/stores/wallet';
+    import { globalKasPrice, walletInventory } from '$lib/stores/app';
     
-    // ========================================================
-    // 🪙 PERENNIA SMART CONTRACT REGISTRY (PHASE 1)
-    // ========================================================
     interface DexToken { ticker: string; name: string; priceUsd: number; hex: string; imgUrl?: string; icon?: string; type: string; }
     
-    // Pulling official SVGs from CryptoLogos CDN for ultimate performance
     let dexTokens = $state<DexToken[]>([
         { ticker: 'KAS', name: 'Kaspa Native', priceUsd: 0.16, hex: '#14b8a6', imgUrl: 'https://cryptologos.cc/logos/kaspa-kas-logo.svg?v=032', type: 'Layer 1' },
         { ticker: 'PER', name: 'Perennia Hash', priceUsd: 1.00, hex: '#a855f7', icon: 'P', type: 'Infrastructure' },
@@ -37,6 +35,13 @@
         t.ticker.toLowerCase().includes(searchQuery.toLowerCase()) || 
         t.name.toLowerCase().includes(searchQuery.toLowerCase())
     ));
+
+    function getTokenBalance(ticker: string): string {
+        if (!$isWalletConnected) return '0.000';
+        if (ticker === 'KAS') return parseFloat($walletBalance).toFixed(3);
+        const item = $walletInventory.find(i => i.asset.ticker === ticker);
+        return item ? item.balance.toFixed(3) : '0.000';
+    }
 
     $effect(() => {
         dexTokens[0].priceUsd = $globalKasPrice;
@@ -127,7 +132,7 @@
                 </div>
                 <div class="flex justify-between mt-8">
                     <span class="text-base font-mono text-neutral-600">${payAmount ? (parseFloat(payAmount) * payToken.priceUsd).toFixed(2) : '0.00'}</span>
-                    <span class="text-base font-mono text-neutral-500">Balance: <span class="text-white font-bold cursor-pointer hover:text-teal-400">0.00</span></span>
+                    <span class="text-base font-mono text-neutral-500">Balance: <span class="text-white font-bold cursor-pointer hover:text-teal-400">{getTokenBalance(payToken.ticker)}</span></span>
                 </div>
             </div>
 
@@ -156,7 +161,7 @@
                 </div>
                 <div class="flex justify-between mt-8">
                     <span class="text-base font-mono text-neutral-600">Perennia Protocol (1:1 Hash Backed)</span>
-                    <span class="text-base font-mono text-neutral-500">Balance: 0.00</span>
+                    <span class="text-base font-mono text-neutral-500">Balance: <span class="text-white font-bold cursor-pointer hover:text-teal-400">{getTokenBalance(receiveToken.ticker)}</span></span>
                 </div>
             </div>
         </div>

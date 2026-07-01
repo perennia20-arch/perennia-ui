@@ -1,6 +1,8 @@
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
     import { workers, silos, plants, systemMode, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
-    import { isWalletConnected, walletAddress } from '$lib/stores/wallet';
+    import { isWalletConnected, walletAddress, walletBalance } from '$lib/stores/wallet';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
 
@@ -14,6 +16,11 @@
 
     let configModalWorker = $state<Worker | null>(null);
     let configFormName = $state('');
+
+    let selectedSilosForSweep = $state<Record<string, boolean>>({});
+    
+    let totalPendingKAS = $derived($silos.reduce((acc, s) => acc + (s.pendingKaspa || 0), 0));
+    let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
     
     function closeAllMenus() { activeWorkerMenu = null; activeSiloMenu = null; activePlantMenu = null; }
 
@@ -52,39 +59,99 @@
         return data.map((d, i) => { const x = (i / (Math.max(1, data.length - 1))) * width; const y = d === 0 ? height : height - ((d - min) / range) * height; return `${i === 0 ? 'M' : 'L'} ${x},${y}`; }).join(' ');
     }
 
-    let hashratePath = $derived(buildSvgPath(hashHistory, 200, 40));
-    let pricePath = $derived(buildSvgPath(kasHistory, 200, 40));
+    let hashratePath = $derived(buildSvgPath(hashHistory, 200, 240));
+    let pricePath = $derived(buildSvgPath(kasHistory, 200, 240));
 
     let effortData = $derived.by(() => {
-        let totals: Record<string, number> = { 'Crypto': 0, 'Real Estate': 0, 'Commodities': 0, 'Equities': 0, 'Energy': 0 };
-        let totalHash = 0;
-        $workers.forEach(w => {
-            if (w.isOnline && w.assignedSiloId) {
-                const silo = $silos.find(s => s.id === w.assignedSiloId);
-                if (silo) { totals[silo.settlementConfig.targetAsset.assetClass] += w.hashRate; totalHash += w.hashRate; }
+        let segments: { id: string, name: string, pct: number, offset: number, hex: string }[] = [];
+        let totalHash = $workers.filter(w => w.isOnline && w.assignedSiloId).reduce((acc, w) => acc + w.hashRate, 0);
+        
+        if (totalHash > 0) {
+            let currentOffset = 0;
+            $silos.forEach(silo => {
+                const siloHash = $workers.filter(w => w.assignedSiloId === silo.id && w.isOnline).reduce((acc, w) => acc + w.hashRate, 0);
+                if (siloHash > 0) {
+                    const pct = (siloHash / totalHash) * 100;
+                    segments.push({ 
+                        id: silo.id,
+                        name: silo.name, 
+                        pct, 
+                        offset: currentOffset, 
+                        hex: assetColors[silo.settlementConfig.targetAsset.assetClass]?.hex || '#a855f7'
+                    });
+                    currentOffset += pct;
+                }
+            });
+        }
+        return { segments, totalHash };
+    });
+
+    $effect(() => {
+        $silos.forEach(s => {
+            if (selectedSilosForSweep[s.id] === undefined) {
+                selectedSilosForSweep[s.id] = true;
             }
         });
-        
-        let segments: { cls: string, pct: number, offset: number, hex: string }[] = [];
-        let currentOffset = 0;
-        for (const [cls, val] of Object.entries(totals)) {
-            if (val > 0) {
-                const pct = (val / totalHash) * 100;
-                segments.push({ cls, pct, offset: currentOffset, hex: assetColors[cls as AssetClass].hex });
-                currentOffset += pct;
-            }
-        }
-        return { segments, totalHash, totals };
     });
 
     let unsubs: any[] = [];
+    let fetchInterval: ReturnType<typeof setInterval>;
+
+    async function fetchDashboardData() {
+        try {
+            const response = await fetch('http://192.168.0.12:5000/api/stats');
+            if (!response.ok) throw new Error("HTTP error");
+            
+            const data = await response.json();
+            
+            // Raw H/s to TH/s conversion verified
+            globalNetworkHashrate.set(data.pool.totalHashrate / 1e12);
+            globalNodeStatus.set('online');
+
+            workers.update(currentWorkers => {
+                return currentWorkers.map(w => {
+                    const backendWorker = data.workers.find((bw: any) => bw.name === w.name);
+                    
+                    if (backendWorker) {
+                        return { 
+                            ...w, 
+                            hashRate: backendWorker.trackingRate / 1e12, 
+                            isOnline: true 
+                        };
+                    }
+                    
+                    if (w.type === 'physical') {
+                        return { ...w, hashRate: 0, isOnline: false };
+                    }
+                    
+                    return w;
+                });
+            });
+            
+        } catch (err) {
+            console.error("Connection to Perennia Backend lost:", err);
+            globalNodeStatus.set('unreachable');
+            
+            workers.update(currentWorkers => 
+                currentWorkers.map(w => w.type === 'physical' ? { ...w, isOnline: false, hashRate: 0 } : w)
+            );
+        }
+    }
+
     onMount(() => { 
         hashHistory = Array(30).fill(get(globalNetworkHashrate));
         kasHistory = Array(30).fill(get(globalKasPrice));
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
+
+        fetchDashboardData();
+        fetchInterval = setInterval(fetchDashboardData, 3000);
     });
-    onDestroy(() => { unsubs.forEach(u => u()); });
+
+    onDestroy(() => { 
+        unsubs.forEach(u => u()); 
+        if (fetchInterval) clearInterval(fetchInterval);
+    });
 
     let dragType = $state<'worker' | 'silo' | null>(null);
     let draggedId = $state<string | null>(null);
@@ -140,6 +207,32 @@
     
     function renameSilo(id: string) { const siloIndex = $silos.findIndex(s => s.id === id); if (siloIndex !== -1) { const currentName = $silos[siloIndex].name; const newName = prompt("Enter new Sector name:", currentName); if (newName && newName.trim() !== "") { $silos = $silos.map(s => s.id === id ? { ...s, name: newName.trim() } : s); } } activeSiloMenu = null; }
 
+    function sweepSilos(siloIds: string[]) {
+        let totalSwept = 0;
+        silos.update(currentSilos => {
+            return currentSilos.map(s => {
+                if (siloIds.includes(s.id) && s.pendingKaspa && s.pendingKaspa > 0) {
+                    totalSwept += s.pendingKaspa;
+                    return { ...s, pendingKaspa: 0 };
+                }
+                return s;
+            });
+        });
+
+        if (totalSwept > 0 && get(isWalletConnected)) {
+            walletBalance.update(b => (parseFloat(b) + totalSwept).toString());
+            walletInventory.update(currentInv => {
+                let newInv = [...currentInv];
+                const kasItem = newInv.find(i => i.asset.ticker === 'KAS');
+                if (kasItem) {
+                    kasItem.balance += totalSwept;
+                    kasItem.usdValue = kasItem.balance * get(globalKasPrice);
+                }
+                return newInv;
+            });
+        }
+    }
+
     function openSettlement(silo: Silo) { settlementModalSilo = silo; if (!silo.settlementConfig) silo.settlementConfig = { ...defaultSettlement, payoutAddress: $walletAddress || '' }; if (!silo.settlementConfig.targetAsset) silo.settlementConfig.targetAsset = tokenRegistry[0]; editSettlementParams = JSON.parse(JSON.stringify(silo.settlementConfig)); activeSiloMenu = null; isAssetPickerOpen = false; assetPickerStep = 'class'; selectedAssetClass = null; assetSearchQuery = ''; }
     function saveSettlementParams() { if (settlementModalSilo) { $silos = $silos.map(s => { if (s.id === settlementModalSilo!.id) return { ...s, settlementConfig: editSettlementParams }; return s; }); settlementModalSilo = null; editSettlementParams = { ...defaultSettlement }; } }
 
@@ -160,6 +253,7 @@
     function formatHardwareName(rawType: string | undefined): string {
         if (!rawType) return 'PHYSICAL';
         if (rawType.includes('IceRiverMiner-v1.1')) return 'IceRiver KS0 Ultra';
+        if (rawType.includes('IceRiverMiner-v7')) return 'IceRiver KS7 Lite';
         if (rawType.includes('IceRiver')) return rawType.replace('IceRiverMiner-', 'IceRiver KS');
         if (rawType.includes('Antminer')) return rawType.replace('Antminer-', 'Antminer KS');
         return rawType.replace('Miner-', ' ').substring(0, 18);
@@ -232,8 +326,18 @@
 {/if}
 
 {#snippet workerCard(worker: Worker)}
-<div draggable="true" ondragstart={(e) => handleDragStart(e, 'worker', worker.id)} ondragend={handleDragEnd} oncontextmenu={(e) => handleWorkerRightClick(e, worker.id)}
-     class="relative bg-[#0c0c0c] border border-neutral-800/80 rounded-xl p-3 shadow-md group cursor-grab active:cursor-grabbing hover:border-neutral-600 transition-colors z-20 {dragType === 'worker' && draggedId === worker.id ? 'opacity-50 border-teal-500' : ''}">
+{@const isDeployed = worker.assignedSiloId !== null}
+{@const assignedSilo = isDeployed ? $silos.find(s => s.id === worker.assignedSiloId) : null}
+{@const siloColor = assignedSilo ? assetColors[assignedSilo.settlementConfig.targetAsset.assetClass]?.hex || '#ffffff' : null}
+
+<div draggable={!isDeployed ? "true" : "false"} 
+     ondragstart={(e) => { if(!isDeployed) handleDragStart(e, 'worker', worker.id) }} 
+     ondragend={handleDragEnd} 
+     oncontextmenu={(e) => handleWorkerRightClick(e, worker.id)}
+     class="relative border rounded-xl p-3 shadow-md group transition-colors z-20 
+            {isDeployed ? 'bg-[#050505] border-neutral-900 opacity-60' : 'bg-[#0c0c0c] border-neutral-800/80 hover:border-neutral-600 cursor-grab active:cursor-grabbing'} 
+            {dragType === 'worker' && draggedId === worker.id ? 'opacity-50 border-teal-500' : ''}">
+    
     <div class="flex justify-between items-start mb-2 pointer-events-none">
         <div class="flex flex-col gap-0.5 min-w-0">
             <div class="flex items-center gap-2">
@@ -248,6 +352,7 @@
             <button aria-label="Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => handleWorkerRightClick(e, worker.id)} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer shrink-0"><span class="font-bold pb-1 text-sm">⋮</span></button>
         </div>
     </div>
+    
     <div class="flex justify-between items-end mt-1 pointer-events-none">
         <div class="flex flex-col gap-1 items-start">
             <span class="text-[8px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border {worker.type === 'physical' ? 'bg-teal-950/20 text-teal-400 border-teal-900/50' : 'bg-purple-950/20 text-purple-400 border-purple-900/50'}">{worker.type.substring(0,4)}</span>
@@ -264,6 +369,16 @@
             {/if}
         </div>
     </div>
+
+    {#if isDeployed && assignedSilo}
+        <div class="mt-3 pt-2.5 border-t border-neutral-800/50 flex justify-between items-center pointer-events-none">
+            <span class="text-[8px] uppercase tracking-widest font-bold text-neutral-500">Deployed To</span>
+            <div class="flex items-center gap-1.5 bg-[#111] px-2 py-1 rounded border border-neutral-800 shadow-inner">
+                <div class="w-1.5 h-1.5 rounded-full" style="background-color: {siloColor}"></div>
+                <span class="text-[8px] font-bold truncate max-w-[80px]" style="color: {siloColor}">{assignedSilo.name}</span>
+            </div>
+        </div>
+    {/if}
 </div>
 {/snippet}
 
@@ -384,15 +499,18 @@
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2><span class="text-[9px] font-mono text-neutral-600">{$workers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
             </div>
-            <div class="flex flex-col gap-2">
+            
+            <div class="flex flex-row gap-2 w-full">
                 <button aria-label="Add Physical Worker" onclick={() => addWorker('physical')} disabled={!$isWalletConnected} class="flex-1 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-teal-500/50 text-white text-[9px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">+ PHYS</button>
                 <button aria-label="Add Capital Worker" onclick={() => addWorker('capital')} disabled={!$isWalletConnected} class="flex-1 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-purple-500/50 text-white text-[9px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">+ CAP</button>
             </div>
+
             <div class="flex flex-col gap-2.5 min-h-[400px] pb-10 transition-colors duration-300 {targetDropType === 'field' && dragType === 'worker' ? 'border border-dashed border-teal-500/30 rounded-xl bg-teal-500/5 p-2 -mx-2' : ''}">
-                {#if $workers.filter(w => w.assignedSiloId === null).length === 0}
-                    <div class="flex-1 border border-dashed border-neutral-800/50 rounded-xl flex items-center justify-center bg-black/20 p-4 text-center pointer-events-none"><p class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold leading-relaxed">{#if !$isWalletConnected} Connect wallet {:else} All Assigned {/if}</p></div>
+                {#if $workers.length === 0}
+                    <div class="flex-1 border border-dashed border-neutral-800/50 rounded-xl flex items-center justify-center bg-black/20 p-4 text-center pointer-events-none"><p class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold leading-relaxed">{#if !$isWalletConnected} Connect wallet {:else} No hardware provisioned {/if}</p></div>
                 {/if}
-                {#each $workers.filter(w => w.assignedSiloId === null) as worker (worker.id)}
+                
+                {#each $workers as worker (worker.id)}
                     {@render workerCard(worker)}
                 {/each}
             </div>
@@ -402,35 +520,48 @@
             
             {#if $isWalletConnected}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2 animate-[fade-in-up_0.5s_ease-out]">
-                    <div class="bg-[#0c0c0c] border border-neutral-800 rounded-2xl p-4 flex flex-col justify-between h-[120px] shadow-inner relative overflow-hidden group">
+                    
+                    <div class="bg-[#0c0c0c] border border-neutral-800 rounded-2xl p-4 flex flex-col justify-between h-[240px] shadow-inner relative overflow-hidden group">
                         <div class="flex justify-between items-start relative z-10 pointer-events-none">
                             <div class="flex flex-col">
                                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 flex items-center gap-1.5"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : 'bg-neutral-600'}"></div> Live Hash Power</span>
                                 <span class="text-2xl font-mono font-light text-white tracking-tight">{$globalNetworkHashrate.toFixed(2)} <span class="text-xs text-neutral-500 font-bold">TH/s</span></span>
                             </div>
                         </div>
-                        <div class="absolute bottom-0 left-0 w-full h-[60px] opacity-40 group-hover:opacity-80 transition-opacity duration-700">
-                            <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                                <path d="{hashratePath} L 200,40 L 0,40 Z" fill="url(#hashGradient)" opacity="0.3"/>
+                        <div class="absolute inset-0 pointer-events-none p-4 z-0">
+                            <div class="w-full h-full border-l border-b border-neutral-800/40 relative">
+                                <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[7px] tracking-widest uppercase font-mono text-neutral-600">TH/s</span>
+                                <span class="absolute bottom-1 right-2 text-[7px] tracking-widest uppercase font-mono text-neutral-600">Time →</span>
+                            </div>
+                        </div>
+                        <div class="absolute bottom-0 left-0 w-full h-[180px] opacity-40 group-hover:opacity-80 transition-opacity duration-700 ml-4 mb-4">
+                            <svg class="w-[calc(100%-16px)] h-full" preserveAspectRatio="none" viewBox="0 0 200 240">
+                                <path d="{hashratePath} L 200,240 L 0,240 Z" fill="url(#hashGradient)" opacity="0.3"/>
                                 <path d={hashratePath} fill="none" stroke="#14b8a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drop-shadow-[0_0_5px_rgba(20,184,166,0.5)]"/>
                                 <defs><linearGradient id="hashGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#14b8a6"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
                             </svg>
                         </div>
                     </div>
 
-                    <div class="bg-[#0c0c0c] border border-neutral-800 rounded-2xl p-4 flex flex-col justify-between h-[120px] shadow-inner relative overflow-hidden group">
+                    <div class="bg-[#0c0c0c] border border-neutral-800 rounded-2xl p-4 flex flex-col justify-between h-[240px] shadow-inner relative overflow-hidden group">
                         <div class="flex justify-between items-start relative z-10 pointer-events-none">
                             <div class="flex flex-col">
-                                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 flex items-center gap-1.5"><div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div> KAS / USD Oracle</span>
+                                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 flex items-center gap-1.5"><div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div> KAS / USD Price</span>
                                 <span class="text-2xl font-mono font-light text-white tracking-tight">${$globalKasPrice.toFixed(4)}</span>
                             </div>
                             <span class="text-[10px] font-bold font-mono px-2 py-1 rounded bg-[#111] border {$globalKasChange >= 0 ? 'text-emerald-400 border-emerald-900/30' : 'text-red-400 border-red-900/30'}">
                                 {$globalKasChange > 0 ? '+' : ''}{$globalKasChange.toFixed(2)}%
                             </span>
                         </div>
-                        <div class="absolute bottom-0 left-0 w-full h-[60px] opacity-40 group-hover:opacity-80 transition-opacity duration-700">
-                            <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                                <path d="{pricePath} L 200,40 L 0,40 Z" fill="url(#kasGradient)" opacity="0.3"/>
+                        <div class="absolute inset-0 pointer-events-none p-4 z-0">
+                            <div class="w-full h-full border-l border-b border-neutral-800/40 relative">
+                                <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[7px] tracking-widest uppercase font-mono text-neutral-600">USD</span>
+                                <span class="absolute bottom-1 right-2 text-[7px] tracking-widest uppercase font-mono text-neutral-600">Time →</span>
+                            </div>
+                        </div>
+                        <div class="absolute bottom-0 left-0 w-full h-[180px] opacity-40 group-hover:opacity-80 transition-opacity duration-700 ml-4 mb-4">
+                            <svg class="w-[calc(100%-16px)] h-full" preserveAspectRatio="none" viewBox="0 0 200 240">
+                                <path d="{pricePath} L 200,240 L 0,240 Z" fill="url(#kasGradient)" opacity="0.3"/>
                                 <path d={pricePath} fill="none" stroke={$globalKasChange >= 0 ? "#10b981" : "#ef4444"} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drop-shadow-[0_0_5px_rgba(112,199,186,0.5)]"/>
                                 <defs><linearGradient id="kasGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color={$globalKasChange >= 0 ? "#10b981" : "#ef4444"}/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
                             </svg>
@@ -454,13 +585,13 @@
                 {#if !$isWalletConnected}
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 z-20">
                         <div class="w-full max-w-3xl text-center">
-                            <h2 class="text-3xl md:text-5xl lg:text-6xl font-black uppercase tracking-[0.1em] text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-white to-amber-500 mb-6 drop-shadow-2xl">Tokenize Anything.<br>Liquidate Everything.</h2>
+                            <h2 class="text-3xl md:text-5xl lg:text-6xl font-light uppercase tracking-[0.1em] text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-white to-amber-500 mb-6 drop-shadow-2xl">Tokenize Anything.<br>Liquidate Everything.</h2>
                             <p class="text-[12px] md:text-sm font-mono text-neutral-400 uppercase tracking-widest leading-relaxed">Connect your Web3 Wallet to initialize the Command Center.</p>
                         </div>
                     </div>
                 {:else if $silos.length === 0 && $plants.length === 0}
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6">
-                        <h2 class="text-2xl md:text-4xl font-black uppercase tracking-[0.1em] text-white/80 mb-8 drop-shadow-lg text-center">Tokenize Anything.<br><span class="text-teal-500">Liquidate Everything.</span></h2>
+                        <h2 class="text-2xl md:text-4xl font-light uppercase tracking-[0.1em] text-white/80 mb-8 drop-shadow-lg text-center">Tokenize Anything.<br><span class="text-teal-500">Liquidate Everything.</span></h2>
                         <div class="relative w-24 h-24 rounded-full bg-teal-500/5 border border-teal-500/20 flex items-center justify-center mb-6 shadow-lg"><svg class="text-teal-500/30 w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg></div>
                         <p class="text-[12px] uppercase tracking-widest text-neutral-500 font-bold text-center leading-relaxed">Workspace Canvas Initialized<br><span class="text-[10px] font-mono text-neutral-600 font-normal mt-2 block">Deploy Sectors to Begin Mining</span></p>
                     </div>
@@ -525,7 +656,7 @@
                                                 {#each plantSilos as silo} {@render siloCard(silo, true)} {/each}
                                                 {#each Array(2 - plantSilos.length) as _}
                                                     <div class="border-2 border-dashed rounded-[20px] flex flex-col items-center justify-center min-h-[220px] transition-colors pointer-events-none border-white/20 bg-black/20">
-                                                        <svg class="w-8 h-8 text-neutral-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                                                        <svg class="w-8 h-8 text-neutral-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
                                                         <span class="text-neutral-500 font-bold uppercase tracking-widest text-[10px]">Drop Silo Here</span>
                                                     </div>
                                                 {/each}
@@ -555,13 +686,13 @@
         <div class="flex flex-col gap-4 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0a0a]/80 border border-neutral-800/50 rounded-[32px] p-5 shadow-2xl h-full pb-20 w-full">
             
             {#if $isWalletConnected}
-                <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 pointer-events-none w-full">
+                <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 pointer-events-none w-full flex flex-col">
                     <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-5">
                         <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Hashrate Dist</h2>
                     </div>
                     
-                    <div class="flex flex-col items-center">
-                        <div class="relative w-28 h-28 mb-6 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]">
+                    <div class="flex flex-col items-center pointer-events-auto">
+                        <div class="relative w-28 h-28 mb-6 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] pointer-events-none">
                             <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
                                 <circle cx="50" cy="50" r="40" fill="transparent" stroke="#161616" stroke-width="14"></circle>
                                 {#if effortData.segments.length === 0}
@@ -577,19 +708,48 @@
                             </div>
                         </div>
                         
-                        <div class="w-full flex flex-col gap-2.5 px-1">
-                            {#each effortData.segments as seg}
-                                <div class="flex items-center justify-between bg-[#111] p-2 rounded-lg border border-neutral-800/50">
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor] shrink-0" style="background-color: {seg.hex}; color: {seg.hex};"></div>
-                                        <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-300 truncate max-w-[60px]">{seg.cls.substring(0, 6)}</span>
-                                    </div>
-                                    <span class="text-[9px] font-mono text-white font-bold">{seg.pct.toFixed(0)}%</span>
-                                </div>
-                            {/each}
-                            {#if effortData.segments.length === 0}
-                                <div class="text-center text-[10px] font-mono text-neutral-600 uppercase tracking-widest py-4 border border-dashed border-neutral-800 rounded-lg">No Active Routes</div>
-                            {/if}
+                        <div class="w-full flex flex-col gap-2 pointer-events-auto">
+                            <button aria-label="Sweep Selected" onclick={() => sweepSilos(Object.keys(selectedSilosForSweep).filter(id => selectedSilosForSweep[id]))} 
+                                    disabled={totalPendingKAS === 0}
+                                    class="w-full relative overflow-hidden bg-[#111] hover:bg-[#161616] border border-neutral-800 hover:border-teal-500/50 rounded-xl p-4 flex flex-col items-center justify-center transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed mb-2">
+                                <div class="absolute inset-0 bg-gradient-to-t from-teal-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-1 z-10">Sweep Selected</span>
+                                <span class="text-2xl font-black font-mono text-teal-400 tracking-tight z-10">${totalPendingUSD.toFixed(2)}</span>
+                            </button>
+                            
+                            <div class="flex flex-col gap-2 w-full max-h-[200px] overflow-y-auto pr-1 hide-scrollbar">
+                                {#each effortData.segments as seg}
+                                    {@const silo = $silos.find(s => s.id === seg.id)}
+                                    {#if silo}
+                                        {@const pendingUSD = (silo.pendingKaspa || 0) * $globalKasPrice}
+                                        <div class="flex items-stretch gap-1.5 w-full group">
+                                            <button aria-label="Toggle Selection" onclick={() => selectedSilosForSweep[silo.id] = !selectedSilosForSweep[silo.id]} 
+                                                    class="w-8 bg-[#0c0c0c] border border-neutral-800 rounded-lg flex items-center justify-center cursor-pointer hover:bg-[#161616] transition-colors shrink-0">
+                                                <div class="w-3.5 h-3.5 rounded border {selectedSilosForSweep[silo.id] ? 'bg-teal-500 border-teal-500 text-black' : 'border-neutral-700 bg-[#111]'} flex items-center justify-center transition-colors">
+                                                    {#if selectedSilosForSweep[silo.id]}
+                                                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                    {/if}
+                                                </div>
+                                            </button>
+                                            
+                                            <button aria-label="Sweep Sector" onclick={() => sweepSilos([silo.id])}
+                                                    disabled={(silo.pendingKaspa || 0) === 0}
+                                                    class="flex-1 bg-[#111] hover:bg-[#161616] border border-neutral-800 rounded-lg p-2.5 flex justify-between items-center transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                                                <div class="flex items-center gap-2">
+                                                    <div class="w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]" style="background-color: {seg.hex}; color: {seg.hex};"></div>
+                                                    <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-300 truncate max-w-[60px]">{silo.name}</span>
+                                                </div>
+                                                <div class="flex flex-col items-end text-right">
+                                                    <span class="text-[10px] font-bold font-mono text-white">${pendingUSD.toFixed(2)}</span>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    {/if}
+                                {/each}
+                                {#if effortData.segments.length === 0}
+                                    <div class="text-center text-[9px] font-mono text-neutral-600 uppercase tracking-widest py-4 border border-dashed border-neutral-800 rounded-lg">No Active Routes</div>
+                                {/if}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -601,7 +761,9 @@
                     <span class="text-[8px] font-mono flex items-center gap-1.5 {$globalNodeStatus === 'online' ? 'text-teal-500' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-600'} transition-colors"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"></div>{$globalNodeStatus === 'online' ? 'Live' : 'Offline'}</span>
                 </div>
                 <div class="bg-gradient-to-br from-[#0c0c0c] to-[#111] border border-neutral-800 p-4 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[100px] w-full">
-                    <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-1">Total Treasury Value</div>
+                    <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-1">
+                        Total Treasury Value
+                    </div>
                     <div class="text-xl xl:text-2xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">${($walletInventory || []).reduce((acc: number, item: WalletInventoryItem) => acc + item.usdValue, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                 </div>
             </div>
@@ -836,4 +998,6 @@
     @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(5px); } 100% { opacity: 1; transform: translateY(0); } }
     input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>
