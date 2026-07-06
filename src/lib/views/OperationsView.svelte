@@ -1,6 +1,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
+    import { PUBLIC_API_BASE_URL } from '$env/static/public';
     import { workers, silos, plants, systemMode, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
     import { isWalletConnected, walletAddress, walletBalance } from '$lib/stores/wallet';
     import { onMount, onDestroy } from 'svelte';
@@ -30,7 +31,7 @@
 
     let isAssetPickerOpen = $state(false);
     let assetPickerStep = $state<'class' | 'asset'>('class');
-    let selectedAssetClass = $state<AssetClass | null>(null);
+    let selectedAssetClass = $state<string | null>(null);
     let assetSearchQuery = $state('');
     
     let uniqueClasses = $derived(Array.from(new Set(tokenRegistry.map(t => t.assetClass))));
@@ -39,12 +40,12 @@
         (a.ticker.toLowerCase().includes(assetSearchQuery.toLowerCase()) || a.name.toLowerCase().includes(assetSearchQuery.toLowerCase()))
     ));
 
-    const assetColors: Record<AssetClass, { hex: string, pastel: string }> = {
-        'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' }, 
-        'Real Estate': { hex: '#3b82f6', pastel: '#bfdbfe' }, 
-        'Commodities': { hex: '#eab308', pastel: '#fef08a' }, 
-        'Equities': { hex: '#f43f5e', pastel: '#fecdd3' }, 
-        'Energy': { hex: '#f59e0b', pastel: '#fde68a' } 
+    // STRICT 4-COLOR CATEGORY PALETTE
+    const assetColors: Record<string, { hex: string, pastel: string }> = {
+        'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' },      // Teal
+        'Fiat': { hex: '#3b82f6', pastel: '#bfdbfe' },        // Blue
+        'Commodities': { hex: '#eab308', pastel: '#fef08a' }, // Yellow (Gold/Silver)
+        'Energy': { hex: '#f97316', pastel: '#fdba74' }       // Orange (Oil)
     };
 
     let hashHistory = $state<number[]>([]);
@@ -77,7 +78,7 @@
                         name: silo.name, 
                         pct, 
                         offset: currentOffset, 
-                        hex: assetColors[silo.settlementConfig.targetAsset.assetClass]?.hex || '#a855f7'
+                        hex: assetColors[silo.settlementConfig.targetAsset.assetClass as string]?.hex || '#a855f7'
                     });
                     currentOffset += pct;
                 }
@@ -99,12 +100,11 @@
 
     async function fetchDashboardData() {
         try {
-            const response = await fetch('http://192.168.0.12:5000/api/stats');
+            const response = await fetch(`${PUBLIC_API_BASE_URL}/api/stats`);
             if (!response.ok) throw new Error("HTTP error");
             
             const data = await response.json();
             
-            // Raw H/s to TH/s conversion verified
             globalNetworkHashrate.set(data.pool.totalHashrate / 1e12);
             globalNodeStatus.set('online');
 
@@ -115,9 +115,11 @@
                     if (backendWorker) {
                         return { 
                             ...w, 
-                            hashRate: backendWorker.trackingRate / 1e12, 
+                            hashRate: backendWorker.trackingRate / 1e12,
+                            sharesContributed: backendWorker.sharesContributed || 0,
+                            blocksFound: backendWorker.blocksFound || 0,
                             isOnline: true 
-                        };
+                        } as any; 
                     }
                     
                     if (w.type === 'physical') {
@@ -328,7 +330,7 @@
 {#snippet workerCard(worker: Worker)}
 {@const isDeployed = worker.assignedSiloId !== null}
 {@const assignedSilo = isDeployed ? $silos.find(s => s.id === worker.assignedSiloId) : null}
-{@const siloColor = assignedSilo ? assetColors[assignedSilo.settlementConfig.targetAsset.assetClass]?.hex || '#ffffff' : null}
+{@const siloColor = assignedSilo ? assetColors[assignedSilo.settlementConfig.targetAsset.assetClass as string]?.hex || '#ffffff' : null}
 
 <div draggable={!isDeployed ? "true" : "false"} 
      ondragstart={(e) => { if(!isDeployed) handleDragStart(e, 'worker', worker.id) }} 
@@ -360,13 +362,35 @@
                 <span class="text-[7px] font-mono text-neutral-600">{worker.ipAddress}</span>
             {/if}
         </div>
-        <div class="flex flex-col items-end">
-            <span class="text-[7px] uppercase tracking-widest text-neutral-500 font-bold font-mono">Live Hash</span>
-            {#if worker.isOnline && worker.hashRate === 0}
-                <span class="text-[9px] font-mono font-bold text-teal-500 animate-pulse mt-0.5 tracking-widest drop-shadow-[0_0_5px_rgba(20,184,166,0.4)]">SYNCING...</span>
-            {:else}
-                <span class="text-sm font-mono font-black {worker.hashRate > 0 ? 'text-white' : 'text-neutral-600'} tabular-nums leading-none tracking-tight transition-colors duration-500">{worker.hashRate.toFixed(2)} <span class="text-[8px] text-neutral-500 font-normal">TH</span></span>
-            {/if}
+        
+        <div class="flex flex-col items-end gap-1.5">
+            <div class="flex flex-col items-end">
+                <span class="text-[7px] uppercase tracking-widest text-neutral-500 font-bold font-mono">Live Hash</span>
+                {#if worker.isOnline && worker.hashRate === 0}
+                    <span class="text-[9px] font-mono font-bold text-teal-500 animate-pulse mt-0.5 tracking-widest">SYNCING...</span>
+                {:else}
+                    <span class="text-[11px] font-mono font-black {worker.hashRate > 0 ? 'text-white' : 'text-neutral-600'} tabular-nums leading-none tracking-tight">{worker.hashRate.toFixed(2)} <span class="text-[8px] text-neutral-500 font-normal">TH/s</span></span>
+                {/if}
+            </div>
+            
+            <div class="flex gap-3">
+                <div class="flex flex-col items-end">
+                    <span class="text-[7px] uppercase tracking-widest text-neutral-500 font-bold font-mono">Blocks</span>
+                    {#if worker.isOnline && worker.hashRate === 0}
+                        <span class="text-[9px] font-mono font-bold text-blue-500 animate-pulse mt-0.5 tracking-widest">SYNC...</span>
+                    {:else}
+                        <span class="text-[11px] font-mono font-black {((worker as any).blocksFound || 0) > 0 ? 'text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.3)]' : 'text-neutral-600'} tabular-nums leading-none tracking-tight transition-all duration-75">{((worker as any).blocksFound || 0)}</span>
+                    {/if}
+                </div>
+                <div class="flex flex-col items-end">
+                    <span class="text-[7px] uppercase tracking-widest text-neutral-500 font-bold font-mono">Work Shares</span>
+                    {#if worker.isOnline && worker.hashRate === 0}
+                        <span class="text-[9px] font-mono font-bold text-amber-500 animate-pulse mt-0.5 tracking-widest">SYNC...</span>
+                    {:else}
+                        <span class="text-[11px] font-mono font-black {((worker as any).sharesContributed || 0) > 0 ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.3)]' : 'text-neutral-600'} tabular-nums leading-none tracking-tight transition-all duration-75">{((worker as any).sharesContributed || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
+                    {/if}
+                </div>
+            </div>
         </div>
     </div>
 
@@ -385,7 +409,7 @@
 {#snippet siloCard(silo: Silo, inPlant: boolean)}
 {@const siloWorkers = $workers.filter(w => w.assignedSiloId === silo.id)}
 {@const hashrate = siloWorkers.reduce((sum, w) => sum + w.hashRate, 0)}
-{@const assetClass = silo.settlementConfig.targetAsset.assetClass}
+{@const assetClass = silo.settlementConfig.targetAsset.assetClass as string}
 {@const assetTheme = assetColors[assetClass] || {hex: '#525252', pastel: '#a3a3a3'}}
 {@const isGlowing = hashrate > 0 && !inPlant}
 {@const spanClass = inPlant ? 'w-full h-full' : (silo.width === 4 ? 'col-span-12 lg:col-span-6 xl:col-span-4' : silo.width === 6 ? 'col-span-12 xl:col-span-6' : 'col-span-12')}
@@ -469,20 +493,18 @@
         </div>
     {/if}
 
-    {#if $systemMode === 'overclocked'}
-        {#if inPlant}
-            <div class="w-full bg-emerald-950/20 border border-emerald-900/40 rounded p-2 my-1 flex flex-col gap-2 relative overflow-hidden pointer-events-none transition-colors duration-500">
-                <div class="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(52,211,153,0.05)_50%,transparent_75%,transparent_100%)] bg-[length:10px_10px] animate-[slide_1s_linear_infinite]"></div>
-                <div class="flex items-center justify-between z-10 w-full">
-                    <span class="text-[8px] text-emerald-400 uppercase tracking-widest font-bold flex items-center gap-1.5"><div class="w-1 h-1 bg-emerald-500 rounded-full animate-ping"></div> Liquidity Protocol</span>
-                    <span class="text-[8px] font-mono font-bold text-emerald-400 flex items-center gap-1">AUTO-STAKING LP</span>
-                </div>
-                <div class="flex items-center justify-between z-10 w-full px-1">
-                     <span class="text-[7px] font-mono text-neutral-500 truncate max-w-[120px]">INTERCEPTED BY PLANT</span>
-                     <span class="text-[7px] font-bold uppercase tracking-widest text-emerald-500">ACTIVE</span>
-                </div>
+    {#if inPlant}
+        <div class="w-full bg-emerald-950/20 border border-emerald-900/40 rounded p-2 my-1 flex flex-col gap-2 relative overflow-hidden pointer-events-none transition-colors duration-500">
+            <div class="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(52,211,153,0.05)_50%,transparent_75%,transparent_100%)] bg-[length:10px_10px] animate-[slide_1s_linear_infinite]"></div>
+            <div class="flex items-center justify-between z-10 w-full">
+                <span class="text-[8px] text-emerald-400 uppercase tracking-widest font-bold flex items-center gap-1.5"><div class="w-1 h-1 bg-emerald-500 rounded-full animate-ping"></div> Liquidity Protocol</span>
+                <span class="text-[8px] font-mono font-bold text-emerald-400 flex items-center gap-1">AUTO-STAKING LP</span>
             </div>
-        {/if}
+            <div class="flex items-center justify-between z-10 w-full px-1">
+                 <span class="text-[7px] font-mono text-neutral-500 truncate max-w-[120px]">INTERCEPTED BY PLANT</span>
+                 <span class="text-[7px] font-bold uppercase tracking-widest text-emerald-500">ACTIVE</span>
+            </div>
+        </div>
     {/if}
 
     <div class="grid grid-cols-1 {!inPlant && silo.width === 12 ? 'xl:grid-cols-3' : (!inPlant && silo.width === 6) ? 'xl:grid-cols-2' : 'xl:grid-cols-1'} gap-3 flex-1 relative content-start mt-1 z-10 min-h-[50px]">
@@ -604,8 +626,8 @@
                                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 relative z-10 w-full">
                                     {#each $plants as plant (plant.id)}
                                         {@const plantSilos = $silos.filter(s => s.assignedPlantId === plant.id)}
-                                        {@const color1 = plantSilos[0] ? assetColors[plantSilos[0].settlementConfig.targetAsset.assetClass]?.pastel : '#a855f7'}
-                                        {@const color2 = plantSilos[1] ? assetColors[plantSilos[1].settlementConfig.targetAsset.assetClass]?.pastel : '#a855f7'}
+                                        {@const color1 = plantSilos[0] ? assetColors[plantSilos[0].settlementConfig.targetAsset.assetClass as string]?.pastel : '#a855f7'}
+                                        {@const color2 = plantSilos[1] ? assetColors[plantSilos[1].settlementConfig.targetAsset.assetClass as string]?.pastel : '#a855f7'}
                                         
                                         <div ondragover={(e) => handleDragOver(e, plant.id, 'plant')} ondragleave={handleDragLeave} ondrop={(e) => handleDrop(e, 'plant', plant.id)}
                                              style="background-image: linear-gradient(to bottom right, #111, #0a0a0a); box-shadow: 0 0 40px {color1}15, inset 0 0 20px {color2}0a; border-color: {color1}40;"
@@ -686,13 +708,13 @@
         <div class="flex flex-col gap-4 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0a0a]/80 border border-neutral-800/50 rounded-[32px] p-5 shadow-2xl h-full pb-20 w-full">
             
             {#if $isWalletConnected}
-                <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 pointer-events-none w-full flex flex-col">
-                    <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-5">
+                <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 w-full flex flex-col">
+                    <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-5 pointer-events-none">
                         <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Hashrate Dist</h2>
                     </div>
                     
                     <div class="flex flex-col items-center pointer-events-auto">
-                        <div class="relative w-28 h-28 mb-6 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] pointer-events-none">
+                        <div class="relative w-36 h-36 mb-6 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] pointer-events-none">
                             <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
                                 <circle cx="50" cy="50" r="40" fill="transparent" stroke="#161616" stroke-width="14"></circle>
                                 {#if effortData.segments.length === 0}
@@ -703,9 +725,16 @@
                                 {/each}
                             </svg>
                             <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <span class="text-xl font-mono font-light text-white leading-none">{$globalNetworkHashrate.toFixed(2)}</span>
+                                <span class="text-2xl font-mono font-light text-white leading-none">{$globalNetworkHashrate.toFixed(2)}</span>
                                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-600 mt-1">TH/s</span>
                             </div>
+                        </div>
+
+                        <div class="bg-gradient-to-br from-[#0c0c0c] to-[#111] border border-neutral-800 p-4 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[90px] w-full mb-6 pointer-events-none">
+                            <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-1">
+                                Total Treasury Value
+                            </div>
+                            <div class="text-xl xl:text-2xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">${($walletInventory || []).reduce((acc: number, item: WalletInventoryItem) => acc + item.usdValue, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                         </div>
                         
                         <div class="w-full flex flex-col gap-2 pointer-events-auto">
@@ -760,12 +789,6 @@
                     <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Node Sync</h2>
                     <span class="text-[8px] font-mono flex items-center gap-1.5 {$globalNodeStatus === 'online' ? 'text-teal-500' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-600'} transition-colors"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"></div>{$globalNodeStatus === 'online' ? 'Live' : 'Offline'}</span>
                 </div>
-                <div class="bg-gradient-to-br from-[#0c0c0c] to-[#111] border border-neutral-800 p-4 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[100px] w-full">
-                    <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-1">
-                        Total Treasury Value
-                    </div>
-                    <div class="text-xl xl:text-2xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">${($walletInventory || []).reduce((acc: number, item: WalletInventoryItem) => acc + item.usdValue, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                </div>
             </div>
 
         </div>
@@ -788,7 +811,7 @@
                         <span class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold ml-1 block">Target Asset Route</span>
                         <button aria-label="Target Asset Route" onclick={() => {isAssetPickerOpen = true; assetPickerStep = 'class'; selectedAssetClass = null; assetSearchQuery = '';}} class="w-full bg-[#0c0c0c] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-white/20 rounded-xl px-4 py-3 flex items-center justify-between transition-colors cursor-pointer group shadow-inner">
                             <div class="flex items-center gap-3">
-                                <div class="w-7 h-7 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center text-[11px] font-black overflow-hidden" style="color: {assetColors[editSettlementParams.targetAsset.assetClass]?.hex || '#ffffff'};">
+                                <div class="w-7 h-7 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center text-[11px] font-black overflow-hidden" style="color: {assetColors[editSettlementParams.targetAsset.assetClass as string]?.hex || '#ffffff'};">
                                     {#if editSettlementParams.targetAsset.imgUrl}
                                         <img src={editSettlementParams.targetAsset.imgUrl} class="w-4 h-4 object-contain" alt="logo" />
                                     {:else}
@@ -871,12 +894,12 @@
                         <h4 class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-4 ml-1 text-center">1. Select Asset Class</h4>
                         <div class="grid grid-cols-2 gap-3">
                             {#each uniqueClasses as cls}
-                                <button aria-label="Select {cls}" onclick={() => { selectedAssetClass = cls as AssetClass; assetPickerStep = 'asset'; assetSearchQuery = ''; }} class="bg-[#0c0c0c] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-white/20 rounded-xl p-4 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group shadow-sm h-28">
-                                    <div class="w-10 h-10 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center transition-colors shadow-inner group-hover:bg-[#161616]" style="color: {assetColors[cls as AssetClass]?.hex || '#ffffff'}; border-color: {assetColors[cls as AssetClass]?.hex || '#ffffff'};">
+                                <button aria-label="Select {cls}" onclick={() => { selectedAssetClass = cls as string; assetPickerStep = 'asset'; assetSearchQuery = ''; }} class="bg-[#0c0c0c] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-white/20 rounded-xl p-4 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group shadow-sm h-28">
+                                    <div class="w-10 h-10 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center transition-colors shadow-inner group-hover:bg-[#161616]" style="color: {assetColors[cls as string]?.hex || '#ffffff'}; border-color: {assetColors[cls as string]?.hex || '#ffffff'};">
                                         {#if cls === 'Crypto'} <span class="font-black text-lg">₿</span>
-                                        {:else if cls === 'Real Estate'} <span class="font-black text-lg">🏢</span>
-                                        {:else if cls === 'Commodities'} <span class="font-black text-lg">⚒</span>
-                                        {:else if cls === 'Equities'} <span class="font-black text-lg">📈</span>
+                                        {:else if cls === 'Fiat'} <span class="font-black text-lg">💵</span>
+                                        {:else if cls === 'Commodities'} <span class="font-black text-lg">🥇</span>
+                                        {:else if cls === 'Energy'} <span class="font-black text-lg">🛢️</span>
                                         {:else} <span class="font-black text-lg">⚡</span> {/if}
                                     </div>
                                     <span class="text-[10px] font-bold text-neutral-400 group-hover:text-white uppercase tracking-widest text-center">{cls}</span>
@@ -899,7 +922,7 @@
                             {#each filteredAssets as asset}
                                 <button aria-label="Select Asset" onclick={() => { editSettlementParams.targetAsset = asset; isAssetPickerOpen = false; assetPickerStep = 'class'; selectedAssetClass = null; }} class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#1a1a1a] transition-colors cursor-pointer group border border-transparent hover:border-neutral-800">
                                     <div class="flex items-center gap-3 pointer-events-none">
-                                        <div class="w-8 h-8 rounded-full bg-[#0c0c0c] border border-neutral-800 flex items-center justify-center text-[10px] font-black overflow-hidden" style="color: {assetColors[asset.assetClass]?.hex || '#ffffff'};">
+                                        <div class="w-8 h-8 rounded-full bg-[#0c0c0c] border border-neutral-800 flex items-center justify-center text-[10px] font-black overflow-hidden" style="color: {assetColors[asset.assetClass as string]?.hex || '#ffffff'};">
                                             {#if asset.imgUrl}
                                                 <img src={asset.imgUrl} class="w-4 h-4 object-contain" alt="logo" />
                                             {:else}

@@ -1,68 +1,121 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
+    declare global {
+        interface Window {
+            kasware: any;
+        }
+    }
+
+    import { PUBLIC_API_BASE_URL } from '$env/static/public';
     import '../app.css';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
     import { browser } from '$app/environment';
     import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, plants, walletInventory, tokenRegistry } from '$lib/stores/app';        
-    
     import { isWalletConnected, walletAddress, walletBalance, connectWallet, disconnectWallet, restoreSession } from '$lib/stores/wallet';
 
     let { children } = $props();
 
     const tabs = ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS'];
-    const disabledTabs = ['FORGE', 'TREASURY', 'TAX FORTRESS'];
+    const disabledTabs = []; 
 
-    let engineInterval: ReturnType<typeof setInterval>;
     let priceInterval: ReturnType<typeof setInterval>;
-    const BACKEND_BASE = 'http://192.168.0.12:5000';
+    const BACKEND_BASE = PUBLIC_API_BASE_URL;
 
-    // Global Network Persistence: Load Environment from Node/Redis
+    // --- SYSTEM STATE ---
+    let isLoaded = $state(false);
+    let isServerReachable = $state(true);
+
+    // --- WALLET MODAL STATE ---
+    let isWalletModalOpen = $state(false);
+    let creationState = $state('idle'); // 'idle' | 'forging' | 'success' | 'error'
+    let newIdentity: any = $state(null);
+    let forgeError = $state('');
+
+    async function igniteSovereignVault() {
+        creationState = 'forging';
+        forgeError = '';
+        newIdentity = null;
+
+        try {
+            const response = await fetch('http://192.168.0.12:5000/api/forge');
+            if (!response.ok) throw new Error("Local node un-reachable.");
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                newIdentity = data.identity;
+                creationState = 'success';
+            } else {
+                throw new Error(data.error || "Cryptographic forge failed.");
+            }
+        } catch (error: any) {
+            console.error("Forge API Error:", error);
+            forgeError = error.message || "Failed to communicate with wRPC bridge.";
+            creationState = 'error';
+        }
+    }
+
+    function handleKasWareConnect() {
+        connectWallet();
+        isWalletModalOpen = false;
+    }
+
+    function closeWalletModal() {
+        isWalletModalOpen = false;
+        setTimeout(() => {
+            creationState = 'idle';
+            newIdentity = null;
+        }, 300); // Reset state after animation
+    }
+
+    // --- LIFECYCLE & SYNC ---
     async function loadStateFromServer(address: string | null) {
         if (!browser || !address) return;
         try {
-            const res = await fetch(`${BACKEND_BASE}/api/state/${address}`);
+            const res = await fetch(`${BACKEND_BASE}/api/state/${address.toLowerCase()}`);
             if (res.ok) {
                 const parsed = await res.json();
                 workers.set(parsed.workers || []);
                 silos.set(parsed.silos || []);
                 if (parsed.plants) plants.set(parsed.plants);
                 if (parsed.systemMode) systemMode.set(parsed.systemMode);
+                isServerReachable = true;
+                setTimeout(() => { isLoaded = true; }, 500);
+            } else {
+                isServerReachable = false;
             }
         } catch (e) {
-            console.error('Perennia Persistence: Failed to fetch global profile state.', e);
-        }
+            isServerReachable = false;
+        } 
     }
 
-    // Global Network Persistence: Push Workspace to Node/Redis
     async function saveStateToServer(address: string | null) {
-        if (!browser || !address) return;
+        if (!browser || !address || !isLoaded || !isServerReachable) return;
         try {
             const statePayload = {
                 workers: get(workers),
                 silos: get(silos),
                 plants: get(plants),
-                systemMode: get(systemMode) // Critical fee parameters preserved here
+                systemMode: get(systemMode)
             };
-
-            await fetch(`${BACKEND_BASE}/api/state/${address}`, {
+            await fetch(`${BACKEND_BASE}/api/state/${address.toLowerCase()}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(statePayload)
             });
-        } catch (e) {
-            console.error('Perennia Persistence: Database push failure.', e);
-        }
+        } catch (e) {}
     }
 
-    // Dynamic session initializer
     $effect(() => {
         if (browser) {
             if ($isWalletConnected && $walletAddress) {
+                isLoaded = false; 
                 loadStateFromServer($walletAddress);
                 syncKasWareState();
             } else if (!$isWalletConnected) {
+                isLoaded = false;
                 workers.set([]);
                 silos.set([]);
                 plants.set([]);
@@ -71,21 +124,12 @@
         }
     });
 
-    // Reactive Auto-Save Guard: Saves state to Redis dynamically on layout/fee mutation
     $effect(() => {
-        if (browser && $isWalletConnected && $walletAddress) {
-            // Register dependencies reactively
-            const _w = $workers;
-            const _s = $silos;
-            const _p = $plants;
-            const _m = $systemMode;
-            
-            // Push mutation to database
+        if (browser && $isWalletConnected && $walletAddress && isLoaded && isServerReachable) {
             saveStateToServer($walletAddress);
         }
     });
 
-    // Token Balance Engine
     $effect(() => {
         if (browser && $isWalletConnected) {
             const numericBalance = parseFloat($walletBalance) || 0;
@@ -138,22 +182,10 @@
         } catch(e) {}
     }
 
-    async function executeYieldTick() {
-        workers.update(current => {
-            const uniqueWorkersMap = new Map(current.map(w => [w.id, w]));
-            return Array.from(uniqueWorkersMap.values());
-        });
-
-        const currentWorkers = get(workers);
-        const totalAppHashrate = currentWorkers.reduce((acc, curr) => acc + curr.hashRate, 0);
-        globalNetworkHashrate.set(totalAppHashrate);
-    }
-
     onMount(() => {
         restoreSession();
         fetchPriceData();
         priceInterval = setInterval(fetchPriceData, 15000); 
-        engineInterval = setInterval(executeYieldTick, 1000); 
 
         if (typeof window !== 'undefined' && window.kasware) {
             window.kasware.on('accountsChanged', (accounts: string[]) => {
@@ -172,12 +204,107 @@
 
     onDestroy(() => {
         clearInterval(priceInterval);
-        clearInterval(engineInterval);
     });
 </script>
 
+<!-- WALLET AUTHENTICATION MODAL -->
+{#if isWalletModalOpen}
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onclick={closeWalletModal}></div>
+        
+        <div class="relative w-full max-w-md bg-[#050505] border border-neutral-800 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden animate-[fade-in-up_0.3s_ease-out]">
+            <!-- Header -->
+            <div class="p-6 border-b border-neutral-800/60 bg-[#0a0a0a]">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-white font-black tracking-[0.2em] uppercase text-lg">System Access</h2>
+                        <p class="text-teal-500/80 text-[10px] tracking-widest uppercase mt-1">Select Authentication Vector</p>
+                    </div>
+                    <button onclick={closeWalletModal} class="text-neutral-500 hover:text-white transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="p-6">
+                {#if creationState === 'idle'}
+                    <div class="flex flex-col gap-3">
+                        <button onclick={handleKasWareConnect} class="w-full bg-[#111] border border-neutral-800 hover:border-teal-500/50 p-4 rounded-xl flex items-center gap-4 group transition-all duration-300">
+                            <div class="w-10 h-10 rounded bg-[#050505] border border-neutral-800 flex items-center justify-center shadow-inner group-hover:shadow-[0_0_15px_rgba(20,184,166,0.2)] transition-shadow">
+                                <span class="font-bold text-teal-400">KW</span>
+                            </div>
+                            <div class="text-left">
+                                <p class="text-white font-bold tracking-wide">KasWare</p>
+                                <p class="text-neutral-500 text-[10px] uppercase tracking-widest mt-0.5">Browser Extension</p>
+                            </div>
+                        </button>
+
+                        <button class="w-full bg-[#111] border border-neutral-800 hover:border-teal-500/50 p-4 rounded-xl flex items-center gap-4 group transition-all duration-300">
+                            <div class="w-10 h-10 rounded bg-[#050505] border border-neutral-800 flex items-center justify-center shadow-inner group-hover:shadow-[0_0_15px_rgba(20,184,166,0.2)] transition-shadow">
+                                <span class="font-bold text-teal-400">P</span>
+                            </div>
+                            <div class="text-left">
+                                <p class="text-white font-bold tracking-wide">Perennia Native</p>
+                                <p class="text-neutral-500 text-[10px] uppercase tracking-widest mt-0.5">Sovereign KMS Access</p>
+                            </div>
+                        </button>
+                    </div>
+
+                    <div class="mt-8 pt-6 border-t border-neutral-800/60 text-center">
+                        <p class="text-neutral-500 text-[10px] uppercase tracking-widest mb-3">Don't have a sovereign vault?</p>
+                        <button onclick={igniteSovereignVault} class="text-teal-400 text-xs font-bold tracking-[0.2em] uppercase hover:text-teal-300 transition-colors border-b border-transparent hover:border-teal-400 pb-1">
+                            [ Initialize Bare-Metal Identity ]
+                        </button>
+                    </div>
+                {/if}
+
+                {#if creationState === 'forging'}
+                    <div class="py-8 flex flex-col items-center justify-center text-center">
+                        <div class="w-12 h-12 rounded-full border-2 border-neutral-800 border-t-teal-500 animate-spin mb-4"></div>
+                        <p class="text-teal-400 font-bold tracking-widest uppercase text-sm">Igniting Forge...</p>
+                        <p class="text-neutral-500 text-xs mt-2">Generating mathematically pure keypair.</p>
+                    </div>
+                {/if}
+
+                {#if creationState === 'error'}
+                    <div class="py-6 flex flex-col items-center text-center">
+                        <div class="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 mb-4 text-xl font-black">!</div>
+                        <p class="text-red-400 font-bold tracking-widest uppercase text-sm">Forge Failure</p>
+                        <p class="text-neutral-500 text-xs mt-2 px-4">{forgeError}</p>
+                        <button onclick={() => creationState = 'idle'} class="mt-6 text-neutral-400 hover:text-white text-xs tracking-widest uppercase border border-neutral-800 px-4 py-2 rounded">Return</button>
+                    </div>
+                {/if}
+
+                {#if creationState === 'success' && newIdentity}
+                    <div class="flex flex-col gap-4 animate-[fade-in_0.5s_ease-out]">
+                        <div class="bg-teal-500/10 border border-teal-500/30 p-3 rounded-lg text-center">
+                            <p class="text-teal-400 text-[10px] uppercase tracking-widest font-bold">Identity Forged Successfully</p>
+                        </div>
+                        
+                        <div class="bg-[#0a0a0a] border border-neutral-800 p-4 rounded-lg">
+                            <p class="text-neutral-500 text-[9px] uppercase tracking-widest mb-1">Public Receive Vector</p>
+                            <code class="text-teal-500 text-xs break-all select-all">{newIdentity.publicKey}</code>
+                        </div>
+
+                        <div class="bg-[#110505] border border-red-900/30 p-4 rounded-lg">
+                            <p class="text-red-500/80 text-[9px] uppercase tracking-widest mb-1 font-bold">Raw Private Key (DO NOT SHARE)</p>
+                            <code class="text-neutral-400 text-xs break-all select-all">{newIdentity.privateKey}</code>
+                        </div>
+
+                        <button onclick={closeWalletModal} class="w-full bg-teal-500 text-black font-black uppercase tracking-widest text-xs py-3 rounded-lg mt-2 hover:bg-teal-400 transition-colors">
+                            I Have Secured My Keys
+                        </button>
+                    </div>
+                {/if}
+            </div>
+        </div>
+    </div>
+{/if}
+
 <div class="min-h-[100dvh] w-full bg-[#050505] text-white flex flex-col font-sans selection:bg-teal-500/30 overflow-x-hidden animate-[fade-in_1s_ease-out]">
     
+    <!-- MAIN HEADER -->
     <header class="h-16 border-b border-neutral-800/80 bg-[#0a0a0a]/95 backdrop-blur-xl flex items-center justify-center z-50 shrink-0 w-full sticky top-0">
         <div class="w-full max-w-[1600px] px-4 lg:px-10 flex justify-between items-center h-full">
             <div class="flex items-center gap-2 md:gap-3 cursor-pointer" onclick={() => window.location.href = '/'}>
@@ -200,8 +327,9 @@
                 <div class="h-8 w-px bg-neutral-800 hidden sm:block"></div>
 
                 {#if !$isWalletConnected}
-                    <button onclick={connectWallet} class="px-4 md:px-6 py-2 md:py-2.5 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-400 text-[10px] md:text-[11px] font-black uppercase tracking-widest rounded-xl shadow-[0_0_15px_rgba(20,184,166,0.1)] transition-all cursor-pointer whitespace-nowrap">
-                        Connect Wallet
+                    <!-- HIJACKED CONNECT WALLET BUTTON -->
+                    <button onclick={() => isWalletModalOpen = true} class="px-4 md:px-6 py-2 md:py-2.5 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-400 text-[10px] md:text-[11px] font-black uppercase tracking-widest rounded-xl shadow-[0_0_15px_rgba(20,184,166,0.1)] transition-all cursor-pointer whitespace-nowrap">
+                        Connect System
                     </button>
                 {:else}
                     <div class="flex items-center gap-1 md:gap-2 bg-[#111] border border-neutral-800 rounded-xl p-1 pr-2 md:pr-3">
@@ -229,9 +357,6 @@
                             <span class="text-[9px] md:text-[10px] font-bold tracking-[0.15em] uppercase text-neutral-700 whitespace-nowrap transition-colors group-hover:text-neutral-600">
                                 {tab}
                             </span>
-                            <div class="absolute -bottom-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#111] border border-neutral-700 text-[10px] text-teal-400 px-3 py-1.5 rounded-lg tracking-widest uppercase whitespace-nowrap pointer-events-none z-50 shadow-xl font-bold">
-                                Coming Soon
-                            </div>
                         </div>
                     {:else}
                         <button onclick={() => $activeTab = tab} 
@@ -256,6 +381,7 @@
 
 <style>
     @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
+    @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>

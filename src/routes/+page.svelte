@@ -5,7 +5,7 @@
     import SwapView from '$lib/views/SwapView.svelte';
     import OperationsView from '$lib/views/OperationsView.svelte';
     import EntryView from '$lib/views/EntryView.svelte';
-    import ForgeView from '$lib/views/ForgeView.svelte';
+    import SovereignForge from '$lib/components/SovereignForge.svelte';
     import TreasuryView from '$lib/views/TreasuryView.svelte';
     import TaxFortressView from '$lib/views/TaxFortressView.svelte';
 </script>
@@ -20,7 +20,7 @@
     {:else if $activeTab === 'OPERATIONS'}
         <OperationsView />
     {:else if $activeTab === 'FORGE'}
-        <ForgeView />
+        <SovereignForge />
     {:else if $activeTab === 'TREASURY'}
         <TreasuryView />
     {:else if $activeTab === 'TAX FORTRESS'}
