@@ -1,39 +1,47 @@
 <script lang="ts">
-    import { hasEntered } from '$lib/stores/app';
+    let { enterNexus } = $props<{ enterNexus: () => void }>();
 </script>
 
-<div class="h-screen w-screen bg-[#020202] flex flex-col items-center justify-center relative overflow-hidden cursor-default selection:bg-transparent z-[100]">
-    <div class="flex flex-col items-center justify-center z-10 w-full px-4 wrapper-anim">
-        
-        <h1 class="text-3xl md:text-4xl lg:text-5xl font-black uppercase tracking-[0.25em] text-white/90 drop-shadow-2xl text-center mb-2 title-anim">
-            Welcome to Perennia
-        </h1>
-        
-        <p class="text-sm md:text-base lg:text-lg font-mono text-neutral-400 uppercase tracking-[0.4em] text-center mb-6 slogan-anim">
-            Tokenize Anything. Liquidate Everything.
+<!-- Changed to min-h-[100dvh] and added strict bg-[#050505] for pure blackness -->
+<div class="w-full min-h-[100dvh] bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out]">
+    
+    <!-- Ambient Background Glow -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-teal-500/5 rounded-full blur-[150px] pointer-events-none -z-10"></div>
+    
+    <!-- Title -->
+    <h1 class="text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-2xl mb-4 text-center">
+        Welcome to Perennia
+    </h1>
+    
+    <!-- Subtitle -->
+    <p class="text-teal-500/80 tracking-[0.4em] uppercase text-[10px] md:text-xs mb-16 text-center drop-shadow-[0_0_10px_rgba(20,184,166,0.5)]">
+        Tokenize Anything. Liquidate Everything.
+    </p>
+    
+    <!-- Cinematic Enter Button -->
+    <button 
+        type="button"
+        onclick={enterNexus} 
+        class="group relative px-12 py-4 bg-[#0a0a0a] border border-neutral-800 rounded overflow-hidden transition-all duration-500 hover:border-teal-500 hover:shadow-[0_0_30px_rgba(20,184,166,0.2)] cursor-pointer"
+    >
+        <div class="absolute inset-0 bg-teal-500/10 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500 ease-out pointer-events-none"></div>
+        <span class="relative z-10 text-neutral-500 group-hover:text-teal-400 font-bold tracking-[0.3em] uppercase text-xs transition-colors duration-500 pointer-events-none">
+            Enter Nexus
+        </span>
+    </button>
+
+    <!-- Guest Mode Helper Text -->
+    <div class="absolute bottom-10 opacity-50 flex flex-col items-center gap-2 pointer-events-none">
+        <p class="text-neutral-600 text-[9px] uppercase tracking-widest font-mono">
+            System running in Guest Mode
         </p>
-
-        <div class="button-anim pointer-events-auto">
-            <button onclick={() => $hasEntered = true} class="px-12 py-3 bg-transparent border border-white/10 hover:border-white/50 text-white/50 hover:text-white hover:bg-white/5 uppercase tracking-[0.3em] text-[11px] font-bold transition-all duration-700 cursor-pointer rounded z-10 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-                Enter
-            </button>
-        </div>
-
+        <div class="w-px h-8 bg-gradient-to-b from-neutral-700 to-transparent"></div>
     </div>
 </div>
 
 <style>
-    .wrapper-anim { animation: creep-forward 15s linear forwards; }
-    .title-anim { opacity: 0; animation: fade-grow 2s ease-out 0.5s forwards; }
-    .slogan-anim { opacity: 0; animation: fade-grow 2s ease-out 2.5s forwards; }
-    .button-anim { opacity: 0; animation: fade-grow 2s ease-out 4.5s forwards; }
-
-    @keyframes creep-forward {
-        0% { transform: scale(1); }
-        100% { transform: scale(1.15); }
-    }
-    @keyframes fade-grow {
-        0% { opacity: 0; transform: scale(0.90); }
-        100% { opacity: 1; transform: scale(1); }
+    @keyframes fade-in { 
+        0% { opacity: 0; filter: blur(10px); transform: scale(0.98); } 
+        100% { opacity: 1; filter: blur(0); transform: scale(1); } 
     }
 </style>

@@ -1,46 +1,32 @@
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
+    import { executeKrc20Forge } from '$lib/stores/wallet';
+
     // --- WIZARD STATE ---
     let currentStep = $state(1);
     let isForging = $state(false);
     let forgeSuccess = $state(false);
+    let forgeError = $state('');
+    let confirmedTxId = $state('');
 
-    // --- STEP 1: CLASSIFICATION (ALIGNED TO OPERATIONS SECTORS) ---
+    // --- STEP 1: CLASSIFICATION (UNCATEGORIZED) ---
     let assetName = $state('');
     let assetClass = $state(''); 
     
     const assetRegistry = [
-        {
-            sector: 'RWA (Real World Assets)',
-            classes: [
-                { id: 'real_estate', name: 'Real Estate & Land', icon: '🏢', desc: 'Commercial, Residential, Parcels' },
-                { id: 'fine_art', name: 'Fine Art & Antiquities', icon: '🎨', desc: 'Paintings, Sculptures, Artifacts' },
-                { id: 'fleet', name: 'Shared Vehicles', icon: '🏎️', desc: 'Exotic Cars, Aviation, Logistics' },
-                { id: 'ip', name: 'Intellectual Property', icon: '💡', desc: 'Patents, Copyrights, Trademarks' }
-            ]
-        },
-        {
-            sector: 'Commodities',
-            classes: [
-                { id: 'commodity', name: 'Physical Commodities', icon: '🥇', desc: 'Precious Metals, Oil, Agriculture' },
-                { id: 'natural', name: 'Natural Capital', icon: '🌲', desc: 'Carbon Credits, Water Rights' }
-            ]
-        },
-        {
-            sector: 'Equities & Debt',
-            classes: [
-                { id: 'equity', name: 'Private Equity', icon: '📈', desc: 'Startup Shares, Corporate Equity' },
-                { id: 'debt', name: 'Debt & Collateral', icon: '📜', desc: 'Bonds, Promissory Notes, CDOs' },
-                { id: 'revenue', name: 'Revenue Streams', icon: '🌊', desc: 'Business Cash Flow, SaaS ARR' }
-            ]
-        },
-        {
-            sector: 'Tech & Culture',
-            classes: [
-                { id: 'robotics', name: 'Robotics & AI', icon: '🤖', desc: 'Automated Hardware, AI Agents' },
-                { id: 'governance', name: 'Governance & Culture', icon: '🏛️', desc: 'DAOs, Voting, Community Tokens' },
-                { id: 'services', name: 'Service Vouchers', icon: '🎟️', desc: 'Local Services, Redeemable Time' }
-            ]
-        }
+        { id: 'real_estate', name: 'Real Estate & Land', icon: '🏢', desc: 'Commercial, Residential, Parcels' },
+        { id: 'fine_art', name: 'Fine Art & Antiquities', icon: '🎨', desc: 'Paintings, Sculptures, Artifacts' },
+        { id: 'fleet', name: 'Shared Vehicles', icon: '🏎️', desc: 'Exotic Cars, Aviation, Logistics' },
+        { id: 'ip', name: 'Intellectual Property', icon: '💡', desc: 'Patents, Copyrights, Trademarks' },
+        { id: 'commodity', name: 'Physical Commodities', icon: '🥇', desc: 'Precious Metals, Oil, Agriculture' },
+        { id: 'natural', name: 'Natural Capital', icon: '🌲', desc: 'Carbon Credits, Water Rights' },
+        { id: 'equity', name: 'Private Equity', icon: '📈', desc: 'Startup Shares, Corporate Equity' },
+        { id: 'debt', name: 'Debt & Collateral', icon: '📜', desc: 'Bonds, Promissory Notes, CDOs' },
+        { id: 'revenue', name: 'Revenue Streams', icon: '🌊', desc: 'Business Cash Flow, SaaS ARR' },
+        { id: 'robotics', name: 'Robotics & AI', icon: '🤖', desc: 'Automated Hardware, AI Agents' },
+        { id: 'governance', name: 'Governance & Culture', icon: '🏛️', desc: 'DAOs, Voting, Community Tokens' },
+        { id: 'services', name: 'Service Vouchers', icon: '🎟️', desc: 'Local Services, Redeemable Time' }
     ];
 
     // --- STEP 2: DYNAMIC METADATA ---
@@ -186,6 +172,7 @@
     // --- STEP 4: FRACTIONALIZATION ---
     let assetValuation = $state(1000000);
     let tokenSupply = $state(1); 
+    let tokenTicker = $state('PERX');
     let pricePerToken = $derived(assetValuation / (tokenSupply || 1));
 
     // --- NAVIGATION ---
@@ -194,10 +181,23 @@
 
     async function executeForge() {
         isForging = true;
-        setTimeout(() => {
+        forgeError = '';
+        
+        try {
+            // We pass tokenSupply natively to the mintLimit to allow bulk unallocated minting,
+            // mapping exactly to the Kasplex protocol requirements.
+            const response = await executeKrc20Forge(tokenTicker, tokenSupply, tokenSupply);
+            
+            if (response.success) {
+                confirmedTxId = response.txId;
+                forgeSuccess = true;
+            }
+        } catch (err: any) {
+            console.error(err);
+            forgeError = err.message || "Forge execution failed due to an on-chain collision.";
+        } finally {
             isForging = false;
-            forgeSuccess = true;
-        }, 3000);
+        }
     }
 </script>
 
@@ -228,107 +228,108 @@
         </div>
 
         <!-- WIZARD CONTAINER -->
-        <div class="w-full max-w-5xl bg-[#050505] border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col flex-1 max-h-[700px]">
+        <div class="w-full max-w-5xl bg-[#050505] border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col flex-1 min-h-[500px] max-h-[750px]">
             <div class="absolute top-0 right-0 w-96 h-96 bg-teal-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-            <!-- STEP 1: CLASSIFICATION (SECTOR-ALIGNED) -->
+            <!-- STEP 1: CLASSIFICATION (UNCATEGORIZED) -->
             {#if currentStep === 1}
-                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1 flex flex-col h-full">
+                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1 flex flex-col h-full min-h-0">
                     <div class="mb-4 shrink-0">
                         <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-1">Initialize Asset Manifest</h2>
-                        <p class="text-neutral-500 text-[10px] tracking-widest uppercase">Select the Sanctuary Sector and define the asset.</p>
+                        <p class="text-neutral-500 text-[10px] tracking-widest uppercase">Select the asset class and define its root identity.</p>
                     </div>
 
-                    <div class="mb-6 shrink-0">
-                        <input type="text" id="assetName" bind:value={assetName} placeholder="Asset Master Title (e.g. Acme Corp Series A / Cyberdyne Drone #4)" class="w-full bg-[#0a0a0a] border border-neutral-700 focus:border-teal-500 text-white p-3.5 rounded-lg outline-none transition-colors text-sm font-bold" />
+                    <div class="mb-4 shrink-0">
+                        <input type="text" id="assetName" bind:value={assetName} placeholder="Asset Master Title (e.g. Acme Corp Series A / Cyberdyne Drone #4)" class="w-full bg-[#0a0a0a] border border-neutral-700 focus:border-teal-500 text-white p-3.5 rounded-lg outline-none transition-colors text-sm font-bold shadow-inner" />
                     </div>
 
-                    <div class="flex-1 overflow-y-auto hide-scrollbar pr-2 pb-4 flex flex-col gap-6">
-                        {#each assetRegistry as section}
-                            <div>
-                                <h3 class="text-teal-500/80 text-[10px] font-black tracking-[0.2em] uppercase mb-3 border-b border-neutral-800/50 pb-1">{section.sector}</h3>
-                                <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {#each section.classes as cls}
-                                        <button onclick={() => assetClass = cls.id} class="p-3 rounded-xl border text-left transition-all duration-200 flex flex-col justify-center {assetClass === cls.id ? 'bg-teal-500/10 border-teal-500 shadow-[0_0_15px_rgba(20,184,166,0.15)]' : 'bg-[#111] border-neutral-800 hover:border-neutral-600'}">
-                                            <div class="text-xl mb-1">{cls.icon}</div>
-                                            <div>
-                                                <p class="text-white font-bold tracking-wide text-xs leading-tight">{cls.name}</p>
-                                                <p class="text-neutral-500 text-[8px] mt-1 uppercase tracking-widest leading-relaxed line-clamp-1">{cls.desc}</p>
-                                            </div>
-                                        </button>
-                                    {/each}
-                                </div>
-                            </div>
-                        {/each}
+                    <div class="flex-1 overflow-y-auto hide-scrollbar pb-4 pr-1">
+                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            {#each assetRegistry as cls}
+                                <button onclick={() => assetClass = cls.id} class="p-4 rounded-xl border text-left transition-all duration-200 flex flex-col justify-center {assetClass === cls.id ? 'bg-teal-500/10 border-teal-500 shadow-[0_0_15px_rgba(20,184,166,0.15)]' : 'bg-[#111] border-neutral-800 hover:border-neutral-600'}">
+                                    <div class="text-2xl mb-2">{cls.icon}</div>
+                                    <div>
+                                        <p class="text-white font-bold tracking-wide text-xs leading-tight mb-1">{cls.name}</p>
+                                        <p class="text-neutral-500 text-[9px] uppercase tracking-widest leading-relaxed line-clamp-2">{cls.desc}</p>
+                                    </div>
+                                </button>
+                            {/each}
+                        </div>
                     </div>
                 </div>
             {/if}
 
             <!-- STEP 2: DYNAMIC TELEMETRY -->
             {#if currentStep === 2}
-                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1">
-                    <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-2">Asset Telemetry & Metadata</h2>
-                    <p class="text-neutral-500 text-xs tracking-widest uppercase mb-8">Immutably binding properties to the DAG matrix.</p>
+                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1 flex flex-col h-full min-h-0">
+                    <div class="shrink-0 mb-6">
+                        <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-2">Asset Telemetry & Metadata</h2>
+                        <p class="text-neutral-500 text-[10px] tracking-widest uppercase">Immutably binding properties to the DAG matrix.</p>
+                    </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {#each dynamicFields as field}
-                            <div class="flex flex-col gap-2">
-                                <label for={field.id} class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold">{field.label}</label>
-                                <input type={field.type} id={field.id} placeholder={field.placeholder} bind:value={metadata[field.id]} class="w-full bg-[#0a0a0a] border border-neutral-700 focus:border-teal-500 text-white p-4 rounded-lg outline-none transition-colors" />
-                            </div>
-                        {/each}
+                    <div class="flex-1 overflow-y-auto hide-scrollbar pb-4 pr-1">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {#each dynamicFields as field}
+                                <div class="flex flex-col gap-2">
+                                    <label for={field.id} class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold">{field.label}</label>
+                                    <input type={field.type} id={field.id} placeholder={field.placeholder} bind:value={metadata[field.id]} class="w-full bg-[#0a0a0a] border border-neutral-700 focus:border-teal-500 text-white p-4 rounded-lg outline-none transition-colors shadow-inner" />
+                                </div>
+                            {/each}
+                        </div>
                     </div>
                 </div>
             {/if}
 
             <!-- STEP 3: COMPLIANCE & LEGAL MAP -->
             {#if currentStep === 3}
-                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1">
-                    <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-2">LexCryptographic Bridge</h2>
-                    <p class="text-neutral-500 text-xs tracking-widest uppercase mb-8">Upload supporting documentation and finalize smart contract bindings.</p>
+                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1 flex flex-col h-full min-h-0">
+                    <div class="shrink-0 mb-6">
+                        <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-2">LexCryptographic Bridge</h2>
+                        <p class="text-neutral-500 text-[10px] tracking-widest uppercase">Upload supporting documentation and finalize smart contract bindings.</p>
+                    </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-                        <!-- Dynamic Dropzone -->
-                        <div class="border-2 border-dashed h-full min-h-[220px] {filesDropped ? 'border-teal-500 bg-teal-500/5' : 'border-neutral-700 bg-[#0a0a0a]'} rounded-xl p-6 flex flex-col items-center justify-center text-center transition-colors cursor-pointer hover:border-teal-500 hover:bg-teal-500/5"
-                             ondragover={(e) => { e.preventDefault(); }} 
-                             ondrop={(e) => { e.preventDefault(); filesDropped = true; }}>
-                            
-                            <div class="w-10 h-10 rounded-full bg-[#111] border border-neutral-700 flex items-center justify-center mb-3 text-neutral-400">📄</div>
-                            
-                            {#if filesDropped}
-                                <p class="text-teal-400 font-bold uppercase tracking-widest text-sm mb-2">Payload Secured</p>
-                                <div class="flex flex-col gap-1 w-full max-w-[250px] mx-auto">
-                                    {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.upload || [] as doc}
-                                        <span class="text-[9px] text-neutral-400 uppercase tracking-widest bg-neutral-900 px-2 py-1 rounded">✓ {doc}</span>
-                                    {/each}
-                                </div>
-                            {:else}
-                                <p class="text-white font-bold tracking-wide text-sm mb-3">Upload Required Payload</p>
-                                <div class="flex flex-col gap-1 w-full max-w-[250px] mx-auto">
-                                    {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.upload || [] as doc}
-                                        <span class="text-[9px] text-neutral-500 uppercase tracking-widest bg-[#111] border border-neutral-800 px-2 py-1 rounded shadow-inner">• {doc}</span>
-                                    {/each}
-                                </div>
-                            {/if}
-                        </div>
-
-                        <!-- Dynamic Auto-Gen Contracts -->
-                        <div class="bg-[#111] border border-neutral-800 rounded-xl p-6 flex flex-col justify-between h-full min-h-[220px]">
-                            <div>
-                                <h3 class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold mb-4">Auto-Generated Smart Framework</h3>
-                                <div class="flex flex-col gap-2">
-                                    {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.esign || [] as edoc}
-                                        <div class="flex items-center justify-between bg-[#050505] p-3 rounded border border-neutral-800">
-                                            <span class="text-[10px] text-neutral-300 font-mono truncate mr-2">{edoc.replace(/ /g, '_')}.pdf</span>
-                                            <span class="text-[8px] text-teal-500 uppercase tracking-widest shrink-0 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 rounded">Generated</span>
-                                        </div>
-                                    {/each}
-                                </div>
+                    <div class="flex-1 overflow-y-auto hide-scrollbar pb-4 pr-1">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+                            <div class="border-2 border-dashed h-full min-h-[240px] {filesDropped ? 'border-teal-500 bg-teal-500/5' : 'border-neutral-700 bg-[#0a0a0a]'} rounded-xl p-6 flex flex-col items-center justify-center text-center transition-colors cursor-pointer hover:border-teal-500 hover:bg-teal-500/5"
+                                 ondragover={(e) => { e.preventDefault(); }} 
+                                 ondrop={(e) => { e.preventDefault(); filesDropped = true; }}>
+                                
+                                <div class="w-10 h-10 rounded-full bg-[#111] border border-neutral-700 flex items-center justify-center mb-3 text-neutral-400">📄</div>
+                                
+                                {#if filesDropped}
+                                    <p class="text-teal-400 font-bold uppercase tracking-widest text-sm mb-2">Payload Secured</p>
+                                    <div class="flex flex-col gap-1 w-full max-w-[250px] mx-auto">
+                                        {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.upload || [] as doc}
+                                            <span class="text-[9px] text-neutral-400 uppercase tracking-widest bg-neutral-900 px-2 py-1 rounded">✓ {doc}</span>
+                                        {/each}
+                                    </div>
+                                {:else}
+                                    <p class="text-white font-bold tracking-wide text-sm mb-3">Upload Required Payload</p>
+                                    <div class="flex flex-col gap-1 w-full max-w-[250px] mx-auto">
+                                        {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.upload || [] as doc}
+                                            <span class="text-[9px] text-neutral-500 uppercase tracking-widest bg-[#111] border border-neutral-800 px-2 py-1 rounded shadow-inner">• {doc}</span>
+                                        {/each}
+                                    </div>
+                                {/if}
                             </div>
 
-                            <button onclick={() => esignComplete = true} class="w-full mt-4 py-3 rounded text-xs font-bold tracking-widest uppercase transition-colors {esignComplete ? 'bg-teal-500/20 text-teal-400 border border-teal-500/50' : 'bg-teal-500 text-black hover:bg-teal-400'}">
-                                {esignComplete ? '✓ Cryptographically Signed' : 'Execute E-Signature'}
-                            </button>
+                            <div class="bg-[#111] border border-neutral-800 rounded-xl p-6 flex flex-col justify-between h-full min-h-[240px]">
+                                <div>
+                                    <h3 class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold mb-4">Auto-Generated Smart Framework</h3>
+                                    <div class="flex flex-col gap-2">
+                                        {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.esign || [] as edoc}
+                                            <div class="flex items-center justify-between bg-[#050505] p-3 rounded border border-neutral-800">
+                                                <span class="text-[10px] text-neutral-300 font-mono truncate mr-2">{edoc.replace(/ /g, '_')}.pdf</span>
+                                                <span class="text-[8px] text-teal-500 uppercase tracking-widest shrink-0 border border-teal-500/30 bg-teal-500/5 px-2 py-0.5 rounded">Generated</span>
+                                            </div>
+                                        {/each}
+                                    </div>
+                                </div>
+
+                                <button onclick={() => esignComplete = true} class="w-full mt-4 py-3 rounded text-xs font-bold tracking-widest uppercase transition-colors {esignComplete ? 'bg-teal-500/20 text-teal-400 border border-teal-500/50' : 'bg-teal-500 text-black hover:bg-teal-400'}">
+                                    {esignComplete ? '✓ Cryptographically Signed' : 'Execute E-Signature'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -336,44 +337,51 @@
 
             <!-- STEP 4: FRACTIONALIZATION -->
             {#if currentStep === 4}
-                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1">
-                    <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-2">Fractionalization Matrix</h2>
-                    <p class="text-neutral-500 text-xs tracking-widest uppercase mb-8">Determine the divisibility and initial par value of the asset.</p>
+                <div class="animate-[fade-in-up_0.4s_ease-out] flex-1 flex flex-col h-full min-h-0">
+                    <div class="shrink-0 mb-6">
+                        <h2 class="text-xl font-bold text-white uppercase tracking-wider mb-2">Fractionalization Matrix</h2>
+                        <p class="text-neutral-500 text-[10px] tracking-widest uppercase">Determine the divisibility and initial par value of the asset.</p>
+                    </div>
 
-                    <div class="bg-[#0a0a0a] border border-neutral-800 rounded-xl p-6 shadow-inner">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                            <div class="flex flex-col gap-2">
-                                <label class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold">Total Asset Valuation (USD)</label>
-                                <div class="relative">
-                                    <span class="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
-                                    <input type="number" bind:value={assetValuation} class="w-full bg-[#111] border border-neutral-700 text-white pl-8 p-3 rounded outline-none font-mono text-lg" />
+                    {#if forgeError}
+                        <div class="mb-4 bg-red-500/10 border border-red-500/30 p-3 rounded-lg text-center shrink-0">
+                            <p class="text-red-400 text-[10px] uppercase tracking-widest font-bold">{forgeError}</p>
+                        </div>
+                    {/if}
+
+                    <div class="flex-1 overflow-y-auto hide-scrollbar pb-4 pr-1">
+                        <div class="bg-[#0a0a0a] border border-neutral-800 rounded-xl p-6 shadow-inner">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                                <div class="flex flex-col gap-2">
+                                    <label class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold">Total Asset Valuation (USD)</label>
+                                    <div class="relative">
+                                        <span class="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
+                                        <input type="number" bind:value={assetValuation} class="w-full bg-[#111] border border-neutral-700 text-white pl-8 p-3 rounded outline-none font-mono text-lg" />
+                                    </div>
+                                </div>
+                                <div class="flex flex-col gap-2">
+                                    <label class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold">Total Token Supply</label>
+                                    <input type="number" bind:value={tokenSupply} min="1" class="w-full bg-[#111] border border-neutral-700 focus:border-teal-500 text-white p-3 rounded outline-none font-mono text-lg transition-colors" />
                                 </div>
                             </div>
-                            <div class="flex flex-col gap-2">
-                                <label class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold">Total Token Supply</label>
-                                <input type="number" bind:value={tokenSupply} min="1" class="w-full bg-[#111] border border-neutral-700 focus:border-teal-500 text-white p-3 rounded outline-none font-mono text-lg transition-colors" />
-                            </div>
-                        </div>
 
-                        <!-- Supply Slider -->
-                        <div class="mb-8">
-                            <div class="flex justify-between text-[10px] text-neutral-500 font-bold tracking-widest uppercase mb-3">
-                                <span>Whole Asset (1:1)</span>
-                                <span>Micro-Shares (1M+)</span>
+                            <div class="mb-8">
+                                <div class="flex justify-between text-[10px] text-neutral-500 font-bold tracking-widest uppercase mb-3">
+                                    <span>Whole Asset (1:1)</span>
+                                    <span>Micro-Shares (1M+)</span>
+                                </div>
+                                <input type="range" min="1" max="1000000" bind:value={tokenSupply} class="custom-slider w-full" />
                             </div>
-                            <input type="range" min="1" max="1000000" bind:value={tokenSupply} class="custom-slider w-full" />
-                        </div>
 
-                        <div class="border-t border-neutral-800 pt-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-                            <div>
-                                <p class="text-[10px] text-neutral-500 tracking-[0.2em] uppercase font-bold mb-1">Derived Price Per Token</p>
-                                <p class="text-3xl font-black text-white tracking-tight">${pricePerToken.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                            </div>
-                            <div class="text-left sm:text-right">
-                                <p class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold mb-1">Ticker Symbol</p>
-                                <p class="text-xl font-bold text-white font-mono bg-[#111] px-4 py-1.5 rounded border border-neutral-800">
-                                    {assetName ? assetName.replace(/[^a-zA-Z]/g, '').substring(0,4).toUpperCase() : 'ASSET'}
-                                </p>
+                            <div class="border-t border-neutral-800 pt-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+                                <div>
+                                    <p class="text-[10px] text-neutral-500 tracking-[0.2em] uppercase font-bold mb-1">Derived Price Per Token</p>
+                                    <p class="text-3xl font-black text-white tracking-tight">${pricePerToken.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                                </div>
+                                <div class="text-left sm:text-right">
+                                    <p class="text-[10px] text-teal-500 tracking-[0.2em] uppercase font-bold mb-1">Ticker Symbol (4-6 Chars)</p>
+                                    <input type="text" bind:value={tokenTicker} placeholder="PERX" maxlength="6" class="w-32 sm:w-full bg-[#111] border border-neutral-700 text-white font-mono text-xl px-4 py-1.5 rounded outline-none transition-colors text-left sm:text-center uppercase focus:border-teal-500" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -381,17 +389,17 @@
             {/if}
 
             <!-- FOOTER NAVIGATION -->
-            <div class="mt-6 pt-5 border-t border-neutral-800 flex justify-between shrink-0">
-                <button onclick={prevStep} class="px-6 py-2 border border-neutral-700 text-neutral-400 rounded hover:text-white hover:border-neutral-500 transition-colors text-xs font-bold uppercase tracking-widest" style="visibility: {currentStep === 1 ? 'hidden' : 'visible'}">
+            <div class="mt-auto pt-6 border-t border-neutral-800 flex justify-between shrink-0 bg-[#050505]">
+                <button onclick={prevStep} class="px-6 py-2.5 border border-neutral-700 text-neutral-400 rounded-lg hover:text-white hover:border-neutral-500 transition-colors text-xs font-bold uppercase tracking-widest" style="visibility: {currentStep === 1 ? 'hidden' : 'visible'}">
                     Go Back
                 </button>
 
                 {#if currentStep < 4}
-                    <button onclick={nextStep} disabled={currentStep === 1 && (!assetName || !assetClass)} class="px-8 py-2 bg-teal-500 text-black rounded hover:bg-teal-400 transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed">
-                        Proceed
+                    <button onclick={nextStep} disabled={currentStep === 1 && (!assetName || !assetClass)} class="px-8 py-2.5 bg-teal-500 text-black rounded-lg hover:bg-teal-400 transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed">
+                        Continue
                     </button>
                 {:else}
-                    <button onclick={executeForge} disabled={isForging || !esignComplete} class="px-8 py-2.5 bg-teal-500 text-black rounded hover:bg-teal-400 transition-all text-sm font-black uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(20,184,166,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                    <button onclick={executeForge} disabled={isForging || !esignComplete} class="px-8 py-2.5 bg-teal-500 text-black rounded-lg hover:bg-teal-400 transition-all text-sm font-black uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(20,184,166,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                         {#if isForging}
                             <span class="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
                             Compiling...
@@ -410,16 +418,16 @@
                 <span class="text-3xl text-teal-400">✓</span>
             </div>
             <h2 class="text-3xl md:text-4xl font-black tracking-widest text-white uppercase mb-2">Asset Tokenized</h2>
-            <p class="text-teal-400 font-mono text-sm md:text-base mb-8">{tokenSupply.toLocaleString()} Tokens Minted • DAG Confirmed</p>
+            <p class="text-teal-400 font-mono text-sm md:text-base mb-8">{tokenSupply.toLocaleString()} {tokenTicker.toUpperCase()} Minted • KRC-20 Confirmed</p>
             
-            <div class="bg-[#0a0a0a] border border-neutral-800 rounded-xl p-6 text-left mb-8 max-w-xl mx-auto">
+            <div class="bg-[#0a0a0a] border border-neutral-800 rounded-xl p-6 text-left mb-8 max-w-xl mx-auto shadow-inner">
                 <div class="flex justify-between border-b border-neutral-800 pb-3 mb-3">
                     <span class="text-xs text-neutral-500 uppercase tracking-widest">Asset Name</span>
                     <span class="text-sm text-white font-bold">{assetName}</span>
                 </div>
                 <div class="flex justify-between border-b border-neutral-800 pb-3 mb-3">
-                    <span class="text-xs text-neutral-500 uppercase tracking-widest">Smart Contract</span>
-                    <span class="text-xs text-teal-500 font-mono break-all pl-4">kaspa:q...{Math.random().toString(36).substring(2, 10)}</span>
+                    <span class="text-xs text-neutral-500 uppercase tracking-widest">Smart Contract (Reveal TX)</span>
+                    <span class="text-xs text-teal-500 font-mono break-all pl-4">{confirmedTxId}</span>
                 </div>
                 <div class="flex justify-between border-b border-neutral-800 pb-3 mb-3">
                     <span class="text-xs text-neutral-500 uppercase tracking-widest">Initial Liquidity</span>
@@ -431,7 +439,7 @@
                 </div>
             </div>
 
-            <button onclick={() => { forgeSuccess = false; currentStep = 1; assetName = ''; assetClass = ''; filesDropped = false; esignComplete = false; }} class="text-teal-500 text-xs md:text-sm tracking-widest uppercase hover:text-white transition-colors border-b border-teal-500/30 hover:border-white pb-1">
+            <button onclick={() => { forgeSuccess = false; currentStep = 1; assetName = ''; assetClass = ''; filesDropped = false; esignComplete = false; tokenTicker = 'PERX'; }} class="text-teal-500 text-xs md:text-sm tracking-widest uppercase hover:text-white transition-colors border-b border-teal-500/30 hover:border-white pb-1 cursor-pointer">
                 Forge Another Asset
             </button>
         </div>

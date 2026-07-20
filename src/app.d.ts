@@ -1,13 +1,17 @@
-// See https://svelte.dev/docs/kit/types#app.d.ts
-// for information about these interfaces
+import { Redis } from 'ioredis';
+
 declare global {
-	namespace App {
-		// interface Error {}
-		// interface Locals {}
-		// interface PageData {}
-		// interface PageState {}
-		// interface Platform {}
-	}
+    namespace App {
+        interface Locals {
+            redis: Redis;
+        }
+    }
+    
+    interface Window {
+        kasware: any;
+        solflare: any;
+        ethereum: any;
+    }
 }
 
 export {};

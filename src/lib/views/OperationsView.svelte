@@ -1,29 +1,31 @@
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
-    import { PUBLIC_API_BASE_URL } from '$env/static/public';
     import { workers, silos, plants, systemMode, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
-    import { isWalletConnected, walletAddress, walletBalance } from '$lib/stores/wallet';
+    import { isWalletConnected, walletAddress, walletBalance, showWalletModal } from '$lib/stores/wallet';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
 
     let activeSiloMenu = $state<string | null>(null);
     let activePlantMenu = $state<string | null>(null);
-    let activeWorkerMenu = $state<string | null>(null);
-    let contextMenuPos = $state({ x: 0, y: 0 });
     
-    let copyModalWorker = $state<Worker | null>(null);
-    let fundModalWorker = $state<Worker | null>(null);
-
-    let configModalWorker = $state<Worker | null>(null);
-    let configFormName = $state('');
+    // ⚡ RESTORED: Inline Worker Context Menus & Trays
+    let activeWorkerMenu = $state<string | null>(null);
+    let activeTrayId = $state<string | null>(null);
+    let activeTrayType = $state<'stratum' | 'add' | 'sub' | null>(null);
+    let trayTokenAmount = $state<number | ''>('');
+    let inlineRenameId = $state<string | null>(null);
+    let inlineRenameValue = $state<string>('');
 
     let selectedSilosForSweep = $state<Record<string, boolean>>({});
     
     let totalPendingKAS = $derived($silos.reduce((acc, s) => acc + (s.pendingKaspa || 0), 0));
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
     
-    function closeAllMenus() { activeWorkerMenu = null; activeSiloMenu = null; activePlantMenu = null; }
+    function closeAllMenus() { 
+        activeWorkerMenu = null; 
+        activeSiloMenu = null; 
+        activePlantMenu = null; 
+        if (inlineRenameId) saveInlineRename(inlineRenameId);
+    }
 
     const defaultSettlement: SettlementConfig = { targetAsset: tokenRegistry[0], payoutAddress: '', autoPayout: true, mode: 'stream', threshold: 0.0005, streamMode: 'realtime', streamValue: 1, streamUnit: 'hours', appointmentDate: '', appointmentTime: '17:00' };
     let settlementModalSilo = $state<Silo | null>(null);
@@ -40,12 +42,11 @@
         (a.ticker.toLowerCase().includes(assetSearchQuery.toLowerCase()) || a.name.toLowerCase().includes(assetSearchQuery.toLowerCase()))
     ));
 
-    // STRICT 4-COLOR CATEGORY PALETTE
     const assetColors: Record<string, { hex: string, pastel: string }> = {
-        'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' },      // Teal
-        'Fiat': { hex: '#3b82f6', pastel: '#bfdbfe' },        // Blue
-        'Commodities': { hex: '#eab308', pastel: '#fef08a' }, // Yellow (Gold/Silver)
-        'Energy': { hex: '#f97316', pastel: '#fdba74' }       // Orange (Oil)
+        'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' },      
+        'Fiat': { hex: '#3b82f6', pastel: '#bfdbfe' },        
+        'Commodities': { hex: '#eab308', pastel: '#fef08a' }, 
+        'Energy': { hex: '#f97316', pastel: '#fdba74' }        
     };
 
     let hashHistory = $state<number[]>([]);
@@ -98,42 +99,77 @@
     let unsubs: any[] = [];
     let fetchInterval: ReturnType<typeof setInterval>;
 
+    // ⚡ RESTORED: Dynamic Copy Stratum Visual Floating States
+    let floatingTexts = $state<{ id: number, x: number, y: number, text1: string, text2: string }[]>([]);
+    let floatId = 0;
+
     async function fetchDashboardData() {
+        const isConnected = get(isWalletConnected);
+        const currentWallet = get(walletAddress);
+
+        if (!isConnected || !currentWallet) {
+            workers.update(current => current.filter(w => w.type !== 'physical'));
+            return;
+        }
+
         try {
-            const response = await fetch(`${PUBLIC_API_BASE_URL}/api/stats`);
+            const response = await fetch('/api/telemetry');
             if (!response.ok) throw new Error("HTTP error");
             
             const data = await response.json();
             
-            globalNetworkHashrate.set(data.pool.totalHashrate / 1e12);
+            globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
             globalNodeStatus.set('online');
 
+            const cleanWallet = currentWallet.replace('kaspa:', '');
+
             workers.update(currentWorkers => {
-                return currentWorkers.map(w => {
-                    const backendWorker = data.workers.find((bw: any) => bw.name === w.name);
-                    
-                    if (backendWorker) {
-                        return { 
-                            ...w, 
-                            hashRate: backendWorker.trackingRate / 1e12,
-                            sharesContributed: backendWorker.sharesContributed || 0,
-                            blocksFound: backendWorker.blocksFound || 0,
-                            isOnline: true 
-                        } as any; 
-                    }
-                    
+                let updated = currentWorkers.map(w => {
                     if (w.type === 'physical') {
+                        const backendWorker = (data.workers || []).find((bw: any) => 
+                            bw.fullIdentity === w.walletWorker && 
+                            bw.walletAddress?.replace('kaspa:', '') === cleanWallet
+                        );
+                        
+                        if (backendWorker) {
+                            return { 
+                                ...w, 
+                                hashRate: (backendWorker.trackingRate || backendWorker.hashrate || backendWorker.hashRate || 0) / 1e12,
+                                sharesContributed: backendWorker.sharesContributed || backendWorker.shares || 0,
+                                blocksFound: backendWorker.blocksFound || backendWorker.blocks || 0,
+                                isOnline: true 
+                            } as any; 
+                        }
                         return { ...w, hashRate: 0, isOnline: false };
                     }
-                    
                     return w;
                 });
+
+                if (data.workers) {
+                    const myWorkers = data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
+                    
+                    myWorkers.forEach((bw: any) => {
+                        if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
+                            updated.push({
+                                id: Math.random().toString(36).substring(2, 8).toUpperCase(),
+                                type: 'physical',
+                                name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
+                                stratumUrl: 'stratum+tcp://192.168.0.12:5555',
+                                walletWorker: bw.fullIdentity,
+                                hashRate: (bw.trackingRate || bw.hashrate || bw.hashRate || 0) / 1e12,
+                                isOnline: true,
+                                assignedSiloId: null, 
+                                sharesContributed: bw.sharesContributed || bw.shares || 0,
+                                blocksFound: bw.blocksFound || bw.blocks || 0
+                            } as any);
+                        }
+                    });
+                }
+                return updated;
             });
             
         } catch (err) {
-            console.error("Connection to Perennia Backend lost:", err);
             globalNodeStatus.set('unreachable');
-            
             workers.update(currentWorkers => 
                 currentWorkers.map(w => w.type === 'physical' ? { ...w, isOnline: false, hashRate: 0 } : w)
             );
@@ -147,7 +183,7 @@
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
         fetchDashboardData();
-        fetchInterval = setInterval(fetchDashboardData, 3000);
+        fetchInterval = setInterval(fetchDashboardData, 2000);
     });
 
     onDestroy(() => { 
@@ -195,10 +231,53 @@
         handleDragEnd();
     }
 
-    function handleWorkerRightClick(e: MouseEvent, workerId: string) {
-        e.preventDefault(); e.stopPropagation();
-        contextMenuPos = { x: e.clientX, y: e.clientY };
-        closeAllMenus(); activeWorkerMenu = workerId;
+    // ⚡ RESTORED DYNAMIC TRAY COPIER
+    function handleTrayCopy(e: MouseEvent, textToCopy: string, floatText1: string, floatText2: string) {
+        e.stopPropagation();
+        navigator.clipboard.writeText(textToCopy).catch(err => console.error("Clipboard copy failed", err));
+        
+        const id = floatId++;
+        floatingTexts = [...floatingTexts, { 
+            id, 
+            x: e.clientX, 
+            y: e.clientY, 
+            text1: floatText1, 
+            text2: floatText2 
+        }];
+        
+        setTimeout(() => {
+            floatingTexts = floatingTexts.filter(f => f.id !== id);
+        }, 2000);
+    }
+
+    // ⚡ NEW: Inline Editing Actions
+    function saveInlineRename(workerId: string) {
+        if (inlineRenameId === workerId && inlineRenameValue.trim() !== "") {
+            const newName = inlineRenameValue.trim();
+            workers.update(wks => wks.map(w => w.id === workerId ? { 
+                ...w, 
+                name: newName, 
+                walletWorker: $walletAddress ? `${$walletAddress}.${newName}` : `kaspa:pending.${newName}`
+            } : w));
+        }
+        inlineRenameId = null;
+    }
+
+    // ⚡ NEW: Inline Capital Logic
+    function processTokenAction(workerId: string) {
+        const amount = parseFloat(trayTokenAmount as string || "0");
+        if (amount > 0 && activeTrayType) {
+            workers.update(wks => wks.map(w => {
+                if (w.id === workerId) {
+                    const hashDelta = (amount / 1000) * 0.05;
+                    const newHash = activeTrayType === 'add' ? w.hashRate + hashDelta : Math.max(0, w.hashRate - hashDelta);
+                    return { ...w, hashRate: newHash, isOnline: newHash > 0 };
+                }
+                return w;
+            }));
+        }
+        activeTrayId = null;
+        activeTrayType = null;
     }
 
     function addSilo() { const id = Math.random().toString(36).substring(2, 8).toUpperCase(); const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); $silos = [...$silos, { id, name: `Sector Alpha-${id.substring(0,2)}`, width: 4, assignedPlantId: null, pendingKaspa: 0, settlementConfig: { ...defaultSettlement, payoutAddress: $walletAddress || '', appointmentDate: tomorrow.toISOString().split('T')[0] } }]; }
@@ -261,97 +340,82 @@
         return rawType.replace('Miner-', ' ').substring(0, 18);
     }
 
-    function openConfig(id: string) { 
-        const worker = $workers.find(w => w.id === id);
-        if (!worker) return;
-        configModalWorker = worker;
-        configFormName = worker.name;
-        closeAllMenus(); 
-    }
-
-    function saveConfig() {
-        if (configModalWorker) {
-            const cleanedName = configFormName.trim();
-            workers.update(wks => wks.map(w => w.id === configModalWorker!.id ? { 
-                ...w, 
-                name: cleanedName, 
-                walletWorker: $walletAddress ? `${$walletAddress}.${cleanedName}` : `kaspa:pending.${cleanedName}`
-            } : w));
-        }
-        configModalWorker = null;
-    }
-
     function deleteWorker(id: string) { if(confirm("Permanently decommission this worker?")) { $workers = $workers.filter(w => w.id !== id); closeAllMenus(); } }
-    function copyText(text: string) { navigator.clipboard.writeText(text); alert('Copied to clipboard!'); closeAllMenus(); }
-    
-    function injectCapital(id: string) {
-        if(fundModalWorker) {
-            const amountStr = (document.getElementById('fundAmount') as HTMLInputElement)?.value;
-            const amount = parseFloat(amountStr || "0");
-            if (amount > 0) {
-                workers.update(wks => wks.map(w => w.id === id ? {...w, hashRate: w.hashRate + (amount / 1000) * 0.05, isOnline: true} : w));
-            }
-            fundModalWorker = null;
-        }
-    }
 </script>
 
 <svelte:window onclick={closeAllMenus} onscroll={closeAllMenus} />
 
-{#if activeWorkerMenu}
-    {@const activeWorker = $workers.find(w => w.id === activeWorkerMenu)}
-    {#if activeWorker}
-        <div class="fixed z-[9999] bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl flex flex-col overflow-hidden w-52 animate-[fade-in-up_0.1s_ease-out]" 
-             style="top: {contextMenuPos.y}px; left: {contextMenuPos.x}px;" onmousedown={(e) => e.stopPropagation()}>
-            <div class="px-3 py-2 border-b border-neutral-800 bg-[#111]">
-                <span class="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block truncate">{activeWorker.name}</span>
-                <span class="text-[8px] font-mono text-{activeWorker.type === 'physical' ? 'teal' : 'purple'}-500 uppercase">{activeWorker.type} Worker</span>
-            </div>
-            
-            <button aria-label="Configure Worker Name" onclick={() => openConfig(activeWorker.id)} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50">Rename Hardware</button>
-            
-            {#if activeWorker.type === 'physical'}
-                {#if activeWorker.ipAddress}
-                    <button aria-label="Open Miner Interface" onclick={() => { window.open(`http://${activeWorker.ipAddress}`, '_blank'); closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group">
-                        Open Interface 
-                        <span class="text-[12px] font-black opacity-50 group-hover:opacity-100 transition-opacity">↗</span>
-                    </button>
-                {/if}
-                <button aria-label="Copy Stratum API" onclick={() => {copyModalWorker = activeWorker; closeAllMenus();}} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer">Copy Stratum API</button>
-            {:else}
-                <button aria-label="Add Tokens" onclick={() => {fundModalWorker = activeWorker; closeAllMenus();}} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center">Add Tokens <span class="text-lg leading-none">+</span></button>
-            {/if}
-            <div class="h-px bg-neutral-800"></div>
-            <button aria-label="Decommission" onclick={() => deleteWorker(activeWorker.id)} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-red-950/30 transition-colors cursor-pointer">Decommission</button>
+<!-- ⚡ STRATUM COPY DYNAMIC ANIMATION OVERLAY -->
+{#each floatingTexts as float (float.id)}
+    <div class="fixed z-[100000] pointer-events-none flex flex-col items-center gap-1.5"
+         style="left: {float.x}px; top: {float.y - 40}px; transform: translateX(-50%);">
+        <div class="bg-[#111]/95 backdrop-blur-md text-teal-400 border border-teal-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-1 whitespace-nowrap drop-shadow-[0_0_8px_rgba(20,184,166,0.6)]">
+            {float.text1}
         </div>
-    {/if}
-{/if}
+        <div class="bg-[#111]/95 backdrop-blur-md text-amber-400 border border-amber-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-2 whitespace-nowrap drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+            {float.text2}
+        </div>
+    </div>
+{/each}
 
 {#snippet workerCard(worker: Worker)}
 {@const isDeployed = worker.assignedSiloId !== null}
 {@const assignedSilo = isDeployed ? $silos.find(s => s.id === worker.assignedSiloId) : null}
 {@const siloColor = assignedSilo ? assetColors[assignedSilo.settlementConfig.targetAsset.assetClass as string]?.hex || '#ffffff' : null}
 
-<div draggable={!isDeployed ? "true" : "false"} 
-     ondragstart={(e) => { if(!isDeployed) handleDragStart(e, 'worker', worker.id) }} 
+<!-- ⚡ RESTORED: Added dynamic z-index for absolute contextual dropdown hovering cleanly over adjacent cards -->
+<div draggable={!isDeployed && !inlineRenameId && activeTrayId !== worker.id ? "true" : "false"} 
+     ondragstart={(e) => { if(!isDeployed && !inlineRenameId && activeTrayId !== worker.id) handleDragStart(e, 'worker', worker.id) }} 
      ondragend={handleDragEnd} 
-     oncontextmenu={(e) => handleWorkerRightClick(e, worker.id)}
-     class="relative border rounded-xl p-3 shadow-md group transition-colors z-20 
-            {isDeployed ? 'bg-[#050505] border-neutral-900 opacity-60' : 'bg-[#0c0c0c] border-neutral-800/80 hover:border-neutral-600 cursor-grab active:cursor-grabbing'} 
+     oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); closeAllMenus(); activeWorkerMenu = worker.id; }}
+     class="relative border rounded-xl p-3 shadow-md group transition-colors flex flex-col {activeWorkerMenu === worker.id ? 'z-50' : 'z-20'}
+            {isDeployed ? 'bg-[#050505] border-neutral-900 opacity-60' : 'bg-[#0c0c0c] border-neutral-800/80 hover:border-neutral-600'} 
+            {(!isDeployed && !inlineRenameId && activeTrayId !== worker.id) ? 'cursor-grab active:cursor-grabbing' : ''}
             {dragType === 'worker' && draggedId === worker.id ? 'opacity-50 border-teal-500' : ''}">
     
-    <div class="flex justify-between items-start mb-2 pointer-events-none">
-        <div class="flex flex-col gap-0.5 min-w-0">
-            <div class="flex items-center gap-2">
+    <div class="flex justify-between items-start mb-2 relative">
+        <div class="flex flex-col gap-0.5 min-w-0 flex-1 z-10 pointer-events-none">
+            <div class="flex items-center gap-2 pointer-events-auto w-full pr-2">
                 <div class="w-1.5 h-1.5 rounded-full shrink-0 {worker.isOnline ? 'bg-teal-500 animate-pulse shadow-[0_0_8px_rgba(20,184,166,0.8)]' : 'bg-neutral-600'}"></div>
-                <span class="text-xs font-bold text-white truncate max-w-[80px] xl:max-w-[100px]" title={worker.name}>{worker.name}</span>
+                
+                <!-- ⚡ RESTORED: Clean Inline Renaming State -->
+                {#if inlineRenameId === worker.id}
+                    <input type="text" bind:value={inlineRenameValue} onblur={() => saveInlineRename(worker.id)} onkeydown={(e) => { if (e.key === 'Enter') saveInlineRename(worker.id); else if (e.key === 'Escape') inlineRenameId = null; }} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} class="text-xs font-bold text-white bg-[#1a1a1a] border {worker.type === 'physical' ? 'border-teal-500/50' : 'border-purple-500/50'} rounded px-1.5 py-0.5 outline-none w-[110px] shadow-inner" autofocus />
+                {:else}
+                    <span class="text-xs font-bold text-white truncate max-w-[80px] xl:max-w-[100px]" title={worker.name}>{worker.name}</span>
+                {/if}
             </div>
             {#if worker.hardwareType}
                 <span class="text-[7px] font-mono text-teal-500/80 uppercase tracking-widest truncate max-w-[90px] ml-3.5" title={worker.hardwareType}>{formatHardwareName(worker.hardwareType)}</span>
             {/if}
         </div>
-        <div class="relative pointer-events-auto">
-            <button aria-label="Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => handleWorkerRightClick(e, worker.id)} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer shrink-0"><span class="font-bold pb-1 text-sm">⋮</span></button>
+        
+        <div class="relative pointer-events-auto shrink-0 z-20">
+            <!-- ⚡ RESTORED: Kebab context menu trigger -->
+            <button aria-label="Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); closeAllMenus(); activeWorkerMenu = activeWorkerMenu === worker.id ? null : worker.id; }} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer"><span class="font-bold pb-1 text-sm">⋮</span></button>
+            
+            <!-- ⚡ RESTORED: Absolute Positioned Worker Context Dropdown -->
+            {#if activeWorkerMenu === worker.id}
+                <div class="absolute top-8 right-0 w-40 bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-[fade-in-up_0.1s_ease-out] z-[100]" onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
+                    <button onclick={(e) => { e.stopPropagation(); inlineRenameId = worker.id; inlineRenameValue = worker.name; activeWorkerMenu = null; activeTrayId = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer">Rename Worker</button>
+                    
+                    {#if worker.type === 'physical'}
+                        {#if worker.ipAddress}
+                            <button aria-label="Open Miner Interface" onclick={() => { window.open(`http://${worker.ipAddress}`, '_blank'); closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50">
+                                Open Interface 
+                                <span class="text-[12px] font-black opacity-50 group-hover:opacity-100 transition-opacity">↗</span>
+                            </button>
+                        {/if}
+                        <button onclick={(e) => { e.stopPropagation(); activeTrayId = worker.id; activeTrayType = 'stratum'; activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer">Copy Stratum</button>
+                    {:else}
+                        <button onclick={(e) => { e.stopPropagation(); activeTrayId = worker.id; activeTrayType = 'add'; trayTokenAmount = ''; activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center">Add Tokens <span class="text-lg leading-none">+</span></button>
+                        <button onclick={(e) => { e.stopPropagation(); activeTrayId = worker.id; activeTrayType = 'sub'; trayTokenAmount = ''; activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center">Subtract Tokens <span class="text-lg leading-none">-</span></button>
+                    {/if}
+                    
+                    <div class="h-px bg-neutral-800"></div>
+                    <button onclick={(e) => { e.stopPropagation(); deleteWorker(worker.id); activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-red-950/30 transition-colors cursor-pointer">Delete Worker</button>
+                </div>
+            {/if}
         </div>
     </div>
     
@@ -367,7 +431,7 @@
             <div class="flex flex-col items-end">
                 <span class="text-[7px] uppercase tracking-widest text-neutral-500 font-bold font-mono">Live Hash</span>
                 {#if worker.isOnline && worker.hashRate === 0}
-                    <span class="text-[9px] font-mono font-bold text-teal-500 animate-pulse mt-0.5 tracking-widest">SYNCING...</span>
+                    <span class="text-[9px] font-mono font-bold {worker.type === 'physical' ? 'text-teal-500' : 'text-purple-500'} animate-pulse mt-0.5 tracking-widest">SYNCING...</span>
                 {:else}
                     <span class="text-[11px] font-mono font-black {worker.hashRate > 0 ? 'text-white' : 'text-neutral-600'} tabular-nums leading-none tracking-tight">{worker.hashRate.toFixed(2)} <span class="text-[8px] text-neutral-500 font-normal">TH/s</span></span>
                 {/if}
@@ -393,6 +457,56 @@
             </div>
         </div>
     </div>
+
+    <!-- ⚡ TRAY INJECTIONS HERE -->
+    {#if activeTrayId === worker.id && activeTrayType === 'stratum'}
+        {@const dynamicWorkerName = $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${worker.name}` : `{walletAddress}.${worker.name}`}
+        <div class="mt-3 pt-3 border-t border-neutral-800/50 flex flex-col gap-2 pointer-events-auto shadow-inner relative z-10 animate-[fade-in-up_0.1s_ease-out]" onclick={(e) => e.stopPropagation()} onmousedown={(e) => e.stopPropagation()}>
+            <div class="flex items-center justify-between">
+                <span class="text-[9px] font-bold uppercase tracking-widest text-teal-500 flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                    Stratum Connection
+                </span>
+                <button aria-label="Close Tray" onclick={() => activeTrayId = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer w-4 h-4 flex items-center justify-center rounded"><span class="text-[10px] font-bold">✕</span></button>
+            </div>
+            
+            <div class="flex flex-col gap-1.5">
+                <div class="flex items-center justify-between bg-[#0a0a0a] border border-neutral-800 rounded-lg p-2 gap-2">
+                   <div class="flex flex-col min-w-0 flex-1">
+                       <span class="text-[7px] text-neutral-500 font-bold uppercase tracking-widest mb-0.5">Pool URL</span>
+                       <span class="text-[10px] font-mono text-teal-400 truncate select-all">{worker.stratumUrl || 'stratum+tcp://192.168.0.12:5555'}</span>
+                   </div>
+                   <button aria-label="Copy URL" onclick={(e) => handleTrayCopy(e, worker.stratumUrl || 'stratum+tcp://192.168.0.12:5555', 'COPIED POOL URL', worker.stratumUrl || 'stratum+tcp://192.168.0.12:5555')} class="shrink-0 bg-[#161616] hover:bg-teal-950/40 border border-neutral-700 hover:border-teal-900/50 text-neutral-400 hover:text-teal-400 px-2.5 py-1.5 rounded text-[8px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                </div>
+                
+                <div class="flex items-center justify-between bg-[#0a0a0a] border border-neutral-800 rounded-lg p-2 gap-2">
+                   <div class="flex flex-col min-w-0 flex-1">
+                       <span class="text-[7px] text-neutral-500 font-bold uppercase tracking-widest mb-0.5">Wallet / Worker</span>
+                       <span class="text-[10px] font-mono text-amber-400 truncate select-all">{dynamicWorkerName}</span>
+                   </div>
+                   <button aria-label="Copy Worker" onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', dynamicWorkerName)} class="shrink-0 bg-[#161616] hover:bg-amber-950/40 border border-neutral-700 hover:border-amber-900/50 text-neutral-400 hover:text-amber-400 px-2.5 py-1.5 rounded text-[8px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    {#if activeTrayId === worker.id && (activeTrayType === 'add' || activeTrayType === 'sub')}
+        <div class="mt-3 pt-3 border-t border-neutral-800/50 flex flex-col gap-2 pointer-events-auto shadow-inner relative z-10 animate-[fade-in-up_0.1s_ease-out]" onclick={(e) => e.stopPropagation()} onmousedown={(e) => e.stopPropagation()}>
+            <div class="flex items-center justify-between mb-0.5">
+                <span class="text-[9px] font-bold uppercase tracking-widest {activeTrayType === 'add' ? 'text-purple-400' : 'text-amber-400'}">{activeTrayType === 'add' ? 'Inject Tokens' : 'Withdraw Tokens'}</span>
+                <button aria-label="Close Tray" onclick={() => activeTrayId = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer w-4 h-4 flex items-center justify-center rounded"><span class="text-[10px] font-bold">✕</span></button>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="relative flex-1 min-w-0">
+                    <input type="number" bind:value={trayTokenAmount} placeholder="Amount..." class="w-full bg-[#0a0a0a] border border-neutral-800 {activeTrayType === 'add' ? 'focus:border-purple-500/50' : 'focus:border-amber-500/50'} rounded-lg pl-3 pr-10 py-2 text-[11px] font-mono text-white outline-none transition-colors appearance-none" onkeydown={(e) => e.key === 'Enter' && processTokenAction(worker.id)} autofocus min="0" />
+                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-bold text-neutral-600 pointer-events-none">TOKENS</span>
+                </div>
+                <button onclick={() => processTokenAction(worker.id)} class="shrink-0 px-3 py-2 {activeTrayType === 'add' ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]' : 'bg-[#1a1a1a] hover:bg-[#222] border border-amber-500/30 hover:border-amber-500 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.1)]'} font-bold uppercase tracking-widest text-[9px] rounded-lg transition-colors cursor-pointer">
+                    {activeTrayType === 'add' ? 'Inject' : 'Withdraw'}
+                </button>
+            </div>
+        </div>
+    {/if}
 
     {#if isDeployed && assignedSilo}
         <div class="mt-3 pt-2.5 border-t border-neutral-800/50 flex justify-between items-center pointer-events-none">
@@ -532,7 +646,7 @@
                     <div class="flex-1 border border-dashed border-neutral-800/50 rounded-xl flex items-center justify-center bg-black/20 p-4 text-center pointer-events-none"><p class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold leading-relaxed">{#if !$isWalletConnected} Connect wallet {:else} No hardware provisioned {/if}</p></div>
                 {/if}
                 
-                {#each $workers as worker (worker.id)}
+                {#each $workers.filter(w => w.assignedSiloId === null) as worker (worker.id)}
                     {@render workerCard(worker)}
                 {/each}
             </div>
@@ -945,82 +1059,45 @@
     </div>
 {/if}
 
-{#if configModalWorker}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => configModalWorker = null}></div>
-        <div class="relative z-10 w-full max-w-sm bg-[#111] border border-neutral-800 rounded-[24px] shadow-2xl flex flex-col p-6 animate-[fade-in-up_0.2s_ease-out]">
-            <h3 class="text-white font-bold tracking-wide text-md mb-4 text-center uppercase">Rename Hardware</h3>
-            
-            <div class="flex flex-col gap-4">
-                <div class="bg-[#0c0c0c] border border-neutral-800 rounded-lg p-3">
-                    <label for="confName" class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold block mb-2">Worker Name</label>
-                    <input type="text" id="confName" bind:value={configFormName} class="w-full bg-transparent text-sm text-teal-400 outline-none font-mono placeholder-neutral-700" spellcheck="false" />
-                    <span class="text-[8px] text-neutral-600 font-mono mt-2 block">Must match miner hardware interface exactly.</span>
-                </div>
-            </div>
-            
-            <div class="flex gap-3 mt-6">
-                <button aria-label="Cancel" onclick={() => configModalWorker = null} class="flex-1 py-3 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-800 text-neutral-400 font-bold uppercase tracking-widest text-[9px] rounded-xl transition-colors cursor-pointer">Cancel</button>
-                <button aria-label="Save" onclick={saveConfig} class="flex-1 py-3 bg-teal-500 hover:bg-teal-400 text-black font-black uppercase tracking-widest text-[9px] rounded-xl transition-colors cursor-pointer shadow-[0_0_15px_rgba(20,184,166,0.3)]">Save Label</button>
-            </div>
-        </div>
-    </div>
-{/if}
-
-{#if fundModalWorker}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => fundModalWorker = null}></div>
-        <div class="relative z-10 w-full max-w-sm bg-[#111] border border-neutral-800 rounded-[24px] shadow-2xl flex flex-col p-6 animate-[fade-in-up_0.2s_ease-out]">
-            <h3 class="text-purple-400 font-bold tracking-wide text-md mb-2 text-center uppercase">Fund Capital Worker</h3>
-            <p class="text-[10px] text-neutral-500 font-mono text-center mb-6 leading-relaxed">Deposit stablecoins to synthesize virtual kHeavyHash power instantly.</p>
-            
-            <div class="flex flex-col gap-4">
-                <div class="bg-[#0c0c0c] border border-neutral-800 rounded-lg p-3">
-                    <label for="fundAmount" class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold block mb-2">Deposit Amount (USDC)</label>
-                    <input type="number" id="fundAmount" placeholder="1000" class="w-full bg-transparent text-2xl text-white outline-none font-mono placeholder-neutral-700" />
-                </div>
-            </div>
-            
-            <div class="flex gap-3 mt-6">
-                <button aria-label="Cancel" onclick={() => fundModalWorker = null} class="flex-1 py-3 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-800 text-neutral-400 font-bold uppercase tracking-widest text-[9px] rounded-xl transition-colors cursor-pointer">Cancel</button>
-                <button aria-label="Inject Capital" onclick={() => { if(fundModalWorker) injectCapital(fundModalWorker.id) }} class="flex-1 py-3 bg-purple-500 hover:bg-purple-400 text-black font-black uppercase tracking-widest text-[9px] rounded-xl transition-colors cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.3)]">Inject Capital</button>
-            </div>
-        </div>
-    </div>
-{/if}
-
-{#if copyModalWorker}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => copyModalWorker = null}></div>
-        <div class="relative z-10 w-full max-w-sm bg-[#111] border border-neutral-800 rounded-[24px] shadow-2xl flex flex-col p-5 animate-[fade-in-up_0.2s_ease-out]">
-            <h3 class="text-white font-bold tracking-wide text-md mb-4 text-center">Hardware Config</h3>
-            <div class="flex flex-col gap-3">
-                <div class="bg-[#0c0c0c] border border-neutral-800 rounded-lg p-3">
-                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold block mb-1.5">Stratum URL</span>
-                    <div class="flex justify-between items-center gap-2">
-                        <code class="text-teal-400 font-mono text-[10px] truncate select-all">{copyModalWorker?.stratumUrl || ''}</code>
-                        <button aria-label="Copy Stratum" onclick={() => copyText(copyModalWorker?.stratumUrl || '')} class="px-3 py-1.5 bg-[#222] hover:bg-[#2a2a2a] text-white text-[10px] font-bold uppercase rounded cursor-pointer transition-colors">Copy</button>
-                    </div>
-                </div>
-                <div class="bg-[#0c0c0c] border border-neutral-800 rounded-lg p-3">
-                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold block mb-1.5">Wallet.Worker Name</span>
-                    <div class="flex justify-between items-center gap-2">
-                        <code class="text-teal-400 font-mono text-[10px] truncate select-all">{copyModalWorker?.walletWorker || ''}</code>
-                        <button aria-label="Copy Wallet Worker" onclick={() => copyText(copyModalWorker?.walletWorker || '')} class="px-3 py-1.5 bg-[#222] hover:bg-[#2a2a2a] text-white text-[10px] font-bold uppercase rounded cursor-pointer transition-colors">Copy</button>
-                    </div>
-                </div>
-            </div>
-            <button aria-label="Close" onclick={() => copyModalWorker = null} class="mt-4 w-full py-2.5 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-800 text-white font-bold uppercase tracking-widest text-[9px] rounded-lg transition-colors cursor-pointer">Close</button>
-        </div>
-    </div>
-{/if}
-
 <style>
-    @keyframes slide { 0% { background-position: 0 0; } 100% { background-position: 10px 10px; } }
-    @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
-    @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(5px); } 100% { opacity: 1; transform: translateY(0); } }
-    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    input[type=number] { appearance: textfield; -moz-appearance: textfield; }
-    .hide-scrollbar::-webkit-scrollbar { display: none; }
-    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .custom-slider {
+        -webkit-appearance: none;
+        background: #1a1a1a;
+        height: 8px;
+        border-radius: 4px;
+        outline: none;
+        border: 1px solid #222;
+    }
+    
+    .custom-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #111;
+        cursor: pointer;
+        border: 2px solid #14b8a6;
+        box-shadow: 0 0 15px rgba(20, 184, 166, 0.4);
+        transition: transform 0.1s;
+    }
+
+    .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); background: #14b8a6; }
+
+    @keyframes float-up-1 {
+        0% { opacity: 0; transform: translateY(10px) scale(0.9); }
+        15% { opacity: 1; transform: translateY(0px) scale(1); }
+        85% { opacity: 1; transform: translateY(-20px) scale(1); }
+        100% { opacity: 0; transform: translateY(-30px) scale(0.9); }
+    }
+    
+    @keyframes float-up-2 {
+        0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+        15% { opacity: 0; transform: translateY(20px) scale(0.9); }
+        30% { opacity: 1; transform: translateY(0px) scale(1); }
+        85% { opacity: 1; transform: translateY(-20px) scale(1); }
+        100% { opacity: 0; transform: translateY(-30px) scale(0.9); }
+    }
+    
+    :global(.animate-float-1) { animation: float-up-1 2s ease-out forwards; }
+    :global(.animate-float-2) { animation: float-up-2 2s ease-out forwards; }
 </style>

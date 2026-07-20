@@ -1,7 +1,3 @@
-// PERENNIA HOLDINGS LLC - SPA ENTRY CONFIGURATION
-// This completely disables Server-Side Rendering (SSR) and forces the application
-// to run entirely client-side, making it a pure static asset for Nginx to serve.
-
-export const prerender = true;
+// Disables Server-Side Rendering for the UI, forcing it to render safely in the browser
 export const ssr = false;
-export const trailingSlash = 'always';
+export const prerender = false;

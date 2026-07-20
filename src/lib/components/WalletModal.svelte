@@ -11,7 +11,6 @@
         connectObserver
     } from '$lib/stores/wallet';
 
-    // SVELTE 5 RUNE UPDATE
     let isKasWareInstalled = $state(false);
 
     onMount(() => {
@@ -27,85 +26,65 @@
 
 {#if $showWalletModal}
     <div 
-        class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-        transition:fade={{ duration: 200 }}
+        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#020202]/95 p-4"
+        transition:fade={{ duration: 150 }}
         onclick={close}
+        onkeydown={(e) => e.key === 'Escape' && close()}
+        role="button"
+        tabindex="0"
     >
         <div 
-            class="w-full max-w-sm rounded-3xl bg-[#111214] border border-neutral-800 shadow-2xl p-5 text-white font-sans"
-            transition:fly={{ y: 20, duration: 300 }}
+            class="w-full max-w-sm rounded-none border-2 border-teal-900/50 bg-[#0a0a0a] shadow-[0_0_50px_rgba(20,184,166,0.1)] p-6 text-white font-sans"
+            transition:fly={{ y: 20, duration: 250 }}
             onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+            role="dialog"
         >
             <div class="flex justify-between items-center mb-6">
-                <div class="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center font-bold text-teal-400">P</div>
-                <h2 class="text-lg font-bold tracking-wide uppercase">Connect Wallet</h2>
-                <button onclick={close} class="text-neutral-500 hover:text-white transition cursor-pointer">✕</button>
+                <h2 class="text-lg font-black tracking-widest uppercase text-teal-500">Initialize Link</h2>
+                <button onclick={close} class="text-neutral-500 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
             </div>
 
-            {#if $walletMessage}
-                <div class="mb-4 text-center text-[10px] uppercase font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 py-2 rounded" transition:fade>
-                    {$walletMessage}
-                </div>
-            {/if}
-
-            <div class="space-y-3 mb-6">
-                
+            <div class="flex flex-col gap-3">
                 <button 
                     onclick={connectKasware} 
-                    disabled={$isConnecting || !isKasWareInstalled} 
-                    class="w-full flex justify-between items-center p-3.5 rounded-xl transition border border-transparent {isKasWareInstalled ? 'bg-[#1a1b1e] hover:bg-[#25262c] hover:border-teal-500/30 cursor-pointer' : 'bg-[#1a1b1e] opacity-50 cursor-not-allowed'}"
+                    disabled={$isConnecting}
+                    class="w-full flex items-center justify-between p-4 bg-[#111214] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-all group disabled:opacity-50"
                 >
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold text-xs">K</div>
-                        <span class="font-bold text-sm tracking-wide">KasWare Wallet</span>
-                    </div>
-                    <span class="text-[9px] font-bold px-2 py-1 rounded tracking-widest {isKasWareInstalled ? 'text-teal-400 bg-teal-400/10' : 'text-neutral-500 bg-neutral-800'}">
-                        {isKasWareInstalled ? 'INSTALLED' : 'UNAVAILABLE'}
-                    </span>
+                    <span class="font-bold tracking-wide group-hover:text-teal-400 transition-colors">KasWare</span>
+                    {#if isKasWareInstalled}
+                        <span class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_#22c55e]"></span>
+                    {:else}
+                        <span class="text-[10px] uppercase text-neutral-500">Not Detected</span>
+                    {/if}
                 </button>
 
                 <button 
                     onclick={connectWalletConnect} 
-                    disabled={$isConnecting} 
-                    class="w-full flex justify-between items-center p-3.5 rounded-xl bg-[#1a1b1e] hover:bg-[#25262c] transition cursor-pointer border border-transparent hover:border-blue-500/30"
+                    disabled={$isConnecting}
+                    class="w-full flex items-center justify-between p-4 bg-[#111214] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-all group disabled:opacity-50"
                 >
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">📱</div>
-                        <span class="font-bold text-sm tracking-wide">Kaspium</span>
-                    </div>
-                    <span class="text-[9px] font-bold text-blue-400 bg-blue-400/10 px-2 py-1 rounded tracking-widest">MOBILE APP</span>
+                    <span class="font-bold tracking-wide group-hover:text-teal-400 transition-colors">WalletConnect</span>
                 </button>
 
                 <button 
-                    onclick={connectWalletConnect} 
-                    disabled={$isConnecting} 
-                    class="w-full flex justify-between items-center p-3.5 rounded-xl bg-[#1a1b1e] hover:bg-[#25262c] transition cursor-pointer border border-transparent hover:border-neutral-500/30"
+                    onclick={connectObserver} 
+                    disabled={$isConnecting}
+                    class="w-full flex items-center justify-between p-4 bg-[#111214] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-all group disabled:opacity-50"
                 >
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded bg-neutral-500/20 text-neutral-400 flex items-center justify-center font-bold text-xs">💳</div>
-                        <span class="font-bold text-sm tracking-wide">Tangem</span>
-                    </div>
-                    <span class="text-[9px] font-bold text-neutral-400 bg-neutral-800 px-2 py-1 rounded tracking-widest">HARDWARE</span>
+                    <span class="font-bold tracking-wide group-hover:text-teal-400 transition-colors">Observer Mode</span>
                 </button>
-
-                <button disabled class="w-full flex justify-between items-center p-3.5 rounded-xl bg-black border border-neutral-900 opacity-50 cursor-not-allowed">
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold text-xs border border-emerald-900/30">P</div>
-                        <span class="text-neutral-500 font-bold text-sm tracking-wide">Perennia Native</span>
-                    </div>
-                    <span class="text-[9px] font-bold text-emerald-500/40 bg-emerald-950/30 border border-emerald-900/40 px-2 py-1 rounded tracking-widest">COMING SOON</span>
-                </button>
-                
             </div>
 
-            {#if $isConnecting}
-                <p class="text-center text-[10px] text-teal-500 font-bold uppercase tracking-widest animate-pulse mb-4">Establishing Secure Uplink...</p>
+            {#if $isConnecting || $walletMessage}
+                <div class="mt-6 text-center" transition:fade>
+                    <p class="text-xs font-mono text-teal-500/80 uppercase tracking-widest animate-pulse">{$walletMessage}</p>
+                </div>
             {/if}
-
-            <button onclick={() => { let addr = prompt('Enter Kaspa Address:'); if(addr) connectObserver(addr); }} class="w-full py-3 bg-[#111214] border border-neutral-800 hover:border-neutral-600 rounded-xl text-teal-400 text-xs font-bold tracking-widest transition cursor-pointer">
-                HARDWARE OBS LEVEL MODE
-            </button>
-
         </div>
     </div>
 {/if}

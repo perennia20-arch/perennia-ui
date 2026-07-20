@@ -1,357 +1,187 @@
 <script lang="ts">
-    // Temporary Override: High-Fidelity Mock Data for Prototype Visualization
+    import { onMount } from 'svelte';
+    import { fade, fly } from 'svelte/transition';
+    import { globalKasPrice } from '$lib/stores/app';
+
+    let isLoading = $state(true);
+    let estate = $state<any>(null);
+    let error = $state<string | null>(null);
+
+    // Myst-like Forecasting Panel State
+    let projectedMonths = $state(12);
+    let estimatedHashrate = $state(50); // TH/s
+    let networkDifficulty = $state(1.5);
     
-    // --- OMNI-CHAIN STATE ---
-    let activeNetwork = $state('CITADELLE');
-
-    const baseNetworks = {
-        KAS: {
-            name: 'Kaspa',
-            color: '#14b8a6', // Teal
-            symbol: '₭',
-            tokens: [
-                { ticker: 'KAS', name: 'Native Kaspa', balance: 4500000, price: 0.15, icon: 'K' },
-                { ticker: 'KSPR', name: 'Kasper Token', balance: 12500000, price: 0.008, icon: 'KS' },
-                { ticker: 'NACHO', name: 'Nacho the Kat', balance: 85000000, price: 0.0004, icon: 'N' }
-            ]
-        },
-        BTC: {
-            name: 'Bitcoin',
-            color: '#f7931a', // Orange
-            symbol: '₿',
-            tokens: [
-                { ticker: 'BTC', name: 'Native Bitcoin', balance: 18.5, price: 64200.00, icon: 'B' },
-                { ticker: 'ORDI', name: 'Ordinals', balance: 2450, price: 38.50, icon: 'O' },
-                { ticker: 'SATS', name: 'Sats', balance: 150000000, price: 0.0002, icon: 'S' }
-            ]
-        },
-        ETH: {
-            name: 'Ethereum',
-            color: '#627eea', // Blue/Purple
-            symbol: 'Ξ',
-            tokens: [
-                { ticker: 'ETH', name: 'Native Ethereum', balance: 420.5, price: 3450.00, icon: 'E' },
-                { ticker: 'USDC', name: 'USD Coin', balance: 850000, price: 1.00, icon: '$' },
-                { ticker: 'UNI', name: 'Uniswap', balance: 12500, price: 9.85, icon: 'U' }
-            ]
-        },
-        SOL: {
-            name: 'Solana',
-            color: '#14F195', // Neon Green
-            symbol: '◎',
-            tokens: [
-                { ticker: 'SOL', name: 'Native Solana', balance: 8500, price: 142.00, icon: 'S' },
-                { ticker: 'JUP', name: 'Jupiter', balance: 450000, price: 0.85, icon: 'J' },
-                { ticker: 'PYTH', name: 'Pyth Network', balance: 320000, price: 0.35, icon: 'P' }
-            ]
-        }
-    };
-
-    // Aggregate all tokens and sort by USD value for the combined view
-    const allTokens = Object.values(baseNetworks)
-        .flatMap(network => network.tokens)
-        .sort((a, b) => (b.balance * b.price) - (a.balance * a.price));
-
-    const networkData = {
-        CITADELLE: {
-            name: 'Citadelle Synthesis',
-            color: '#d4af37', // Sovereign Gold
-            symbol: 'Ω',
-            tokens: allTokens
-        },
-        ...baseNetworks
-    };
-
-    let activeData = $derived(networkData[activeNetwork as keyof typeof networkData]);
-    let activeColor = $derived(activeData.color);
-    
-    let activeColorRgb = $derived(
-        activeNetwork === 'KAS' ? '20, 184, 166' :
-        activeNetwork === 'BTC' ? '247, 147, 26' :
-        activeNetwork === 'ETH' ? '98, 126, 234' :
-        activeNetwork === 'SOL' ? '20, 241, 149' :
-        '212, 175, 55' // Sovereign Gold RGB
+    // Auto-calculates projection based on live market price
+    let projectedYield = $derived(
+        ((estimatedHashrate / networkDifficulty) * projectedMonths * 1250 * $globalKasPrice).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
     );
 
-    // Calculate total net worth across the currently selected view
-    let networkNetWorth = $derived.by(() => {
-        return activeData.tokens.reduce((acc, token) => acc + (token.balance * token.price), 0);
-    });
-
-    // --- LIQUIDITY FORECASTING ENGINE ---
-    let lpTokenA = $state(0); 
-    let lpTokenB = $state(1);
-    let projectionYears = $state(3);
-    let apyAssumption = $state(24.5); 
-    
-    // Auto-adjust selected tokens if network switches and array bounds change
-    $effect(() => {
-        if (activeNetwork) {
-            lpTokenA = 0;
-            lpTokenB = 1;
-        }
-    });
-
-    let selectedTokenA = $derived(activeData.tokens[lpTokenA]);
-    let selectedTokenB = $derived(activeData.tokens[lpTokenB]);
-
-    // Simulated LP Position (Assuming user provides 25% of their holding into the pool)
-    let lpPrincipalUsd = $derived(
-        selectedTokenA && selectedTokenB ? 
-        (selectedTokenA.balance * selectedTokenA.price * 0.25) + (selectedTokenB.balance * selectedTokenB.price * 0.25) : 0
+    let totalTreasuryUsd = $derived(
+        estate ? estate.assets.reduce((acc: number, asset: any) => {
+            // For now, only KAS is wired to the live oracle, others calculate at $0
+            const price = asset.symbol === 'KAS' ? $globalKasPrice : 0;
+            return acc + (asset.balance * price);
+        }, 0) : 0
     );
 
-    let projectedFutureValue = $derived.by(() => {
-        let rate = apyAssumption / 100;
-        let months = projectionYears * 12;
-        let futureValue = lpPrincipalUsd;
-        for (let i = 0; i < months; i++) {
-            futureValue = futureValue * (1 + rate / 12);
+    function copyText(text: string) { 
+        navigator.clipboard.writeText(text); 
+    }
+
+    onMount(async () => {
+        try {
+            const res = await fetch('/api/treasury/corporate');
+            if (!res.ok) throw new Error("Failed to sync with Corporate Treasury RPC.");
+            estate = await res.json();
+        } catch (err: any) {
+            error = err.message;
+        } finally {
+            isLoading = false;
         }
-        return futureValue;
     });
-
-    let totalProfit = $derived(projectedFutureValue - lpPrincipalUsd);
-
-    // --- DYNAMIC SVG CHART GENERATOR (LP TRAJECTORY) ---
-    let chartPath = $derived.by(() => {
-        const width = 800;
-        const height = 250;
-        let points = [];
-        let principal = lpPrincipalUsd;
-        let rate = apyAssumption / 100;
-        let months = projectionYears * 12;
-        let maxVal = projectedFutureValue || 1; 
-        
-        for (let i = 0; i <= months; i++) {
-            const x = (i / months) * width;
-            let currentVal = principal;
-            for (let m = 0; m < i; m++) {
-                currentVal = currentVal * (1 + rate / 12);
-            }
-            const y = height - ((currentVal / maxVal) * height) + 10;
-            points.push({x, y});
-        }
-
-        if (points.length === 0) return '';
-        let d = `M ${points[0].x},${points[0].y}`;
-        for (let i = 1; i < points.length - 1; i++) {
-            const xc = (points[i].x + points[i + 1].x) / 2;
-            const yc = (points[i].y + points[i + 1].y) / 2;
-            d += ` Q ${points[i].x},${points[i].y} ${xc},${yc}`;
-        }
-        d += ` L ${points[points.length - 1].x},${points[points.length - 1].y}`;
-        return d;
-    });
-
-    let areaPath = $derived(`${chartPath} L 800,280 L 0,280 Z`);
 </script>
 
-<div class="w-full h-full p-4 lg:p-8 flex flex-col gap-6 animate-[fade-in_1s_ease-out] overflow-y-auto hide-scrollbar" style="--theme-color: {activeColor}; --theme-color-rgb: {activeColorRgb};">
+<div class="w-full h-full flex flex-col gap-6 font-sans p-4 lg:p-8" in:fade={{ duration: 300 }}>
     
-    <!-- OMNI-CHAIN DOCK (TOP NAVIGATION) -->
-    <div class="flex flex-wrap gap-4 border-b border-neutral-800/80 pb-6 items-center justify-between z-20">
-        <div class="flex flex-wrap gap-2 bg-[#0a0a0a] border border-neutral-800 p-1.5 rounded-xl shadow-lg">
-            {#each Object.entries(networkData) as [key, data]}
-                <button 
-                    onclick={() => activeNetwork = key}
-                    class="relative px-4 lg:px-6 py-2.5 rounded-lg text-xs font-bold tracking-widest uppercase transition-all duration-300"
-                    style="color: {activeNetwork === key ? '#fff' : '#666'}; background: {activeNetwork === key ? '#151515' : 'transparent'};"
-                >
-                    <span class="relative z-10 flex items-center gap-2">
-                        {#if activeNetwork === key}
-                            <div class="w-2 h-2 rounded-full shadow-glow-theme animate-pulse" style="background: var(--theme-color);"></div>
-                        {/if}
-                        {#if key === 'CITADELLE'}
-                            <span class="font-black text-sm" style="color: {activeNetwork === key ? 'var(--theme-color)' : 'inherit'};">Ω</span>
-                        {/if}
-                        {data.name}
-                    </span>
-                    {#if activeNetwork === key}
-                        <div class="absolute inset-0 rounded-lg border border-theme/30 bg-theme/5 shadow-inner-theme" style="border-color: var(--theme-color); opacity: 0.5;"></div>
-                    {/if}
-                </button>
-            {/each}
+    <div class="flex items-center justify-between border-b border-neutral-900 pb-4 shrink-0">
+        <div>
+            <h2 class="text-2xl md:text-3xl font-black uppercase tracking-[0.2em] text-white drop-shadow-md">Corporate Treasury</h2>
+            <p class="text-[10px] uppercase tracking-widest text-teal-500 font-bold mt-1">Perennia Holdings, LLC • Immutable Reserve</p>
         </div>
-        
-        <div class="text-right mt-4 lg:mt-0">
-            <p class="text-neutral-500 text-[10px] tracking-widest uppercase mb-1">
-                {activeNetwork === 'CITADELLE' ? 'Global Aggregate Value' : `${activeData.name} Vault Value`}
-            </p>
-            <p class="text-3xl font-black text-white tracking-tighter drop-shadow-theme">
-                <span style="color: var(--theme-color); opacity: 0.8;">$</span>{networkNetWorth.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-            </p>
-        </div>
+        {#if estate}
+            <div class="text-right flex flex-col items-end">
+                <span class="text-[9px] text-neutral-500 uppercase tracking-widest mb-1">Vault Identity Signature</span>
+                <span class="text-xs font-mono text-teal-500 bg-teal-900/10 px-3 py-1 border border-teal-900/50">
+                    {estate.masterIdentity}
+                </span>
+            </div>
+        {/if}
     </div>
 
-    <!-- MAIN GRID -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
-        
-        <!-- ASSET INVENTORY (LEFT 4 COLS) -->
-        <div class="lg:col-span-4 flex flex-col gap-4">
-            <div class="bg-[#050505] border border-neutral-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden h-[600px] flex flex-col">
-                <div class="absolute top-0 right-0 w-48 h-48 rounded-full blur-[80px] pointer-events-none opacity-10 transition-colors duration-500" style="background: var(--theme-color);"></div>
-                
-                <h3 class="text-neutral-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-6 flex justify-between items-center">
-                    <span>{activeData.name} Ecosystem</span>
-                    <span style="color: var(--theme-color); text-shadow: 0 0 10px rgba(var(--theme-color-rgb), 0.5);">{activeData.tokens.length} Assets</span>
-                </h3>
-                
-                <div class="flex flex-col gap-3 flex-1 overflow-y-auto hide-scrollbar pr-2">
-                    {#each activeData.tokens as token}
-                        <div class="flex justify-between items-center bg-[#0a0a0a] border border-neutral-800/80 p-4 rounded-xl hover:border-theme transition-all group relative cursor-pointer" style="--hover-border: rgba(var(--theme-color-rgb), 0.4);">
-                            <div class="absolute inset-0 bg-theme/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" style="background: var(--theme-color); mix-blend-mode: overlay;"></div>
-                            
-                            <div class="flex items-center gap-4 relative z-10">
-                                <div class="w-10 h-10 rounded-full flex items-center justify-center font-black text-lg border border-neutral-700 shadow-md group-hover:shadow-glow-theme transition-all duration-300" style="background: #111; color: var(--theme-color);">
-                                    {token.icon}
-                                </div>
-                                <div>
-                                    <p class="text-white font-bold tracking-wider text-sm">{token.ticker}</p>
-                                    <p class="text-neutral-500 text-[10px] uppercase tracking-widest mt-0.5">{token.name}</p>
-                                </div>
-                            </div>
-                            <div class="text-right relative z-10">
-                                <p class="text-white font-mono text-sm">{token.balance.toLocaleString('en-US', {maximumFractionDigits: 4})}</p>
-                                <p class="text-xs font-mono mt-1 opacity-80" style="color: var(--theme-color);">${(token.balance * token.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                            </div>
-                        </div>
-                    {/each}
-                </div>
-            </div>
+    {#if isLoading}
+        <div class="flex-grow flex flex-col items-center justify-center gap-4 h-[400px]">
+            <div class="w-12 h-12 border-2 border-teal-900/30 border-t-teal-500 rounded-full animate-spin"></div>
+            <span class="text-xs font-mono text-teal-500/80 uppercase tracking-widest animate-pulse">Synchronizing Omni-Chain Ledger...</span>
         </div>
+    
+    {:else if error}
+        <div class="flex-grow flex flex-col items-center justify-center gap-4 h-[400px] border border-red-900/30 bg-red-900/5 rounded-2xl">
+            <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <span class="text-xs font-mono text-red-500 uppercase tracking-widest">{error}</span>
+        </div>
+    
+    {:else if estate}
+        <div class="w-full bg-[#0a0a0a] border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl relative" in:fly={{ y: 20, duration: 400 }}>
+            <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-teal-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-        <!-- LIQUIDITY FORECASTING ENGINE (RIGHT 8 COLS) -->
-        <div class="lg:col-span-8 flex flex-col gap-4">
-            <div class="bg-[#050505] border border-neutral-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden h-[600px] flex flex-col">
-                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[80%] h-32 rounded-[100%] blur-[100px] pointer-events-none opacity-10 transition-colors duration-500" style="background: var(--theme-color);"></div>
+            <div class="p-8 lg:p-12 flex flex-col items-center justify-center border-b border-neutral-800/80 relative z-10 text-center">
+                <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-500 mb-4">Total Superimposed Liquidity</span>
+                <span class="text-6xl md:text-7xl font-mono font-light tracking-tighter text-teal-400 drop-shadow-[0_0_20px_rgba(20,184,166,0.3)]">
+                    {totalTreasuryUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                </span>
+            </div>
 
-                <!-- FORECASTER HEADER -->
-                <div class="flex flex-col md:flex-row justify-between items-start mb-6 z-10 gap-6 border-b border-neutral-800/60 pb-6">
-                    <div>
-                        <h3 class="text-neutral-500 text-[10px] font-bold tracking-[0.2em] uppercase">Liquidity Pairing Projection</h3>
-                        <div class="flex flex-wrap items-center gap-4 mt-4">
-                            
-                            <select bind:value={lpTokenA} class="bg-[#0a0a0a] border border-neutral-700 text-white text-xs font-bold tracking-widest p-2.5 rounded-lg outline-none focus:border-theme transition-colors cursor-pointer" style="--tw-ring-color: {activeColor};">
-                                {#each activeData.tokens as token, i}
-                                    <option value={i}>{token.ticker}</option>
-                                {/each}
-                            </select>
-                            
-                            <span class="text-neutral-600 font-black">×</span>
-                            
-                            <select bind:value={lpTokenB} class="bg-[#0a0a0a] border border-neutral-700 text-white text-xs font-bold tracking-widest p-2.5 rounded-lg outline-none focus:border-theme transition-colors cursor-pointer">
-                                {#each activeData.tokens as token, i}
-                                    <option value={i}>{token.ticker}</option>
-                                {/each}
-                            </select>
-                            
-                            <span class="ml-2 text-[10px] text-neutral-500 uppercase tracking-widest bg-neutral-900 px-2 py-1 rounded border border-neutral-800">50/50 Pool (25% Cap)</span>
-                        </div>
-                    </div>
-
-                    <div class="text-left md:text-right">
-                        <p class="text-neutral-500 text-[10px] tracking-widest uppercase mb-1">Projected LP Value</p>
-                        <p class="text-4xl font-black text-white tracking-tight drop-shadow-theme">
-                            ${projectedFutureValue.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
-                        </p>
-                        <p class="text-xs font-mono mt-1 opacity-80 font-bold" style="color: var(--theme-color);">
-                            +{totalProfit.toLocaleString('en-US', {maximumFractionDigits: 0})} NET PROFIT
-                        </p>
-                    </div>
-                </div>
-
-                <!-- DYNAMIC TRAJECTORY CHART -->
-                <div class="flex-1 w-full relative min-h-[200px] z-10 mb-6">
-                    <svg class="absolute inset-0 w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 800 300">
-                        <defs>
-                            <linearGradient id="lineGlow" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" stop-color="var(--theme-color)" stop-opacity="0.3" />
-                                <stop offset="100%" stop-color="var(--theme-color)" stop-opacity="1" />
-                            </linearGradient>
-                            <linearGradient id="areaFill" x1="0%" y1="0%" x2="0%" y2="100%">
-                                <stop offset="0%" stop-color="var(--theme-color)" stop-opacity="0.25" />
-                                <stop offset="100%" stop-color="var(--theme-color)" stop-opacity="0" />
-                            </linearGradient>
-                        </defs>
+            <div class="flex flex-col relative z-10 bg-[#0c0c0c]">
+                {#each estate.assets as asset, index}
+                    <div class="flex flex-col md:flex-row md:items-center justify-between p-6 border-b border-neutral-800/50 hover:bg-[#111] transition-colors group">
                         
-                        <g class="stroke-neutral-800/40 stroke-[1]" stroke-dasharray="4 4">
-                            <line x1="0" y1="50" x2="800" y2="50" />
-                            <line x1="0" y1="125" x2="800" y2="125" />
-                            <line x1="0" y1="200" x2="800" y2="200" />
-                        </g>
-
-                        <path d={areaPath} fill="url(#areaFill)" class="transition-all duration-700 ease-in-out" />
-                        <path d={chartPath} fill="none" stroke="url(#lineGlow)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="transition-all duration-700 ease-in-out drop-shadow-theme-heavy" />
-                    </svg>
-                </div>
-
-                <!-- COMPOUNDING MATRICES CONTROLS -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 z-10 bg-[#0a0a0a]/50 p-6 rounded-xl border border-neutral-800/50">
-                    <div class="flex flex-col gap-4">
-                        <div class="flex justify-between items-center">
-                            <label class="text-[9px] text-neutral-400 tracking-[0.2em] uppercase font-bold">Horizon</label>
-                            <span class="text-white font-mono text-xs bg-neutral-900 px-3 py-1.5 rounded border border-neutral-800">{projectionYears} YEARS</span>
+                        <div class="flex items-center gap-5 mb-4 md:mb-0">
+                            <div class="w-1.5 h-8 rounded-full shadow-[0_0_10px_currentColor]" style="background-color: {asset.color}; color: {asset.color};"></div>
+                            <div class="flex flex-col">
+                                <span class="text-sm font-black uppercase tracking-widest text-white group-hover:text-teal-400 transition-colors">{asset.name}</span>
+                                <div class="flex items-center gap-3 mt-1.5">
+                                    <span class="text-[9px] uppercase tracking-widest text-neutral-500 border border-neutral-800 bg-[#0a0a0a] px-2 py-0.5 rounded">{asset.network}</span>
+                                    <div class="flex items-center gap-1.5 text-neutral-600 hover:text-white transition-colors cursor-pointer" onclick={() => copyText(asset.address)} role="button" tabindex="0">
+                                        <span class="text-[10px] font-mono truncate w-32 md:w-64">{asset.address}</span>
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <input type="range" min="1" max="10" bind:value={projectionYears} class="custom-slider w-full" />
-                    </div>
 
-                    <div class="flex flex-col gap-4">
-                        <div class="flex justify-between items-center">
-                            <label class="text-[9px] text-neutral-400 tracking-[0.2em] uppercase font-bold">Yield Assumption (APY)</label>
-                            <span class="font-mono text-xs px-3 py-1.5 rounded font-bold transition-colors duration-500" style="color: var(--theme-color); background: rgba(var(--theme-color-rgb), 0.1); border: 1px solid rgba(var(--theme-color-rgb), 0.3);">{apyAssumption}%</span>
+                        <div class="flex flex-col items-start md:items-end pl-6 md:pl-0">
+                            <span class="text-2xl font-mono font-bold text-white tracking-tight">
+                                {asset.balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 4})}
+                            </span>
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mt-1">{asset.symbol} Reserve</span>
                         </div>
-                        <input type="range" min="1" max="150" step="0.5" bind:value={apyAssumption} class="custom-slider w-full" />
                     </div>
-                </div>
-
+                {/each}
             </div>
         </div>
-    </div>
+
+        <div class="mt-4 border border-neutral-800 bg-[#0a0a0a] rounded-3xl p-8 relative overflow-hidden shadow-2xl" in:fly={{ y: 20, duration: 400, delay: 200 }}>
+            <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9IiMzMzMiLz48L3N2Zz4=')] opacity-[0.03] pointer-events-none"></div>
+            
+            <div class="flex flex-col lg:flex-row justify-between gap-10 relative z-10">
+                <div class="flex-1">
+                    <h3 class="text-sm font-black uppercase tracking-[0.15em] text-teal-500 mb-8 flex items-center gap-3">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Global Yield Forecaster
+                    </h3>
+                    
+                    <div class="space-y-8">
+                        <div>
+                            <div class="flex justify-between text-[10px] uppercase font-bold text-neutral-400 tracking-widest mb-3">
+                                <span>Compound Horizon</span>
+                                <span class="text-white px-2 py-1 bg-neutral-900 rounded border border-neutral-800">{projectedMonths} Months</span>
+                            </div>
+                            <input type="range" min="1" max="60" bind:value={projectedMonths} class="custom-slider w-full">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-[10px] uppercase font-bold text-neutral-400 tracking-widest mb-3">
+                                <span>Simulated Corporate Hashrate</span>
+                                <span class="text-white px-2 py-1 bg-neutral-900 rounded border border-neutral-800">{estimatedHashrate} TH/s</span>
+                            </div>
+                            <input type="range" min="1" max="1000" bind:value={estimatedHashrate} class="custom-slider w-full">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex flex-col justify-center items-start lg:items-end border-t lg:border-t-0 lg:border-l border-neutral-800/80 pt-8 lg:pt-0 lg:pl-10">
+                    <span class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-3">Projected Fiat Accumulation</span>
+                    <div class="text-5xl lg:text-6xl font-mono font-light tracking-tighter text-teal-400 drop-shadow-[0_0_20px_rgba(20,184,166,0.3)]">
+                        {projectedYield}
+                    </div>
+                    <span class="text-xs text-neutral-500 mt-3 font-bold uppercase tracking-widest">Calculated at Live Market Rate (${$globalKasPrice.toFixed(4)})</span>
+                    
+                    <div class="mt-8 w-full lg:w-auto flex gap-3">
+                        <button class="flex-1 lg:flex-none px-6 py-3 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-neutral-600 text-[10px] font-bold uppercase tracking-widest text-neutral-400 transition-all cursor-pointer rounded-xl">
+                            Reset Params
+                        </button>
+                        <button class="flex-[2] lg:flex-none px-8 py-3 bg-[#18C6A5]/10 hover:bg-[#18C6A5]/20 border border-[#18C6A5]/30 text-[10px] font-black uppercase tracking-[0.1em] text-[#18C6A5] transition-all cursor-pointer rounded-xl shadow-[0_0_15px_rgba(24,198,165,0.1)]">
+                            Export Analysis
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
-    @keyframes fade-in { 0% { opacity: 0; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1); } }
-    
-    .hide-scrollbar::-webkit-scrollbar { display: none; }
-    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-    /* Dynamic Theme Shadows based on CSS variables */
-    .shadow-glow-theme { box-shadow: 0 0 15px var(--theme-color); }
-    .drop-shadow-theme { text-shadow: 0 0 20px rgba(var(--theme-color-rgb), 0.3); }
-    .drop-shadow-theme-heavy { filter: drop-shadow(0 0 12px rgba(var(--theme-color-rgb), 0.8)); }
-    .hover\:border-theme:hover { border-color: var(--hover-border) !important; }
-    .focus\:border-theme:focus { border-color: var(--theme-color) !important; }
-
-    /* Custom Premium Sliders */
     .custom-slider {
         -webkit-appearance: none;
         background: #1a1a1a;
-        height: 6px;
-        border-radius: 3px;
+        height: 8px;
+        border-radius: 4px;
         outline: none;
         border: 1px solid #222;
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
     }
     
     .custom-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 18px;
-        height: 18px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
-        background: #fff;
+        background: #111;
         cursor: pointer;
-        border: 2px solid var(--theme-color);
-        box-shadow: 0 0 15px rgba(var(--theme-color-rgb), 0.6);
+        border: 2px solid #14b8a6;
+        box-shadow: 0 0 15px rgba(20, 184, 166, 0.4);
         transition: transform 0.1s;
     }
 
-    .custom-slider::-webkit-slider-thumb:hover {
-        transform: scale(1.2);
-    }
-    
-    select option {
-        background: #0a0a0a;
-        color: #fff;
-    }
+    .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); background: #14b8a6; }
 </style>
