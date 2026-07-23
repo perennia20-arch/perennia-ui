@@ -1,6 +1,7 @@
 <script lang="ts">
     import { workers, silos, plants, systemMode, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
     import { isWalletConnected, walletAddress, walletBalance, showWalletModal } from '$lib/stores/wallet';
+    import { executeMainnetBurnerTest } from '$lib/stores/transaction';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
 
@@ -43,7 +44,7 @@
     ));
 
     const assetColors: Record<string, { hex: string, pastel: string }> = {
-        'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' },      
+        'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' },     
         'Fiat': { hex: '#3b82f6', pastel: '#bfdbfe' },        
         'Commodities': { hex: '#eab308', pastel: '#fef08a' }, 
         'Energy': { hex: '#f97316', pastel: '#fdba74' }        
@@ -96,6 +97,13 @@
         });
     });
 
+    // ⚡ INSTANT HYDRATION: Re-fires the fetch function the exact millisecond the Chrome extension injects the payload.
+    $effect(() => {
+        if ($isWalletConnected && $walletAddress) {
+            fetchDashboardData();
+        }
+    });
+
     let unsubs: any[] = [];
     let fetchInterval: ReturnType<typeof setInterval>;
 
@@ -107,10 +115,7 @@
         const isConnected = get(isWalletConnected);
         const currentWallet = get(walletAddress);
 
-        if (!isConnected || !currentWallet) {
-            workers.update(current => current.filter(w => w.type !== 'physical'));
-            return;
-        }
+        if (!isConnected || !currentWallet) return;
 
         try {
             const response = await fetch('/api/telemetry');
@@ -124,48 +129,81 @@
             const cleanWallet = currentWallet.replace('kaspa:', '');
 
             workers.update(currentWorkers => {
+                // 1. NON-DESTRUCTIVE MAP: Update existing state (Preserves Manual Configurations)
                 let updated = currentWorkers.map(w => {
                     if (w.type === 'physical') {
-                        const backendWorker = (data.workers || []).find((bw: any) => 
-                            bw.fullIdentity === w.walletWorker && 
-                            bw.walletAddress?.replace('kaspa:', '') === cleanWallet
+                        const bw = (data.workers || []).find((b: any) => 
+                            b.fullIdentity === w.walletWorker && 
+                            b.walletAddress?.replace('kaspa:', '') === cleanWallet
                         );
                         
-                        if (backendWorker) {
+                        if (bw) {
+                            const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
                             return { 
                                 ...w, 
-                                hashRate: (backendWorker.trackingRate || backendWorker.hashrate || backendWorker.hashRate || 0) / 1e12,
-                                sharesContributed: backendWorker.sharesContributed || backendWorker.shares || 0,
-                                blocksFound: backendWorker.blocksFound || backendWorker.blocks || 0,
+                                hashRate: rawHash / 1e12,
+                                sharesContributed: bw.sharesContributed || bw.shares || 0,
+                                blocksFound: bw.blocksFound || bw.blocks || 0,
+                                hardwareType: bw.hardwareType || w.hardwareType || 'IceRiver KS',
                                 isOnline: true 
                             } as any; 
                         }
+                        // Manual configurations stay intact, they just report 0 until they pair
                         return { ...w, hashRate: 0, isOnline: false };
                     }
                     return w;
                 });
 
+                // 2. INJECT LIVE WORKERS: Safely append valid new incoming telemetry
                 if (data.workers) {
                     const myWorkers = data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
                     
                     myWorkers.forEach((bw: any) => {
                         if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
+                            const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
                             updated.push({
                                 id: Math.random().toString(36).substring(2, 8).toUpperCase(),
                                 type: 'physical',
                                 name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
                                 stratumUrl: 'stratum+tcp://192.168.0.12:5555',
                                 walletWorker: bw.fullIdentity,
-                                hashRate: (bw.trackingRate || bw.hashrate || bw.hashRate || 0) / 1e12,
+                                hashRate: rawHash / 1e12,
                                 isOnline: true,
                                 assignedSiloId: null, 
                                 sharesContributed: bw.sharesContributed || bw.shares || 0,
-                                blocksFound: bw.blocksFound || bw.blocks || 0
+                                blocksFound: bw.blocksFound || bw.blocks || 0,
+                                hardwareType: bw.hardwareType || 'IceRiver KS'
                             } as any);
                         }
                     });
                 }
-                return updated;
+
+                // 3. ⚡ GHOST EXORCISM: Collapse duplicates by worker name
+                const nameGroups: Record<string, any[]> = {};
+                updated.forEach(w => {
+                    if (!nameGroups[w.name]) nameGroups[w.name] = [];
+                    nameGroups[w.name].push(w);
+                });
+
+                let finalWorkers: any[] = [];
+                for (const [name, group] of Object.entries(nameGroups)) {
+                    if (group.length > 1) {
+                        const bestWorker = group.reduce((prev, current) => {
+                            // Priority 1: Keep the one actually hashing (kills the offline Redis ghosts)
+                            if (current.hashRate > prev.hashRate) return current;
+                            // Priority 2: Keep the one manually assigned to a sector
+                            if (current.assignedSiloId && !prev.assignedSiloId) return current;
+                            // Priority 3: Protect manually added pending workers over dead backend records
+                            if (current.walletWorker.includes('pending') && !prev.walletWorker.includes('pending')) return current;
+                            return prev;
+                        });
+                        finalWorkers.push(bestWorker);
+                    } else {
+                        finalWorkers.push(group[0]);
+                    }
+                }
+
+                return finalWorkers;
             });
             
         } catch (err) {
@@ -183,7 +221,8 @@
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
         fetchDashboardData();
-        fetchInterval = setInterval(fetchDashboardData, 2000);
+        // ⚡ UPDATE: Strict 1000ms heartbeat per directive
+        fetchInterval = setInterval(fetchDashboardData, 1000);
     });
 
     onDestroy(() => { 
@@ -336,7 +375,7 @@
         if (rawType.includes('IceRiverMiner-v1.1')) return 'IceRiver KS0 Ultra';
         if (rawType.includes('IceRiverMiner-v7')) return 'IceRiver KS7 Lite';
         if (rawType.includes('IceRiver')) return rawType.replace('IceRiverMiner-', 'IceRiver KS');
-        if (rawType.includes('Antminer')) return rawType.replace('Antminer-', 'Antminer KS');
+        if (rawType.includes('Goldshell')) return rawType.replace('GoldshellMiner-', 'Goldshell KS');
         return rawType.replace('Miner-', ' ').substring(0, 18);
     }
 
@@ -349,10 +388,10 @@
 {#each floatingTexts as float (float.id)}
     <div class="fixed z-[100000] pointer-events-none flex flex-col items-center gap-1.5"
          style="left: {float.x}px; top: {float.y - 40}px; transform: translateX(-50%);">
-        <div class="bg-[#111]/95 backdrop-blur-md text-teal-400 border border-teal-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-1 whitespace-nowrap drop-shadow-[0_0_8px_rgba(20,184,166,0.6)]">
+        <div class="bg-[#111] text-teal-400 border border-teal-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-1 whitespace-nowrap drop-shadow-[0_0_8px_rgba(20,184,166,0.6)]">
             {float.text1}
         </div>
-        <div class="bg-[#111]/95 backdrop-blur-md text-amber-400 border border-amber-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-2 whitespace-nowrap drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+        <div class="bg-[#111] text-amber-400 border border-amber-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-2 whitespace-nowrap drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]">
             {float.text2}
         </div>
     </div>
@@ -532,8 +571,8 @@
 <div draggable={!inPlant ? "true" : "false"} ondragstart={(e) => {if(!inPlant) handleDragStart(e, 'silo', silo.id)}} ondragend={handleDragEnd}
      ondragover={(e) => handleDragOver(e, silo.id, 'silo')} ondragleave={handleDragLeave} ondrop={(e) => handleDrop(e, 'silo', silo.id)}
      style={isGlowing ? `box-shadow: 0 0 20px ${assetTheme.hex}20; border-color: ${assetTheme.hex}50;` : ''}
-     class="bg-[#111]/80 backdrop-blur-md border rounded-[20px] p-4 flex flex-col gap-3 min-h-[220px] transition-all duration-500 {spanClass}
-            {!inPlant ? 'cursor-grab active:cursor-grabbing hover:border-neutral-500 border-neutral-800' : 'border-neutral-800 shadow-inner bg-black/40'} 
+     class="bg-[#111] border rounded-[20px] p-4 flex flex-col gap-3 min-h-[220px] transition-all duration-500 {spanClass}
+            {!inPlant ? 'cursor-grab active:cursor-grabbing hover:border-neutral-500 border-neutral-800' : 'border-neutral-800 shadow-inner bg-[#0a0a0a]'} 
             {targetDropId === silo.id && dragType === 'worker' ? 'bg-[#161616] scale-[1.02]' : ''} 
             {dragType === 'silo' && draggedId === silo.id ? 'opacity-50 scale-95' : ''}">
     
@@ -544,7 +583,7 @@
         </div>
         
         <div class="flex items-center gap-1.5 shrink-0 relative">
-            <div class="bg-black border border-neutral-800 px-2 py-1 rounded-lg pointer-events-none mr-1 flex flex-col items-end">
+            <div class="bg-[#050505] border border-neutral-800 px-2 py-1 rounded-lg pointer-events-none mr-1 flex flex-col items-end">
                 <span class="font-mono font-black text-[11px] xl:text-[13px] leading-none transition-colors" style="color: {hashrate > 0 ? assetTheme.hex : '#737373'};">{hashrate.toFixed(2)} <span class="text-[8px] xl:text-[9px] font-normal ml-0.5" style="color: {hashrate > 0 ? assetTheme.hex : '#525252'}; opacity: 0.8;">TH/s</span></span>
             </div>
             {#if !inPlant}
@@ -608,7 +647,7 @@
     {/if}
 
     {#if inPlant}
-        <div class="w-full bg-emerald-950/20 border border-emerald-900/40 rounded p-2 my-1 flex flex-col gap-2 relative overflow-hidden pointer-events-none transition-colors duration-500">
+        <div class="w-full bg-[#050505] border border-emerald-900/40 rounded p-2 my-1 flex flex-col gap-2 relative overflow-hidden pointer-events-none transition-colors duration-500">
             <div class="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(52,211,153,0.05)_50%,transparent_75%,transparent_100%)] bg-[length:10px_10px] animate-[slide_1s_linear_infinite]"></div>
             <div class="flex items-center justify-between z-10 w-full">
                 <span class="text-[8px] text-emerald-400 uppercase tracking-widest font-bold flex items-center gap-1.5"><div class="w-1 h-1 bg-emerald-500 rounded-full animate-ping"></div> Liquidity Protocol</span>
@@ -622,18 +661,28 @@
     {/if}
 
     <div class="grid grid-cols-1 {!inPlant && silo.width === 12 ? 'xl:grid-cols-3' : (!inPlant && silo.width === 6) ? 'xl:grid-cols-2' : 'xl:grid-cols-1'} gap-3 flex-1 relative content-start mt-1 z-10 min-h-[50px]">
-        {#if siloWorkers.length === 0} <div class="absolute inset-0 flex items-center justify-center border border-dashed border-neutral-800/50 rounded-xl bg-black/20 pointer-events-none -z-10"><span class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold">Drag Workers Here</span></div> {/if}
+        {#if siloWorkers.length === 0} <div class="absolute inset-0 flex items-center justify-center border border-dashed border-neutral-800/50 rounded-xl bg-[#050505] pointer-events-none -z-10"><span class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold">Drag Workers Here</span></div> {/if}
         {#each siloWorkers as worker (worker.id)} {@render workerCard(worker)} {/each}
     </div>
 </div>
 {/snippet}
 
-<div class="w-full h-full p-4 md:p-6 lg:p-10 overflow-y-auto" onclick={closeAllMenus} role="presentation">
+<div class="w-full h-full p-4 md:p-6 lg:p-10 overflow-y-auto bg-[#030303]" onclick={closeAllMenus} role="presentation">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-6 w-full max-w-[1600px] mx-auto pb-24 items-start">
         
         <div class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2" ondragover={(e) => handleDragOver(e, 'field', 'field')} ondragleave={handleDragLeave} ondrop={(e) => handleDrop(e, 'field', null)}>
+            
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
-                <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2><span class="text-[9px] font-mono text-neutral-600">{$workers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
+                <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2>
+                <div class="flex items-center gap-3">
+                    <!-- ⚡ DEV TRIGGER: Executes a 1 KAS micro-tx -->
+                    <button aria-label="Dev Fire" 
+                            onclick={() => executeMainnetBurnerTest($walletAddress || '', 1)}
+                            class="text-[7px] font-black uppercase tracking-widest text-red-500/30 hover:text-red-500 transition-colors border border-red-500/10 hover:border-red-500/50 px-1.5 py-0.5 rounded cursor-pointer">
+                        [DEV FIRE]
+                    </button>
+                    <span class="text-[9px] font-mono text-neutral-600">{$workers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
+                </div>
             </div>
             
             <div class="flex flex-row gap-2 w-full">
@@ -643,7 +692,7 @@
 
             <div class="flex flex-col gap-2.5 min-h-[400px] pb-10 transition-colors duration-300 {targetDropType === 'field' && dragType === 'worker' ? 'border border-dashed border-teal-500/30 rounded-xl bg-teal-500/5 p-2 -mx-2' : ''}">
                 {#if $workers.length === 0}
-                    <div class="flex-1 border border-dashed border-neutral-800/50 rounded-xl flex items-center justify-center bg-black/20 p-4 text-center pointer-events-none"><p class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold leading-relaxed">{#if !$isWalletConnected} Connect wallet {:else} No hardware provisioned {/if}</p></div>
+                    <div class="flex-1 border border-dashed border-neutral-800/50 rounded-xl flex items-center justify-center bg-[#050505] p-4 text-center pointer-events-none"><p class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold leading-relaxed">{#if !$isWalletConnected} Connect wallet {:else} No hardware provisioned {/if}</p></div>
                 {/if}
                 
                 {#each $workers.filter(w => w.assignedSiloId === null) as worker (worker.id)}
@@ -712,7 +761,7 @@
             </div>
             <div class="flex gap-3">
                 <button aria-label="Add Silo" onclick={addSilo} disabled={!$isWalletConnected} class="flex-1 max-w-[200px] bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-teal-500/50 text-white text-[10px] font-bold uppercase tracking-widest py-3 rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">+ Add Silo</button>
-                <button aria-label="Add Plant" onclick={addPlant} disabled={!$isWalletConnected || $silos.length < 2} title={$silos.length < 2 ? 'Requires 2 active Silos to synthesize a Plant' : ''} class="flex-1 max-w-[200px] bg-[#111] hover:bg-purple-950/40 border border-neutral-800 hover:border-purple-500/50 text-purple-400 hover:text-purple-300 text-[10px] font-bold uppercase tracking-widest py-3 rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:bg-[#0a0a0a] disabled:border-neutral-900 disabled:text-neutral-700 disabled:cursor-not-allowed">+ Plant</button>
+                <button aria-label="Add Plant" onclick={addPlant} disabled={!$isWalletConnected || $silos.length < 2} title={$silos.length < 2 ? 'Requires 2 active Silos to synthesize a Plant' : ''} class="flex-1 max-w-[200px] bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-purple-500/50 text-purple-400 hover:text-purple-300 text-[10px] font-bold uppercase tracking-widest py-3 rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:bg-[#0a0a0a] disabled:border-neutral-900 disabled:text-neutral-700 disabled:cursor-not-allowed">+ Plant</button>
                 <button aria-label="Add Nexus" disabled class="flex-1 max-w-[200px] bg-[#0a0a0a] border border-neutral-900 text-neutral-700 text-[10px] font-bold uppercase tracking-widest py-3 rounded-xl cursor-not-allowed">+ Nexus</button>
             </div>
 
@@ -770,7 +819,7 @@
                                             </div>
 
                                             {#if plant.liquidityDeposit.isActive}
-                                                <div class="mb-6 bg-black/40 border border-white/10 rounded-xl p-4 flex items-center justify-between animate-[fade-in-up_0.3s_ease-out] backdrop-blur-md relative z-10 shrink-0">
+                                                <div class="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4 flex items-center justify-between animate-[fade-in-up_0.3s_ease-out] relative z-10 shrink-0">
                                                     <div class="flex items-center gap-3">
                                                         <div class="w-2 h-2 rounded-full animate-pulse shadow-md" style="background-color: {color1};"></div>
                                                         <span class="text-[10px] font-bold uppercase tracking-widest text-white">Deposit Auto-Paired</span>
@@ -791,7 +840,7 @@
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-[220px]">
                                                 {#each plantSilos as silo} {@render siloCard(silo, true)} {/each}
                                                 {#each Array(2 - plantSilos.length) as _}
-                                                    <div class="border-2 border-dashed rounded-[20px] flex flex-col items-center justify-center min-h-[220px] transition-colors pointer-events-none border-white/20 bg-black/20">
+                                                    <div class="border-2 border-dashed rounded-[20px] flex flex-col items-center justify-center min-h-[220px] transition-colors pointer-events-none border-white/20 bg-[#050505]">
                                                         <svg class="w-8 h-8 text-neutral-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
                                                         <span class="text-neutral-500 font-bold uppercase tracking-widest text-[10px]">Drop Silo Here</span>
                                                     </div>
@@ -819,7 +868,7 @@
             </div>
         </div>
 
-        <div class="flex flex-col gap-4 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0a0a]/80 border border-neutral-800/50 rounded-[32px] p-5 shadow-2xl h-full pb-20 w-full">
+        <div class="flex flex-col gap-4 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0a0a] border border-neutral-800/50 rounded-[32px] p-5 shadow-2xl h-full pb-20 w-full">
             
             {#if $isWalletConnected}
                 <div class="animate-[fade-in-up_0.5s_ease-out] mb-4 w-full flex flex-col">
@@ -911,7 +960,7 @@
 
 {#if settlementModalSilo && editSettlementParams}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div class="absolute inset-0 w-full h-full bg-black/80 backdrop-blur-sm cursor-default border-none" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement};}}></div>
+        <div class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement};}}></div>
         
         {#if !isAssetPickerOpen}
             <div class="relative z-10 w-full max-w-[420px] bg-[#111] border border-neutral-800 rounded-[28px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {editSettlementParams.autoPayout ? (editSettlementParams.mode === 'stream' ? 'border-t-emerald-500' : editSettlementParams.mode === 'appointment' ? 'border-t-blue-500' : 'border-t-amber-500') : 'border-t-neutral-600'} animate-[fade-in-up_0.2s_ease-out]">
@@ -1010,10 +1059,10 @@
                             {#each uniqueClasses as cls}
                                 <button aria-label="Select {cls}" onclick={() => { selectedAssetClass = cls as string; assetPickerStep = 'asset'; assetSearchQuery = ''; }} class="bg-[#0c0c0c] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-white/20 rounded-xl p-4 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group shadow-sm h-28">
                                     <div class="w-10 h-10 rounded-full bg-[#111] border border-neutral-800 flex items-center justify-center transition-colors shadow-inner group-hover:bg-[#161616]" style="color: {assetColors[cls as string]?.hex || '#ffffff'}; border-color: {assetColors[cls as string]?.hex || '#ffffff'};">
-                                        {#if cls === 'Crypto'} <span class="font-black text-lg">₿</span>
-                                        {:else if cls === 'Fiat'} <span class="font-black text-lg">💵</span>
-                                        {:else if cls === 'Commodities'} <span class="font-black text-lg">🥇</span>
-                                        {:else if cls === 'Energy'} <span class="font-black text-lg">🛢️</span>
+                                        {#if (cls as string) === 'Crypto'} <span class="font-black text-lg">₿</span>
+                                        {:else if (cls as string) === 'Fiat'} <span class="font-black text-lg">💵</span>
+                                        {:else if (cls as string) === 'Commodities'} <span class="font-black text-lg">🥇</span>
+                                        {:else if (cls as string) === 'Energy'} <span class="font-black text-lg">🛢️</span>
                                         {:else} <span class="font-black text-lg">⚡</span> {/if}
                                     </div>
                                     <span class="text-[10px] font-bold text-neutral-400 group-hover:text-white uppercase tracking-widest text-center">{cls}</span>
@@ -1062,6 +1111,7 @@
 <style>
     .custom-slider {
         -webkit-appearance: none;
+        appearance: none;
         background: #1a1a1a;
         height: 8px;
         border-radius: 4px;
@@ -1071,6 +1121,7 @@
     
     .custom-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
+        appearance: none;
         width: 24px;
         height: 24px;
         border-radius: 50%;

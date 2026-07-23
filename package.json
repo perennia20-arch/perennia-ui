@@ -1,41 +1,46 @@
 {
-	"name": "perennia-v3-genesis",
-	"private": true,
-	"version": "0.0.1",
-	"type": "module",
-	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
-	},
-	"devDependencies": {
-		"@sveltejs/adapter-node": "^5.5.7",
-		"@sveltejs/kit": "^2.63.0",
-		"@sveltejs/vite-plugin-svelte": "^7.1.2",
-		"@tailwindcss/vite": "^4.3.0",
-		"svelte": "^5.56.1",
-		"svelte-check": "^4.6.0",
-		"tailwindcss": "^4.3.0",
-		"typescript": "^6.0.3",
-		"vite": "^8.0.16"
-	},
-	"dependencies": {
-		"@solana/web3.js": "^1.98.4",
-		"@walletconnect/modal": "^2.7.0",
-		"@walletconnect/universal-provider": "^2.23.10",
-		"bip32": "^5.0.1",
-		"bip39": "^3.1.0",
-		"bitcoinjs-lib": "^7.0.1",
-		"buffer": "^6.0.3",
-		"ed25519-hd-key": "^2.0.0",
-		"ethers": "^6.17.0",
-		"ioredis": "^5.11.1",
-		"kaspa-wasm": "^0.13.0",
-		"redis": "^6.1.0",
-		"sveltekit-sse": "^0.15.1",
-		"tiny-secp256k1": "^2.2.4"
-	}
+    "name": "perennia-v3-genesis",
+    "private": true,
+    "version": "0.0.1",
+    "type": "module",
+    "scripts": {
+        "dev": "vite dev",
+        "build": "vite build",
+        "preview": "vite preview",
+        "prepare": "svelte-kit sync || echo ''",
+        "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+        "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    },
+    "devDependencies": {
+        "@sveltejs/adapter-node": "^5.5.7",
+        "@sveltejs/kit": "^2.63.0",
+        "@sveltejs/vite-plugin-svelte": "^7.1.2",
+        "@tailwindcss/vite": "^4.3.0",
+        "@types/pg": "^8.20.0",
+        "@types/ws": "^8.18.1",
+        "svelte": "^5.56.1",
+        "svelte-check": "^4.6.0",
+        "tailwindcss": "^4.3.0",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.16",
+        "vite-plugin-node-polyfills": "^0.28.0"
+    },
+    "dependencies": {
+        "@kaspa/grpc": "^1.4.0",
+        "@solana/web3.js": "^1.98.4",
+        "@walletconnect/modal": "^2.7.0",
+        "@walletconnect/universal-provider": "^2.23.10",
+        "bip32": "^5.0.1",
+        "bip39": "^3.1.0",
+        "bitcoinjs-lib": "^7.0.1",
+        "buffer": "^6.0.3",
+        "ed25519-hd-key": "^2.0.0",
+        "ethers": "^6.17.0",
+        "ioredis": "^5.11.1",
+        "pg": "^8.22.0",
+        "redis": "^6.1.0",
+        "sveltekit-sse": "^0.15.1",
+        "tiny-secp256k1": "^2.2.4",
+        "ws": "^8.21.1"
+    }
 }

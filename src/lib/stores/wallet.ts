@@ -1,20 +1,29 @@
 import { writable, get } from 'svelte/store';
 import { UniversalProvider } from '@walletconnect/universal-provider';
 import { WalletConnectModal } from '@walletconnect/modal';
+import { ethers } from 'ethers';
+import * as bitcoin from 'bitcoinjs-lib';
+import { derivePath } from 'ed25519-hd-key';
+import { Keypair } from '@solana/web3.js';
+import { Buffer } from 'buffer';
 
-// --- UI STATE ---
-export const showWalletModal = writable(false);
-export const isConnecting = writable(false);
-export const walletMessage = writable('');
+// Polyfill Buffer globally for browser/Vite environments
+if (typeof window !== 'undefined') {
+    (window as any).Buffer = (window as any).Buffer || Buffer;
+}
 
-// --- SVELTE REACTIVE STORES ---
-export const isWalletConnected = writable(false);
+// --- UI & RECTIFICATION STORES ---
+export const showWalletModal = writable<boolean>(false);
+export const isConnecting = writable<boolean>(false);
+export const walletMessage = writable<string>('');
+
+// --- REACTIVE CORE STORES ---
+export const isWalletConnected = writable<boolean>(false);
 export const walletAddress = writable<string | null>(null);
 export const walletBalance = writable<string>("0"); 
 export const activeWalletType = writable<'kasware' | 'walletconnect' | 'sovereign' | null>(null);
 export const sovereignKeys = writable<any>(null);
-
-const BACKEND_BASE = 'http://192.168.0.12:5000';
+export const networkStatus = writable<'syncing' | 'connected' | 'offline'>('offline');
 
 const TREASURY_ADDRESSES = {
     KAS: "kaspa:qperenniatreasury", 
@@ -24,7 +33,229 @@ const TREASURY_ADDRESSES = {
 };
 
 // ============================================================================
-// HELPER: RESILIENT EXTENSION POLLING
+// ADDRESS NORMALIZATION UTILITY
+// ============================================================================
+/**
+ * Ensures a consistent, prefixed Kaspa CashAddr string for store consumption
+ * while preventing null/undefined leaks during store hydration.
+ */
+export function normalizeKaspaAddress(addr: string | null | undefined): string | null {
+    if (!addr) return null;
+    const clean = addr.trim().toLowerCase();
+    if (clean.startsWith('kaspa:')) return clean;
+    return `kaspa:${clean}`;
+}
+
+export function getCleanKaspaAddress(addr: string | null | undefined): string {
+    if (!addr) return '';
+    return addr.replace(/^kaspa:/i, '').trim().toLowerCase();
+}
+
+// ============================================================================
+// ZERO-DEPENDENCY KASPA ADDRESS ENCODER (CASHADDR + 40-BIT POLYMOD)
+// ============================================================================
+function getKaspaAddress(pubKeyHex: string): string {
+    const prefix = "kaspa";
+    let polymodData = [];
+    for (let i = 0; i < prefix.length; i++) {
+        polymodData.push(prefix.charCodeAt(i) & 31);
+    }
+    polymodData.push(0);
+
+    let payload = [0]; 
+    for (let i = 0; i < pubKeyHex.length; i += 2) {
+        payload.push(parseInt(pubKeyHex.substring(i, i + 2), 16));
+    }
+
+    let acc = 0;
+    let bits = 0;
+    let payload5 = [];
+    for (let value of payload) {
+        acc = (acc << 8) | value;
+        bits += 8;
+        while (bits >= 5) {
+            bits -= 5;
+            payload5.push((acc >> bits) & 31);
+        }
+    }
+    if (bits > 0) {
+        payload5.push((acc << (5 - bits)) & 31);
+    }
+
+    polymodData = polymodData.concat(payload5).concat([0, 0, 0, 0, 0, 0, 0, 0]);
+
+    let c = 1n;
+    for (let d of polymodData) {
+        let c0 = c >> 35n;
+        c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
+        if (c0 & 1n) c ^= 0x98f2bc8e61n;
+        if (c0 & 2n) c ^= 0x79b76d99e2n;
+        if (c0 & 4n) c ^= 0xf33e5fb3c4n;
+        if (c0 & 8n) c ^= 0xae2eabe2a8n;
+        if (c0 & 16n) c ^= 0x1e4f43e470n;
+    }
+    let checksum = c ^ 1n;
+
+    const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    let address = prefix + ":";
+    for (let i = 0; i < payload5.length; i++) {
+        address += charset[payload5[i]];
+    }
+    for (let i = 0; i < 8; i++) {
+        address += charset[Number((checksum >> BigInt(5 * (7 - i))) & 31n)];
+    }
+    return address;
+}
+
+// ============================================================================
+// WEB CRYPTO VAULT ENCRYPTION
+// ============================================================================
+const CRYPTO_ITERATIONS = 250000;
+
+async function getDerivationKey(password: string, salt: Uint8Array) {
+    const enc = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+    );
+    return window.crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: salt as any, iterations: CRYPTO_ITERATIONS, hash: "SHA-256" },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
+export async function encryptVault(password: string, mnemonic: string): Promise<string> {
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const key = await getDerivationKey(password, salt);
+    const enc = new TextEncoder();
+    
+    const encrypted = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as any }, key, enc.encode(mnemonic));
+    
+    const payload = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+    payload.set(salt, 0);
+    payload.set(iv, salt.length);
+    payload.set(new Uint8Array(encrypted), salt.length + iv.length);
+    
+    let binary = '';
+    for (let i = 0; i < payload.byteLength; i++) {
+        binary += String.fromCharCode(payload[i]);
+    }
+    return window.btoa(binary);
+}
+
+export async function decryptVault(password: string, encryptedB64: string): Promise<string> {
+    const binary = window.atob(encryptedB64);
+    const payload = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        payload[i] = binary.charCodeAt(i);
+    }
+    
+    const salt = payload.slice(0, 16);
+    const iv = payload.slice(16, 28);
+    const ciphertext = payload.slice(28);
+    
+    const key = await getDerivationKey(password, salt);
+    const dec = new TextDecoder();
+    
+    const decryptedBuf = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as any }, key, ciphertext);
+    return dec.decode(decryptedBuf);
+}
+
+// ============================================================================
+// SOVEREIGN HONEYCOMB GENERATION
+// ============================================================================
+export async function generateSovereignHoneycomb(password: string) {
+    isConnecting.set(true);
+    walletMessage.set('Forging Sovereign Matrix (24-word Entropy)...');
+    
+    try {
+        const randomEntropy = window.crypto.getRandomValues(new Uint8Array(32));
+        const mnemonicObj = ethers.Mnemonic.fromEntropy(randomEntropy);
+        const mnemonic = mnemonicObj.phrase;
+        
+        walletMessage.set('Deriving Omni-Chain Matrix...');
+        const masterNode = ethers.HDNodeWallet.fromMnemonic(mnemonicObj);
+
+        // KASPA
+        const kaspaNode = masterNode.derivePath("m/44'/111111'/0'/0/0");
+        const kaspaXCoordinate = kaspaNode.publicKey.substring(4);
+        const kasAddress = normalizeKaspaAddress(getKaspaAddress(kaspaXCoordinate))!;
+
+        // ETHEREUM
+        const ethNode = masterNode.derivePath("m/44'/60'/0'/0/0");
+        const ethAddress = ethNode.address;
+
+        // BITCOIN
+        const btcNode = masterNode.derivePath("m/84'/0'/0'/0/0");
+        const btcPubkeyBuffer = Buffer.from(btcNode.publicKey.substring(2), 'hex');
+        const { address: btcAddress } = bitcoin.payments.p2wpkh({ pubkey: btcPubkeyBuffer });
+
+        // SOLANA
+        const seedHex = mnemonicObj.computeSeed().substring(2); 
+        const solDerived = derivePath("m/44'/501'/0'/0'", seedHex);
+        const solKeypair = Keypair.fromSeed(solDerived.key);
+        const solAddress = solKeypair.publicKey.toBase58();
+
+        walletMessage.set('Encrypting Ephemeral Vault...');
+        const encryptedVault = await encryptVault(password, mnemonic);
+
+        const vaultPayload = {
+            wallets: {
+                kaspa: { address: kasAddress, path: "m/44'/111111'/0'/0/0" },
+                bitcoin: { address: btcAddress, path: "m/84'/0'/0'/0/0" },
+                ethereum: { address: ethAddress, path: "m/44'/60'/0'/0/0" },
+                solana: { address: solAddress, path: "m/44'/501'/0'/0'" }
+            },
+            vault: encryptedVault
+        };
+
+        return { success: true, payload: vaultPayload, mnemonic };
+
+    } catch (e) {
+        console.error("[Perennia Core] Matrix Forge Failed:", e);
+        walletMessage.set('Sovereign Generation Failed.');
+        disconnectWallet();
+        throw e;
+    } finally {
+        isConnecting.set(false);
+    }
+}
+
+// ============================================================================
+// SOVEREIGN UNLOCK HANDLER
+// ============================================================================
+export async function unlockSovereignVault(password: string) {
+    isConnecting.set(true);
+    walletMessage.set('Decrypting Vault...');
+    try {
+        const rawPayload = sessionStorage.getItem('perennia_sovereign_payload');
+        if (!rawPayload) throw new Error("No vault found in session.");
+        
+        const vaultPayload = JSON.parse(rawPayload);
+        await decryptVault(password, vaultPayload.vault);
+        
+        walletMessage.set('Hydrating Omni-Chain Balances...');
+        authorizeSovereignVault(vaultPayload);
+        
+        return { success: true };
+    } catch (e) {
+        console.error("Decryption failed:", e);
+        walletMessage.set('INVALID ENCRYPTION KEY.');
+        return { success: false };
+    } finally {
+        isConnecting.set(false);
+    }
+}
+
+// ============================================================================
+// EXTENSION POLLING
 // ============================================================================
 async function getKaswareWithRetry(maxAttempts = 10, delayMs = 100): Promise<any> {
     if (typeof window === 'undefined') return null;
@@ -37,12 +268,10 @@ async function getKaswareWithRetry(maxAttempts = 10, delayMs = 100): Promise<any
     return null;
 }
 
-// ⚡ FIX 1: BACKGROUND EVENT LISTENERS
-// This keeps the UI perfectly in sync if the user changes accounts inside the extension
 function setupKaswareListeners(kasware: any) {
     kasware.on('accountsChanged', (accounts: string[]) => {
         if (accounts.length > 0) {
-            walletAddress.set(accounts[0]);
+            walletAddress.set(normalizeKaspaAddress(accounts[0]));
             updateBalance();
         } else {
             disconnectWallet();
@@ -51,34 +280,63 @@ function setupKaswareListeners(kasware: any) {
 }
 
 // ============================================================================
-// UNIVERSAL BALANCE UPDATER
+// UNIFIED BALANCE & NETWORK HYDRATION
 // ============================================================================
-export async function updateBalance() {
+export async function updateBalance(maxAttempts = 15, delayMs = 200): Promise<boolean> {
     const type = get(activeWalletType);
     const address = get(walletAddress);
-    if (!address) return;
-
-    try {
-        const kasware = await getKaswareWithRetry(5, 100);
-        if (type === 'kasware' && kasware) {
-            const kasBalance = await kasware.getBalance();
-            if (kasBalance && kasBalance.total !== undefined) {
-                walletBalance.set((kasBalance.total / 100000000).toString());
-            }
-        } else if (type === 'sovereign') {
-            const res = await fetch(`${BACKEND_BASE}/api/treasury/balance/${address}`);
-            if (res.ok) {
-                const data = await res.json();
-                walletBalance.set(data.balance.toString());
-            }
-        }
-    } catch (e) {
-        console.error(`Failed to fetch balance for ${type}`, e);
+    
+    if (!address) {
+        networkStatus.set('offline');
+        return false;
     }
+
+    networkStatus.set('syncing');
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            if (type === 'kasware') {
+                const kasware = await getKaswareWithRetry(5, 100);
+                if (kasware) {
+                    const kasBalance = await kasware.getBalance();
+                    if (kasBalance && kasBalance.total !== undefined) {
+                        walletBalance.set((kasBalance.total / 100000000).toString());
+                        networkStatus.set('connected');
+                        return true;
+                    }
+                }
+            } else if (type === 'sovereign') {
+                const res = await fetch(`/api/balance?address=${encodeURIComponent(address)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.balance !== undefined) {
+                        walletBalance.set(data.balance.toString());
+                        networkStatus.set('connected');
+                        return true;
+                    }
+                } else {
+                    throw new Error(`Sovereign Fetch Failed: ${res.status}`);
+                }
+            } else if (type === 'walletconnect') {
+                networkStatus.set('connected');
+                return true; 
+            }
+        } catch (e) {
+            console.warn(`[Perennia RPC] Hydration attempt ${attempt + 1} failed for ${type}.`);
+        }
+        
+        if (attempt < maxAttempts - 1) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+    
+    walletBalance.set("0");
+    networkStatus.set('offline');
+    return false;
 }
 
 // ============================================================================
-// CONNECTION HANDLERS
+// CONNECTION HANDLERS WITH ATOMIC STORE SYNCHRONIZATION
 // ============================================================================
 export async function connectKasware() {
     isConnecting.set(true);
@@ -88,36 +346,34 @@ export async function connectKasware() {
         if (kasware) {
             const accounts = await kasware.requestAccounts();
             if (accounts && accounts.length > 0) {
-                walletAddress.set(accounts[0]);
+                // Atomic address update BEFORE setting connection state
+                const formattedAddress = normalizeKaspaAddress(accounts[0]);
+                walletAddress.set(formattedAddress);
                 activeWalletType.set('kasware');
-                isWalletConnected.set(true);
-                showWalletModal.set(false);
                 
                 if (typeof window !== 'undefined') {
-                    localStorage.setItem('perennia_active_wallet_type', 'kasware');
+                    sessionStorage.setItem('perennia_active_wallet_type', 'kasware');
                 }
                 
-                // ⚡ FIX 2: Bind the background listeners
                 setupKaswareListeners(kasware);
+                walletMessage.set('Hydrating L1 payload...');
                 
-                // ⚡ FIX 3: THE 500ms RPC BUFFER
-                // Forces Svelte to wait for KasWare's internal engine to catch up before fetching the balance
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                await updateBalance();
+                await updateBalance(15, 200);
+                isWalletConnected.set(true);
+                showWalletModal.set(false);
             }
         } else {
             walletMessage.set('KasWare extension not found.');
         }
     } catch (error) {
         walletMessage.set('Connection aborted.');
+        disconnectWallet();
     } finally {
         isConnecting.set(false);
     }
 }
 
 const WALLETCONNECT_PROJECT_ID = '3a6699d793be81a5a0bd7a810f54546d'; 
-
 export async function connectWalletConnect() {
     isConnecting.set(true);
     walletMessage.set('Initializing WalletConnect Protocol...');
@@ -151,17 +407,18 @@ export async function connectWalletConnect() {
             const address = session.namespaces.eip155.accounts[0].split(":")[2];
             walletAddress.set(address);
             activeWalletType.set('walletconnect');
-            isWalletConnected.set(true);
-            showWalletModal.set(false);
             
             if (typeof window !== 'undefined') {
-                localStorage.setItem('perennia_active_wallet_type', 'walletconnect');
+                sessionStorage.setItem('perennia_active_wallet_type', 'walletconnect');
             }
             
-            await updateBalance();
+            await updateBalance(15, 200);
+            isWalletConnected.set(true);
+            showWalletModal.set(false);
         }
     } catch (e) {
         walletMessage.set('WalletConnect aborted.');
+        disconnectWallet();
     } finally {
         isConnecting.set(false);
     }
@@ -169,16 +426,20 @@ export async function connectWalletConnect() {
 
 export function authorizeSovereignVault(vaultPayload: any) {
     sovereignKeys.set(vaultPayload.wallets);
-    walletAddress.set(vaultPayload.wallets.kaspa.address); 
+    
+    // Explicit address normalization before raising connection flag
+    const formattedAddress = normalizeKaspaAddress(vaultPayload.wallets.kaspa.address);
+    walletAddress.set(formattedAddress); 
     activeWalletType.set('sovereign');
-    isWalletConnected.set(true);
     
     if (typeof window !== 'undefined') {
-        localStorage.setItem('perennia_active_wallet_type', 'sovereign');
-        localStorage.setItem('perennia_sovereign_payload', JSON.stringify(vaultPayload));
+        sessionStorage.setItem('perennia_active_wallet_type', 'sovereign');
+        sessionStorage.setItem('perennia_sovereign_payload', JSON.stringify(vaultPayload));
     }
     
-    updateBalance();
+    updateBalance(15, 200).then(() => {
+        isWalletConnected.set(true);
+    });
 }
 
 export function disconnectWallet() {
@@ -196,18 +457,18 @@ export function disconnectWallet() {
     isWalletConnected.set(false);
     activeWalletType.set(null);
     walletBalance.set("0");
+    networkStatus.set('offline');
     sovereignKeys.set(null); 
     
     if (typeof window !== 'undefined') {
-        localStorage.removeItem('perennia_active_wallet_type');
-        localStorage.removeItem('perennia_sovereign_payload');
+        sessionStorage.removeItem('perennia_active_wallet_type');
+        sessionStorage.removeItem('perennia_sovereign_payload');
     }
 }
 
 export async function restoreSession() {
     if (typeof window === 'undefined') return;
-    
-    const savedType = localStorage.getItem('perennia_active_wallet_type');
+    const savedType = sessionStorage.getItem('perennia_active_wallet_type');
     if (!savedType) return;
 
     try {
@@ -216,29 +477,31 @@ export async function restoreSession() {
             if (kasware) {
                 const accounts = await kasware.getAccounts();
                 if (accounts && accounts.length > 0) {
-                    walletAddress.set(accounts[0]);
+                    walletAddress.set(normalizeKaspaAddress(accounts[0]));
                     activeWalletType.set('kasware');
-                    isWalletConnected.set(true);
-                    
-                    // ⚡ FIX: Bind listeners on auto-restore as well
                     setupKaswareListeners(kasware);
                     
-                    await updateBalance();
+                    await updateBalance(15, 200);
+                    isWalletConnected.set(true);
+                } else {
+                    disconnectWallet();
                 }
             }
         } else if (savedType === 'sovereign') {
-            const rawPayload = localStorage.getItem('perennia_sovereign_payload');
+            const rawPayload = sessionStorage.getItem('perennia_sovereign_payload');
             if (rawPayload) {
                 const vaultPayload = JSON.parse(rawPayload);
                 sovereignKeys.set(vaultPayload.wallets);
-                walletAddress.set(vaultPayload.wallets.kaspa.address); 
+                walletAddress.set(normalizeKaspaAddress(vaultPayload.wallets.kaspa.address)); 
                 activeWalletType.set('sovereign');
+                
+                await updateBalance(15, 200);
                 isWalletConnected.set(true);
-                await updateBalance();
             }
         }
     } catch (e) {
         console.error("Failed to automatically restore session:", e);
+        disconnectWallet();
     }
 }
 
@@ -247,7 +510,7 @@ export async function connectObserver() {
 }
 
 // ============================================================================
-// OMNI-CHAIN ROUTING EXPORTS (Safe for frontend)
+// OMNI-CHAIN ROUTING EXPORTS
 // ============================================================================
 export async function executeOmniChainSwap(payAsset: string, receiveAsset: string, payAmount: string) {
     const type = get(activeWalletType);

@@ -11,7 +11,14 @@ export async function GET() {
             return json({ totalHashrate: 0, workers: [] });
         }
 
-        return json(JSON.parse(rawData));
+        // ⚡ BRUTAL EFFICIENCY: Stream raw string byte-for-byte directly to bypass Node.js JSON parsing overhead.
+        return new Response(rawData, {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store, no-cache, must-revalidate'
+            }
+        });
     } catch (error) {
         console.error("Backend Error:", error);
         return json({ totalHashrate: 0, workers: [], error: 'Telemetry unavailable' }, { status: 500 });

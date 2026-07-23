@@ -1,70 +1,129 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { perenniaKMS } from '$lib/server/kms';
+import pg from 'pg';
+
+const { Pool } = pg;
+
+// BARE-METAL POSTGRES CONNECTION
+const pool = new Pool({
+    user: 'postgres',
+    host: '192.168.0.12',
+    database: 'perennia',
+    password: 'password', // Adjust to match bare-metal prod configuration
+    port: 5432,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 3000, // 3s fast-fail timeout to prevent API hangs
+});
+
+pool.on('error', (err) => {
+    console.error('🔥 POSTGRESQL FAULT:', err);
+});
 
 export const GET: RequestHandler = async () => {
-    try {
-        // 1. Securely fetch the derived public addresses from the KMS
-        const corporateAddresses = await perenniaKMS.getCorporateAddresses();
+    let client;
+    let liveStreamingBalance = 0.00;
+    let recentBlocks: Array<{ hash: string; worker: string; difficulty: number; timestamp: string }> = [];
 
-        // 2. LIVE TELEMETRY: Fetch the real Kaspa network balance for the derived address
-        let liveKaspaBalance = 0.00;
-        try {
-            if (!corporateAddresses.KAS.includes('offline')) {
-                const kaspaApiRes = await fetch(`https://api.kaspa.org/addresses/${corporateAddresses.KAS}/balance`);
-                if (kaspaApiRes.ok) {
-                    const balanceData = await kaspaApiRes.json();
-                    liveKaspaBalance = (balanceData.balance || 0) / 100000000; // Convert Sompi to KAS
+    let corporateAddresses = {
+        KAS: 'offline-kas-address',
+        BTC: 'offline-btc-address',
+        ETH: 'offline-eth-address',
+        SOL: 'offline-sol-address'
+    };
+
+    try {
+        corporateAddresses = await perenniaKMS.getCorporateAddresses();
+    } catch (kmsErr) {
+        console.error("⚠️ KMS Address Retrieval Failed:", kmsErr);
+    }
+
+    const mainWallet = corporateAddresses.KAS || '';
+
+    // Non-destructive DB connection attempt
+    try {
+        client = await pool.connect();
+
+        if (mainWallet && !mainWallet.includes('offline')) {
+            try {
+                const yieldRes = await client.query(
+                    `SELECT streaming_balance_kas, total_yield_kas 
+                     FROM yield_reservoirs 
+                     WHERE wallet_address = $1`,
+                    [mainWallet]
+                );
+
+                if (yieldRes.rows.length > 0) {
+                    liveStreamingBalance = parseFloat(yieldRes.rows[0].streaming_balance_kas || 0) + parseFloat(yieldRes.rows[0].total_yield_kas || 0);
                 }
+            } catch (dbErr) {
+                console.error("⚠️ PostgreSQL Yield Query Failed:", dbErr);
             }
-        } catch (e) {
-            console.warn("⚠️ Kaspa Public API Unreachable. Defaulting to 0.");
         }
 
-        // 3. Construct the exact JSON payload the TreasuryView UI expects
-        const corporateEstate = {
-            masterIdentity: "Perennia Holdings, LLC",
-            timestamp: Date.now(),
-            assets: [
-                {
-                    symbol: 'KAS',
-                    name: 'Kaspa Native',
-                    address: corporateAddresses.KAS,
-                    balance: liveKaspaBalance, 
-                    network: 'kaspa-mainnet',
-                    color: '#18C6A5' 
-                },
-                {
-                    symbol: 'BTC',
-                    name: 'Bitcoin Vault',
-                    address: corporateAddresses.BTC,
-                    balance: 0.00, // Awaiting native BTC RPC wiring
-                    network: 'bitcoin-segwit',
-                    color: '#F7931A'
-                },
-                {
-                    symbol: 'ETH',
-                    name: 'Ethereum Vault',
-                    address: corporateAddresses.ETH,
-                    balance: 0.00, // Awaiting Infura/EVM RPC wiring
-                    network: 'ethereum-mainnet',
-                    color: '#627EEA'
-                },
-                {
-                    symbol: 'SOL',
-                    name: 'Solana Vault',
-                    address: corporateAddresses.SOL,
-                    balance: 0.00, // Awaiting Solana RPC wiring
-                    network: 'solana-mainnet',
-                    color: '#14F195'
-                }
-            ]
-        };
+        try {
+            const blockRes = await client.query(
+                `SELECT block_hash, worker_id, network_diff, discovered_at 
+                 FROM network_blocks 
+                 ORDER BY discovered_at DESC 
+                 LIMIT 5`
+            );
+            recentBlocks = blockRes.rows.map(row => ({
+                hash: row.block_hash,
+                worker: row.worker_id,
+                difficulty: parseFloat(row.network_diff || 0),
+                timestamp: row.discovered_at
+            }));
+        } catch (dbErr) {
+            console.error("⚠️ PostgreSQL Block Query Failed:", dbErr);
+        }
 
-        return json(corporateEstate);
-        
-    } catch (error) {
-        console.error("🚨 Corporate Treasury API Error:", error);
-        return json({ error: 'Failed to access Corporate KMS.' }, { status: 500 });
+    } catch (connErr: any) {
+        console.error("⚠️ PostgreSQL Connection Handshake Failed:", connErr.message);
+    } finally {
+        if (client) client.release();
     }
+
+    const corporateEstate = {
+        masterIdentity: "Perennia Holdings, LLC",
+        timestamp: Date.now(),
+        networkBlocks: recentBlocks,
+        assets: [
+            {
+                symbol: 'KAS',
+                name: 'Kaspa Native',
+                address: mainWallet,
+                balance: liveStreamingBalance, 
+                network: 'kaspa-mainnet',
+                color: '#18C6A5' 
+            },
+            {
+                symbol: 'BTC',
+                name: 'Bitcoin Vault',
+                address: corporateAddresses.BTC,
+                balance: 0.00, 
+                network: 'bitcoin-segwit',
+                color: '#F7931A'
+            },
+            {
+                symbol: 'ETH',
+                name: 'Ethereum Vault',
+                address: corporateAddresses.ETH,
+                balance: 0.00, 
+                network: 'ethereum-mainnet',
+                color: '#627EEA'
+            },
+            {
+                symbol: 'SOL',
+                name: 'Solana Vault',
+                address: corporateAddresses.SOL,
+                balance: 0.00, 
+                network: 'solana-mainnet',
+                color: '#14F195'
+            }
+        ]
+    };
+
+    return json(corporateEstate);
 };
