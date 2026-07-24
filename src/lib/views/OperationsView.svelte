@@ -1,7 +1,9 @@
 <script lang="ts">
     import { workers, silos, plants, systemMode, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
-    import { isWalletConnected, walletAddress, walletBalance, showWalletModal } from '$lib/stores/wallet';
-    import { executeMainnetBurnerTest } from '$lib/stores/transaction';
+    
+    // ALIGNMENT PATCH: Imported the new Universal Router to replace the missing Burner Test
+    import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap } from '$lib/stores/wallet';
+    
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
 
@@ -675,9 +677,9 @@
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2>
                 <div class="flex items-center gap-3">
-                    <!-- ⚡ DEV TRIGGER: Executes a 1 KAS micro-tx -->
+                    <!-- ⚡ DEV TRIGGER: Executes a 1 KAS micro-tx using the new routing engine -->
                     <button aria-label="Dev Fire" 
-                            onclick={() => executeMainnetBurnerTest($walletAddress || '', 1)}
+                            onclick={() => executeOmniChainSwap('KAS', 'KAS', '1')}
                             class="text-[7px] font-black uppercase tracking-widest text-red-500/30 hover:text-red-500 transition-colors border border-red-500/10 hover:border-red-500/50 px-1.5 py-0.5 rounded cursor-pointer">
                         [DEV FIRE]
                     </button>

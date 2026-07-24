@@ -7,6 +7,9 @@ import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 
+// @ts-ignore - Svelte 5 Runes require the .svelte.ts extension; TS throws a false positive here.
+import { executeSovereignTransaction, txState } from './transaction.svelte.ts';
+
 // Polyfill Buffer globally for browser/Vite environments
 if (typeof window !== 'undefined') {
     (window as any).Buffer = (window as any).Buffer || Buffer;
@@ -17,6 +20,16 @@ export const showWalletModal = writable<boolean>(false);
 export const isConnecting = writable<boolean>(false);
 export const walletMessage = writable<string>('');
 
+// --- JIT DECRYPTION STORES ---
+export const isVaultUnlockPending = writable<boolean>(false);
+export const pendingTransactionDetails = writable<{
+    payAsset: string;
+    receiveAsset: string;
+    payAmount: string;
+    destinationAddress: string;
+    amountSompi: number;
+} | null>(null);
+
 // --- REACTIVE CORE STORES ---
 export const isWalletConnected = writable<boolean>(false);
 export const walletAddress = writable<string | null>(null);
@@ -25,8 +38,9 @@ export const activeWalletType = writable<'kasware' | 'walletconnect' | 'sovereig
 export const sovereignKeys = writable<any>(null);
 export const networkStatus = writable<'syncing' | 'connected' | 'offline'>('offline');
 
+// ALIGNMENT PATCH: User's Validated Kaspa Receive Address
 const TREASURY_ADDRESSES = {
-    KAS: "kaspa:qperenniatreasury", 
+    KAS: "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz", 
     ETH: "0xPerenniaTreasuryEVM",   
     SOL: "PerenniaSolanaTreasury",  
     BTC: "bc1qperenniatreasury"     
@@ -35,10 +49,6 @@ const TREASURY_ADDRESSES = {
 // ============================================================================
 // ADDRESS NORMALIZATION UTILITY
 // ============================================================================
-/**
- * Ensures a consistent, prefixed Kaspa CashAddr string for store consumption
- * while preventing null/undefined leaks during store hydration.
- */
 export function normalizeKaspaAddress(addr: string | null | undefined): string | null {
     if (!addr) return null;
     const clean = addr.trim().toLowerCase();
@@ -255,6 +265,57 @@ export async function unlockSovereignVault(password: string) {
 }
 
 // ============================================================================
+// JUST-IN-TIME (JIT) DECRYPTION HANDLER
+// ============================================================================
+export async function confirmSovereignTransaction(password: string, destinationAddress: string, amountSompi: number) {
+    let privateKey = "";
+    isConnecting.set(true);
+    walletMessage.set('Authorizing Transaction...');
+    
+    try {
+        const rawPayload = sessionStorage.getItem('perennia_sovereign_payload');
+        if (!rawPayload) throw new Error("No vault found in session.");
+        
+        const vaultPayload = JSON.parse(rawPayload);
+        const mnemonic = await decryptVault(password, vaultPayload.vault);
+        
+        walletMessage.set('Signing Transaction...');
+        const mnemonicObj = ethers.Mnemonic.fromPhrase(mnemonic);
+        const masterNode = ethers.HDNodeWallet.fromMnemonic(mnemonicObj);
+        
+        const kaspaNode = masterNode.derivePath(vaultPayload.wallets.kaspa.path);
+        privateKey = kaspaNode.privateKey;
+        if (privateKey.startsWith('0x')) {
+            privateKey = privateKey.substring(2);
+        }
+        
+        // 1. Inject Private Key strictly into the Svelte 5 Rune State (Zero-Trust execution proxy)
+        txState.decryptedPrivateKeyHex = privateKey;
+        
+        // 2. Denomination Fix: Convert Sompi back to raw KAS before triggering the engine 
+        const amountKas = amountSompi / 100000000;
+        
+        walletMessage.set('Broadcasting Sovereign Transaction...');
+        const txId = await executeSovereignTransaction(destinationAddress, amountKas);
+        
+        isVaultUnlockPending.set(false);
+        pendingTransactionDetails.set(null);
+        walletMessage.set('');
+        
+        return { success: true, txId };
+    } catch (e) {
+        console.error("[Perennia Core] JIT Execution Failed:", e);
+        walletMessage.set('TRANSACTION FAILED.');
+        throw e;
+    } finally {
+        // Zero-Trust Mandate: Scrub the key from local and global Svelte memory scopes immediately
+        privateKey = "0".repeat(64);
+        txState.decryptedPrivateKeyHex = ""; 
+        isConnecting.set(false);
+    }
+}
+
+// ============================================================================
 // EXTENSION POLLING
 // ============================================================================
 async function getKaswareWithRetry(maxAttempts = 10, delayMs = 100): Promise<any> {
@@ -459,6 +520,9 @@ export function disconnectWallet() {
     walletBalance.set("0");
     networkStatus.set('offline');
     sovereignKeys.set(null); 
+    isVaultUnlockPending.set(false);
+    pendingTransactionDetails.set(null);
+    txState.decryptedPrivateKeyHex = ""; // Zero-trust state wipe upon disconnect
     
     if (typeof window !== 'undefined') {
         sessionStorage.removeItem('perennia_active_wallet_type');
@@ -514,10 +578,22 @@ export async function connectObserver() {
 // ============================================================================
 export async function executeOmniChainSwap(payAsset: string, receiveAsset: string, payAmount: string) {
     const type = get(activeWalletType);
-    if (payAsset === 'KAS' && type === 'kasware') {
+    if (payAsset === 'KAS') {
         const amountSompi = Math.floor(parseFloat(payAmount) * 100000000);
-        const txId = await (window as any).kasware.sendKaspa(TREASURY_ADDRESSES.KAS, amountSompi);
-        return { success: true, txId: txId };
+        if (type === 'kasware') {
+            const txId = await (window as any).kasware.sendKaspa(TREASURY_ADDRESSES.KAS, amountSompi);
+            return { success: true, txId: txId };
+        } else if (type === 'sovereign') {
+            pendingTransactionDetails.set({
+                payAsset,
+                receiveAsset,
+                payAmount,
+                destinationAddress: TREASURY_ADDRESSES.KAS,
+                amountSompi
+            });
+            isVaultUnlockPending.set(true);
+            return { success: true, pending: true, message: 'AWAITING_JIT_DECRYPTION' };
+        }
     } 
     throw new Error("Unsupported routing path.");
 }
