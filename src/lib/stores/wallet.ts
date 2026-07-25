@@ -191,19 +191,22 @@ export async function generateSovereignHoneycomb(password: string) {
         const mnemonic = mnemonicObj.phrase;
         
         walletMessage.set('Deriving Omni-Chain Matrix...');
-        const masterNode = ethers.HDNodeWallet.fromMnemonic(mnemonicObj);
+        
+        // ⚡ Ethers v6 Root Node Derivation Fix: Instantiate at Absolute Root (Depth 0)
+        const seed = mnemonicObj.computeSeed();
+        const rootNode = ethers.HDNodeWallet.fromSeed(seed);
 
         // KASPA
-        const kaspaNode = masterNode.derivePath("m/44'/111111'/0'/0/0");
+        const kaspaNode = rootNode.derivePath("m/44'/111111'/0'/0/0");
         const kaspaXCoordinate = kaspaNode.publicKey.substring(4);
         const kasAddress = normalizeKaspaAddress(getKaspaAddress(kaspaXCoordinate))!;
 
         // ETHEREUM
-        const ethNode = masterNode.derivePath("m/44'/60'/0'/0/0");
+        const ethNode = rootNode.derivePath("m/44'/60'/0'/0/0");
         const ethAddress = ethNode.address;
 
         // BITCOIN
-        const btcNode = masterNode.derivePath("m/84'/0'/0'/0/0");
+        const btcNode = rootNode.derivePath("m/84'/0'/0'/0/0");
         const btcPubkeyBuffer = Buffer.from(btcNode.publicKey.substring(2), 'hex');
         const { address: btcAddress } = bitcoin.payments.p2wpkh({ pubkey: btcPubkeyBuffer });
 
@@ -226,7 +229,17 @@ export async function generateSovereignHoneycomb(password: string) {
             vault: encryptedVault
         };
 
-        return { success: true, payload: vaultPayload, mnemonic };
+        return { 
+            success: true, 
+            payload: vaultPayload, 
+            mnemonic,
+            addresses: {
+                kaspa: kasAddress,
+                bitcoin: btcAddress,
+                ethereum: ethAddress,
+                solana: solAddress
+            }
+        };
 
     } catch (e) {
         console.error("[Perennia Core] Matrix Forge Failed:", e);
@@ -257,7 +270,8 @@ export async function unlockSovereignVault(password: string) {
         return { success: true };
     } catch (e) {
         console.error("Decryption failed:", e);
-        walletMessage.set('INVALID ENCRYPTION KEY.');
+        // We will catch this in the UI logic now to turn it explicitly red
+        walletMessage.set('');
         return { success: false };
     } finally {
         isConnecting.set(false);
@@ -281,9 +295,12 @@ export async function confirmSovereignTransaction(password: string, destinationA
         
         walletMessage.set('Signing Transaction...');
         const mnemonicObj = ethers.Mnemonic.fromPhrase(mnemonic);
-        const masterNode = ethers.HDNodeWallet.fromMnemonic(mnemonicObj);
         
-        const kaspaNode = masterNode.derivePath(vaultPayload.wallets.kaspa.path);
+        // ⚡ Ethers v6 Root Node Derivation Fix
+        const seed = mnemonicObj.computeSeed();
+        const rootNode = ethers.HDNodeWallet.fromSeed(seed);
+        
+        const kaspaNode = rootNode.derivePath(vaultPayload.wallets.kaspa.path);
         privateKey = kaspaNode.privateKey;
         if (privateKey.startsWith('0x')) {
             privateKey = privateKey.substring(2);
