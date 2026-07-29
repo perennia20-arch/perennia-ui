@@ -1,11 +1,15 @@
+// src/hooks.server.ts
+
 import Redis from 'ioredis';
 import type { Handle } from '@sveltejs/kit';
-import { chronos } from '$lib/server/chronos'; 
+import { chronos } from '$lib/server/chronos';
+import { env } from '$env/dynamic/private';
 
-const redis = new Redis('redis://192.168.0.12:6379', { maxRetriesPerRequest: 3 });
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+const redis = new Redis(`redis://${nodeIp}:6379`, { maxRetriesPerRequest: 3 });
 
 redis.on('error', (err) => {
-    console.warn('🔴 Redis Connection Pending (Linux Node Offline):', err.message);
+    console.warn(`🔴 Redis Connection Pending (Linux Node ${nodeIp} Offline):`, err.message);
 });
 
 const globalNode = globalThis as unknown as { __chronosStarted: boolean };

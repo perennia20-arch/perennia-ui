@@ -75,6 +75,8 @@ export interface WalletInventoryItem {
 export const hasEntered = writable<boolean>(false);
 export const activeTab = writable<string>('DEX');
 export const systemMode = writable<SystemMode>('base');
+// ⚡ NEW: Master Admin global view toggle
+export const adminGlobalView = writable<boolean>(false);
 
 // Global Oracle State
 export const globalKasPrice = writable<number>(0.16);

@@ -117,7 +117,7 @@ export const GET: RequestHandler = async ({ url }) => {
     const corporateEstate = {
         masterIdentity: "Perennia Sovereign Vault",
         timestamp: Date.now(),
-        networkBlocks: [], // UI currently expects this array from the old pg logic
+        networkBlocks: [], // Stubbed to prevent UI breaking from old PostgreSQL logic
         assets: [
             {
                 symbol: 'KAS',

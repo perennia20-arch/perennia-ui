@@ -15,6 +15,12 @@ if (typeof window !== 'undefined') {
     (window as any).Buffer = (window as any).Buffer || Buffer;
 }
 
+// ============================================================================
+// DIRECTIVE 1: BOOTSTRAP WALLET GATE (DUAL-TIER ADMIN)
+// ============================================================================
+export const DEV_ADMIN_BYPASS = true;
+export const MASTER_ADMIN_ADDRESS = "kaspa:q_master_admin_address_pending";
+
 // --- UI & RECTIFICATION STORES ---
 export const showWalletModal = writable<boolean>(false);
 export const isConnecting = writable<boolean>(false);
@@ -43,7 +49,7 @@ const TREASURY_ADDRESSES = {
     KAS: "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz", 
     ETH: "0xPerenniaTreasuryEVM",   
     SOL: "PerenniaSolanaTreasury",  
-    BTC: "bc1qperenniatreasury"     
+    BTC: "bc1qperenniatreasury"      
 };
 
 // ============================================================================
@@ -258,8 +264,9 @@ export async function unlockSovereignVault(password: string) {
     isConnecting.set(true);
     walletMessage.set('Decrypting Vault...');
     try {
-        const rawPayload = sessionStorage.getItem('perennia_sovereign_payload');
-        if (!rawPayload) throw new Error("No vault found in session.");
+        // ⚡ FIX: Pull from permanent localStorage
+        const rawPayload = localStorage.getItem('perennia_sovereign_payload');
+        if (!rawPayload) throw new Error("No vault found on this device.");
         
         const vaultPayload = JSON.parse(rawPayload);
         await decryptVault(password, vaultPayload.vault);
@@ -270,7 +277,6 @@ export async function unlockSovereignVault(password: string) {
         return { success: true };
     } catch (e) {
         console.error("Decryption failed:", e);
-        // We will catch this in the UI logic now to turn it explicitly red
         walletMessage.set('');
         return { success: false };
     } finally {
@@ -287,8 +293,9 @@ export async function confirmSovereignTransaction(password: string, destinationA
     walletMessage.set('Authorizing Transaction...');
     
     try {
-        const rawPayload = sessionStorage.getItem('perennia_sovereign_payload');
-        if (!rawPayload) throw new Error("No vault found in session.");
+        // ⚡ FIX: Pull from permanent localStorage
+        const rawPayload = localStorage.getItem('perennia_sovereign_payload');
+        if (!rawPayload) throw new Error("No vault found on this device.");
         
         const vaultPayload = JSON.parse(rawPayload);
         const mnemonic = await decryptVault(password, vaultPayload.vault);
@@ -512,7 +519,8 @@ export function authorizeSovereignVault(vaultPayload: any) {
     
     if (typeof window !== 'undefined') {
         sessionStorage.setItem('perennia_active_wallet_type', 'sovereign');
-        sessionStorage.setItem('perennia_sovereign_payload', JSON.stringify(vaultPayload));
+        // ⚡ FIX: Save the encrypted vault permanently to localStorage
+        localStorage.setItem('perennia_sovereign_payload', JSON.stringify(vaultPayload));
     }
     
     updateBalance(15, 200).then(() => {
@@ -542,8 +550,9 @@ export function disconnectWallet() {
     txState.decryptedPrivateKeyHex = ""; // Zero-trust state wipe upon disconnect
     
     if (typeof window !== 'undefined') {
+        // ⚡ FIX: We remove the active session type, but we DO NOT delete the encrypted vault from localStorage.
         sessionStorage.removeItem('perennia_active_wallet_type');
-        sessionStorage.removeItem('perennia_sovereign_payload');
+        // sessionStorage.removeItem('perennia_sovereign_payload'); <-- This line was deleting your vault!
     }
 }
 
@@ -569,7 +578,8 @@ export async function restoreSession() {
                 }
             }
         } else if (savedType === 'sovereign') {
-            const rawPayload = sessionStorage.getItem('perennia_sovereign_payload');
+            // ⚡ FIX: Pull from permanent localStorage on reload
+            const rawPayload = localStorage.getItem('perennia_sovereign_payload');
             if (rawPayload) {
                 const vaultPayload = JSON.parse(rawPayload);
                 sovereignKeys.set(vaultPayload.wallets);

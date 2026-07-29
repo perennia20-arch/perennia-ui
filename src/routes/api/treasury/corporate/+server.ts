@@ -1,14 +1,18 @@
+// src/routes/api/treasury/corporate/+server.ts
+
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { perenniaKMS } from '$lib/server/kms';
+import { env } from '$env/dynamic/private';
 import pg from 'pg';
 
 const { Pool } = pg;
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
 
 // BARE-METAL POSTGRES CONNECTION
 const pool = new Pool({
     user: 'postgres',
-    host: '192.168.0.12',
+    host: nodeIp,
     database: 'perennia',
     password: 'password', // Adjust to match bare-metal prod configuration
     port: 5432,

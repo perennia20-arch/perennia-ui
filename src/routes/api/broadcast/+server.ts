@@ -1,17 +1,20 @@
-import { json } from '@sveltejs/kit';
+// src/routes/api/broadcast/+server.ts
+
+import { json, type RequestEvent } from '@sveltejs/kit';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
     const payload = await request.json();
+    const nodeIp = process.env.UBUNTU_NODE_IP || '192.168.0.12';
 
     return new Promise((resolve) => {
         let isResolved = false; // ⚡ Immutable state lock
-        console.log(`\n⏳ Chronos Engine: Opening raw CommonJS WebSocket...`);
+        console.log(`\n⏳ Chronos Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
         
-        const ws = new WebSocket('ws://192.168.0.12:18110');
+        const ws = new WebSocket(`ws://${nodeIp}:18110`);
         
         const timeout = setTimeout(() => {
             if (isResolved) return;
@@ -27,7 +30,7 @@ export async function POST({ request }) {
             ws.send(JSON.stringify(rpcPayload));
         });
 
-        ws.on('message', (data) => {
+        ws.on('message', (data: any) => {
             if (isResolved) return;
             isResolved = true; // Lock out the close/error handlers
             clearTimeout(timeout);
@@ -53,7 +56,7 @@ export async function POST({ request }) {
             }
         });
 
-        ws.on('close', (code) => {
+        ws.on('close', (code: number) => {
             if (isResolved) return;
             isResolved = true;
             clearTimeout(timeout);
@@ -61,7 +64,7 @@ export async function POST({ request }) {
             resolve(json({ error: "Node connection rejected" }, { status: 500 }));
         });
 
-        ws.on('error', (err) => {
+        ws.on('error', (err: Error) => {
             if (isResolved) return;
             isResolved = true;
             clearTimeout(timeout);

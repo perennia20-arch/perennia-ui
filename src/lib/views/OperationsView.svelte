@@ -1,16 +1,15 @@
 <script lang="ts">
-    import { workers, silos, plants, systemMode, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
-    
-    // ALIGNMENT PATCH: Imported the new Universal Router to replace the missing Burner Test
-    import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap } from '$lib/stores/wallet';
-    
+    import { source } from 'sveltekit-sse';
+    import { workers, silos, plants, systemMode, adminGlobalView, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
+    import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
 
+    let sseConnection: ReturnType<typeof source> | null = null;
+    let unsubs: any[] = [];
+
     let activeSiloMenu = $state<string | null>(null);
     let activePlantMenu = $state<string | null>(null);
-    
-    // ⚡ RESTORED: Inline Worker Context Menus & Trays
     let activeWorkerMenu = $state<string | null>(null);
     let activeTrayId = $state<string | null>(null);
     let activeTrayType = $state<'stratum' | 'add' | 'sub' | null>(null);
@@ -22,6 +21,13 @@
     
     let totalPendingKAS = $derived($silos.reduce((acc, s) => acc + (s.pendingKaspa || 0), 0));
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
+
+    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    let displayedWorkers = $derived(
+        isCorporateAdmin && $adminGlobalView 
+            ? $workers 
+            : $workers.filter(worker => worker.walletWorker.includes($walletAddress?.replace('kaspa:', '') || 'pending'))
+    );
     
     function closeAllMenus() { 
         activeWorkerMenu = null; 
@@ -69,12 +75,12 @@
 
     let effortData = $derived.by(() => {
         let segments: { id: string, name: string, pct: number, offset: number, hex: string }[] = [];
-        let totalHash = $workers.filter(w => w.isOnline && w.assignedSiloId).reduce((acc, w) => acc + w.hashRate, 0);
+        let totalHash = displayedWorkers.filter(w => w.isOnline && w.assignedSiloId).reduce((acc, w) => acc + w.hashRate, 0);
         
         if (totalHash > 0) {
             let currentOffset = 0;
             $silos.forEach(silo => {
-                const siloHash = $workers.filter(w => w.assignedSiloId === silo.id && w.isOnline).reduce((acc, w) => acc + w.hashRate, 0);
+                const siloHash = displayedWorkers.filter(w => w.assignedSiloId === silo.id && w.isOnline).reduce((acc, w) => acc + w.hashRate, 0);
                 if (siloHash > 0) {
                     const pct = (siloHash / totalHash) * 100;
                     segments.push({ 
@@ -99,121 +105,92 @@
         });
     });
 
-    // ⚡ INSTANT HYDRATION: Re-fires the fetch function the exact millisecond the Chrome extension injects the payload.
-    $effect(() => {
-        if ($isWalletConnected && $walletAddress) {
-            fetchDashboardData();
-        }
-    });
-
-    let unsubs: any[] = [];
-    let fetchInterval: ReturnType<typeof setInterval>;
-
-    // ⚡ RESTORED: Dynamic Copy Stratum Visual Floating States
     let floatingTexts = $state<{ id: number, x: number, y: number, text1: string, text2: string }[]>([]);
     let floatId = 0;
 
-    async function fetchDashboardData() {
+    function processTelemetryData(data: any) {
         const isConnected = get(isWalletConnected);
         const currentWallet = get(walletAddress);
+        const isCorpAdmin = DEV_ADMIN_BYPASS || currentWallet === MASTER_ADMIN_ADDRESS;
 
         if (!isConnected || !currentWallet) return;
 
-        try {
-            const response = await fetch('/api/telemetry');
-            if (!response.ok) throw new Error("HTTP error");
-            
-            const data = await response.json();
-            
-            globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
-            globalNodeStatus.set('online');
+        globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
+        globalNodeStatus.set('online');
 
-            const cleanWallet = currentWallet.replace('kaspa:', '');
+        const cleanWallet = currentWallet.replace('kaspa:', '');
 
-            workers.update(currentWorkers => {
-                // 1. NON-DESTRUCTIVE MAP: Update existing state (Preserves Manual Configurations)
-                let updated = currentWorkers.map(w => {
-                    if (w.type === 'physical') {
-                        const bw = (data.workers || []).find((b: any) => 
-                            b.fullIdentity === w.walletWorker && 
-                            b.walletAddress?.replace('kaspa:', '') === cleanWallet
-                        );
-                        
-                        if (bw) {
-                            const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
-                            return { 
-                                ...w, 
-                                hashRate: rawHash / 1e12,
-                                sharesContributed: bw.sharesContributed || bw.shares || 0,
-                                blocksFound: bw.blocksFound || bw.blocks || 0,
-                                hardwareType: bw.hardwareType || w.hardwareType || 'IceRiver KS',
-                                isOnline: true 
-                            } as any; 
-                        }
-                        // Manual configurations stay intact, they just report 0 until they pair
-                        return { ...w, hashRate: 0, isOnline: false };
-                    }
-                    return w;
-                });
-
-                // 2. INJECT LIVE WORKERS: Safely append valid new incoming telemetry
-                if (data.workers) {
-                    const myWorkers = data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
-                    
-                    myWorkers.forEach((bw: any) => {
-                        if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
-                            const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
-                            updated.push({
-                                id: Math.random().toString(36).substring(2, 8).toUpperCase(),
-                                type: 'physical',
-                                name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
-                                stratumUrl: 'stratum+tcp://192.168.0.12:5555',
-                                walletWorker: bw.fullIdentity,
-                                hashRate: rawHash / 1e12,
-                                isOnline: true,
-                                assignedSiloId: null, 
-                                sharesContributed: bw.sharesContributed || bw.shares || 0,
-                                blocksFound: bw.blocksFound || bw.blocks || 0,
-                                hardwareType: bw.hardwareType || 'IceRiver KS'
-                            } as any);
-                        }
+        workers.update(currentWorkers => {
+            let updated = currentWorkers.map(w => {
+                if (w.type === 'physical') {
+                    const bw = (data.workers || []).find((b: any) => {
+                        if (isCorpAdmin) return b.fullIdentity === w.walletWorker;
+                        return b.fullIdentity === w.walletWorker && b.walletAddress?.replace('kaspa:', '') === cleanWallet;
                     });
-                }
-
-                // 3. ⚡ GHOST EXORCISM: Collapse duplicates by worker name
-                const nameGroups: Record<string, any[]> = {};
-                updated.forEach(w => {
-                    if (!nameGroups[w.name]) nameGroups[w.name] = [];
-                    nameGroups[w.name].push(w);
-                });
-
-                let finalWorkers: any[] = [];
-                for (const [name, group] of Object.entries(nameGroups)) {
-                    if (group.length > 1) {
-                        const bestWorker = group.reduce((prev, current) => {
-                            // Priority 1: Keep the one actually hashing (kills the offline Redis ghosts)
-                            if (current.hashRate > prev.hashRate) return current;
-                            // Priority 2: Keep the one manually assigned to a sector
-                            if (current.assignedSiloId && !prev.assignedSiloId) return current;
-                            // Priority 3: Protect manually added pending workers over dead backend records
-                            if (current.walletWorker.includes('pending') && !prev.walletWorker.includes('pending')) return current;
-                            return prev;
-                        });
-                        finalWorkers.push(bestWorker);
-                    } else {
-                        finalWorkers.push(group[0]);
+                    
+                    if (bw) {
+                        const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
+                        return { 
+                            ...w, 
+                            hashRate: rawHash / 1e12,
+                            sharesContributed: bw.sharesContributed || bw.shares || 0,
+                            blocksFound: bw.blocksFound || bw.blocks || 0,
+                            hardwareType: bw.hardwareType || w.hardwareType || 'IceRiver KS',
+                            isOnline: true 
+                        } as any; 
                     }
+                    return { ...w, hashRate: 0, isOnline: false };
                 }
-
-                return finalWorkers;
+                return w;
             });
-            
-        } catch (err) {
-            globalNodeStatus.set('unreachable');
-            workers.update(currentWorkers => 
-                currentWorkers.map(w => w.type === 'physical' ? { ...w, isOnline: false, hashRate: 0 } : w)
-            );
-        }
+
+            if (data.workers) {
+                const validWorkersToInject = isCorpAdmin 
+                    ? data.workers 
+                    : data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
+                
+                validWorkersToInject.forEach((bw: any) => {
+                    if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
+                        const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
+                        updated.push({
+                            id: Math.random().toString(36).substring(2, 8).toUpperCase(),
+                            type: 'physical',
+                            name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
+                            stratumUrl: 'stratum+tcp://192.168.0.12:5555',
+                            walletWorker: bw.fullIdentity,
+                            hashRate: rawHash / 1e12,
+                            isOnline: true,
+                            assignedSiloId: null, 
+                            sharesContributed: bw.sharesContributed || bw.shares || 0,
+                            blocksFound: bw.blocksFound || bw.blocks || 0,
+                            hardwareType: bw.hardwareType || 'IceRiver KS'
+                        } as any);
+                    }
+                });
+            }
+
+            const nameGroups: Record<string, any[]> = {};
+            updated.forEach(w => {
+                if (!nameGroups[w.name]) nameGroups[w.name] = [];
+                nameGroups[w.name].push(w);
+            });
+
+            let finalWorkers: any[] = [];
+            for (const [name, group] of Object.entries(nameGroups)) {
+                if (group.length > 1) {
+                    const bestWorker = group.reduce((prev, current) => {
+                        if (current.hashRate > prev.hashRate) return current;
+                        if (current.assignedSiloId && !prev.assignedSiloId) return current;
+                        if (current.walletWorker.includes('pending') && !prev.walletWorker.includes('pending')) return current;
+                        return prev;
+                    });
+                    finalWorkers.push(bestWorker);
+                } else {
+                    finalWorkers.push(group[0]);
+                }
+            }
+            return finalWorkers;
+        });
     }
 
     onMount(() => { 
@@ -222,14 +199,23 @@
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
-        fetchDashboardData();
-        // ⚡ UPDATE: Strict 1000ms heartbeat per directive
-        fetchInterval = setInterval(fetchDashboardData, 1000);
+        // ⚡ FIX: SSE Connection established, closing interval leak.
+        sseConnection = source('/api/telemetry');
+        sseConnection.select('message').subscribe((rawData) => {
+            if (!rawData) return;
+            try {
+                const parsed = JSON.parse(rawData);
+                processTelemetryData(parsed);
+            } catch(e) {
+                globalNodeStatus.set('unreachable');
+            }
+        });
     });
 
     onDestroy(() => { 
         unsubs.forEach(u => u()); 
-        if (fetchInterval) clearInterval(fetchInterval);
+        // ⚡ FIX: Teardown logic implemented strictly
+        if (sseConnection) sseConnection.close();
     });
 
     let dragType = $state<'worker' | 'silo' | null>(null);
@@ -272,7 +258,6 @@
         handleDragEnd();
     }
 
-    // ⚡ RESTORED DYNAMIC TRAY COPIER
     function handleTrayCopy(e: MouseEvent, textToCopy: string, floatText1: string, floatText2: string) {
         e.stopPropagation();
         navigator.clipboard.writeText(textToCopy).catch(err => console.error("Clipboard copy failed", err));
@@ -291,7 +276,6 @@
         }, 2000);
     }
 
-    // ⚡ NEW: Inline Editing Actions
     function saveInlineRename(workerId: string) {
         if (inlineRenameId === workerId && inlineRenameValue.trim() !== "") {
             const newName = inlineRenameValue.trim();
@@ -304,7 +288,6 @@
         inlineRenameId = null;
     }
 
-    // ⚡ NEW: Inline Capital Logic
     function processTokenAction(workerId: string) {
         const amount = parseFloat(trayTokenAmount as string || "0");
         if (amount > 0 && activeTrayType) {
@@ -386,7 +369,6 @@
 
 <svelte:window onclick={closeAllMenus} onscroll={closeAllMenus} />
 
-<!-- ⚡ STRATUM COPY DYNAMIC ANIMATION OVERLAY -->
 {#each floatingTexts as float (float.id)}
     <div class="fixed z-[100000] pointer-events-none flex flex-col items-center gap-1.5"
          style="left: {float.x}px; top: {float.y - 40}px; transform: translateX(-50%);">
@@ -404,7 +386,6 @@
 {@const assignedSilo = isDeployed ? $silos.find(s => s.id === worker.assignedSiloId) : null}
 {@const siloColor = assignedSilo ? assetColors[assignedSilo.settlementConfig.targetAsset.assetClass as string]?.hex || '#ffffff' : null}
 
-<!-- ⚡ RESTORED: Added dynamic z-index for absolute contextual dropdown hovering cleanly over adjacent cards -->
 <div draggable={!isDeployed && !inlineRenameId && activeTrayId !== worker.id ? "true" : "false"} 
      ondragstart={(e) => { if(!isDeployed && !inlineRenameId && activeTrayId !== worker.id) handleDragStart(e, 'worker', worker.id) }} 
      ondragend={handleDragEnd} 
@@ -419,7 +400,6 @@
             <div class="flex items-center gap-2 pointer-events-auto w-full pr-2">
                 <div class="w-1.5 h-1.5 rounded-full shrink-0 {worker.isOnline ? 'bg-teal-500 animate-pulse shadow-[0_0_8px_rgba(20,184,166,0.8)]' : 'bg-neutral-600'}"></div>
                 
-                <!-- ⚡ RESTORED: Clean Inline Renaming State -->
                 {#if inlineRenameId === worker.id}
                     <input type="text" bind:value={inlineRenameValue} onblur={() => saveInlineRename(worker.id)} onkeydown={(e) => { if (e.key === 'Enter') saveInlineRename(worker.id); else if (e.key === 'Escape') inlineRenameId = null; }} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} class="text-xs font-bold text-white bg-[#1a1a1a] border {worker.type === 'physical' ? 'border-teal-500/50' : 'border-purple-500/50'} rounded px-1.5 py-0.5 outline-none w-[110px] shadow-inner" autofocus />
                 {:else}
@@ -432,10 +412,8 @@
         </div>
         
         <div class="relative pointer-events-auto shrink-0 z-20">
-            <!-- ⚡ RESTORED: Kebab context menu trigger -->
             <button aria-label="Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); closeAllMenus(); activeWorkerMenu = activeWorkerMenu === worker.id ? null : worker.id; }} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer"><span class="font-bold pb-1 text-sm">⋮</span></button>
             
-            <!-- ⚡ RESTORED: Absolute Positioned Worker Context Dropdown -->
             {#if activeWorkerMenu === worker.id}
                 <div class="absolute top-8 right-0 w-40 bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-[fade-in-up_0.1s_ease-out] z-[100]" onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
                     <button onclick={(e) => { e.stopPropagation(); inlineRenameId = worker.id; inlineRenameValue = worker.name; activeWorkerMenu = null; activeTrayId = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer">Rename Worker</button>
@@ -499,7 +477,6 @@
         </div>
     </div>
 
-    <!-- ⚡ TRAY INJECTIONS HERE -->
     {#if activeTrayId === worker.id && activeTrayType === 'stratum'}
         {@const dynamicWorkerName = $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${worker.name}` : `{walletAddress}.${worker.name}`}
         <div class="mt-3 pt-3 border-t border-neutral-800/50 flex flex-col gap-2 pointer-events-auto shadow-inner relative z-10 animate-[fade-in-up_0.1s_ease-out]" onclick={(e) => e.stopPropagation()} onmousedown={(e) => e.stopPropagation()}>
@@ -562,7 +539,7 @@
 {/snippet}
 
 {#snippet siloCard(silo: Silo, inPlant: boolean)}
-{@const siloWorkers = $workers.filter(w => w.assignedSiloId === silo.id)}
+{@const siloWorkers = displayedWorkers.filter(w => w.assignedSiloId === silo.id)}
 {@const hashrate = siloWorkers.reduce((sum, w) => sum + w.hashRate, 0)}
 {@const assetClass = silo.settlementConfig.targetAsset.assetClass as string}
 {@const assetTheme = assetColors[assetClass] || {hex: '#525252', pastel: '#a3a3a3'}}
@@ -677,13 +654,12 @@
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2>
                 <div class="flex items-center gap-3">
-                    <!-- ⚡ DEV TRIGGER: Executes a 1 KAS micro-tx using the new routing engine -->
                     <button aria-label="Dev Fire" 
                             onclick={() => executeOmniChainSwap('KAS', 'KAS', '1')}
                             class="text-[7px] font-black uppercase tracking-widest text-red-500/30 hover:text-red-500 transition-colors border border-red-500/10 hover:border-red-500/50 px-1.5 py-0.5 rounded cursor-pointer">
                         [DEV FIRE]
                     </button>
-                    <span class="text-[9px] font-mono text-neutral-600">{$workers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
+                    <span class="text-[9px] font-mono text-neutral-600">{displayedWorkers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
                 </div>
             </div>
             
@@ -693,11 +669,11 @@
             </div>
 
             <div class="flex flex-col gap-2.5 min-h-[400px] pb-10 transition-colors duration-300 {targetDropType === 'field' && dragType === 'worker' ? 'border border-dashed border-teal-500/30 rounded-xl bg-teal-500/5 p-2 -mx-2' : ''}">
-                {#if $workers.length === 0}
+                {#if displayedWorkers.length === 0}
                     <div class="flex-1 border border-dashed border-neutral-800/50 rounded-xl flex items-center justify-center bg-[#050505] p-4 text-center pointer-events-none"><p class="text-[9px] uppercase tracking-widest text-neutral-600 font-bold leading-relaxed">{#if !$isWalletConnected} Connect wallet {:else} No hardware provisioned {/if}</p></div>
                 {/if}
                 
-                {#each $workers.filter(w => w.assignedSiloId === null) as worker (worker.id)}
+                {#each displayedWorkers.filter(w => w.assignedSiloId === null) as worker (worker.id)}
                     {@render workerCard(worker)}
                 {/each}
             </div>

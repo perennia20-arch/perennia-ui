@@ -1,18 +1,22 @@
-import { json } from '@sveltejs/kit';
+// src/routes/api/utxos/+server.ts
+
+import { json, type RequestEvent } from '@sveltejs/kit';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
     const address = url.searchParams.get('address');
     if (!address) return json({ error: "Missing address parameter" }, { status: 400 });
 
+    const nodeIp = process.env.UBUNTU_NODE_IP || '192.168.0.12';
+
     return new Promise((resolve) => {
         let isResolved = false; // ⚡ Immutable state lock
-        console.log(`\n⏳ UTXO Engine: Opening raw CommonJS WebSocket to ws://192.168.0.12:18110...`);
+        console.log(`\n⏳ UTXO Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
         
-        const ws = new WebSocket('ws://192.168.0.12:18110');
+        const ws = new WebSocket(`ws://${nodeIp}:18110`);
         
         const timeout = setTimeout(() => {
             if (isResolved) return;
@@ -28,7 +32,7 @@ export async function GET({ url }) {
             ws.send(JSON.stringify(payload));
         });
 
-        ws.on('message', (data) => {
+        ws.on('message', (data: any) => {
             if (isResolved) return;
             isResolved = true; // Lock out the close/error handlers
             clearTimeout(timeout);
@@ -48,7 +52,7 @@ export async function GET({ url }) {
             }
         });
 
-        ws.on('close', (code) => {
+        ws.on('close', (code: number) => {
             if (isResolved) return; 
             isResolved = true;
             clearTimeout(timeout);
@@ -56,7 +60,7 @@ export async function GET({ url }) {
             resolve(json({ error: "Node connection rejected" }, { status: 500 }));
         });
 
-        ws.on('error', (err) => {
+        ws.on('error', (err: Error) => {
             if (isResolved) return;
             isResolved = true;
             clearTimeout(timeout);

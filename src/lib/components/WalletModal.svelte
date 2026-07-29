@@ -33,7 +33,7 @@
     onMount(() => {
         if (browser) {
             isKasWareInstalled = !!(window as any).kasware;
-            hasStoredVault = !!sessionStorage.getItem('perennia_sovereign_payload');
+            hasStoredVault = !!localStorage.getItem('perennia_sovereign_payload');
         }
     });
 
@@ -70,7 +70,7 @@
             derivedBtc = '';
             localError = '';
             walletMessage.set('');
-            hasStoredVault = browser ? !!sessionStorage.getItem('perennia_sovereign_payload') : false;
+            hasStoredVault = browser ? !!localStorage.getItem('perennia_sovereign_payload') : false;
         }, 300);
     }
 
@@ -368,9 +368,11 @@
                             <p class="text-[10px] text-neutral-500 leading-relaxed uppercase tracking-widest font-bold max-w-[200px]">
                                 Enter your local cipher to decrypt the Omni-Chain Matrix.
                             </p>
+                            
+                            <!-- ⚡ FIX: The Reset button now correctly deletes from permanent storage -->
                             <button 
                                 type="button" 
-                                onclick={() => { sessionStorage.removeItem('perennia_sovereign_payload'); hasStoredVault = false; viewState = 'menu'; localError = ''; password = ''; }}
+                                onclick={() => { localStorage.removeItem('perennia_sovereign_payload'); hasStoredVault = false; viewState = 'menu'; localError = ''; password = ''; }}
                                 class="text-[8px] text-red-500/50 hover:text-red-400 uppercase tracking-widest font-bold border border-red-500/20 bg-red-500/5 px-2 py-1 rounded transition-colors shrink-0 cursor-pointer"
                             >
                                 Reset Vault

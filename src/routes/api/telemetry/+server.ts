@@ -1,26 +1,30 @@
-import { json } from '@sveltejs/kit';
-import { redis } from '$lib/server/redis'; // ⚡ Leverages the resilient connection pool
+import { produce } from 'sveltekit-sse';
+import { redis } from '$lib/server/redis';
 
-export async function GET() {
-    try {
-        // ⚡ STATELESS FIX: O(1) Fetch utilizing the active multiplexed connection. 
-        // Eliminates the TCP port exhaustion that crashes Windows via the createClient loop.
-        const rawData = await redis.get('perennia:telemetry');
+export function GET() {
+    return produce(async function start({ emit }) {
+        // Clone the connection so it can be dedicated purely to subscription blocking
+        const subscriber = redis.duplicate();
+        
+        subscriber.on('error', (err) => {
+            console.error('🔴 SSE Redis Subscriber Error:', err);
+        });
 
-        if (!rawData) {
-            return json({ totalHashrate: 0, workers: [] });
-        }
+        await subscriber.subscribe('telemetry:updates');
 
-        // ⚡ BRUTAL EFFICIENCY: Stream raw string byte-for-byte directly to bypass Node.js JSON parsing overhead.
-        return new Response(rawData, {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-store, no-cache, must-revalidate'
+        subscriber.on('message', (channel, message) => {
+            if (channel === 'telemetry:updates') {
+                const { error } = emit('message', message);
+                if (error) {
+                    subscriber.unsubscribe();
+                    subscriber.quit();
+                }
             }
         });
-    } catch (error) {
-        console.error("Backend Error:", error);
-        return json({ totalHashrate: 0, workers: [], error: 'Telemetry unavailable' }, { status: 500 });
-    }
+
+        return function stop() {
+            subscriber.unsubscribe();
+            subscriber.quit();
+        };
+    });
 }

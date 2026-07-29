@@ -4,20 +4,21 @@
     import { get } from 'svelte/store';
     import { browser } from '$app/environment';
     import { fade, slide } from 'svelte/transition';
-    import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, plants, walletInventory, tokenRegistry } from '$lib/stores/app';        
+    import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, plants, walletInventory, tokenRegistry, adminGlobalView } from '$lib/stores/app';        
     
-    import { isWalletConnected, walletAddress, walletBalance, disconnectWallet, restoreSession, showWalletModal } from '$lib/stores/wallet';
+    import { isWalletConnected, walletAddress, walletBalance, disconnectWallet, restoreSession, showWalletModal, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
 
     let { children } = $props();
 
     const tabs = ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS'];
-    const disabledTabs = [] as string[]; 
+    
+    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    
+    let disabledTabs: string[] = $state([]); 
 
     let priceInterval: ReturnType<typeof setInterval>;
-    
-    // ⚡ FIX: Blank string ensures SvelteKit uses its own native API routes (port 5173) instead of 5000
     const BACKEND_BASE = '';
 
     let hasEntered = $state(false);
@@ -29,12 +30,21 @@
 
     let isLoaded = $state(false);
     let isServerReachable = $state(true);
+    let showCopyToast = $state(false);
 
     function purgeApplicationState() {
         workers.set([]);
         silos.set([]);
         plants.set([]);
         walletInventory.set([]);
+    }
+
+    function copyToClipboard() {
+        if ($walletAddress) {
+            navigator.clipboard.writeText($walletAddress);
+            showCopyToast = true;
+            setTimeout(() => { showCopyToast = false; }, 2000);
+        }
     }
 
     async function loadStateFromServer(address: string | null) {
@@ -60,7 +70,7 @@
     }
 
     async function saveStateToServer(address: string | null) {
-        if (!browser || !address || !isLoaded || !isServerReachable) return;
+        if (!browser || !address || !isLoaded || !isServerReachable || isCorporateAdmin) return;
         try {
             const statePayload = {
                 workers: get(workers),
@@ -176,6 +186,14 @@
                 </div>
 
                 <div class="flex items-center gap-3 md:gap-4">
+                    {#if isCorporateAdmin}
+                        <button aria-label="Toggle Global Operations" onclick={() => $adminGlobalView = !$adminGlobalView} 
+                                class="group relative w-12 h-6 bg-[#111] border { $adminGlobalView ? 'border-amber-500/50' : 'border-neutral-800'} rounded-full cursor-pointer transition-colors overflow-hidden hidden sm:block" title="Toggle Global Operations View">
+                            <div class="absolute inset-0 { $adminGlobalView ? 'bg-amber-500/10' : 'bg-white/5'} opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-all duration-300 shadow-sm { $adminGlobalView ? 'bg-amber-500 left-[26px] shadow-[0_0_8px_rgba(245,158,11,0.8)]' : 'bg-neutral-600 left-1'}"></div>
+                        </button>
+                    {/if}
+
                     <button aria-label="Toggle Overclocked Mode" onclick={() => $systemMode = $systemMode === 'base' ? 'overclocked' : 'base'} 
                             class="group relative w-12 h-6 bg-[#111] border border-neutral-800 rounded-full cursor-pointer transition-colors overflow-hidden hidden sm:block" title="Toggle Overclocked Mode">
                         <div class="absolute inset-0 bg-[#18C6A5]/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -190,12 +208,18 @@
                         </button>
                     {:else}
                         <div class="flex items-center gap-1 md:gap-2 bg-[#111] border border-neutral-800 rounded-xl p-1 pr-2 md:pr-3">
-                            <div class="bg-[#1a1a1a] rounded-lg px-2 md:px-4 py-1.5 md:py-2 flex items-center gap-2 border border-neutral-800/50">
+                            <button onclick={copyToClipboard} class="relative bg-[#1a1a1a] rounded-lg px-2 md:px-4 py-1.5 md:py-2 flex items-center gap-2 border border-neutral-800/50 hover:bg-[#222] hover:border-[#18C6A5]/40 cursor-pointer transition-all group">
                                 <div class="w-1.5 h-1.5 rounded-full { $globalNodeStatus === 'online' ? 'bg-[#18C6A5] animate-pulse shadow-[0_0_8px_rgba(24,198,165,0.8)]' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600' } shrink-0"></div>
-                                <span class="{ $globalNodeStatus === 'online' ? 'text-[#18C6A5]' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-500' } font-mono text-[10px] md:text-[11px] font-bold truncate max-w-[80px] md:max-w-none">
+                                <span class="{ $globalNodeStatus === 'online' ? 'text-[#18C6A5]' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-500' } font-mono text-[10px] md:text-[11px] font-bold truncate max-w-[80px] md:max-w-none group-hover:text-white transition-colors">
                                     {$walletAddress?.substring(0,10)}...{$walletAddress?.substring($walletAddress.length-4)}
                                 </span>
-                            </div>
+                            
+                                {#if showCopyToast}
+                                    <div class="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-[#0a0a0a] border border-[#18C6A5]/50 rounded text-[#18C6A5] text-[9px] uppercase tracking-widest whitespace-nowrap shadow-[0_0_10px_rgba(24,198,165,0.1)]">
+                                        Copied
+                                    </div>
+                                {/if}
+                            </button>
                             <button aria-label="Disconnect" onclick={disconnectWallet} class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer rounded-lg shrink-0" title="Disconnect">
                                 <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                             </button>
@@ -210,10 +234,11 @@
                 <div class="flex gap-4 sm:gap-8 h-full min-w-max items-center">
                     {#each tabs as tab}
                         {#if disabledTabs.includes(tab)}
-                            <div class="relative h-full flex items-center px-2 cursor-not-allowed group">
-                                <span class="text-[9px] md:text-[10px] font-bold tracking-[0.15em] uppercase text-neutral-700 whitespace-nowrap transition-colors group-hover:text-neutral-600">
+                            <div class="relative h-full flex items-center px-2 cursor-not-allowed group" title="Restricted: Master Treasury Override">
+                                <span class="text-[9px] md:text-[10px] font-bold tracking-[0.15em] uppercase text-neutral-800 whitespace-nowrap transition-colors group-hover:text-red-900/50">
                                     {tab}
                                 </span>
+                                <svg class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 text-red-900/40 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                             </div>
                         {:else}
                             <button onclick={() => $activeTab = tab} 

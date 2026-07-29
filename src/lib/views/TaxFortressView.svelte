@@ -1,9 +1,99 @@
 <script lang="ts">
-    import { isWalletConnected } from '$lib/stores/wallet';
+    import { isWalletConnected, walletAddress } from '$lib/stores/wallet';
     import { systemMode, taxEvents } from '$lib/stores/app';
+    import { fade, fly } from 'svelte/transition';
 
-    function exportCSV() { alert("Initiating Master Ledger CSV Export..."); }
-    function export1099() { alert("Compiling Form 1099-DA Pipeline..."); }
+    // Compliance State
+    let kycStatus = $state<'unverified' | 'pending' | 'verified'>('unverified');
+    let showKycDrawer = $state(false);
+    let isSubmittingKyc = $state(false);
+    let kycError = $state('');
+    
+    // Entity Matrix
+    let kycForm = $state({
+        legalName: '',
+        tin: '',
+        entityType: 'LLC',
+        address: ''
+    });
+
+    function exportCSV() { 
+        alert("Initiating Master Ledger CSV Export..."); 
+    }
+    
+    async function export1099() { 
+        if (kycStatus !== 'verified') {
+            showKycDrawer = true;
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/treasury/1099-da', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    walletAddress: $walletAddress,
+                    taxYear: new Date().getFullYear()
+                })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                alert(`Error: ${data.message || 'Failed to compile ledger'}`);
+                return;
+            }
+
+            console.dir(data.documentData);
+            alert(`SUCCESS: Compiled 1099-DA Pipeline for ${data.documentData.recipient.name}.\n\nGross Proceeds: $${data.documentData.financials.grossProceeds.toFixed(2)}\n\nPayload ready for PDF generator routing.`); 
+            
+        } catch (error) {
+            console.error(error);
+            alert("Network routing error during 1099-DA compilation.");
+        }
+    }
+
+    async function submitKyc(e: Event) {
+        e.preventDefault();
+        isSubmittingKyc = true;
+        kycError = '';
+
+        // Strict Compliance Validation
+        if (!kycForm.legalName || !kycForm.tin || !kycForm.address) {
+            kycError = 'ALL FIELDS ARE MANDATORY FOR IRS COMPLIANCE.';
+            isSubmittingKyc = false;
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/treasury/kyc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    walletAddress: $walletAddress,
+                    legalName: kycForm.legalName,
+                    entityType: kycForm.entityType,
+                    tin: kycForm.tin,
+                    address: kycForm.address
+                })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                kycError = data.message || 'Entity verification failed.';
+                return;
+            }
+
+            kycStatus = 'verified';
+            showKycDrawer = false;
+        } catch (error) {
+            console.error("KYC Submission Error:", error);
+            kycError = 'NETWORK ROUTING FAILED.';
+        } finally {
+            isSubmittingKyc = false;
+        }
+    }
 </script>
 
 <div class="w-full h-full p-4 md:p-8 overflow-y-auto hide-scrollbar relative">
@@ -30,6 +120,16 @@
                 <h1 class="text-3xl font-black uppercase tracking-[0.2em] text-white flex items-center gap-4 mb-2">
                     Tax Fortress
                     <span class="px-3 py-1 bg-teal-950/50 border border-teal-900 text-teal-400 text-[10px] rounded uppercase tracking-widest font-bold flex items-center gap-1.5"><div class="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></div> Guardian Active</span>
+                    
+                    {#if kycStatus === 'verified'}
+                        <span class="px-3 py-1 bg-blue-950/30 border border-blue-900/50 text-blue-400 text-[10px] rounded uppercase tracking-widest font-bold flex items-center gap-1.5 shadow-[0_0_10px_rgba(59,130,246,0.1)]">
+                            ✓ KYC Verified
+                        </span>
+                    {:else}
+                        <button onclick={() => showKycDrawer = true} class="px-3 py-1 bg-amber-950/30 border border-amber-900/50 text-amber-400 text-[10px] rounded uppercase tracking-widest font-bold flex items-center gap-1.5 hover:bg-amber-900/50 transition-colors cursor-pointer shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                            ⚠ Action Required: 1099-DA KYC
+                        </button>
+                    {/if}
                 </h1>
                 <p class="text-[11px] font-mono text-neutral-500 uppercase tracking-widest">Continuous Liability Stamping & Compliance Compilation</p>
             </div>
@@ -49,11 +149,11 @@
                 <div class="text-2xl font-mono font-light text-white tracking-tight">{$taxEvents.length}</div>
             </div>
             <div class="bg-[#0c0c0c] border border-neutral-800/80 rounded-2xl p-5 shadow-inner">
-                <h3 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-1">Total Taxable Value</h3>
+                <h3 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-1">Total Taxable Value (Gross Proceeds)</h3>
                 <div class="text-2xl font-mono font-light text-white tracking-tight">${$taxEvents.reduce((sum, e) => sum + e.usdValueAtTime, 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
             </div>
             <div class="bg-[#0c0c0c] border border-neutral-800/80 rounded-2xl p-5 shadow-inner">
-                <h3 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-1">Realized Gains</h3>
+                <h3 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-1">Realized Gains (Cost Basis)</h3>
                 <div class="text-2xl font-mono font-light text-white tracking-tight">$0.00</div>
             </div>
             <div class="bg-gradient-to-br from-[#111] to-[#0a0a0a] border border-red-900/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
@@ -88,7 +188,7 @@
                             <th class="py-4 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Type</th>
                             <th class="py-4 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Asset</th>
                             <th class="py-4 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-right">Amount</th>
-                            <th class="py-4 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-right">USD Value (Stamp)</th>
+                            <th class="py-4 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-right">USD Value (Gross Proceeds)</th>
                             <th class="py-4 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Tx Hash</th>
                         </tr>
                     </thead>
@@ -129,6 +229,78 @@
 
     </div>
 </div>
+
+<!-- ========================================== -->
+<!-- 1099-DA KYC MATCHING PROTOCOL MODAL        -->
+<!-- ========================================== -->
+{#if showKycDrawer}
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95 backdrop-blur-sm" transition:fade={{ duration: 200 }}>
+        <div class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => showKycDrawer = false}></div>
+
+        <div class="relative z-10 w-full max-w-[500px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 border-t-amber-500 animate-[fade-in-up_0.2s_ease-out]">
+            <div class="px-6 pt-6 pb-4 border-b border-neutral-800/80 bg-[#111]">
+                <h3 class="text-white font-black tracking-widest text-lg mb-1 text-center uppercase">IRS Entity Verification</h3>
+                <span class="text-[9px] text-neutral-500 uppercase tracking-widest text-center block font-bold">1099-DA Compliance Pipeline</span>
+            </div>
+
+            <form onsubmit={submitKyc} class="p-6 flex flex-col gap-5">
+                {#if kycError}
+                    <div class="bg-red-950/30 border border-red-900/50 rounded-lg p-3 text-center">
+                        <span class="text-[10px] text-red-500 font-bold uppercase tracking-widest">{kycError}</span>
+                    </div>
+                {/if}
+
+                <div class="flex flex-col gap-1.5">
+                    <label for="legalName" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold ml-1">Full Legal Entity Name</label>
+                    <input id="legalName" type="text" bind:value={kycForm.legalName} placeholder="Perennia Holdings LLC" class="w-full bg-[#161616] border border-neutral-800 focus:border-amber-500/50 rounded-xl px-4 py-3 text-[11px] font-mono text-white outline-none transition-colors shadow-inner" />
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-1.5">
+                        <label for="entityType" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold ml-1">Entity Type</label>
+                        <select id="entityType" bind:value={kycForm.entityType} class="w-full bg-[#161616] border border-neutral-800 focus:border-amber-500/50 rounded-xl px-4 py-3 text-[11px] font-bold text-white outline-none cursor-pointer appearance-none shadow-inner">
+                            <option value="LLC">LLC</option>
+                            <option value="Corporation">Corporation</option>
+                            <option value="Partnership">Partnership</option>
+                            <option value="Individual">Individual / Sole Prop</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-col gap-1.5">
+                        <label for="tin" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold ml-1">TIN / EIN</label>
+                        <input id="tin" type="text" bind:value={kycForm.tin} placeholder="XX-XXXXXXX" class="w-full bg-[#161616] border border-neutral-800 focus:border-amber-500/50 rounded-xl px-4 py-3 text-[11px] font-mono text-white outline-none transition-colors shadow-inner" />
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                    <label for="address" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold ml-1">Registered Business Address</label>
+                    <input id="address" type="text" bind:value={kycForm.address} placeholder="123 Alpha St, NY 10001" class="w-full bg-[#161616] border border-neutral-800 focus:border-amber-500/50 rounded-xl px-4 py-3 text-[11px] font-mono text-white outline-none transition-colors shadow-inner" />
+                </div>
+
+                <div class="flex items-start gap-3 bg-[#0a0a0a] rounded-xl p-4 border border-neutral-800 mt-2 shadow-inner">
+                    <div class="mt-0.5">
+                        <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[10px] uppercase tracking-widest text-neutral-300 font-bold">Data Encryption Active</span>
+                        <span class="text-[9px] text-neutral-600 leading-relaxed mt-1">TIN data is cryptographically hashed via AES-GCM before resting in the Postgres WAL. Gross proceeds tracking relies on this mapped identity.</span>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 pt-2">
+                    <button type="button" onclick={() => showKycDrawer = false} class="flex-1 py-3 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 text-neutral-400 hover:text-white font-bold uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer">Cancel</button>
+                    <button type="submit" disabled={isSubmittingKyc} class="flex-[2] py-3 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.2)] disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+                        {#if isSubmittingKyc}
+                            <div class="w-3.5 h-3.5 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
+                            Syncing Identity...
+                        {:else}
+                            Submit for IRS TIN Matching
+                        {/if}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{/if}
 
 <style>
     @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } }
