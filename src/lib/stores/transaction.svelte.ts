@@ -1,7 +1,7 @@
 // ================================================================================
 // PERENNIA SOVEREIGN TRANSACTION ENGINE // ZERO-TRUST // PURE SILICON
 // ================================================================================
-import { blake2b } from '@noble/hashes/blake2.js'; // <-- PATCHED ESM PATH
+import { blake2b } from '@noble/hashes/blake2.js'; 
 import { schnorr } from '@noble/curves/secp256k1.js';
 
 // ============================================================================
@@ -14,7 +14,6 @@ class TransactionEngineState {
     lastTxId = $state("");
     error = $state("");
 
-    // Brutalist UI Overlay Adherence via Svelte 5 Class Getter
     get overlayClass() {
         return this.isBroadcasting 
             ? "fixed inset-0 z-50 flex items-center justify-center bg-[#0a0a0a] bg-opacity-95 font-mono text-white font-bold tracking-widest uppercase transition-none" 
@@ -75,12 +74,13 @@ function concatBytes(...arrays: Uint8Array[]): Uint8Array {
 }
 
 // ============================================================================
-// III. NATIVE BASE32 DECODER & SCRIPT COMPILER
+// III. NATIVE BASE32 DECODER & SCRIPT COMPILER (P2PKH & P2SH)
 // ============================================================================
-function decodeAddressToPubkey(address: string): Uint8Array {
+function decodeAddressToPayload(address: string): { version: number, hash: Uint8Array } {
     const parts = address.split(':');
     if (parts.length !== 2) throw new Error("ERR_INVALID_ADDRESS_FORMAT");
     
+    // TN12 & Mainnet agnostic logic (base32 is purely the right-hand payload)
     const base32 = parts[1];
     const decoded = new Uint8Array(base32.length - 8);
     
@@ -102,12 +102,25 @@ function decodeAddressToPubkey(address: string): Uint8Array {
         }
     }
     
-    // out[0] is version byte (0x00 for P2PKH/Schnorr), following 32 bytes are X-only PubKey
-    return new Uint8Array(out.slice(1, 33));
+    // Version: 0x00 (P2PKH), 0x08 (P2SH Covenant)
+    return { 
+        version: out[0], 
+        hash: new Uint8Array(out.slice(1, 33)) 
+    };
+}
+
+function createScriptPublicKey(address: string): string {
+    const { version, hash } = decodeAddressToPayload(address);
+    if (version === 0) {
+        return `20${bytesToHex(hash)}ac`; // P2PKH: OP_BLAKE2B (Push 32, Pubkey, CheckSig)
+    } else if (version === 8) {
+        return `aa20${bytesToHex(hash)}87`; // P2SH: OP_HASH256 (aa) Push32 (20) <hash> OP_EQUAL (87)
+    }
+    throw new Error(`ERR_UNSUPPORTED_ADDRESS_VERSION: ${version}`);
 }
 
 // ============================================================================
-// IV. SOVEREIGN EXECUTION & SIGHASH CASCADE PIPELINE
+// IV. SOVEREIGN EXECUTION & COVENANT PIPELINE
 // ============================================================================
 export async function executeSovereignTransaction(destinationAddress: string, amountKas: number): Promise<string> {
     if (!txState.decryptedPrivateKeyHex) throw new Error("ERR_VAULT_LOCKED");
@@ -119,7 +132,7 @@ export async function executeSovereignTransaction(destinationAddress: string, am
         const myPubKeyBytes = schnorr.getPublicKey(privKeyBytes);
         const sourceScriptHex = `20${bytesToHex(myPubKeyBytes)}ac`;
 
-        // 1. Memory-Mapped UTXO Fetch via CommonJS Proxy
+        // 1. Memory-Mapped UTXO Fetch
         const utxoRes = await fetch(`/api/utxos`);
         if (!utxoRes.ok) throw new Error("ERR_UTXO_PROXY_UNREACHABLE");
         const utxoData = await utxoRes.json();
@@ -153,10 +166,14 @@ export async function executeSovereignTransaction(destinationAddress: string, am
         }
 
         const change = gathered - targetSompi - fee;
-        const destPubKey = decodeAddressToPubkey(destinationAddress);
-        const destScriptHex = `20${bytesToHex(destPubKey)}ac`;
+        
+        // ⚡ Dynamically compile output ScriptPublicKey based on Address Version (P2PKH vs P2SH)
+        let destScriptHex = destinationAddress; 
+        if (destinationAddress.includes("kaspa") || destinationAddress.includes("kaspatest")) {
+            destScriptHex = createScriptPublicKey(destinationAddress);
+        }
 
-        // 3. Strict JSON Type Assembly (Flattened strings, pure integers)
+        // 3. Strict JSON Type Assembly
         const txInputs = selectedUtxos.map(u => {
             const txId = u.outpoint?.transactionId ?? u.transactionId;
             const index = u.outpoint?.index ?? u.index;
@@ -216,7 +233,7 @@ export async function executeSovereignTransaction(destinationAddress: string, am
             );
         })), { dkLen: 32 });
 
-        const subnetworkIdBytes = new Uint8Array(20); // 40-zero string -> 20 zero bytes
+        const subnetworkIdBytes = new Uint8Array(20); 
         const payloadHash = new Uint8Array(32); 
 
         // 5. Schnorr Cryptographic Pipeline Execution
@@ -254,11 +271,114 @@ export async function executeSovereignTransaction(destinationAddress: string, am
             const sighash = blake2b(sigHashData, { dkLen: 32, key: TX_SIGNING_KEY });
             const signature = schnorr.sign(sighash, privKeyBytes);
             
-            // 0x41 (Push 65 Bytes) + 64-byte Sig + 0x01 (SIGHASH_ALL)
-            input.signatureScript = `41${bytesToHex(signature)}01`;
+            // ⚡ COVENANT AWARE SIGHASH ASSEMBLY
+            const isCovenant = spkHex.startsWith("aa20") && spkHex.endsWith("87");
+            
+            if (isCovenant) {
+                // P2SH Covenant Input Spending (Requires Execution Arguments + Compiled Script)
+                const redeemScript = `20${bytesToHex(myPubKeyBytes)}ac`; 
+                const signaturePush = `41${bytesToHex(signature)}01`;
+                const slippageArg = "0105"; // Example Introspection Argument: OP_PUSH1 0x05 (5% Max Slippage)
+                const redeemScriptPush = `22${redeemScript}`; // 0x22 (34 bytes to push)
+                
+                input.signatureScript = `${signaturePush}${slippageArg}${redeemScriptPush}`;
+            } else {
+                // Standard P2PKH Input Spending: 0x41 (Push 65 Bytes) + 64-byte Sig + 0x01 (SIGHASH_ALL)
+                input.signatureScript = `41${bytesToHex(signature)}01`;
+            }
         }
 
         // 6. Push finalized payload to Blind Proxy Node Mempool
+        const broadcastRes = await fetch('/api/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction: tx })
+        });
+
+        if (!broadcastRes.ok) {
+            const errText = await broadcastRes.text();
+            throw new Error(`ERR_BROADCAST_REJECTED: ${errText}`);
+        }
+
+        const resData = await broadcastRes.json();
+        txState.lastTxId = resData.transactionId || resData.id;
+        return txState.lastTxId;
+
+    } catch (e: any) {
+        txState.error = e.message;
+        throw e;
+    } finally {
+        txState.isBroadcasting = false;
+    }
+}
+
+// ============================================================================
+// V. PHASE 1.5 - P2SH BURN TEST HARNESS (SWEEP)
+// ============================================================================
+export async function executeTestCovenantSweep(
+    p2shAddress: string, 
+    redeemScriptHex: string, 
+    destinationAddress: string
+): Promise<string> {
+    txState.isBroadcasting = true;
+    txState.error = "";
+
+    try {
+        // 1. Fetch UTXOs locked in the P2SH contract
+        const utxoRes = await fetch(`/api/utxos?address=${encodeURIComponent(p2shAddress)}`);
+        if (!utxoRes.ok) throw new Error("ERR_UTXO_PROXY_UNREACHABLE");
+        const utxoData = await utxoRes.json();
+        const utxos = Array.isArray(utxoData) ? utxoData : utxoData.entries || utxoData.utxos || [];
+
+        if (utxos.length === 0) throw new Error("NO_FUNDS_IN_COVENANT");
+
+        // 2. We'll just sweep the first UTXO for the test
+        const utxo = utxos[0];
+        const amt = BigInt(utxo.amount ?? utxo.utxoEntry?.amount);
+        
+        const fee = 2000n; // Basic flat fee
+        if (amt <= fee) throw new Error("UTXO_TOO_SMALL_FOR_FEE");
+        const sweepAmount = amt - fee;
+
+        // 3. Output Assembly (Sending back to User's Address)
+        let destScriptHex = destinationAddress; 
+        if (destinationAddress.includes("kaspa") || destinationAddress.includes("kaspatest")) {
+            const { version, hash } = decodeAddressToPayload(destinationAddress);
+            if (version === 0) destScriptHex = `20${bytesToHex(hash)}ac`;
+            else if (version === 8) destScriptHex = `aa20${bytesToHex(hash)}87`;
+        }
+
+        const txId = utxo.outpoint?.transactionId ?? utxo.transactionId;
+        const index = utxo.outpoint?.index ?? utxo.index;
+
+        // 4. Assemble the magic Signature Script (The Unlocking Mechanism)
+        // For our test script (Push(0x42) OP_EQUAL), we must satisfy it by pushing 0x42 to the stack.
+        // Format: [Unlocking Argument Push] + [Length of RedeemScript] + [RedeemScript]
+        const unlockArgPush = "0142"; // OP_PUSH1 0x42
+        const redeemScriptLenHex = (redeemScriptHex.length / 2).toString(16).padStart(2, '0');
+        const signatureScript = `${unlockArgPush}${redeemScriptLenHex}${redeemScriptHex}`;
+
+        const tx = {
+            version: 0,
+            inputs: [{
+                previousOutpoint: { transactionId: txId, index: Number(index) },
+                signatureScript: signatureScript,
+                sequence: 0,
+                sigOpCount: 1 // Standard input footprint
+            }],
+            outputs: [{
+                amount: Number(sweepAmount),
+                scriptPublicKey: destScriptHex
+            }],
+            lockTime: 0,
+            subnetworkId: "0000000000000000000000000000000000000000",
+            gas: 0,
+            payload: "",
+            mass: 0,
+            storageMass: 0
+        };
+
+        // 5. Broadcast directly (No Hash Cascades / Schnorr needed because it's a pure math lock!)
         const broadcastRes = await fetch('/api/broadcast', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

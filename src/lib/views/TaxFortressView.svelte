@@ -234,7 +234,7 @@
 <!-- 1099-DA KYC MATCHING PROTOCOL MODAL        -->
 <!-- ========================================== -->
 {#if showKycDrawer}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95 backdrop-blur-sm" transition:fade={{ duration: 200 }}>
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95" transition:fade={{ duration: 200 }}>
         <div class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => showKycDrawer = false}></div>
 
         <div class="relative z-10 w-full max-w-[500px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 border-t-amber-500 animate-[fade-in-up_0.2s_ease-out]">

@@ -1,12 +1,11 @@
 // src/lib/stores/kaspaStore.svelte.ts
 
-const MASTER_ADMIN_ADDRESS = "kaspa:your_master_address_here";
+const MASTER_ADMIN_ADDRESS = "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz";
 
 // Create a reactive state object using Svelte 5 runes
 export const walletState = $state({
-    // Hardcoding a dummy address temporarily so you can see the button render
-    address: "kaspa:qyp0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 
-    devAdminBypass: true
+    address: "", 
+    devAdminBypass: false
 });
 
 // Derived state for routing

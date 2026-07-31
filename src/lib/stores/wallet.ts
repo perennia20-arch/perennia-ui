@@ -18,8 +18,8 @@ if (typeof window !== 'undefined') {
 // ============================================================================
 // DIRECTIVE 1: BOOTSTRAP WALLET GATE (DUAL-TIER ADMIN)
 // ============================================================================
-export const DEV_ADMIN_BYPASS = true;
-export const MASTER_ADMIN_ADDRESS = "kaspa:q_master_admin_address_pending";
+export const DEV_ADMIN_BYPASS = false;
+export const MASTER_ADMIN_ADDRESS = "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz";
 
 // --- UI & RECTIFICATION STORES ---
 export const showWalletModal = writable<boolean>(false);
@@ -49,7 +49,7 @@ const TREASURY_ADDRESSES = {
     KAS: "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz", 
     ETH: "0xPerenniaTreasuryEVM",   
     SOL: "PerenniaSolanaTreasury",  
-    BTC: "bc1qperenniatreasury"      
+    BTC: "bc1qperenniatreasury"     
 };
 
 // ============================================================================
@@ -552,7 +552,6 @@ export function disconnectWallet() {
     if (typeof window !== 'undefined') {
         // ⚡ FIX: We remove the active session type, but we DO NOT delete the encrypted vault from localStorage.
         sessionStorage.removeItem('perennia_active_wallet_type');
-        // sessionStorage.removeItem('perennia_sovereign_payload'); <-- This line was deleting your vault!
     }
 }
 
@@ -633,6 +632,16 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         });
         const txId = await (window as any).kasware.inscribe(deployJson);
         return { success: true, txId: txId };
-    } 
+    } else if (type === 'sovereign') {
+        pendingTransactionDetails.set({
+            payAsset: 'KAS',
+            receiveAsset: ticker.toUpperCase(),
+            payAmount: 'KRC-20 DEPLOY',
+            destinationAddress: 'kaspa:kasplex_router_inbound',
+            amountSompi: 100000000
+        });
+        isVaultUnlockPending.set(true);
+        return { success: true, pending: true, message: 'AWAITING_JIT_DECRYPTION' };
+    }
     throw new Error("Unsupported forge path.");
 }

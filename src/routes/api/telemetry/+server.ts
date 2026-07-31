@@ -1,7 +1,7 @@
 import { produce } from 'sveltekit-sse';
 import { redis } from '$lib/server/redis';
 
-export function GET() {
+function createStream() {
     return produce(async function start({ emit }) {
         // Clone the connection so it can be dedicated purely to subscription blocking
         const subscriber = redis.duplicate();
@@ -10,11 +10,13 @@ export function GET() {
             console.error('🔴 SSE Redis Subscriber Error:', err);
         });
 
-        await subscriber.subscribe('telemetry:updates');
+        // ⚡ Aligned to match the Rust publisher channel exactly
+        await subscriber.subscribe('pool_telemetry');
 
         subscriber.on('message', (channel, message) => {
-            if (channel === 'telemetry:updates') {
-                const { error } = emit('message', message);
+            if (channel === 'pool_telemetry') {
+                // ⚡ CHANGED: Broadcasting on 'telemetry' to match OperationsView.svelte
+                const { error } = emit('telemetry', message);
                 if (error) {
                     subscriber.unsubscribe();
                     subscriber.quit();
@@ -28,3 +30,7 @@ export function GET() {
         };
     });
 }
+
+// ⚡ Export BOTH methods to completely neutralize 405 routing errors
+export const POST = createStream;
+export const GET = createStream;

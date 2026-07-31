@@ -3,6 +3,7 @@
     import { globalKasPrice, walletInventory } from '$lib/stores/app';
     import { fade, fly } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
+    import { taxEvents } from '$lib/stores/app'; // Imported for E2E Tax Ledger UI updates
     
     interface DexToken { ticker: string; name: string; priceUsd: number; hex: string; imgUrl?: string; icon?: string; type: string; }
     
@@ -270,6 +271,35 @@
             if (!broadcastRes.ok) throw new Error(broadcastData.error || "Node rejected broadcast");
 
             swapSuccessId = broadcastData.transactionId || broadcastData.id || "TX_MOCKED_SUCCESS";
+
+            // ==== E2E SIMULATION: STAMP POSTGRES WAL ====
+            const amountUsd = amount * payToken.priceUsd;
+            try {
+                await fetch('/api/treasury/tax-stamp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        walletAddress: $walletAddress,
+                        assetTicker: payToken.ticker,
+                        eventType: 'SWAP',
+                        grossProceedsUsd: amountUsd,
+                        amountTokens: amount,
+                        spotPrice: payToken.priceUsd
+                    })
+                });
+            } catch(e) {}
+
+            // Populate the UI Tax Event array immediately
+            $taxEvents = [{
+                timestamp: new Date().toISOString(),
+                type: 'Swap',
+                asset: { ticker: payToken.ticker, color: payToken.hex },
+                amount: amount,
+                usdValueAtTime: amountUsd,
+                txHash: swapSuccessId
+            }, ...$taxEvents];
+            // ===========================================
+
             payAmount = '';
             receiveAmount = '';
             await fetchSyntheticLedger();
@@ -449,7 +479,7 @@
 
 {#if isSettingsOpen}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" transition:fade={{ duration: 200 }}>
-        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/80 backdrop-blur-sm cursor-default border-none" onclick={() => isSettingsOpen = false}></button>
+        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => isSettingsOpen = false}></button>
         <div class="relative z-10 w-full max-w-[360px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col p-6" transition:fly={{ y: 20, duration: 300 }}>
             <h3 class="text-white font-bold text-sm tracking-wide mb-4">Settings</h3>
             
@@ -467,7 +497,7 @@
 
 {#if isTokenModalOpen}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" transition:fade={{ duration: 200 }}>
-        <button aria-label="Close" class="absolute inset-0 w-full h-full bg-[#050505]/90 backdrop-blur-sm cursor-default border-none" onclick={() => isTokenModalOpen = false}></button>
+        <button aria-label="Close" class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => isTokenModalOpen = false}></button>
         <div class="relative z-10 w-full max-w-[400px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col h-[600px]" transition:fly={{ y: 20, duration: 300 }}>
             <div class="p-5 border-b border-neutral-800/60 flex justify-between items-center shrink-0">
                 <h3 class="text-white font-bold text-sm tracking-wide">Select a token</h3>

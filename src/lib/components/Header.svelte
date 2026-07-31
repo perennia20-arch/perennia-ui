@@ -1,12 +1,12 @@
 <script lang="ts">
-    import { walletState } from '$lib/stores/kaspaStore.svelte';
+    import { walletAddress } from '$lib/stores/wallet';
     
     let showToast = $state(false);
 
     function copyAddress() {
-        if (!walletState.address) return;
+        if (!$walletAddress) return;
         
-        navigator.clipboard.writeText(walletState.address);
+        navigator.clipboard.writeText($walletAddress);
         showToast = true;
         
         // Hide toast after 2 seconds
@@ -32,8 +32,8 @@
             class="px-5 py-2 rounded-xl bg-[#111111] border border-[#00ffcc]/20 text-emerald-400 font-mono text-sm hover:shadow-[0_0_20px_rgba(0,255,170,0.1)] hover:bg-[#1a1a1a] transition-all duration-300 flex items-center gap-2"
         >
             <div class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(0,255,170,0.8)]"></div>
-            {#if walletState.address}
-                {walletState.address.slice(0, 12)}...{walletState.address.slice(-4)}
+            {#if $walletAddress}
+                {$walletAddress.slice(0, 12)}...{$walletAddress.slice(-4)}
             {:else}
                 CONNECT WALLET
             {/if}

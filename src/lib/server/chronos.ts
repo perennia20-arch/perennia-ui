@@ -36,9 +36,10 @@ export class ChronosEngine {
         
         const corporateAddresses = await perenniaKMS.getCorporateAddresses();
         
-        const KASPLEX_LP_ADDRESS = "kaspa:kasplex_krc20_router_inbound";
-        const CHAINGE_INBOUND_FALLBACK = "kaspa:chainge_finance_bridge_fallback";
-        const CHANGENOW_INBOUND_FALLBACK = "kaspa:changenow_whale_fallback";
+        // ⚡ PHASE 1 UPGRADE: TN12 Covenant P2SH Addresses
+        const KASPLEX_LP_ADDRESS = "kaspatest:pze2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jeqqv8n";
+        const CHAINGE_INBOUND_FALLBACK = "kaspatest:pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqhgx0q6u";
+        const CHANGENOW_INBOUND_FALLBACK = "kaspatest:pzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz64r9j2";
 
         const targetAmountSompi = Math.floor(sorPlan.totalAmount * 1e8);
         const feeSompi = 10000;
@@ -66,7 +67,7 @@ export class ChronosEngine {
             throw new Error(`ERR_INSUFFICIENT_UTXO_MASS: Required ${totalRequiredSompi}, Found ${gatheredSompi}`);
         }
 
-        // 2. Map Outputs (Dynamic Bridge Routing)
+        // 2. Map Outputs (Dynamic Bridge Routing with P2SH Execution Metadata)
         const txOutputs = [];
 
         for (const leg of sorPlan.legs) {
@@ -74,10 +75,12 @@ export class ChronosEngine {
             if (legAmountSompi <= 0) continue;
 
             let destinationAddress = "";
+            let isCovenant = true; // TN12 paths default to Covenant logic
             
             switch(leg.tier) {
                 case 1:
                     destinationAddress = corporateAddresses.KAS; 
+                    isCovenant = false; // Internal treasury remains standard P2PKH for now
                     break;
                 case 2:
                     destinationAddress = KASPLEX_LP_ADDRESS;     
@@ -129,10 +132,16 @@ export class ChronosEngine {
                     throw new Error("ERR_UNKNOWN_ROUTING_TIER");
             }
 
+            // ⚡ Bind Introspection Arguments for Silverscript (e.g., Target Slippage Bounds)
             txOutputs.push({
                 amount: legAmountSompi,
-                scriptPublicKey: destinationAddress, 
-                _metadata: { provider: leg.provider, tier: leg.tier } 
+                scriptPublicKey: destinationAddress, // Will be parsed into aa20<hash>87 by the frontend
+                _metadata: { 
+                    type: isCovenant ? "covenant" : "standard",
+                    provider: leg.provider, 
+                    tier: leg.tier,
+                    executionArgs: isCovenant ? ["0105"] : [] // Example: OP_PUSH1 0x05 (5% Max Slippage)
+                } 
             });
         }
 

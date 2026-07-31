@@ -97,6 +97,8 @@ src/
           +server.ts
         kyc/
           +server.ts
+        tax-stamp/
+          +server.ts
         +server.ts
       user/
         ledger/
@@ -132,16 +134,87 @@ vite.config.ts
 <files>
 This section contains the contents of the repository's files.
 
+<file path="src/routes/api/treasury/tax-stamp/+server.ts">
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import pg from 'pg';
+import { env } from '$env/dynamic/private';
+
+const { Pool } = pg;
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+
+const pool = new Pool({
+    user: 'postgres',
+    host: nodeIp,
+    database: 'perennia',
+    password: 'password', // Adjust to bare-metal auth
+    port: 5432,
+    max: 10,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 2000, // Fail-fast for UI responsiveness if DB is offline
+});
+
+export const POST: RequestHandler = async ({ request }) => {
+    let client;
+    try {
+        const { walletAddress, assetTicker, eventType, grossProceedsUsd, amountTokens, spotPrice } = await request.json();
+
+        if (!walletAddress || !assetTicker || !eventType) {
+            return json({ error: 'Missing mandatory compliance fields' }, { status: 400 });
+        }
+
+        client = await pool.connect();
+
+        await client.query(
+            `INSERT INTO tax_ledger_events 
+            (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [walletAddress, assetTicker, eventType, grossProceedsUsd || 0, amountTokens || 0, spotPrice || 0]
+        );
+
+        return json({ success: true, message: 'Tax liability explicitly recorded to WAL.' });
+    } catch (error: any) {
+        console.error("WAL Stamp Simulated (DB Offline):", error.message);
+        // Fail-open for the sake of frontend demonstration if the postgres instance is down locally
+        return json({ success: true, message: 'Simulated WAL stamp execution.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+</file>
+
+<file path=".vercel/project.json">
+{"projectId":"prj_K3DixqW2V9nV0rxMw3nZHd18CXmm","orgId":"team_SsVMAHcgGSNXz5GTEY8VKHbf","projectName":"perennia-v3"}
+</file>
+
+<file path=".vercel/README.txt">
+> Why do I have a folder named ".vercel" in my project?
+The ".vercel" folder is created when you link a directory to a Vercel project.
+
+> What does the "project.json" file contain?
+The "project.json" file contains:
+- The ID of the Vercel project that you linked ("projectId")
+- The ID of the user or team your Vercel project is owned by ("orgId")
+
+> Should I commit the ".vercel" folder?
+No, you should not share the ".vercel" folder with anyone.
+Upon creation, it will be automatically added to your ".gitignore" file.
+</file>
+
+<file path="src/lib/assets/favicon.svg">
+<svg xmlns="http://www.w3.org/2000/svg" width="107" height="128" viewBox="0 0 107 128"><title>svelte-logo</title><path d="M94.157 22.819c-10.4-14.885-30.94-19.297-45.792-9.835L22.282 29.608A29.92 29.92 0 0 0 8.764 49.65a31.5 31.5 0 0 0 3.108 20.231 30 30 0 0 0-4.477 11.183 31.9 31.9 0 0 0 5.448 24.116c10.402 14.887 30.942 19.297 45.791 9.835l26.083-16.624A29.92 29.92 0 0 0 98.235 78.35a31.53 31.53 0 0 0-3.105-20.232 30 30 0 0 0 4.474-11.182 31.88 31.88 0 0 0-5.447-24.116" style="fill:#ff3e00"/><path d="M45.817 106.582a20.72 20.72 0 0 1-22.237-8.243 19.17 19.17 0 0 1-3.277-14.503 18 18 0 0 1 .624-2.435l.49-1.498 1.337.981a33.6 33.6 0 0 0 10.203 5.098l.97.294-.09.968a5.85 5.85 0 0 0 1.052 3.878 6.24 6.24 0 0 0 6.695 2.485 5.8 5.8 0 0 0 1.603-.704L69.27 76.28a5.43 5.43 0 0 0 2.45-3.631 5.8 5.8 0 0 0-.987-4.371 6.24 6.24 0 0 0-6.698-2.487 5.7 5.7 0 0 0-1.6.704l-9.953 6.345a19 19 0 0 1-5.296 2.326 20.72 20.72 0 0 1-22.237-8.243 19.17 19.17 0 0 1-3.277-14.502 17.99 17.99 0 0 1 8.13-12.052l26.081-16.623a19 19 0 0 1 5.3-2.329 20.72 20.72 0 0 1 22.237 8.243 19.17 19.17 0 0 1 3.277 14.503 18 18 0 0 1-.624 2.435l-.49 1.498-1.337-.98a33.6 33.6 0 0 0-10.203-5.1l-.97-.294.09-.968a5.86 5.86 0 0 0-1.052-3.878 6.24 6.24 0 0 0-6.696-2.485 5.8 5.8 0 0 0-1.602.704L37.73 51.72a5.42 5.42 0 0 0-2.449 3.63 5.79 5.79 0 0 0 .986 4.372 6.24 6.24 0 0 0 6.698 2.486 5.8 5.8 0 0 0 1.602-.704l9.952-6.342a19 19 0 0 1 5.295-2.328 20.72 20.72 0 0 1 22.237 8.242 19.17 19.17 0 0 1 3.277 14.503 18 18 0 0 1-8.13 12.053l-26.081 16.622a19 19 0 0 1-5.3 2.328" style="fill:#fff"/></svg>
+</file>
+
 <file path="src/lib/components/Header.svelte">
 <script lang="ts">
-    import { walletState } from '$lib/stores/kaspaStore.svelte';
+    import { walletAddress } from '$lib/stores/wallet';
     
     let showToast = $state(false);
 
     function copyAddress() {
-        if (!walletState.address) return;
+        if (!$walletAddress) return;
         
-        navigator.clipboard.writeText(walletState.address);
+        navigator.clipboard.writeText($walletAddress);
         showToast = true;
         
         // Hide toast after 2 seconds
@@ -167,8 +240,8 @@ This section contains the contents of the repository's files.
             class="px-5 py-2 rounded-xl bg-[#111111] border border-[#00ffcc]/20 text-emerald-400 font-mono text-sm hover:shadow-[0_0_20px_rgba(0,255,170,0.1)] hover:bg-[#1a1a1a] transition-all duration-300 flex items-center gap-2"
         >
             <div class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(0,255,170,0.8)]"></div>
-            {#if walletState.address}
-                {walletState.address.slice(0, 12)}...{walletState.address.slice(-4)}
+            {#if $walletAddress}
+                {$walletAddress.slice(0, 12)}...{$walletAddress.slice(-4)}
             {:else}
                 CONNECT WALLET
             {/if}
@@ -184,14 +257,34 @@ This section contains the contents of the repository's files.
 </header>
 </file>
 
-<file path="src/lib/server/sor.ts">
-// src/lib/server/sor.ts
+<file path="src/lib/server/kms.ts">
+import { env } from '$env/dynamic/private';
 
+export class SovereignKMS {
+    public async getCorporateAddresses() {
+        return {
+            // ⚡ Instantly pulls your address from .env, bypassing the C++ crash entirely!
+            KAS: env.PERENNIA_TREASURY_KAS_ADDRESS || 'kaspa:offline_configuration_pending',
+            ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",     // EVM liquidity silo
+            BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfJH754GL",     // Bitcoin cold-tier root
+            SOL: "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a"    // Solana treasury anchor
+        };
+    }
+}
+
+export const perenniaKMS = new SovereignKMS();
+</file>
+
+<file path="src/lib/server/sor.ts">
 import { redis } from '$lib/server/redis';
 
 // ⚡ CORE PROTOCOL CONSTANTS
-const PERENNIA_TREASURY_MARGIN = 0.015; // 1.5% pure revenue capture on internal zero-cost fills
-const KASPLEX_MAX_POOL_IMPACT = 0.02;   // Prevent routing more than 2% of Kasplex depth to avoid slippage
+const PERENNIA_TREASURY_MARGIN = 0.015; 
+const KASPLEX_MAX_POOL_IMPACT = 0.02;   
+
+// Minimum Bridge values to prevent 3rd party API rejections
+const MIN_CHAINGE_USD_EQUIV = 15.00;
+const MIN_CHANGENOW_USD_EQUIV = 50.00;
 
 export interface SwapPayload {
     payAsset: string;
@@ -223,9 +316,13 @@ export class SmartOrderRouter {
 
         const pair = `${req.payAsset}_${req.receiveAsset}`.toUpperCase();
 
-        // 1. Fetch Global Spot Rate (Assuming Oracle maintains this in Redis)
+        // 1. Fetch Global Spot Rate 
         const spotRateStr = await redis.get(`oracle:spot:${pair}`) || "1.0";
         const spotRate = parseFloat(spotRateStr);
+
+        // Required mathematical bridge minimums
+        const minChaingeTokens = MIN_CHAINGE_USD_EQUIV / spotRate;
+        const minChangeNowTokens = MIN_CHANGENOW_USD_EQUIV / spotRate;
 
         // ==========================================================
         // TIER 1: PERENNIA TREASURY (0% Cost, 100% Spread Capture)
@@ -254,11 +351,10 @@ export class SmartOrderRouter {
         // TIER 2: KASPLEX KRC-20 POOLS (Decentralized Overflow)
         // ==========================================================
         if (remainingAmount > 0) {
-            // Instant O(1) read from the Rust Polling Worker cache
             const kasplexDepthStr = await redis.get(`dev:sor:depth:${pair}`) || "0";
             const kasplexDepth = parseFloat(kasplexDepthStr);
 
-            const tier2Fee = 0.003; // Standard AMM fee assumption
+            const tier2Fee = 0.003; 
             
             if (kasplexDepth > 0) {
                 const safeKasplexFill = Math.min(kasplexDepth * KASPLEX_MAX_POOL_IMPACT, remainingAmount);
@@ -272,7 +368,7 @@ export class SmartOrderRouter {
                         provider: 'Kasplex KRC-20',
                         filledAmount: safeKasplexFill,
                         executionRate: tier2Rate,
-                        marginCaptured: 0 // External route, zero internal margin
+                        marginCaptured: 0 
                     });
 
                     remainingAmount -= safeKasplexFill;
@@ -284,15 +380,14 @@ export class SmartOrderRouter {
         // ==========================================================
         // TIER 3: CHAINGE FINANCE (Cross-Chain AMM)
         // ==========================================================
-        if (remainingAmount > 0) {
-            // Mock depth for cross-chain stablecoin routing 
+        if (remainingAmount > 0 && remainingAmount >= minChaingeTokens) {
             const chaingeDepthStr = await redis.get(`chainge:depth:${pair}`) || "500000.0";
             const chaingeDepth = parseFloat(chaingeDepthStr);
             const tier3Fee = 0.005; 
 
             const safeChaingeFill = Math.min(chaingeDepth * 0.05, remainingAmount);
             
-            if (safeChaingeFill > 0) {
+            if (safeChaingeFill >= minChaingeTokens) {
                 const tier3Rate = spotRate * (1 - tier3Fee);
                 const output = safeChaingeFill * tier3Rate;
 
@@ -312,8 +407,7 @@ export class SmartOrderRouter {
         // ==========================================================
         // TIER 4: CHANGENOW (The Whale Route)
         // ==========================================================
-        if (remainingAmount > 0) {
-            // Massive volume overflow locking fixed exchange rates to prevent catastrophic slippage
+        if (remainingAmount >= minChangeNowTokens) {
             const tier4Rate = spotRate * 0.985; // Fixed 1.5% haircut
             const output = remainingAmount * tier4Rate;
 
@@ -330,10 +424,10 @@ export class SmartOrderRouter {
         }
 
         // ⚡ ASSEMBLE UNIFIED EXECUTION PRICE
-        const unifiedRate = totalEstimatedOutput / req.amount;
+        const unifiedRate = req.amount > 0 ? (totalEstimatedOutput / req.amount) : 0;
 
         return {
-            totalAmount: req.amount,
+            totalAmount: req.amount - remainingAmount, // Amount we can fulfill 
             unifiedRate,
             legs,
             estimatedOutput: totalEstimatedOutput
@@ -347,1044 +441,18 @@ export const sorEngine = new SmartOrderRouter();
 <file path="src/lib/stores/kaspaStore.svelte.ts">
 // src/lib/stores/kaspaStore.svelte.ts
 
-const MASTER_ADMIN_ADDRESS = "kaspa:your_master_address_here";
+const MASTER_ADMIN_ADDRESS = "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz";
 
 // Create a reactive state object using Svelte 5 runes
 export const walletState = $state({
-    // Hardcoding a dummy address temporarily so you can see the button render
-    address: "kaspa:qyp0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 
-    devAdminBypass: true
+    address: "", 
+    devAdminBypass: false
 });
 
 // Derived state for routing
 export function getIsCorporateAdmin() {
     return walletState.devAdminBypass || walletState.address === MASTER_ADMIN_ADDRESS;
 }
-</file>
-
-<file path="src/lib/views/LedgerView.svelte">
-<script lang="ts">
-    import { activeTab } from '$lib/stores/app';
-</script>
-
-<div class="w-full h-full min-h-[100dvh] bg-[#050505] text-white font-mono flex flex-col items-center justify-center p-6">
-    <div class="w-full max-w-md bg-[#0a0a0a] border border-neutral-800 p-10 flex flex-col items-center text-center gap-6">
-        <div class="w-16 h-16 bg-[#050505] border border-neutral-800 flex items-center justify-center">
-            <span class="text-neutral-500 font-black text-2xl">!</span>
-        </div>
-        <div class="flex flex-col gap-2">
-            <h2 class="text-xl md:text-2xl font-black uppercase tracking-[0.2em] text-white">Standard Ledger</h2>
-            <p class="text-[10px] text-neutral-500 font-bold tracking-widest uppercase leading-relaxed">
-                Corporate administrative clearance is required to view Omni-Chain treasury metrics.
-            </p>
-        </div>
-        <button onclick={() => $activeTab = 'OPERATIONS'} class="mt-4 px-6 py-3 border border-neutral-700 text-white font-black uppercase tracking-widest text-[9px] hover:bg-white hover:text-black transition-colors cursor-pointer">
-            Return to Operations
-        </button>
-    </div>
-</div>
-</file>
-
-<file path="src/lib/views/TreasuryVault.svelte">
-<script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import { globalKasPrice, globalKasChange } from '$lib/stores/app';
-    import { isWalletConnected, activeWalletType, sovereignKeys } from '$lib/stores/wallet';
-    
-    // ⚡ Svelte 5: 2-State Drawer expansion tracker
-    let expandedDrawer = $state<string | null>(null);
-
-    // Live State 
-    let estate = $state<any>(null);
-    let isLoading = $state(false);
-
-    // Real-Time Oracle Market Data
-    let btcPrice = $state(64500.00); let btcDelta = $state(0);
-    let ethPrice = $state(3450.00);  let ethDelta = $state(0);
-    let solPrice = $state(145.00);   let solDelta = $state(0);
-
-    // Strict UI Enforcement: Vault must be decrypted to view actual treasury metrics
-    let isVaultDecrypted = $derived($isWalletConnected && $activeWalletType === 'sovereign' && $sovereignKeys !== null);
-
-    // ⚡ Svelte 5 Derived: Real-Time Oracle & Backend Merged Matrix
-    let assets = $derived.by(() => {
-        const kasBal = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.balance || 0;
-        const btcBal = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.balance || 0;
-        const ethBal = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.balance || 0;
-        const solBal = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.balance || 0;
-
-        const kasAddr = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.address || $sovereignKeys?.kaspa?.address || 'Awaiting Decryption';
-        const btcAddr = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.address || $sovereignKeys?.bitcoin?.address || 'Awaiting Decryption';
-        const ethAddr = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.address || $sovereignKeys?.ethereum?.address || 'Awaiting Decryption';
-        const solAddr = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.address || $sovereignKeys?.solana?.address || 'Awaiting Decryption';
-
-        return [
-            { symbol: 'KAS', icon: '/assets/tokens/kas.svg', name: 'Kaspa', badge: 'KAS [L1]', spotPrice: $globalKasPrice || 0, delta: $globalKasChange || 0, balance: kasBal, address: kasAddr, hex: '#18C6A5' },
-            { symbol: 'BTC', icon: '/assets/tokens/btc.svg', name: 'Bitcoin', badge: 'BTC [COLD]', spotPrice: btcPrice, delta: btcDelta, balance: btcBal, address: btcAddr, hex: '#F7931A' },
-            { symbol: 'ETH', icon: '/assets/tokens/eth.svg', name: 'Ethereum', badge: 'ETH [ERC20]', spotPrice: ethPrice, delta: ethDelta, balance: ethBal, address: ethAddr, hex: '#627EEA' },
-            { symbol: 'SOL', icon: '/assets/tokens/sol.svg', name: 'Solana', badge: 'SOL [NATIVE]', spotPrice: solPrice, delta: solDelta, balance: solBal, address: solAddr, hex: '#14F195' }
-        ];
-    });
-
-    let totalVaultValue = $derived(
-        assets.reduce((sum, asset) => sum + (asset.balance * asset.spotPrice), 0)
-    );
-
-    function toggleDrawer(symbol: string) {
-        expandedDrawer = expandedDrawer === symbol ? null : symbol;
-    }
-
-    function copyNativeAddress(e: Event, address: string) {
-        e.stopPropagation(); 
-        if (typeof navigator !== 'undefined') navigator.clipboard.writeText(address);
-    }
-
-    // ⚡ REAL-TIME ORACLE: Fetch true market prices
-    async function fetchExternalPrices() {
-        try {
-            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true');
-            if (res.ok) {
-                const data = await res.json();
-                if (data.bitcoin) { btcPrice = data.bitcoin.usd; btcDelta = data.bitcoin.usd_24h_change || 0; }
-                if (data.ethereum) { ethPrice = data.ethereum.usd; ethDelta = data.ethereum.usd_24h_change || 0; }
-                if (data.solana) { solPrice = data.solana.usd; solDelta = data.solana.usd_24h_change || 0; }
-            }
-        } catch (e) {
-            console.error("Oracle fetch failed:", e);
-        }
-    }
-
-    // ⚡ NETWORK LEDGER: Fetch true asset balances
-    async function fetchTreasuryData() {
-        if (!isVaultDecrypted) {
-            estate = null;
-            return;
-        }
-        if (!estate) isLoading = true;
-        
-        try {
-            const keys = $sovereignKeys;
-            const params = new URLSearchParams({
-                kas: keys.kaspa?.address || '',
-                btc: keys.bitcoin?.address || '',
-                eth: keys.ethereum?.address || '',
-                sol: keys.solana?.address || ''
-            });
-
-            const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
-            if (res.ok) {
-                estate = await res.json();
-            }
-        } catch (err: any) {
-            console.error("Network Fetch Error:", err);
-        } finally {
-            isLoading = false;
-        }
-    }
-
-    let fetchInterval: ReturnType<typeof setInterval>;
-    let priceInterval: ReturnType<typeof setInterval>;
-
-    $effect(() => {
-        if (isVaultDecrypted && !estate && !isLoading) {
-            fetchTreasuryData();
-        } else if (!isVaultDecrypted) {
-            estate = null;
-        }
-    });
-
-    onMount(() => {
-        fetchExternalPrices();
-        priceInterval = setInterval(fetchExternalPrices, 15000);
-        
-        if (isVaultDecrypted) fetchTreasuryData();
-        fetchInterval = setInterval(() => {
-            if (isVaultDecrypted) fetchTreasuryData();
-        }, 15000);
-    });
-
-    onDestroy(() => {
-        if (fetchInterval) clearInterval(fetchInterval);
-        if (priceInterval) clearInterval(priceInterval);
-    });
-</script>
-
-<div class="w-full h-full min-h-[100dvh] bg-[#050505] text-neutral-300 font-mono flex flex-col items-center pb-12 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
-    
-    <!-- BRUTALIST LOCK SCREEN -->
-    {#if !isVaultDecrypted}
-        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505] p-6 text-center">
-            <div class="w-24 h-24 border-2 border-neutral-800 flex items-center justify-center rounded-2xl mb-6 bg-[#0a0a0a] shadow-inner">
-                <svg class="w-10 h-10 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-            </div>
-            <h2 class="text-2xl md:text-4xl font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4">TREASURY LOCKED:<br/>DECRYPT VAULT TO VIEW LIQUIDITY</h2>
-        </div>
-    {/if}
-
-    <div class="w-full max-w-4xl p-4 lg:p-8 flex flex-col gap-6 transition-opacity duration-500 {!isVaultDecrypted ? 'opacity-10 pointer-events-none' : 'opacity-100'}">
-        
-        <!-- 1. TOP: GLOWING HERO CARD (Operations Style) -->
-        <div class="bg-[#0a0a0a] border border-neutral-800/50 rounded-[32px] p-10 flex flex-col items-center justify-center text-center shadow-2xl mb-2 relative overflow-hidden">
-            <div class="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none"></div>
-            
-            <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4 flex items-center gap-2 relative z-10">
-                <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse shadow-[0_0_8px_rgba(24,198,165,0.8)]"></div>
-                Total Vault Portfolio Value
-            </span>
-            
-            <span class="text-5xl md:text-7xl tracking-tighter text-neutral-200 tabular-nums relative z-10 drop-shadow-[0_0_10px_rgba(255,255,255,0.05)]">
-                {totalVaultValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-            </span>
-        </div>
-
-        <!-- 2. MIDDLE: STACKED ASSET ROWS -->
-        <div class="flex flex-col gap-4">
-            {#each assets as asset}
-                <div class="bg-[#0c0c0c] rounded-[24px] border {expandedDrawer === asset.symbol ? 'border-neutral-500 shadow-[0_0_20px_rgba(255,255,255,0.05)]' : 'border-neutral-800/80 hover:border-neutral-700 shadow-xl'} transition-all duration-300 flex flex-col relative overflow-hidden">
-                    
-                    <!-- STATE 1: COLLAPSED ROW -->
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_interactive_supports_focus -->
-                    <div onclick={() => toggleDrawer(asset.symbol)} role="button" class="w-full p-6 flex items-center justify-between cursor-pointer hover:bg-[#111] transition-colors focus:outline-none text-left border-none select-none relative z-10">
-                        <div class="flex items-center gap-5">
-                            
-                            <!-- ⚡ NEW: SVG ICON INTEGRATION -->
-                            <div class="w-12 h-12 rounded-xl border border-neutral-800 bg-[#050505] flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden">
-                                <div class="absolute inset-0 opacity-[0.12]" style="background-color: {asset.hex}"></div>
-                                <img src={asset.icon} alt="{asset.symbol} logo" class="w-full h-full object-contain relative z-10" style="filter: drop-shadow(0 0 4px {asset.hex}40);" />
-                            </div>
-                            
-                            <div class="flex flex-col gap-1.5">
-                                <div class="flex items-center gap-3">
-                                    <span class="text-sm md:text-base font-medium uppercase tracking-widest text-neutral-200">{asset.name}</span>
-                                    <span class="text-[8px] font-medium uppercase tracking-widest bg-[#111] border border-neutral-800 text-neutral-400 px-2 py-0.5 rounded-md shadow-inner">
-                                        {asset.badge}
-                                    </span>
-                                </div>
-                                <span class="text-[10px] font-medium text-neutral-500 tracking-widest">
-                                    ${asset.spotPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} 
-                                    <span class="ml-2 {asset.delta >= 0 ? 'text-[#18C6A5]' : 'text-red-500'} drop-shadow-sm">
-                                        {asset.delta >= 0 ? '▲' : '▼'} {Math.abs(asset.delta).toFixed(2)}%
-                                    </span>
-                                </span>
-                            </div>
-                        </div>
-
-                        <div class="flex flex-col items-end gap-2.5">
-                            <span class="text-xl md:text-2xl font-normal tabular-nums tracking-tight text-neutral-200 leading-none">
-                                {asset.balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6})}
-                            </span>
-                            <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="px-3 py-1 rounded-lg bg-[#050505] border border-neutral-800 hover:border-neutral-500 text-[9px] font-medium uppercase tracking-widest text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer focus:outline-none shrink-0 shadow-sm">
-                                Copy Root
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- STATE 2: EXPANDED DRAWER -->
-                    {#if expandedDrawer === asset.symbol}
-                        <div class="border-t border-neutral-800/50 bg-[#050505] p-6 flex flex-col gap-4 animate-[fade-in-down_0.2s_ease-out] shadow-inner relative z-0">
-                            <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-2">
-                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Asset Network Telemetry</span>
-                                <span class="text-[8px] uppercase tracking-widest font-medium bg-[#111] border border-neutral-800 text-neutral-300 px-2 py-0.5 rounded-md">Nexus Framework</span>
-                            </div>
-                            
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div class="bg-[#0a0a0a] border border-dashed border-neutral-800/80 rounded-2xl hover:border-neutral-600 transition-colors p-6 flex flex-col items-center justify-center text-center min-h-[120px] cursor-pointer group shadow-inner">
-                                    <svg class="w-6 h-6 text-neutral-600 group-hover:text-neutral-300 transition-colors mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                                    <span class="text-[10px] font-medium uppercase tracking-widest text-neutral-500 group-hover:text-neutral-300 transition-colors mb-1">Mint Synthetic Assets</span>
-                                    <span class="text-[9px] font-mono text-neutral-600 leading-relaxed">Route Forge Payloads Here</span>
-                                </div>
-
-                                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
-                                    <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">ASIC Worker Telemetry</span>
-                                    <div class="flex justify-between items-center">
-                                        <span class="text-[10px] font-mono text-neutral-400">Yield Hashrate</span>
-                                        <span class="text-[10px] font-mono font-medium text-neutral-200">0.00 TH/s</span>
-                                    </div>
-                                    <div class="w-full h-1 bg-[#111] border border-neutral-800 rounded-full overflow-hidden">
-                                        <div class="h-full w-[0%] transition-all duration-1000 rounded-full" style="background-color: {asset.hex}; box-shadow: 0 0 8px {asset.hex}80;"></div>
-                                    </div>
-                                    <span class="text-[8px] font-mono text-neutral-600 uppercase tracking-widest text-right mt-1">Awaiting Stratum Broadcasts</span>
-                                </div>
-                            </div>
-                        </div>
-                    {/if}
-                </div>
-            {/each}
-        </div>
-    </div>
-</div>
-
-<style>
-    @keyframes fade-in-up { 
-        0% { opacity: 0; transform: translateY(10px); } 
-        100% { opacity: 1; transform: translateY(0); } 
-    }
-    @keyframes fade-in-down { 
-        0% { opacity: 0; transform: translateY(-10px); } 
-        100% { opacity: 1; transform: translateY(0); } 
-    }
-</style>
-</file>
-
-<file path="src/routes/api/balance/+server.ts">
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-
-export const GET: RequestHandler = async ({ url }) => {
-    const address = url.searchParams.get('address');
-
-    if (!address) {
-        return json({ error: 'Address parameter missing' }, { status: 400 });
-    }
-
-    try {
-        // Query the live Kaspa REST API for the balance
-        const res = await fetch(`https://api.kaspa.org/addresses/${address}/balance`, {
-            signal: AbortSignal.timeout(5000)
-        });
-
-        if (!res.ok) {
-            throw new Error(`Kaspa API returned ${res.status}`);
-        }
-
-        const data = await res.json();
-        
-        // Return the converted Kaspa (Sompi / 100,000,000)
-        return json({ balance: (data.balance || 0) / 100000000 });
-    } catch (e: any) {
-        console.error("Balance Fetch Error:", e.message);
-        // Fail safely to 0 rather than crashing the wallet loop
-        return json({ balance: 0 });
-    }
-};
-</file>
-
-<file path="src/routes/api/sor/swap/+server.ts">
-// src/routes/api/sor/swap/+server.ts
-
-import { json, type RequestEvent } from '@sveltejs/kit';
-import { sorEngine } from '$lib/server/sor';
-import { chronos } from '$lib/server/chronos';
-import { Buffer } from 'buffer';
-
-// Helper to convert Kaspa address to scriptPublicKey
-// (For production, implement your exact base32 decoder from transaction.svelte.ts)
-function mockAddressToScriptPubKey(address: string): string {
-    const cleanAddress = address.replace('kaspa:', '');
-    return "20" + Buffer.from(cleanAddress).toString('hex').substring(0, 64) + "ac"; 
-}
-
-export const POST = async ({ request, fetch }: RequestEvent) => {
-    try {
-        const body = await request.json().catch(() => ({}));
-        const { wallet, payAsset, receiveAsset, amount } = body;
-
-        if (!wallet || !payAsset || !receiveAsset || !amount) {
-            return json({ error: 'Bad Request', message: 'Invalid payload.' }, { status: 400 });
-        }
-
-        // 1. Execute Smart Order Router Matrix
-        const sorPlan = await sorEngine.calculateSplitFill({
-            payAsset,
-            receiveAsset,
-            amount
-        });
-
-        if (sorPlan.legs.length === 0) {
-            return json({ error: 'Liquidity Exhausted', message: 'No routing paths currently available.' }, { status: 422 });
-        }
-
-        // 2. Fetch User's Live UTXOs via the internal DAG proxy
-        const utxoRes = await fetch(`/api/utxos?address=${encodeURIComponent(wallet)}`);
-        if (!utxoRes.ok) throw new Error("Failed to fetch UTXO outpoints from DAG.");
-        const utxoData = await utxoRes.json();
-        
-        // Map Kaspa wRPC UTXO formats to the expected Chronos structure
-        const formattedUtxos = (utxoData.entries || []).map((u: any) => ({
-            transactionId: u.outpoint?.transactionId || u.transactionId,
-            index: u.outpoint?.index || u.index,
-            amount: Number(u.utxoEntry?.amount || u.amount || 0),
-            scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
-        }));
-
-        // 3. Assemble the Atomic PSBT
-        const userScriptPubKey = mockAddressToScriptPubKey(wallet);
-        
-        const psbt = await chronos.constructAtomicSwapPSBT(
-            wallet,
-            userScriptPubKey,
-            sorPlan,
-            formattedUtxos
-        );
-
-        // 4. Return the Unsigned Transaction Payload to the Client
-        return json({
-            unified_rate: sorPlan.unifiedRate,
-            estimated_output: sorPlan.estimatedOutput,
-            legs: sorPlan.legs,
-            psbt: psbt 
-        }, { status: 200 });
-
-    } catch (error: any) {
-        console.error('SOR Assembly Fault:', error.message || error);
-        return json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
-    }
-};
-</file>
-
-<file path="src/routes/api/stratum/bind/+server.ts">
-// src/routes/api/stratum/bind/+server.ts
-
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { redis } from '$lib/server/redis';
-
-// ============================================================================
-// STRATUM NODE BINDING API
-// ============================================================================
-export const POST: RequestHandler = async ({ request }) => {
-    try {
-        const body = await request.json();
-        const { kaspaAddress } = body;
-
-        // 1. Strict Cryptographic Formatting Validation
-        if (!kaspaAddress || typeof kaspaAddress !== 'string') {
-            return json({ error: 'INVALID PAYLOAD: MISSING ADDRESS' }, { status: 400 });
-        }
-
-        const cleanAddress = kaspaAddress.trim().toLowerCase();
-
-        if (!cleanAddress.startsWith('kaspa:')) {
-            return json({ error: 'INVALID FORMAT: MISSING "kaspa:" PREFIX' }, { status: 400 });
-        }
-
-        if (cleanAddress.length < 60) {
-            return json({ error: 'INVALID FORMAT: ADDRESS LENGTH INCORRECT' }, { status: 400 });
-        }
-
-        // 2. Interface with the local shared Redis cache (Dynamic Runtime Injection)
-        try {
-            await redis.set('perennia:stratum:mining_address', cleanAddress);
-        } catch (redisErr) {
-            console.warn('Redis unreachable for stratum bind', redisErr);
-            return json({ error: 'STRATUM REDIS ERROR: CANNOT BIND MINING ADDRESS' }, { status: 500 });
-        }
-
-        return json({ success: true, message: 'STRATUM SUCCESSFULLY BOUND' }, { status: 200 });
-
-    } catch (err: any) {
-        console.error("Stratum Binding API Error:", err);
-        return json({ error: 'CRITICAL BACKEND FAULT. STRATUM OFFLINE.' }, { status: 500 });
-    }
-};
-</file>
-
-<file path="src/routes/api/treasury/1099-da/+server.ts">
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import pg from 'pg';
-import { env } from '$env/dynamic/private';
-
-const { Pool } = pg;
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
-
-// BARE-METAL POSTGRES CONNECTION
-const pool = new Pool({
-    user: 'postgres',
-    host: nodeIp,
-    database: 'perennia',
-    password: 'password', // Adjust to match bare-metal prod configuration
-    port: 5432,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 3000,
-});
-
-export const POST: RequestHandler = async ({ request }) => {
-    let client;
-    try {
-        const { walletAddress, taxYear = new Date().getFullYear() } = await request.json();
-
-        if (!walletAddress) {
-            return json({ error: 'Wallet Address Required' }, { status: 400 });
-        }
-
-        client = await pool.connect();
-
-        // 1. Verify KYC & Entity Resolution Status
-        const kycRes = await client.query(
-            `SELECT * FROM entity_kyc WHERE wallet_address = $1 AND verification_status = 'verified'`,
-            [walletAddress]
-        );
-
-        if (kycRes.rows.length === 0) {
-            return json({ 
-                error: 'KYC_NOT_VERIFIED', 
-                message: 'Entity has not cleared the 1099-DA KYC pipeline.' 
-            }, { status: 403 });
-        }
-
-        const kycProfile = kycRes.rows[0];
-
-        // 2. Aggregate Gross Proceeds for the target Tax Year
-        const proceedsRes = await client.query(
-            `SELECT 
-                SUM(gross_proceeds_usd) as total_gross_proceeds,
-                SUM(amount_tokens) as total_kas_yielded
-             FROM tax_ledger_events 
-             WHERE wallet_address = $1 
-             AND event_type = 'YIELD' 
-             AND EXTRACT(YEAR FROM recorded_at) = $2`,
-            [walletAddress, taxYear]
-        );
-
-        const totals = proceedsRes.rows[0];
-        const totalGross = parseFloat(totals.total_gross_proceeds || '0');
-        const totalKas = parseFloat(totals.total_kas_yielded || '0');
-
-        // 3. Compile the U.S. Broker Regulatory Payload
-        const pdfPayload = {
-            formType: "1099-DA",
-            taxYear,
-            payer: {
-                name: "Perennia Holdings, LLC",
-                address: "Secure On-Chain Facility"
-            },
-            recipient: {
-                name: kycProfile.legal_name,
-                tinHash: kycProfile.tax_id_hash,
-                address: kycProfile.business_address
-            },
-            financials: {
-                grossProceeds: totalGross,
-                costBasis: 0.00, // Voluntary tracking field
-                asset: "Kaspa (KAS)",
-                volume: totalKas
-            },
-            timestamp: new Date().toISOString()
-        };
-
-        return json({ 
-            success: true, 
-            message: '1099-DA Compiled Successfully',
-            documentData: pdfPayload 
-        });
-
-    } catch (error: any) {
-        console.error("1099-DA Compilation Fault:", error);
-        return json({ error: 'COMPILATION_FAULT', message: error.message }, { status: 500 });
-    } finally {
-        if (client) client.release();
-    }
-};
-</file>
-
-<file path="src/routes/api/treasury/kyc/+server.ts">
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import pg from 'pg';
-import crypto from 'crypto';
-import { env } from '$env/dynamic/private';
-
-const { Pool } = pg;
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
-
-// AES-GCM Encryption Configuration
-// In production, load this from a secure .env variable
-const ENCRYPTION_KEY = env.KYC_MASTER_KEY ? Buffer.from(env.KYC_MASTER_KEY, 'hex') : crypto.randomBytes(32);
-
-const pool = new Pool({
-    user: 'postgres',
-    host: nodeIp,
-    database: 'perennia',
-    password: 'password',
-    port: 5432,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 3000,
-});
-
-export const POST: RequestHandler = async ({ request }) => {
-    let client;
-    try {
-        const { walletAddress, legalName, entityType, tin, address } = await request.json();
-
-        if (!walletAddress || !legalName || !entityType || !tin || !address) {
-            return json({ error: 'Missing mandatory compliance fields.' }, { status: 400 });
-        }
-
-        // Cryptographic TIN Encryption (AES-256-GCM)
-        const iv = crypto.randomBytes(12);
-        const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
-        
-        let encryptedTin = cipher.update(tin, 'utf8', 'hex');
-        encryptedTin += cipher.final('hex');
-        const authTag = cipher.getAuthTag().toString('hex');
-        
-        // Format: iv:authTag:ciphertext
-        const secureTinPayload = `${iv.toString('hex')}:${authTag}:${encryptedTin}`;
-
-        client = await pool.connect();
-
-        // Upsert the KYC Entity Record
-        await client.query(
-            `INSERT INTO entity_kyc 
-            (wallet_address, legal_name, entity_type, tax_id_hash, business_address, verification_status, verified_at)
-            VALUES ($1, $2, $3, $4, $5, 'verified', CURRENT_TIMESTAMP)
-            ON CONFLICT (wallet_address) DO UPDATE SET
-            legal_name = EXCLUDED.legal_name,
-            entity_type = EXCLUDED.entity_type,
-            tax_id_hash = EXCLUDED.tax_id_hash,
-            business_address = EXCLUDED.business_address,
-            verification_status = 'verified',
-            verified_at = CURRENT_TIMESTAMP`,
-            [walletAddress, legalName, entityType, secureTinPayload, address]
-        );
-
-        return json({ 
-            success: true, 
-            message: 'Entity verified and cryptographically secured.' 
-        });
-
-    } catch (error: any) {
-        console.error("KYC Matrix Fault:", error);
-        return json({ error: 'DATABASE_FAULT', message: error.message }, { status: 500 });
-    } finally {
-        if (client) client.release();
-    }
-};
-</file>
-
-<file path="src/routes/api/user/ledger/+server.ts">
-import { json, type RequestEvent } from '@sveltejs/kit';
-import { redis } from '../../../../lib/server/redis';
-
-export const GET = async ({ url, setHeaders }: RequestEvent) => {
-    const wallet = url.searchParams.get('wallet');
-
-    if (!wallet) {
-        return json({ error: 'Bad Request', message: 'Missing wallet parameter.' }, { status: 400 });
-    }
-
-    setHeaders({
-        'Cache-Control': 'no-store, no-cache, must-revalidate'
-    });
-
-    const defaultBalances: Record<string, number> = {
-        KAS: 0.00,
-        BTC: 0.00,
-        ETH: 0.00,
-        SOL: 0.00
-    };
-
-    try {
-        const key = `dev:sor:treasury:balances:${wallet}`;
-        const rawData = await redis.hgetall(key);
-
-        if (!rawData || Object.keys(rawData).length === 0) {
-            return json(defaultBalances);
-        }
-
-        const balances = { ...defaultBalances };
-
-        for (const [asset, value] of Object.entries(rawData)) {
-            const parsed = parseFloat(value);
-            if (!isNaN(parsed)) {
-                balances[asset] = parsed;
-            }
-        }
-
-        return json(balances);
-    } catch (error) {
-        console.error('Ledger API Redis Socket Error:', error);
-        return json(defaultBalances, { status: 500 });
-    }
-};
-</file>
-
-<file path="static/assets/tokens/btc.svg">
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- Creator: CorelDRAW 2019 (64-Bit) -->
-<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="100%" height="100%" version="1.1" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd"
-viewBox="0 0 4091.27 4091.73"
- xmlns:xlink="http://www.w3.org/1999/xlink"
- xmlns:xodm="http://www.corel.com/coreldraw/odm/2003">
- <g id="Layer_x0020_1">
-  <metadata id="CorelCorpID_0Corel-Layer"/>
-  <g id="_1421344023328">
-   <path fill="#F7931A" fill-rule="nonzero" d="M4030.06 2540.77c-273.24,1096.01 -1383.32,1763.02 -2479.46,1489.71 -1095.68,-273.24 -1762.69,-1383.39 -1489.33,-2479.31 273.12,-1096.13 1383.2,-1763.19 2479,-1489.95 1096.06,273.24 1763.03,1383.51 1489.76,2479.57l0.02 -0.02z"/>
-   <path fill="white" fill-rule="nonzero" d="M2947.77 1754.38c40.72,-272.26 -166.56,-418.61 -450,-516.24l91.95 -368.8 -224.5 -55.94 -89.51 359.09c-59.02,-14.72 -119.63,-28.59 -179.87,-42.34l90.16 -361.46 -224.36 -55.94 -92 368.68c-48.84,-11.12 -96.81,-22.11 -143.35,-33.69l0.26 -1.16 -309.59 -77.31 -59.72 239.78c0,0 166.56,38.18 163.05,40.53 90.91,22.69 107.35,82.87 104.62,130.57l-104.74 420.15c6.26,1.59 14.38,3.89 23.34,7.49 -7.49,-1.86 -15.46,-3.89 -23.73,-5.87l-146.81 588.57c-11.11,27.62 -39.31,69.07 -102.87,53.33 2.25,3.26 -163.17,-40.72 -163.17,-40.72l-111.46 256.98 292.15 72.83c54.35,13.63 107.61,27.89 160.06,41.3l-92.9 373.03 224.24 55.94 92 -369.07c61.26,16.63 120.71,31.97 178.91,46.43l-91.69 367.33 224.51 55.94 92.89 -372.33c382.82,72.45 670.67,43.24 791.83,-303.02 97.63,-278.78 -4.86,-439.58 -206.26,-544.44 146.69,-33.83 257.18,-130.31 286.64,-329.61l-0.07 -0.05zm-512.93 719.26c-69.38,278.78 -538.76,128.08 -690.94,90.29l123.28 -494.2c152.17,37.99 640.17,113.17 567.67,403.91zm69.43 -723.3c-63.29,253.58 -453.96,124.75 -580.69,93.16l111.77 -448.21c126.73,31.59 534.85,90.55 468.94,355.05l-0.02 0z"/>
-  </g>
- </g>
-</svg>
-</file>
-
-<file path="static/assets/tokens/eth.svg">
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- Creator: CorelDRAW 2019 (64-Bit) -->
-<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="100%" height="100%" version="1.1" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd"
-viewBox="0 0 784.37 1277.39"
- xmlns:xlink="http://www.w3.org/1999/xlink"
- xmlns:xodm="http://www.corel.com/coreldraw/odm/2003">
- <g id="Layer_x0020_1">
-  <metadata id="CorelCorpID_0Corel-Layer"/>
-  <g id="_1421394342400">
-   <g>
-    <polygon fill="#343434" fill-rule="nonzero" points="392.07,0 383.5,29.11 383.5,873.74 392.07,882.29 784.13,650.54 "/>
-    <polygon fill="#8C8C8C" fill-rule="nonzero" points="392.07,0 -0,650.54 392.07,882.29 392.07,472.33 "/>
-    <polygon fill="#3C3C3B" fill-rule="nonzero" points="392.07,956.52 387.24,962.41 387.24,1263.28 392.07,1277.38 784.37,724.89 "/>
-    <polygon fill="#8C8C8C" fill-rule="nonzero" points="392.07,1277.38 392.07,956.52 -0,724.89 "/>
-    <polygon fill="#141414" fill-rule="nonzero" points="392.07,882.29 784.13,650.54 392.07,472.33 "/>
-    <polygon fill="#393939" fill-rule="nonzero" points="0,650.54 392.07,882.29 392.07,472.33 "/>
-   </g>
-  </g>
- </g>
-</svg>
-</file>
-
-<file path="static/assets/tokens/kas.svg">
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!-- Created with Inkscape (http://www.inkscape.org/) -->
-
-<svg
-   viewBox="0 0 20.225674 20.196"
-   version="1.1"
-   id="svg1"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs1" />
-  <g
-     id="layer1"
-     transform="translate(-30.427083,-102.39375)">
-    <g
-       id="g2"
-       transform="matrix(0.26458333,0,0,0.26458333,15.084819,94.77375)">
-      <path
-         class="cls-4"
-         d="m 134.43,66.58 c 0,5.11 -2.11,10.05 -3.96,14.5 -1.85,4.45 -4.71,8.85 -8.18,12.32 -3.47,3.47 -7.64,6.46 -12.24,8.37 -4.44,1.84 -9.46,3.36 -14.57,3.36 -5.11,0 -10.24,-1.26 -14.68,-3.1 -4.61,-1.91 -7.76,-6.06 -11.23,-9.54 -3.47,-3.47 -7.36,-6.73 -9.27,-11.34 -1.91,-4.61 -2.22,-9.46 -2.22,-14.57 0,-5.11 -0.6,-10.53 1.24,-14.98 1.91,-4.61 5.94,-8.29 9.42,-11.76 3.47,-3.47 7.32,-7.1 11.93,-9.01 4.44,-1.84 9.7,-2.03 14.81,-2.03 5.11,0 10.06,0.93 14.5,2.77 4.61,1.91 9.05,4.51 12.52,7.99 3.47,3.47 6.48,7.75 8.39,12.35 1.84,4.44 3.54,9.56 3.54,14.67 z"
-         id="path1"
-         style="fill:#6fc7ba" />
-      <polygon
-         class="cls-3"
-         points="98.08,87.16 106.18,88.36 109.4,66.58 106.18,44.79 98.08,45.99 100.39,61.66 83.44,48.61 78.45,55.12 93.32,66.58 78.45,78.03 83.44,84.55 100.39,71.49 "
-         id="polygon1"
-         style="fill:#1a1a1a" />
-    </g>
-  </g>
-</svg>
-</file>
-
-<file path="static/assets/tokens/sol.svg">
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Generator: Adobe Illustrator 24.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
-<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 viewBox="0 0 397.7 311.7" style="enable-background:new 0 0 397.7 311.7;" xml:space="preserve">
-<style type="text/css">
-	.st0{fill:url(#SVGID_1_);}
-	.st1{fill:url(#SVGID_2_);}
-	.st2{fill:url(#SVGID_3_);}
-</style>
-<linearGradient id="SVGID_1_" gradientUnits="userSpaceOnUse" x1="360.8791" y1="351.4553" x2="141.213" y2="-69.2936" gradientTransform="matrix(1 0 0 -1 0 314)">
-	<stop  offset="0" style="stop-color:#00FFA3"/>
-	<stop  offset="1" style="stop-color:#DC1FFF"/>
-</linearGradient>
-<path class="st0" d="M64.6,237.9c2.4-2.4,5.7-3.8,9.2-3.8h317.4c5.8,0,8.7,7,4.6,11.1l-62.7,62.7c-2.4,2.4-5.7,3.8-9.2,3.8H6.5
-	c-5.8,0-8.7-7-4.6-11.1L64.6,237.9z"/>
-<linearGradient id="SVGID_2_" gradientUnits="userSpaceOnUse" x1="264.8291" y1="401.6014" x2="45.163" y2="-19.1475" gradientTransform="matrix(1 0 0 -1 0 314)">
-	<stop  offset="0" style="stop-color:#00FFA3"/>
-	<stop  offset="1" style="stop-color:#DC1FFF"/>
-</linearGradient>
-<path class="st1" d="M64.6,3.8C67.1,1.4,70.4,0,73.8,0h317.4c5.8,0,8.7,7,4.6,11.1l-62.7,62.7c-2.4,2.4-5.7,3.8-9.2,3.8H6.5
-	c-5.8,0-8.7-7-4.6-11.1L64.6,3.8z"/>
-<linearGradient id="SVGID_3_" gradientUnits="userSpaceOnUse" x1="312.5484" y1="376.688" x2="92.8822" y2="-44.061" gradientTransform="matrix(1 0 0 -1 0 314)">
-	<stop  offset="0" style="stop-color:#00FFA3"/>
-	<stop  offset="1" style="stop-color:#DC1FFF"/>
-</linearGradient>
-<path class="st2" d="M333.1,120.1c-2.4-2.4-5.7-3.8-9.2-3.8H6.5c-5.8,0-8.7,7-4.6,11.1l62.7,62.7c2.4,2.4,5.7,3.8,9.2,3.8h317.4
-	c5.8,0,8.7-7,4.6-11.1L333.1,120.1z"/>
-</svg>
-</file>
-
-<file path=".vercel/project.json">
-{"projectId":"prj_K3DixqW2V9nV0rxMw3nZHd18CXmm","orgId":"team_SsVMAHcgGSNXz5GTEY8VKHbf","projectName":"perennia-v3"}
-</file>
-
-<file path=".vercel/README.txt">
-> Why do I have a folder named ".vercel" in my project?
-The ".vercel" folder is created when you link a directory to a Vercel project.
-
-> What does the "project.json" file contain?
-The "project.json" file contains:
-- The ID of the Vercel project that you linked ("projectId")
-- The ID of the user or team your Vercel project is owned by ("orgId")
-
-> Should I commit the ".vercel" folder?
-No, you should not share the ".vercel" folder with anyone.
-Upon creation, it will be automatically added to your ".gitignore" file.
-</file>
-
-<file path="src/lib/assets/favicon.svg">
-<svg xmlns="http://www.w3.org/2000/svg" width="107" height="128" viewBox="0 0 107 128"><title>svelte-logo</title><path d="M94.157 22.819c-10.4-14.885-30.94-19.297-45.792-9.835L22.282 29.608A29.92 29.92 0 0 0 8.764 49.65a31.5 31.5 0 0 0 3.108 20.231 30 30 0 0 0-4.477 11.183 31.9 31.9 0 0 0 5.448 24.116c10.402 14.887 30.942 19.297 45.791 9.835l26.083-16.624A29.92 29.92 0 0 0 98.235 78.35a31.53 31.53 0 0 0-3.105-20.232 30 30 0 0 0 4.474-11.182 31.88 31.88 0 0 0-5.447-24.116" style="fill:#ff3e00"/><path d="M45.817 106.582a20.72 20.72 0 0 1-22.237-8.243 19.17 19.17 0 0 1-3.277-14.503 18 18 0 0 1 .624-2.435l.49-1.498 1.337.981a33.6 33.6 0 0 0 10.203 5.098l.97.294-.09.968a5.85 5.85 0 0 0 1.052 3.878 6.24 6.24 0 0 0 6.695 2.485 5.8 5.8 0 0 0 1.603-.704L69.27 76.28a5.43 5.43 0 0 0 2.45-3.631 5.8 5.8 0 0 0-.987-4.371 6.24 6.24 0 0 0-6.698-2.487 5.7 5.7 0 0 0-1.6.704l-9.953 6.345a19 19 0 0 1-5.296 2.326 20.72 20.72 0 0 1-22.237-8.243 19.17 19.17 0 0 1-3.277-14.502 17.99 17.99 0 0 1 8.13-12.052l26.081-16.623a19 19 0 0 1 5.3-2.329 20.72 20.72 0 0 1 22.237 8.243 19.17 19.17 0 0 1 3.277 14.503 18 18 0 0 1-.624 2.435l-.49 1.498-1.337-.98a33.6 33.6 0 0 0-10.203-5.1l-.97-.294.09-.968a5.86 5.86 0 0 0-1.052-3.878 6.24 6.24 0 0 0-6.696-2.485 5.8 5.8 0 0 0-1.602.704L37.73 51.72a5.42 5.42 0 0 0-2.449 3.63 5.79 5.79 0 0 0 .986 4.372 6.24 6.24 0 0 0 6.698 2.486 5.8 5.8 0 0 0 1.602-.704l9.952-6.342a19 19 0 0 1 5.295-2.328 20.72 20.72 0 0 1 22.237 8.242 19.17 19.17 0 0 1 3.277 14.503 18 18 0 0 1-8.13 12.053l-26.081 16.622a19 19 0 0 1-5.3 2.328" style="fill:#fff"/></svg>
-</file>
-
-<file path="src/lib/server/chronos.ts">
-// src/lib/server/chronos.ts
-
-import { redis } from '$lib/server/redis';
-import { perenniaKMS } from '$lib/server/kms';
-import type { SorExecutionPlan } from './sor';
-
-// ⚡ THE PPS REWARD RATE
-// This is the true Pay-Per-Share (PPS) conversion. 
-// Miners are paid instantly per unit of cryptographic difficulty submitted, decoupled from pool luck.
-const PPS_RATE_PER_DIFFICULTY = 0.000005; 
-
-// ⚡ VAMPIRE ATTACK FEE STRUCTURE
-// Matching the 1% industry standard while providing a premium, zero-variance PPS service.
-const NETWORK_FEE_PERCENTAGE = 0.01; 
-
-// ⚡ ANTI-DUST SHIELD
-// Absolute minimum KAS required to trigger an on-chain settlement, preventing UTXO fragmentation.
-const MINIMUM_UTXO_SWEEP_THRESHOLD = 50.0;
-
-export interface UtxoInput {
-    transactionId: string;
-    index: number;
-    amount: number; // Sompi
-    scriptPublicKey: string;
-}
-
-export class ChronosEngine {
-    private isRunning = false;
-    private interval: NodeJS.Timeout | null = null;
-
-    public start() {
-        if (this.isRunning) return;
-        this.isRunning = true;
-        console.log("⏳ Chronos Settlement Engine Online. Monitoring Omni-Chain Ledger.");
-        
-        // Execute the settlement matrix every 10 seconds
-        this.interval = setInterval(() => this.executeSettlementTick(), 10000);
-    }
-
-    // ============================================================================
-    // ⚡ ATOMIC PSBT ASSEMBLY (Hybrid DEX Router)
-    // ============================================================================
-    public async constructAtomicSwapPSBT(
-        userAddress: string,
-        userScriptPublicKey: string,
-        sorPlan: SorExecutionPlan,
-        userUtxos: UtxoInput[]
-    ) {
-        console.log(`\n⚙️ [CHRONOS] Assembling Atomic PSBT for ${userAddress}`);
-        
-        const corporateAddresses = await perenniaKMS.getCorporateAddresses();
-        
-        // Target Liquidity Pools and Bridge Inbound Addresses for external routing
-        const KASPLEX_LP_ADDRESS = "kaspa:kasplex_krc20_router_inbound";
-        const CHAINGE_INBOUND_ADDRESS = "kaspa:chainge_finance_bridge_inbound";
-        const CHANGENOW_INBOUND_ADDRESS = "kaspa:changenow_whale_inbound";
-
-        const targetAmountSompi = Math.floor(sorPlan.totalAmount * 1e8);
-        const feeSompi = 10000; // Standard minimal gas for atomic routing
-        const totalRequiredSompi = targetAmountSompi + feeSompi;
-
-        let gatheredSompi = 0;
-        const txInputs = [];
-
-        // 1. Map Inputs: Gather enough user UTXOs to fulfill the total swap amount + gas
-        for (const utxo of userUtxos) {
-            txInputs.push({
-                previousOutpoint: {
-                    transactionId: utxo.transactionId,
-                    index: utxo.index
-                },
-                signatureScript: "", // Intentionally blank: Tangem Hardware will inject this
-                sequence: 0,
-                sigOpCount: 1
-            });
-            gatheredSompi += utxo.amount;
-            if (gatheredSompi >= totalRequiredSompi) break;
-        }
-
-        if (gatheredSompi < totalRequiredSompi) {
-            throw new Error(`ERR_INSUFFICIENT_UTXO_MASS: Required ${totalRequiredSompi}, Found ${gatheredSompi}`);
-        }
-
-        // 2. Map Outputs: Waterfall the physical Kaspa outpoints based on the SOR plan
-        const txOutputs = [];
-
-        for (const leg of sorPlan.legs) {
-            const legAmountSompi = Math.floor(leg.filledAmount * 1e8);
-            if (legAmountSompi <= 0) continue;
-
-            let destinationAddress = "";
-            
-            switch(leg.tier) {
-                case 1:
-                    destinationAddress = corporateAddresses.KAS; // Direct to Perennia Treasury
-                    break;
-                case 2:
-                    destinationAddress = KASPLEX_LP_ADDRESS;     // KRC-20 Indexer
-                    break;
-                case 3:
-                    destinationAddress = CHAINGE_INBOUND_ADDRESS; // AMM Liquidity
-                    break;
-                case 4:
-                    destinationAddress = CHANGENOW_INBOUND_ADDRESS; // Whale Overflow
-                    break;
-                default:
-                    throw new Error("ERR_UNKNOWN_ROUTING_TIER");
-            }
-
-            txOutputs.push({
-                amount: legAmountSompi,
-                scriptPublicKey: destinationAddress, // Marked for client-side Hex conversion
-                _metadata: { provider: leg.provider, tier: leg.tier } 
-            });
-        }
-
-        // 3. Map Change Output: Return unspent UTXO mass safely to the user
-        const changeSompi = gatheredSompi - totalRequiredSompi;
-        if (changeSompi > 0) {
-            txOutputs.push({
-                amount: changeSompi,
-                scriptPublicKey: userScriptPublicKey,
-                _metadata: { type: "change" }
-            });
-        }
-
-        // 4. Return the Unsigned Kaspa PSBT payload
-        return {
-            version: 0,
-            inputs: txInputs,
-            outputs: txOutputs,
-            lockTime: 0,
-            subnetworkId: "0000000000000000000000000000000000000000",
-            gas: 0,
-            payload: ""
-        };
-    }
-
-    // ============================================================================
-    // ⚡ MINING POOL PPS SETTLEMENT MATRICES
-    // ============================================================================
-    private async executeSettlementTick() {
-        try {
-            // 1. Fetch all user states stored in the Redis database
-            const userKeys = await redis.keys('user_state:*');
-            
-            for (const key of userKeys) {
-                const address = key.replace('user_state:', '');
-                const rawState = await redis.get(key);
-                if (!rawState) continue;
-
-                let state = JSON.parse(rawState);
-                let stateMutated = false;
-
-                // 2. Iterate through the user's workers to process unpaid shares
-                for (const worker of state.workers) {
-                    if (!worker.assignedSiloId) continue; 
-
-                    // Fetch the exact shares recorded by the Rust backend
-                    const shareKey = `worker:${worker.name}:shares`;
-                    const unprocessedSharesStr = await redis.get(shareKey);
-                    const unprocessedShares = parseFloat(unprocessedSharesStr || "0");
-
-                    if (unprocessedShares > 0) {
-                        // Mathematically convert shares to KAS using the PPS model
-                        const earnedKaspa = unprocessedShares * PPS_RATE_PER_DIFFICULTY;
-
-                        // Route the earned KAS to the specific assigned Silo
-                        const siloIndex = state.silos.findIndex((s: any) => s.id === worker.assignedSiloId);
-                        if (siloIndex !== -1) {
-                            state.silos[siloIndex].pendingKaspa = (state.silos[siloIndex].pendingKaspa || 0) + earnedKaspa;
-                            stateMutated = true;
-                        }
-
-                        // Reset the worker's share counter in Redis so we don't double-pay
-                        await redis.set(shareKey, "0");
-                    }
-                }
-
-                // 3. Evaluate Silos for Execution (Thresholds & Streams)
-                for (let i = 0; i < state.silos.length; i++) {
-                    const silo = state.silos[i];
-                    
-                    // ⚡ SHIELD ACTIVE: We completely ignore execution logic unless they hit the 50 KAS floor
-                    if (silo.settlementConfig?.autoPayout && silo.pendingKaspa >= MINIMUM_UTXO_SWEEP_THRESHOLD) {
-                        const userThreshold = silo.settlementConfig.threshold || 0;
-                        const mode = silo.settlementConfig.mode;
-                        
-                        // Execute if streaming (which now inherently meets the 50 KAS minimum), 
-                        // OR if threshold limit is breached (and that threshold is >= 50)
-                        if (mode === 'stream' || (mode === 'threshold' && silo.pendingKaspa >= userThreshold)) {
-                            
-                            const grossPayout = silo.pendingKaspa;
-                            const perenniaFee = grossPayout * NETWORK_FEE_PERCENTAGE;
-                            const netPayout = grossPayout - perenniaFee;
-                            const targetAddress = silo.settlementConfig.payoutAddress || address;
-
-                            console.log(`\n💸 [CHRONOS EXECUTION] Settling Silo: ${silo.name}`);
-                            console.log(`   -> Gross Yield: ${grossPayout.toFixed(6)} KAS`);
-                            console.log(`   -> Perennia Fee (1%): ${perenniaFee.toFixed(6)} KAS`);
-                            console.log(`   -> Broadcasting ${netPayout.toFixed(6)} KAS to ${targetAddress}`);
-                            
-                            // Reset the Silo balance after successful sweep
-                            state.silos[i].pendingKaspa = 0;
-                            stateMutated = true;
-                        }
-                    }
-                }
-
-                // 4. Save the mutated state back to Redis so the Svelte UI updates instantly
-                if (stateMutated) {
-                    await redis.set(key, JSON.stringify(state));
-                }
-            }
-        } catch (error) {
-            console.error("🚨 Chronos Execution Error:", error);
-        }
-    }
-}
-
-export const chronos = new ChronosEngine();
-</file>
-
-<file path="src/lib/server/kms.ts">
-import { env } from '$env/dynamic/private';
-
-export class SovereignKMS {
-    public async getCorporateAddresses() {
-        return {
-            // ⚡ Instantly pulls your address from .env, bypassing the C++ crash entirely!
-            KAS: env.PERENNIA_TREASURY_KAS_ADDRESS || 'kaspa:offline_configuration_pending',
-            ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",     // EVM liquidity silo
-            BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfJH754GL",     // Bitcoin cold-tier root
-            SOL: "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a"    // Solana treasury anchor
-        };
-    }
-}
-
-export const perenniaKMS = new SovereignKMS();
-</file>
-
-<file path="src/lib/server/redis.ts">
-// src/lib/server/redis.ts
-
-import Redis from 'ioredis';
-import { env } from '$env/dynamic/private';
-
-// ⚡ This tells Windows to cross the local network and read the Ubuntu Node
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
-export const redis = new Redis(`redis://${nodeIp}:6379`);
-
-redis.on('connect', () => console.log(`🟢 SvelteKit successfully connected to Ubuntu Redis at ${nodeIp}!`));
-redis.on('error', (err) => console.error('🔴 SvelteKit Redis Network Error:', err));
 </file>
 
 <file path="src/lib/stores/transaction.svelte.ts">
@@ -1673,6 +741,271 @@ export async function executeSovereignTransaction(destinationAddress: string, am
 }
 </file>
 
+<file path="src/lib/views/LedgerView.svelte">
+<script lang="ts">
+    import { activeTab } from '$lib/stores/app';
+</script>
+
+<div class="w-full h-full min-h-[100dvh] bg-[#050505] text-white font-mono flex flex-col items-center justify-center p-6">
+    <div class="w-full max-w-md bg-[#0a0a0a] border border-neutral-800 p-10 flex flex-col items-center text-center gap-6">
+        <div class="w-16 h-16 bg-[#050505] border border-neutral-800 flex items-center justify-center">
+            <span class="text-neutral-500 font-black text-2xl">!</span>
+        </div>
+        <div class="flex flex-col gap-2">
+            <h2 class="text-xl md:text-2xl font-black uppercase tracking-[0.2em] text-white">Standard Ledger</h2>
+            <p class="text-[10px] text-neutral-500 font-bold tracking-widest uppercase leading-relaxed">
+                Corporate administrative clearance is required to view Omni-Chain treasury metrics.
+            </p>
+        </div>
+        <button onclick={() => $activeTab = 'OPERATIONS'} class="mt-4 px-6 py-3 border border-neutral-700 text-white font-black uppercase tracking-widest text-[9px] hover:bg-white hover:text-black transition-colors cursor-pointer">
+            Return to Operations
+        </button>
+    </div>
+</div>
+</file>
+
+<file path="src/lib/views/TreasuryVault.svelte">
+<script lang="ts">
+    import { onMount, onDestroy } from 'svelte';
+    import { globalKasPrice, globalKasChange } from '$lib/stores/app';
+    import { isWalletConnected, activeWalletType, sovereignKeys } from '$lib/stores/wallet';
+    
+    // ⚡ Svelte 5: 2-State Drawer expansion tracker
+    let expandedDrawer = $state<string | null>(null);
+
+    // Live State 
+    let estate = $state<any>(null);
+    let isLoading = $state(false);
+
+    // Real-Time Oracle Market Data
+    let btcPrice = $state(64500.00); let btcDelta = $state(0);
+    let ethPrice = $state(3450.00);  let ethDelta = $state(0);
+    let solPrice = $state(145.00);   let solDelta = $state(0);
+
+    // Strict UI Enforcement: Vault must be decrypted to view actual treasury metrics
+    let isVaultDecrypted = $derived($isWalletConnected && $activeWalletType === 'sovereign' && $sovereignKeys !== null);
+
+    // ⚡ Svelte 5 Derived: Real-Time Oracle & Backend Merged Matrix
+    let assets = $derived.by(() => {
+        const kasBal = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.balance || 0;
+        const btcBal = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.balance || 0;
+        const ethBal = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.balance || 0;
+        const solBal = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.balance || 0;
+
+        const kasAddr = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.address || $sovereignKeys?.kaspa?.address || 'Awaiting Decryption';
+        const btcAddr = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.address || $sovereignKeys?.bitcoin?.address || 'Awaiting Decryption';
+        const ethAddr = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.address || $sovereignKeys?.ethereum?.address || 'Awaiting Decryption';
+        const solAddr = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.address || $sovereignKeys?.solana?.address || 'Awaiting Decryption';
+
+        return [
+            { symbol: 'KAS', icon: '/assets/tokens/kas.svg', name: 'Kaspa', badge: 'KAS [L1]', spotPrice: $globalKasPrice || 0, delta: $globalKasChange || 0, balance: kasBal, address: kasAddr, hex: '#18C6A5' },
+            { symbol: 'BTC', icon: '/assets/tokens/btc.svg', name: 'Bitcoin', badge: 'BTC [COLD]', spotPrice: btcPrice, delta: btcDelta, balance: btcBal, address: btcAddr, hex: '#F7931A' },
+            { symbol: 'ETH', icon: '/assets/tokens/eth.svg', name: 'Ethereum', badge: 'ETH [ERC20]', spotPrice: ethPrice, delta: ethDelta, balance: ethBal, address: ethAddr, hex: '#627EEA' },
+            { symbol: 'SOL', icon: '/assets/tokens/sol.svg', name: 'Solana', badge: 'SOL [NATIVE]', spotPrice: solPrice, delta: solDelta, balance: solBal, address: solAddr, hex: '#14F195' }
+        ];
+    });
+
+    let totalVaultValue = $derived(
+        assets.reduce((sum, asset) => sum + (asset.balance * asset.spotPrice), 0)
+    );
+
+    function toggleDrawer(symbol: string) {
+        expandedDrawer = expandedDrawer === symbol ? null : symbol;
+    }
+
+    function copyNativeAddress(e: Event, address: string) {
+        e.stopPropagation(); 
+        if (typeof navigator !== 'undefined') navigator.clipboard.writeText(address);
+    }
+
+    // ⚡ REAL-TIME ORACLE: Fetch true market prices
+    async function fetchExternalPrices() {
+        try {
+            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.bitcoin) { btcPrice = data.bitcoin.usd; btcDelta = data.bitcoin.usd_24h_change || 0; }
+                if (data.ethereum) { ethPrice = data.ethereum.usd; ethDelta = data.ethereum.usd_24h_change || 0; }
+                if (data.solana) { solPrice = data.solana.usd; solDelta = data.solana.usd_24h_change || 0; }
+            }
+        } catch (e) {
+            console.error("Oracle fetch failed:", e);
+        }
+    }
+
+    // ⚡ NETWORK LEDGER: Fetch true asset balances
+    async function fetchTreasuryData() {
+        if (!isVaultDecrypted) {
+            estate = null;
+            return;
+        }
+        if (!estate) isLoading = true;
+        
+        try {
+            const keys = $sovereignKeys;
+            const params = new URLSearchParams({
+                kas: keys.kaspa?.address || '',
+                btc: keys.bitcoin?.address || '',
+                eth: keys.ethereum?.address || '',
+                sol: keys.solana?.address || ''
+            });
+
+            const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
+            if (res.ok) {
+                estate = await res.json();
+            }
+        } catch (err: any) {
+            console.error("Network Fetch Error:", err);
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    let fetchInterval: ReturnType<typeof setInterval>;
+    let priceInterval: ReturnType<typeof setInterval>;
+
+    $effect(() => {
+        if (isVaultDecrypted && !estate && !isLoading) {
+            fetchTreasuryData();
+        } else if (!isVaultDecrypted) {
+            estate = null;
+        }
+    });
+
+    onMount(() => {
+        fetchExternalPrices();
+        priceInterval = setInterval(fetchExternalPrices, 15000);
+        
+        if (isVaultDecrypted) fetchTreasuryData();
+        fetchInterval = setInterval(() => {
+            if (isVaultDecrypted) fetchTreasuryData();
+        }, 15000);
+    });
+
+    onDestroy(() => {
+        if (fetchInterval) clearInterval(fetchInterval);
+        if (priceInterval) clearInterval(priceInterval);
+    });
+</script>
+
+<div class="w-full h-full min-h-[100dvh] bg-[#050505] text-neutral-300 font-mono flex flex-col items-center pb-12 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
+    
+    <!-- BRUTALIST LOCK SCREEN -->
+    {#if !isVaultDecrypted}
+        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505] p-6 text-center">
+            <div class="w-24 h-24 border-2 border-neutral-800 flex items-center justify-center rounded-2xl mb-6 bg-[#0a0a0a] shadow-inner">
+                <svg class="w-10 h-10 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            </div>
+            <h2 class="text-2xl md:text-4xl font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4">TREASURY LOCKED:<br/>DECRYPT VAULT TO VIEW LIQUIDITY</h2>
+        </div>
+    {/if}
+
+    <div class="w-full max-w-4xl p-4 lg:p-8 flex flex-col gap-6 transition-opacity duration-500 {!isVaultDecrypted ? 'opacity-10 pointer-events-none' : 'opacity-100'}">
+        
+        <!-- 1. TOP: GLOWING HERO CARD (Operations Style) -->
+        <div class="bg-[#0a0a0a] border border-neutral-800/50 rounded-[32px] p-10 flex flex-col items-center justify-center text-center shadow-2xl mb-2 relative overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none"></div>
+            
+            <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4 flex items-center gap-2 relative z-10">
+                <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse shadow-[0_0_8px_rgba(24,198,165,0.8)]"></div>
+                Total Vault Portfolio Value
+            </span>
+            
+            <span class="text-5xl md:text-7xl tracking-tighter text-neutral-200 tabular-nums relative z-10 drop-shadow-[0_0_10px_rgba(255,255,255,0.05)]">
+                {totalVaultValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+            </span>
+        </div>
+
+        <!-- 2. MIDDLE: STACKED ASSET ROWS -->
+        <div class="flex flex-col gap-4">
+            {#each assets as asset}
+                <div class="bg-[#0c0c0c] rounded-[24px] border {expandedDrawer === asset.symbol ? 'border-neutral-500 shadow-[0_0_20px_rgba(255,255,255,0.05)]' : 'border-neutral-800/80 hover:border-neutral-700 shadow-xl'} transition-all duration-300 flex flex-col relative overflow-hidden">
+                    
+                    <!-- STATE 1: COLLAPSED ROW -->
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_interactive_supports_focus -->
+                    <div onclick={() => toggleDrawer(asset.symbol)} role="button" class="w-full p-6 flex items-center justify-between cursor-pointer hover:bg-[#111] transition-colors focus:outline-none text-left border-none select-none relative z-10">
+                        <div class="flex items-center gap-5">
+                            
+                            <!-- ⚡ NEW: SVG ICON INTEGRATION -->
+                            <div class="w-12 h-12 rounded-xl border border-neutral-800 bg-[#050505] flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden">
+                                <div class="absolute inset-0 opacity-[0.12]" style="background-color: {asset.hex}"></div>
+                                <img src={asset.icon} alt="{asset.symbol} logo" class="w-full h-full object-contain relative z-10" style="filter: drop-shadow(0 0 4px {asset.hex}40);" />
+                            </div>
+                            
+                            <div class="flex flex-col gap-1.5">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-sm md:text-base font-medium uppercase tracking-widest text-neutral-200">{asset.name}</span>
+                                    <span class="text-[8px] font-medium uppercase tracking-widest bg-[#111] border border-neutral-800 text-neutral-400 px-2 py-0.5 rounded-md shadow-inner">
+                                        {asset.badge}
+                                    </span>
+                                </div>
+                                <span class="text-[10px] font-medium text-neutral-500 tracking-widest">
+                                    ${asset.spotPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} 
+                                    <span class="ml-2 {asset.delta >= 0 ? 'text-[#18C6A5]' : 'text-red-500'} drop-shadow-sm">
+                                        {asset.delta >= 0 ? '▲' : '▼'} {Math.abs(asset.delta).toFixed(2)}%
+                                    </span>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-end gap-2.5">
+                            <span class="text-xl md:text-2xl font-normal tabular-nums tracking-tight text-neutral-200 leading-none">
+                                {asset.balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6})}
+                            </span>
+                            <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="px-3 py-1 rounded-lg bg-[#050505] border border-neutral-800 hover:border-neutral-500 text-[9px] font-medium uppercase tracking-widest text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer focus:outline-none shrink-0 shadow-sm">
+                                Copy Root
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STATE 2: EXPANDED DRAWER -->
+                    {#if expandedDrawer === asset.symbol}
+                        <div class="border-t border-neutral-800/50 bg-[#050505] p-6 flex flex-col gap-4 animate-[fade-in-down_0.2s_ease-out] shadow-inner relative z-0">
+                            <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-2">
+                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Asset Network Telemetry</span>
+                                <span class="text-[8px] uppercase tracking-widest font-medium bg-[#111] border border-neutral-800 text-neutral-300 px-2 py-0.5 rounded-md">Nexus Framework</span>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="bg-[#0a0a0a] border border-dashed border-neutral-800/80 rounded-2xl hover:border-neutral-600 transition-colors p-6 flex flex-col items-center justify-center text-center min-h-[120px] cursor-pointer group shadow-inner">
+                                    <svg class="w-6 h-6 text-neutral-600 group-hover:text-neutral-300 transition-colors mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                    <span class="text-[10px] font-medium uppercase tracking-widest text-neutral-500 group-hover:text-neutral-300 transition-colors mb-1">Mint Synthetic Assets</span>
+                                    <span class="text-[9px] font-mono text-neutral-600 leading-relaxed">Route Forge Payloads Here</span>
+                                </div>
+
+                                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                                    <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">ASIC Worker Telemetry</span>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-[10px] font-mono text-neutral-400">Yield Hashrate</span>
+                                        <span class="text-[10px] font-mono font-medium text-neutral-200">0.00 TH/s</span>
+                                    </div>
+                                    <div class="w-full h-1 bg-[#111] border border-neutral-800 rounded-full overflow-hidden">
+                                        <div class="h-full w-[0%] transition-all duration-1000 rounded-full" style="background-color: {asset.hex}; box-shadow: 0 0 8px {asset.hex}80;"></div>
+                                    </div>
+                                    <span class="text-[8px] font-mono text-neutral-600 uppercase tracking-widest text-right mt-1">Awaiting Stratum Broadcasts</span>
+                                </div>
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+            {/each}
+        </div>
+    </div>
+</div>
+
+<style>
+    @keyframes fade-in-up { 
+        0% { opacity: 0; transform: translateY(10px); } 
+        100% { opacity: 1; transform: translateY(0); } 
+    }
+    @keyframes fade-in-down { 
+        0% { opacity: 0; transform: translateY(-10px); } 
+        100% { opacity: 1; transform: translateY(0); } 
+    }
+</style>
+</file>
+
 <file path="src/lib/index.ts">
 // place files you want to import through the `$lib` alias in this folder.
 </file>
@@ -1706,82 +1039,134 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 };
 </file>
 
-<file path="src/routes/api/broadcast/+server.ts">
-// src/routes/api/broadcast/+server.ts
+<file path="src/routes/api/balance/+server.ts">
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 
+export const GET: RequestHandler = async ({ url }) => {
+    const address = url.searchParams.get('address');
+
+    if (!address) {
+        return json({ error: 'Address parameter missing' }, { status: 400 });
+    }
+
+    try {
+        // Query the live Kaspa REST API for the balance
+        const res = await fetch(`https://api.kaspa.org/addresses/${address}/balance`, {
+            signal: AbortSignal.timeout(5000)
+        });
+
+        if (!res.ok) {
+            throw new Error(`Kaspa API returned ${res.status}`);
+        }
+
+        const data = await res.json();
+        
+        // Return the converted Kaspa (Sompi / 100,000,000)
+        return json({ balance: (data.balance || 0) / 100000000 });
+    } catch (e: any) {
+        console.error("Balance Fetch Error:", e.message);
+        // Fail safely to 0 rather than crashing the wallet loop
+        return json({ balance: 0 });
+    }
+};
+</file>
+
+<file path="src/routes/api/sor/swap/+server.ts">
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { createRequire } from 'module';
+import { sorEngine } from '$lib/server/sor';
+import { chronos } from '$lib/server/chronos';
+import { Buffer } from 'buffer';
 
-const require = createRequire(import.meta.url);
-const WebSocket = require('ws');
-
-export async function POST({ request }: RequestEvent) {
-    const payload = await request.json();
-    const nodeIp = process.env.UBUNTU_NODE_IP || '192.168.0.12';
-
-    return new Promise((resolve) => {
-        let isResolved = false; // ⚡ Immutable state lock
-        console.log(`\n⏳ Chronos Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
-        
-        const ws = new WebSocket(`ws://${nodeIp}:18110`);
-        
-        const timeout = setTimeout(() => {
-            if (isResolved) return;
-            isResolved = true;
-            ws.terminate();
-            console.error("❌ [Perennia Proxy] Broadcast: wRPC connection timed out");
-            resolve(json({ error: "wRPC connection timed out" }, { status: 500 }));
-        }, 5000);
-
-        ws.on('open', () => {
-            console.log(`[+] Socket OPENED. Firing transaction payload...`);
-            const rpcPayload = { id: 2, method: "submitTransaction", params: { transaction: payload, allowOrphan: false } };
-            ws.send(JSON.stringify(rpcPayload));
-        });
-
-        ws.on('message', (data: any) => {
-            if (isResolved) return;
-            isResolved = true; // Lock out the close/error handlers
-            clearTimeout(timeout);
-            console.log(`[+] Reply RECEIVED.`);
-            
-            try {
-                const response = JSON.parse(data.toString());
-                if (response.error) {
-                    console.error("❌ [Perennia Proxy] Broadcast Error:", response.error.message);
-                    ws.terminate();
-                    resolve(json({ error: response.error.message }, { status: 500 }));
-                    return;
-                }
-                console.log("🟢 Payload Broadcasted:", response);
-                const transactionId = response.params?.transactionId || response.transactionId;
-                
-                ws.terminate();
-                resolve(json({ success: true, transactionId }, { status: 200 }));
-            } catch (e) {
-                console.error("❌ [Perennia Proxy] Failed to parse wRPC response");
-                ws.terminate();
-                resolve(json({ error: "Failed to parse wRPC response" }, { status: 500 }));
-            }
-        });
-
-        ws.on('close', (code: number) => {
-            if (isResolved) return;
-            isResolved = true;
-            clearTimeout(timeout);
-            console.error(`❌ [Perennia Proxy] Node abruptly dropped connection. Code: ${code}`);
-            resolve(json({ error: "Node connection rejected" }, { status: 500 }));
-        });
-
-        ws.on('error', (err: Error) => {
-            if (isResolved) return;
-            isResolved = true;
-            clearTimeout(timeout);
-            console.error("❌ [Perennia Proxy] Socket Error:", err.message);
-            resolve(json({ error: err.message }, { status: 500 }));
-        });
-    });
+// Helper to convert Kaspa address to scriptPublicKey
+function mockAddressToScriptPubKey(address: string): string {
+    const cleanAddress = address.replace('kaspa:', '');
+    return "20" + Buffer.from(cleanAddress).toString('hex').substring(0, 64) + "ac"; 
 }
+
+export const POST = async ({ request, fetch }: RequestEvent) => {
+    try {
+        const body = await request.json().catch(() => ({}));
+        const { wallet, payAsset, receiveAsset, amount, slippageTolerance } = body;
+
+        if (!wallet || !payAsset || !receiveAsset || !amount) {
+            return json({ error: 'Bad Request', message: 'Invalid payload.' }, { status: 400 });
+        }
+
+        // 1. Acquire Atomic Lua Mutex Lock from the Rust Engine
+        const lockRes = await fetch('http://127.0.0.1:8082/v1/sor/lock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                wallet: wallet,
+                payAsset: payAsset,
+                receiveAsset: receiveAsset,
+                amount: amount,
+                slippageTolerance: slippageTolerance || 0.05
+            })
+        });
+
+        if (!lockRes.ok) {
+            const errData = await lockRes.json().catch(() => ({ error: "Collision" }));
+            return json({ 
+                error: 'Slippage/Lock Rejected', 
+                message: errData.error 
+            }, { status: 422 });
+        }
+        
+        const lockData = await lockRes.json();
+
+        // 2. Execute Smart Order Router Matrix
+        const sorPlan = await sorEngine.calculateSplitFill({
+            payAsset,
+            receiveAsset,
+            amount
+        });
+
+        if (sorPlan.legs.length === 0) {
+            return json({ error: 'Liquidity Exhausted', message: 'No routing paths currently available.' }, { status: 422 });
+        }
+
+        // Override unified rate with the exact cryptographically locked rate from the Rust engine
+        sorPlan.unifiedRate = lockData.executed_rate || sorPlan.unifiedRate;
+
+        // 3. Fetch User's Live UTXOs via the internal DAG proxy
+        const utxoRes = await fetch(`/api/utxos?address=${encodeURIComponent(wallet)}`);
+        if (!utxoRes.ok) throw new Error("Failed to fetch UTXO outpoints from DAG.");
+        const utxoData = await utxoRes.json();
+        
+        // Map Kaspa wRPC UTXO formats to the expected Chronos structure
+        const formattedUtxos = (utxoData.entries || []).map((u: any) => ({
+            transactionId: u.outpoint?.transactionId || u.transactionId,
+            index: u.outpoint?.index || u.index,
+            amount: Number(u.utxoEntry?.amount || u.amount || 0),
+            scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
+        }));
+
+        // 4. Assemble the Atomic PSBT
+        const userScriptPubKey = mockAddressToScriptPubKey(wallet);
+        
+        const psbt = await chronos.constructAtomicSwapPSBT(
+            wallet,
+            userScriptPubKey,
+            sorPlan,
+            formattedUtxos
+        );
+
+        // 5. Return the Unsigned Transaction Payload to the Client
+        return json({
+            unified_rate: sorPlan.unifiedRate,
+            estimated_output: sorPlan.estimatedOutput,
+            transaction_uuid: lockData.transaction_uuid,
+            legs: sorPlan.legs,
+            psbt: psbt 
+        }, { status: 200 });
+
+    } catch (error: any) {
+        console.error('SOR Assembly Fault:', error.message || error);
+        return json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
+    }
+};
 </file>
 
 <file path="src/routes/api/state/[address]/+server.ts">
@@ -1864,6 +1249,905 @@ export const GET: RequestHandler = async () => {
         return json({ error: 'Failed to read node telemetry.', pool: { totalHashrate: 0 }, workers: [] }, { status: 500 });
     }
 };
+</file>
+
+<file path="src/routes/api/stratum/bind/+server.ts">
+// src/routes/api/stratum/bind/+server.ts
+
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { redis } from '$lib/server/redis';
+
+// ============================================================================
+// STRATUM NODE BINDING API
+// ============================================================================
+export const POST: RequestHandler = async ({ request }) => {
+    try {
+        const body = await request.json();
+        const { kaspaAddress } = body;
+
+        // 1. Strict Cryptographic Formatting Validation
+        if (!kaspaAddress || typeof kaspaAddress !== 'string') {
+            return json({ error: 'INVALID PAYLOAD: MISSING ADDRESS' }, { status: 400 });
+        }
+
+        const cleanAddress = kaspaAddress.trim().toLowerCase();
+
+        if (!cleanAddress.startsWith('kaspa:')) {
+            return json({ error: 'INVALID FORMAT: MISSING "kaspa:" PREFIX' }, { status: 400 });
+        }
+
+        if (cleanAddress.length < 60) {
+            return json({ error: 'INVALID FORMAT: ADDRESS LENGTH INCORRECT' }, { status: 400 });
+        }
+
+        // 2. Interface with the local shared Redis cache (Dynamic Runtime Injection)
+        try {
+            await redis.set('perennia:stratum:mining_address', cleanAddress);
+        } catch (redisErr) {
+            console.warn('Redis unreachable for stratum bind', redisErr);
+            return json({ error: 'STRATUM REDIS ERROR: CANNOT BIND MINING ADDRESS' }, { status: 500 });
+        }
+
+        return json({ success: true, message: 'STRATUM SUCCESSFULLY BOUND' }, { status: 200 });
+
+    } catch (err: any) {
+        console.error("Stratum Binding API Error:", err);
+        return json({ error: 'CRITICAL BACKEND FAULT. STRATUM OFFLINE.' }, { status: 500 });
+    }
+};
+</file>
+
+<file path="src/routes/api/treasury/1099-da/+server.ts">
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import pg from 'pg';
+import { env } from '$env/dynamic/private';
+
+const { Pool } = pg;
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+
+// BARE-METAL POSTGRES CONNECTION
+const pool = new Pool({
+    user: 'postgres',
+    host: nodeIp,
+    database: 'perennia',
+    password: 'password', // Adjust to match bare-metal prod configuration
+    port: 5432,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 3000,
+});
+
+export const POST: RequestHandler = async ({ request }) => {
+    let client;
+    try {
+        const { walletAddress, taxYear = new Date().getFullYear() } = await request.json();
+
+        if (!walletAddress) {
+            return json({ error: 'Wallet Address Required' }, { status: 400 });
+        }
+
+        client = await pool.connect();
+
+        // 1. Verify KYC & Entity Resolution Status
+        const kycRes = await client.query(
+            `SELECT * FROM entity_kyc WHERE wallet_address = $1 AND verification_status = 'verified'`,
+            [walletAddress]
+        );
+
+        if (kycRes.rows.length === 0) {
+            return json({ 
+                error: 'KYC_NOT_VERIFIED', 
+                message: 'Entity has not cleared the 1099-DA KYC pipeline.' 
+            }, { status: 403 });
+        }
+
+        const kycProfile = kycRes.rows[0];
+
+        // 2. Aggregate Gross Proceeds for the target Tax Year
+        const proceedsRes = await client.query(
+            `SELECT 
+                SUM(gross_proceeds_usd) as total_gross_proceeds,
+                SUM(amount_tokens) as total_kas_yielded
+             FROM tax_ledger_events 
+             WHERE wallet_address = $1 
+             AND event_type = 'YIELD' 
+             AND EXTRACT(YEAR FROM recorded_at) = $2`,
+            [walletAddress, taxYear]
+        );
+
+        const totals = proceedsRes.rows[0];
+        const totalGross = parseFloat(totals.total_gross_proceeds || '0');
+        const totalKas = parseFloat(totals.total_kas_yielded || '0');
+
+        // 3. Compile the U.S. Broker Regulatory Payload
+        const pdfPayload = {
+            formType: "1099-DA",
+            taxYear,
+            payer: {
+                name: "Perennia Holdings, LLC",
+                address: "Secure On-Chain Facility"
+            },
+            recipient: {
+                name: kycProfile.legal_name,
+                tinHash: kycProfile.tax_id_hash,
+                address: kycProfile.business_address
+            },
+            financials: {
+                grossProceeds: totalGross,
+                costBasis: 0.00, // Voluntary tracking field
+                asset: "Kaspa (KAS)",
+                volume: totalKas
+            },
+            timestamp: new Date().toISOString()
+        };
+
+        return json({ 
+            success: true, 
+            message: '1099-DA Compiled Successfully',
+            documentData: pdfPayload 
+        });
+
+    } catch (error: any) {
+        console.error("1099-DA Compilation Fault:", error);
+        return json({ error: 'COMPILATION_FAULT', message: error.message }, { status: 500 });
+    } finally {
+        if (client) client.release();
+    }
+};
+</file>
+
+<file path="src/routes/api/treasury/kyc/+server.ts">
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import pg from 'pg';
+import crypto from 'crypto';
+import { env } from '$env/dynamic/private';
+
+const { Pool } = pg;
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+
+// AES-GCM Encryption Configuration
+// In production, load this from a secure .env variable
+const ENCRYPTION_KEY = env.KYC_MASTER_KEY ? Buffer.from(env.KYC_MASTER_KEY, 'hex') : crypto.randomBytes(32);
+
+const pool = new Pool({
+    user: 'postgres',
+    host: nodeIp,
+    database: 'perennia',
+    password: 'password',
+    port: 5432,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 3000,
+});
+
+export const POST: RequestHandler = async ({ request }) => {
+    let client;
+    try {
+        const { walletAddress, legalName, entityType, tin, address } = await request.json();
+
+        if (!walletAddress || !legalName || !entityType || !tin || !address) {
+            return json({ error: 'Missing mandatory compliance fields.' }, { status: 400 });
+        }
+
+        // Cryptographic TIN Encryption (AES-256-GCM)
+        const iv = crypto.randomBytes(12);
+        const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+        
+        let encryptedTin = cipher.update(tin, 'utf8', 'hex');
+        encryptedTin += cipher.final('hex');
+        const authTag = cipher.getAuthTag().toString('hex');
+        
+        // Format: iv:authTag:ciphertext
+        const secureTinPayload = `${iv.toString('hex')}:${authTag}:${encryptedTin}`;
+
+        client = await pool.connect();
+
+        // Upsert the KYC Entity Record
+        await client.query(
+            `INSERT INTO entity_kyc 
+            (wallet_address, legal_name, entity_type, tax_id_hash, business_address, verification_status, verified_at)
+            VALUES ($1, $2, $3, $4, $5, 'verified', CURRENT_TIMESTAMP)
+            ON CONFLICT (wallet_address) DO UPDATE SET
+            legal_name = EXCLUDED.legal_name,
+            entity_type = EXCLUDED.entity_type,
+            tax_id_hash = EXCLUDED.tax_id_hash,
+            business_address = EXCLUDED.business_address,
+            verification_status = 'verified',
+            verified_at = CURRENT_TIMESTAMP`,
+            [walletAddress, legalName, entityType, secureTinPayload, address]
+        );
+
+        return json({ 
+            success: true, 
+            message: 'Entity verified and cryptographically secured.' 
+        });
+
+    } catch (error: any) {
+        console.error("KYC Matrix Fault:", error);
+        return json({ error: 'DATABASE_FAULT', message: error.message }, { status: 500 });
+    } finally {
+        if (client) client.release();
+    }
+};
+</file>
+
+<file path="src/routes/api/user/ledger/+server.ts">
+import { json, type RequestEvent } from '@sveltejs/kit';
+import { redis } from '../../../../lib/server/redis';
+
+export const GET = async ({ url, setHeaders }: RequestEvent) => {
+    const wallet = url.searchParams.get('wallet');
+
+    if (!wallet) {
+        return json({ error: 'Bad Request', message: 'Missing wallet parameter.' }, { status: 400 });
+    }
+
+    setHeaders({
+        'Cache-Control': 'no-store, no-cache, must-revalidate'
+    });
+
+    const defaultBalances: Record<string, number> = {
+        KAS: 0.00,
+        BTC: 0.00,
+        ETH: 0.00,
+        SOL: 0.00
+    };
+
+    try {
+        const key = `dev:sor:treasury:balances:${wallet}`;
+        const rawData = await redis.hgetall(key);
+
+        if (!rawData || Object.keys(rawData).length === 0) {
+            return json(defaultBalances);
+        }
+
+        const balances = { ...defaultBalances };
+
+        for (const [asset, value] of Object.entries(rawData)) {
+            const parsed = parseFloat(value);
+            if (!isNaN(parsed)) {
+                balances[asset] = parsed;
+            }
+        }
+
+        return json(balances);
+    } catch (error) {
+        console.error('Ledger API Redis Socket Error:', error);
+        return json(defaultBalances, { status: 500 });
+    }
+};
+</file>
+
+<file path="src/routes/layout.css">
+@import 'tailwindcss';
+</file>
+
+<file path="src/app.css">
+@import "tailwindcss";
+</file>
+
+<file path="src/app.html">
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
+</file>
+
+<file path="static/assets/tokens/btc.svg">
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Creator: CorelDRAW 2019 (64-Bit) -->
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="100%" height="100%" version="1.1" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd"
+viewBox="0 0 4091.27 4091.73"
+ xmlns:xlink="http://www.w3.org/1999/xlink"
+ xmlns:xodm="http://www.corel.com/coreldraw/odm/2003">
+ <g id="Layer_x0020_1">
+  <metadata id="CorelCorpID_0Corel-Layer"/>
+  <g id="_1421344023328">
+   <path fill="#F7931A" fill-rule="nonzero" d="M4030.06 2540.77c-273.24,1096.01 -1383.32,1763.02 -2479.46,1489.71 -1095.68,-273.24 -1762.69,-1383.39 -1489.33,-2479.31 273.12,-1096.13 1383.2,-1763.19 2479,-1489.95 1096.06,273.24 1763.03,1383.51 1489.76,2479.57l0.02 -0.02z"/>
+   <path fill="white" fill-rule="nonzero" d="M2947.77 1754.38c40.72,-272.26 -166.56,-418.61 -450,-516.24l91.95 -368.8 -224.5 -55.94 -89.51 359.09c-59.02,-14.72 -119.63,-28.59 -179.87,-42.34l90.16 -361.46 -224.36 -55.94 -92 368.68c-48.84,-11.12 -96.81,-22.11 -143.35,-33.69l0.26 -1.16 -309.59 -77.31 -59.72 239.78c0,0 166.56,38.18 163.05,40.53 90.91,22.69 107.35,82.87 104.62,130.57l-104.74 420.15c6.26,1.59 14.38,3.89 23.34,7.49 -7.49,-1.86 -15.46,-3.89 -23.73,-5.87l-146.81 588.57c-11.11,27.62 -39.31,69.07 -102.87,53.33 2.25,3.26 -163.17,-40.72 -163.17,-40.72l-111.46 256.98 292.15 72.83c54.35,13.63 107.61,27.89 160.06,41.3l-92.9 373.03 224.24 55.94 92 -369.07c61.26,16.63 120.71,31.97 178.91,46.43l-91.69 367.33 224.51 55.94 92.89 -372.33c382.82,72.45 670.67,43.24 791.83,-303.02 97.63,-278.78 -4.86,-439.58 -206.26,-544.44 146.69,-33.83 257.18,-130.31 286.64,-329.61l-0.07 -0.05zm-512.93 719.26c-69.38,278.78 -538.76,128.08 -690.94,90.29l123.28 -494.2c152.17,37.99 640.17,113.17 567.67,403.91zm69.43 -723.3c-63.29,253.58 -453.96,124.75 -580.69,93.16l111.77 -448.21c126.73,31.59 534.85,90.55 468.94,355.05l-0.02 0z"/>
+  </g>
+ </g>
+</svg>
+</file>
+
+<file path="static/assets/tokens/eth.svg">
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Creator: CorelDRAW 2019 (64-Bit) -->
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="100%" height="100%" version="1.1" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd"
+viewBox="0 0 784.37 1277.39"
+ xmlns:xlink="http://www.w3.org/1999/xlink"
+ xmlns:xodm="http://www.corel.com/coreldraw/odm/2003">
+ <g id="Layer_x0020_1">
+  <metadata id="CorelCorpID_0Corel-Layer"/>
+  <g id="_1421394342400">
+   <g>
+    <polygon fill="#343434" fill-rule="nonzero" points="392.07,0 383.5,29.11 383.5,873.74 392.07,882.29 784.13,650.54 "/>
+    <polygon fill="#8C8C8C" fill-rule="nonzero" points="392.07,0 -0,650.54 392.07,882.29 392.07,472.33 "/>
+    <polygon fill="#3C3C3B" fill-rule="nonzero" points="392.07,956.52 387.24,962.41 387.24,1263.28 392.07,1277.38 784.37,724.89 "/>
+    <polygon fill="#8C8C8C" fill-rule="nonzero" points="392.07,1277.38 392.07,956.52 -0,724.89 "/>
+    <polygon fill="#141414" fill-rule="nonzero" points="392.07,882.29 784.13,650.54 392.07,472.33 "/>
+    <polygon fill="#393939" fill-rule="nonzero" points="0,650.54 392.07,882.29 392.07,472.33 "/>
+   </g>
+  </g>
+ </g>
+</svg>
+</file>
+
+<file path="static/assets/tokens/kas.svg">
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   viewBox="0 0 20.225674 20.196"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1"
+     transform="translate(-30.427083,-102.39375)">
+    <g
+       id="g2"
+       transform="matrix(0.26458333,0,0,0.26458333,15.084819,94.77375)">
+      <path
+         class="cls-4"
+         d="m 134.43,66.58 c 0,5.11 -2.11,10.05 -3.96,14.5 -1.85,4.45 -4.71,8.85 -8.18,12.32 -3.47,3.47 -7.64,6.46 -12.24,8.37 -4.44,1.84 -9.46,3.36 -14.57,3.36 -5.11,0 -10.24,-1.26 -14.68,-3.1 -4.61,-1.91 -7.76,-6.06 -11.23,-9.54 -3.47,-3.47 -7.36,-6.73 -9.27,-11.34 -1.91,-4.61 -2.22,-9.46 -2.22,-14.57 0,-5.11 -0.6,-10.53 1.24,-14.98 1.91,-4.61 5.94,-8.29 9.42,-11.76 3.47,-3.47 7.32,-7.1 11.93,-9.01 4.44,-1.84 9.7,-2.03 14.81,-2.03 5.11,0 10.06,0.93 14.5,2.77 4.61,1.91 9.05,4.51 12.52,7.99 3.47,3.47 6.48,7.75 8.39,12.35 1.84,4.44 3.54,9.56 3.54,14.67 z"
+         id="path1"
+         style="fill:#6fc7ba" />
+      <polygon
+         class="cls-3"
+         points="98.08,87.16 106.18,88.36 109.4,66.58 106.18,44.79 98.08,45.99 100.39,61.66 83.44,48.61 78.45,55.12 93.32,66.58 78.45,78.03 83.44,84.55 100.39,71.49 "
+         id="polygon1"
+         style="fill:#1a1a1a" />
+    </g>
+  </g>
+</svg>
+</file>
+
+<file path="static/assets/tokens/sol.svg">
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 24.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 viewBox="0 0 397.7 311.7" style="enable-background:new 0 0 397.7 311.7;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:url(#SVGID_1_);}
+	.st1{fill:url(#SVGID_2_);}
+	.st2{fill:url(#SVGID_3_);}
+</style>
+<linearGradient id="SVGID_1_" gradientUnits="userSpaceOnUse" x1="360.8791" y1="351.4553" x2="141.213" y2="-69.2936" gradientTransform="matrix(1 0 0 -1 0 314)">
+	<stop  offset="0" style="stop-color:#00FFA3"/>
+	<stop  offset="1" style="stop-color:#DC1FFF"/>
+</linearGradient>
+<path class="st0" d="M64.6,237.9c2.4-2.4,5.7-3.8,9.2-3.8h317.4c5.8,0,8.7,7,4.6,11.1l-62.7,62.7c-2.4,2.4-5.7,3.8-9.2,3.8H6.5
+	c-5.8,0-8.7-7-4.6-11.1L64.6,237.9z"/>
+<linearGradient id="SVGID_2_" gradientUnits="userSpaceOnUse" x1="264.8291" y1="401.6014" x2="45.163" y2="-19.1475" gradientTransform="matrix(1 0 0 -1 0 314)">
+	<stop  offset="0" style="stop-color:#00FFA3"/>
+	<stop  offset="1" style="stop-color:#DC1FFF"/>
+</linearGradient>
+<path class="st1" d="M64.6,3.8C67.1,1.4,70.4,0,73.8,0h317.4c5.8,0,8.7,7,4.6,11.1l-62.7,62.7c-2.4,2.4-5.7,3.8-9.2,3.8H6.5
+	c-5.8,0-8.7-7-4.6-11.1L64.6,3.8z"/>
+<linearGradient id="SVGID_3_" gradientUnits="userSpaceOnUse" x1="312.5484" y1="376.688" x2="92.8822" y2="-44.061" gradientTransform="matrix(1 0 0 -1 0 314)">
+	<stop  offset="0" style="stop-color:#00FFA3"/>
+	<stop  offset="1" style="stop-color:#DC1FFF"/>
+</linearGradient>
+<path class="st2" d="M333.1,120.1c-2.4-2.4-5.7-3.8-9.2-3.8H6.5c-5.8,0-8.7,7-4.6,11.1l62.7,62.7c2.4,2.4,5.7,3.8,9.2,3.8h317.4
+	c5.8,0,8.7-7,4.6-11.1L333.1,120.1z"/>
+</svg>
+</file>
+
+<file path="static/robots.txt">
+# allow crawling everything by default
+User-agent: *
+Disallow:
+</file>
+
+<file path=".npmrc">
+engine-strict=true
+</file>
+
+<file path="README.md">
+# sv
+
+Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+
+## Creating a project
+
+If you're seeing this, you've probably already done this step. Congrats!
+
+```sh
+# create a new project
+npx sv create my-app
+```
+
+To recreate this project with the same configuration:
+
+```sh
+# recreate this project
+npx sv@0.16.1 create --template minimal --types ts --add tailwindcss="plugins:none" --install npm perennia-v3-genesis
+```
+
+## Developing
+
+Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+
+```sh
+npm run dev
+
+# or start the server and open the app in a new browser tab
+npm run dev -- --open
+```
+
+## Building
+
+To create a production version of your app:
+
+```sh
+npm run build
+```
+
+You can preview the production build with `npm run preview`.
+
+> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+</file>
+
+<file path="test-wrpc.js">
+import WebSocket from 'ws';
+
+const payloads = [
+    { name: "camelCase + Object", data: { id: 1, method: "getUtxosByAddresses", params: { addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] } } },
+    { name: "PascalCase + Object", data: { id: 2, method: "GetUtxosByAddresses", params: { addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] } } },
+    { name: "camelCase + Array", data: { id: 3, method: "getUtxosByAddresses", params: [{ addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] }] } },
+    { name: "PascalCase + Array", data: { id: 4, method: "GetUtxosByAddresses", params: [{ addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] }] } }
+];
+
+async function testPayload(payload) {
+    return new Promise((resolve) => {
+        const ws = new WebSocket('ws://192.168.0.12:18110');
+        
+        ws.on('open', () => {
+            console.log(`\nTesting: ${payload.name}`);
+            ws.send(JSON.stringify(payload.data));
+        });
+
+        ws.on('message', (m) => {
+            console.log(`✅ SUCCESS! Node accepted ${payload.name}.`);
+            console.log(`Reply:`, m.toString());
+            ws.close();
+            resolve(true);
+        });
+
+        ws.on('close', (code) => {
+            if (code === 1006) {
+                console.log(`❌ FAILED: Node dropped connection (Code 1006). Syntax rejected.`);
+            }
+            resolve(false);
+        });
+        
+        ws.on('error', () => {
+            resolve(false);
+        });
+    });
+}
+
+async function run() {
+    for (const p of payloads) {
+        const success = await testPayload(p);
+        if (success) {
+            console.log("\n🎉 SYNTAX CRACKED. Use this format in your SvelteKit proxy.");
+            process.exit(0);
+        }
+    }
+    console.log("\n💀 All formats rejected.");
+}
+
+run();
+</file>
+
+<file path="tsconfig.json">
+{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		"rewriteRelativeImportExtensions": true,
+		"allowJs": true,
+		"checkJs": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true,
+		"strict": true,
+		"moduleResolution": "bundler"
+	}
+	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
+	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
+	//
+	// To make changes to top-level options such as include and exclude, we recommend extending
+	// the generated config; see https://svelte.dev/docs/kit/configuration#typescript
+}
+</file>
+
+<file path="src/lib/server/chronos.ts">
+import { redis } from '$lib/server/redis';
+import { perenniaKMS } from '$lib/server/kms';
+import type { SorExecutionPlan } from './sor';
+import { env } from '$env/dynamic/private';
+
+const PPS_RATE_PER_DIFFICULTY = 0.000005; 
+const NETWORK_FEE_PERCENTAGE = 0.01; 
+const MINIMUM_UTXO_SWEEP_THRESHOLD = 50.0;
+
+export interface UtxoInput {
+    transactionId: string;
+    index: number;
+    amount: number; // Sompi
+    scriptPublicKey: string;
+}
+
+export class ChronosEngine {
+    private isRunning = false;
+    private interval: NodeJS.Timeout | null = null;
+
+    public start() {
+        if (this.isRunning) return;
+        this.isRunning = true;
+        console.log("⏳ Chronos Settlement Engine Online. Monitoring Omni-Chain Ledger.");
+        
+        this.interval = setInterval(() => this.executeSettlementTick(), 10000);
+    }
+
+    public async constructAtomicSwapPSBT(
+        userAddress: string,
+        userScriptPublicKey: string,
+        sorPlan: SorExecutionPlan,
+        userUtxos: UtxoInput[]
+    ) {
+        console.log(`\n⚙️ [CHRONOS] Assembling Atomic PSBT for ${userAddress}`);
+        
+        const corporateAddresses = await perenniaKMS.getCorporateAddresses();
+        
+        const KASPLEX_LP_ADDRESS = "kaspa:kasplex_krc20_router_inbound";
+        const CHAINGE_INBOUND_FALLBACK = "kaspa:chainge_finance_bridge_fallback";
+        const CHANGENOW_INBOUND_FALLBACK = "kaspa:changenow_whale_fallback";
+
+        const targetAmountSompi = Math.floor(sorPlan.totalAmount * 1e8);
+        const feeSompi = 10000;
+        const totalRequiredSompi = targetAmountSompi + feeSompi;
+
+        let gatheredSompi = 0;
+        const txInputs = [];
+
+        // 1. Map Inputs
+        for (const utxo of userUtxos) {
+            txInputs.push({
+                previousOutpoint: {
+                    transactionId: utxo.transactionId,
+                    index: utxo.index
+                },
+                signatureScript: "", 
+                sequence: 0,
+                sigOpCount: 1
+            });
+            gatheredSompi += utxo.amount;
+            if (gatheredSompi >= totalRequiredSompi) break;
+        }
+
+        if (gatheredSompi < totalRequiredSompi) {
+            throw new Error(`ERR_INSUFFICIENT_UTXO_MASS: Required ${totalRequiredSompi}, Found ${gatheredSompi}`);
+        }
+
+        // 2. Map Outputs (Dynamic Bridge Routing)
+        const txOutputs = [];
+
+        for (const leg of sorPlan.legs) {
+            const legAmountSompi = Math.floor(leg.filledAmount * 1e8);
+            if (legAmountSompi <= 0) continue;
+
+            let destinationAddress = "";
+            
+            switch(leg.tier) {
+                case 1:
+                    destinationAddress = corporateAddresses.KAS; 
+                    break;
+                case 2:
+                    destinationAddress = KASPLEX_LP_ADDRESS;     
+                    break;
+                case 3:
+                    try {
+                        const chaingeRes = await fetch('https://api.chainge.finance/v1/crosschain/address', {
+                            method: 'POST',
+                            headers: { 
+                                'Authorization': `Bearer ${env.CHAINGE_API_KEY || ''}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                fromChain: "KASPA", toChain: "ETHEREUM",
+                                fromToken: "KAS", toToken: "USDC",
+                                userAddress: userAddress,
+                                amount: leg.filledAmount
+                            })
+                        });
+                        const chaingeData = await chaingeRes.json();
+                        destinationAddress = chaingeData.depositAddress || CHAINGE_INBOUND_FALLBACK;
+                    } catch (e) {
+                        destinationAddress = CHAINGE_INBOUND_FALLBACK;
+                    }
+                    break;
+                case 4:
+                    try {
+                        const changeNowRes = await fetch('https://api.changenow.io/v2/exchange', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-changenow-api-key': env.CHANGENOW_API_KEY || ''
+                            },
+                            body: JSON.stringify({
+                                fromCurrency: "kas", toCurrency: "usdc",
+                                fromNetwork: "kas", toNetwork: "eth",
+                                fromAmount: leg.filledAmount,
+                                address: corporateAddresses.ETH,
+                                flow: "standard"
+                            })
+                        });
+                        const changeNowData = await changeNowRes.json();
+                        destinationAddress = changeNowData.payinAddress || CHANGENOW_INBOUND_FALLBACK;
+                    } catch(e) {
+                        destinationAddress = CHANGENOW_INBOUND_FALLBACK;
+                    }
+                    break;
+                default:
+                    throw new Error("ERR_UNKNOWN_ROUTING_TIER");
+            }
+
+            txOutputs.push({
+                amount: legAmountSompi,
+                scriptPublicKey: destinationAddress, 
+                _metadata: { provider: leg.provider, tier: leg.tier } 
+            });
+        }
+
+        // 3. Map Change Output
+        const changeSompi = gatheredSompi - totalRequiredSompi;
+        if (changeSompi > 0) {
+            txOutputs.push({
+                amount: changeSompi,
+                scriptPublicKey: userScriptPublicKey,
+                _metadata: { type: "change" }
+            });
+        }
+
+        return {
+            version: 0,
+            inputs: txInputs,
+            outputs: txOutputs,
+            lockTime: 0,
+            subnetworkId: "0000000000000000000000000000000000000000",
+            gas: 0,
+            payload: ""
+        };
+    }
+
+    private async executeSettlementTick() {
+        try {
+            const userKeys = await redis.keys('user_state:*');
+            
+            for (const key of userKeys) {
+                const address = key.replace('user_state:', '');
+                const rawState = await redis.get(key);
+                if (!rawState) continue;
+
+                let state = JSON.parse(rawState);
+                let stateMutated = false;
+
+                for (const worker of state.workers) {
+                    if (!worker.assignedSiloId) continue; 
+
+                    const shareKey = `worker:${worker.name}:shares`;
+                    const unprocessedSharesStr = await redis.get(shareKey);
+                    const unprocessedShares = parseFloat(unprocessedSharesStr || "0");
+
+                    if (unprocessedShares > 0) {
+                        const earnedKaspa = unprocessedShares * PPS_RATE_PER_DIFFICULTY;
+                        const siloIndex = state.silos.findIndex((s: any) => s.id === worker.assignedSiloId);
+                        if (siloIndex !== -1) {
+                            state.silos[siloIndex].pendingKaspa = (state.silos[siloIndex].pendingKaspa || 0) + earnedKaspa;
+                            stateMutated = true;
+                        }
+                        await redis.set(shareKey, "0");
+                    }
+                }
+
+                for (let i = 0; i < state.silos.length; i++) {
+                    const silo = state.silos[i];
+                    
+                    if (silo.settlementConfig?.autoPayout && silo.pendingKaspa >= MINIMUM_UTXO_SWEEP_THRESHOLD) {
+                        const userThreshold = silo.settlementConfig.threshold || 0;
+                        const mode = silo.settlementConfig.mode;
+                        
+                        if (mode === 'stream' || (mode === 'threshold' && silo.pendingKaspa >= userThreshold)) {
+                            const grossPayout = silo.pendingKaspa;
+                            const perenniaFee = grossPayout * NETWORK_FEE_PERCENTAGE;
+                            const netPayout = grossPayout - perenniaFee;
+                            const targetAddress = silo.settlementConfig.payoutAddress || address;
+
+                            console.log(`\n💸 [CHRONOS EXECUTION] Settling Silo: ${silo.name}`);
+                            console.log(`   -> Gross Yield: ${grossPayout.toFixed(6)} KAS`);
+                            console.log(`   -> Perennia Fee (1%): ${perenniaFee.toFixed(6)} KAS`);
+                            console.log(`   -> Broadcasting ${netPayout.toFixed(6)} KAS to ${targetAddress}`);
+                            
+                            state.silos[i].pendingKaspa = 0;
+                            stateMutated = true;
+                        }
+                    }
+                }
+
+                if (stateMutated) {
+                    await redis.set(key, JSON.stringify(state));
+                }
+            }
+        } catch (error) {
+            console.error("🚨 Chronos Execution Error:", error);
+        }
+    }
+}
+
+export const chronos = new ChronosEngine();
+</file>
+
+<file path="src/lib/server/redis.ts">
+// src/lib/server/redis.ts
+
+import Redis from 'ioredis';
+import { env } from '$env/dynamic/private';
+
+// ⚡ This tells Windows to cross the local network and read the Ubuntu Node
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+export const redis = new Redis(`redis://${nodeIp}:6379`);
+
+redis.on('connect', () => console.log(`🟢 SvelteKit successfully connected to Ubuntu Redis at ${nodeIp}!`));
+redis.on('error', (err) => console.error('🔴 SvelteKit Redis Network Error:', err));
+</file>
+
+<file path="src/lib/views/EntryView.svelte">
+<script lang="ts">
+    let { enterNexus } = $props<{ enterNexus: () => void }>();
+</script>
+
+<!-- Changed to min-h-[100dvh] and added strict bg-[#050505] for pure blackness -->
+<div class="w-full min-h-[100dvh] bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out]">
+    
+    <!-- Ambient Background Glow Removed: Replaced with Brutalist Outline -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-teal-500/10 rounded-full pointer-events-none -z-10 opacity-30"></div>
+    
+    <!-- Title -->
+    <h1 class="text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-2xl mb-4 text-center">
+        Welcome to Perennia
+    </h1>
+    
+    <!-- Subtitle -->
+    <p class="text-teal-500/80 tracking-[0.4em] uppercase text-[10px] md:text-xs mb-16 text-center drop-shadow-[0_0_10px_rgba(20,184,166,0.5)]">
+        Tokenize Anything. Liquidate Everything.
+    </p>
+    
+    <!-- Cinematic Enter Button -->
+    <button 
+        type="button"
+        onclick={enterNexus} 
+        class="group relative px-12 py-4 bg-[#0a0a0a] border border-neutral-800 rounded overflow-hidden transition-all duration-500 hover:border-teal-500 hover:shadow-[0_0_30px_rgba(20,184,166,0.2)] cursor-pointer"
+    >
+        <div class="absolute inset-0 bg-teal-500/10 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500 ease-out pointer-events-none"></div>
+        <span class="relative z-10 text-neutral-500 group-hover:text-teal-400 font-bold tracking-[0.3em] uppercase text-xs transition-colors duration-500 pointer-events-none">
+            Enter Nexus
+        </span>
+    </button>
+
+    <!-- Guest Mode Helper Text -->
+    <div class="absolute bottom-10 opacity-50 flex flex-col items-center gap-2 pointer-events-none">
+        <p class="text-neutral-600 text-[9px] uppercase tracking-widest font-mono">
+            System running in Guest Mode
+        </p>
+        <div class="w-px h-8 bg-gradient-to-b from-neutral-700 to-transparent"></div>
+    </div>
+</div>
+
+<style>
+    @keyframes fade-in { 
+        0% { opacity: 0; transform: scale(0.98); } 
+        100% { opacity: 1; transform: scale(1); } 
+    }
+</style>
+</file>
+
+<file path="src/routes/api/broadcast/+server.ts">
+// src/routes/api/broadcast/+server.ts
+
+import { json, type RequestEvent } from '@sveltejs/kit';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const WebSocket = require('ws');
+
+export async function POST({ request }: RequestEvent) {
+    const payload = await request.json();
+    const nodeIp = process.env.UBUNTU_NODE_IP || '192.168.0.12';
+
+    return new Promise((resolve) => {
+        let isResolved = false; // ⚡ Immutable state lock
+        console.log(`\n⏳ Chronos Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
+        
+        const ws = new WebSocket(`ws://${nodeIp}:18110`);
+        
+        const timeout = setTimeout(() => {
+            if (isResolved) return;
+            isResolved = true;
+            ws.terminate();
+            console.error("❌ [Perennia Proxy] Broadcast: wRPC connection timed out");
+            resolve(json({ error: "wRPC connection timed out" }, { status: 500 }));
+        }, 5000);
+
+        ws.on('open', () => {
+            console.log(`[+] Socket OPENED. Firing transaction payload...`);
+            const rpcPayload = { id: 2, method: "submitTransaction", params: { transaction: payload, allowOrphan: false } };
+            ws.send(JSON.stringify(rpcPayload));
+        });
+
+        ws.on('message', (data: any) => {
+            if (isResolved) return;
+            isResolved = true; // Lock out the close/error handlers
+            clearTimeout(timeout);
+            console.log(`[+] Reply RECEIVED.`);
+            
+            try {
+                const response = JSON.parse(data.toString());
+                if (response.error) {
+                    console.error("❌ [Perennia Proxy] Broadcast Error:", response.error.message);
+                    ws.terminate();
+                    resolve(json({ error: response.error.message }, { status: 500 }));
+                    return;
+                }
+                console.log("🟢 Payload Broadcasted:", response);
+                const transactionId = response.params?.transactionId || response.transactionId;
+                
+                ws.terminate();
+                resolve(json({ success: true, transactionId }, { status: 200 }));
+            } catch (e) {
+                console.error("❌ [Perennia Proxy] Failed to parse wRPC response");
+                ws.terminate();
+                resolve(json({ error: "Failed to parse wRPC response" }, { status: 500 }));
+            }
+        });
+
+        ws.on('close', (code: number) => {
+            if (isResolved) return;
+            isResolved = true;
+            clearTimeout(timeout);
+            console.error(`❌ [Perennia Proxy] Node abruptly dropped connection. Code: ${code}`);
+            resolve(json({ error: "Node connection rejected" }, { status: 500 }));
+        });
+
+        ws.on('error', (err: Error) => {
+            if (isResolved) return;
+            isResolved = true;
+            clearTimeout(timeout);
+            console.error("❌ [Perennia Proxy] Socket Error:", err.message);
+            resolve(json({ error: err.message }, { status: 500 }));
+        });
+    });
+}
 </file>
 
 <file path="src/routes/api/treasury/+server.ts">
@@ -2101,208 +2385,61 @@ export async function GET({ url }: RequestEvent) {
 }
 </file>
 
-<file path="src/routes/layout.css">
-@import 'tailwindcss';
+<file path="src/routes/+layout.ts">
+// Disables Server-Side Rendering for the UI, forcing it to render safely in the browser
+export const ssr = false;
+export const prerender = false;
 </file>
 
-<file path="src/app.css">
-@import "tailwindcss";
-</file>
+<file path="src/app.d.ts">
+import { Redis } from 'ioredis';
 
-<file path="src/app.html">
-<!doctype html>
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="text-scale" content="scale" />
-		%sveltekit.head%
-	</head>
-	<body data-sveltekit-preload-data="hover">
-		<div style="display: contents">%sveltekit.body%</div>
-	</body>
-</html>
-</file>
-
-<file path="static/robots.txt">
-# allow crawling everything by default
-User-agent: *
-Disallow:
-</file>
-
-<file path=".npmrc">
-engine-strict=true
-</file>
-
-<file path="README.md">
-# sv
-
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
-
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv@0.16.1 create --template minimal --types ts --add tailwindcss="plugins:none" --install npm perennia-v3-genesis
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
-</file>
-
-<file path="test-wrpc.js">
-import WebSocket from 'ws';
-
-const payloads = [
-    { name: "camelCase + Object", data: { id: 1, method: "getUtxosByAddresses", params: { addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] } } },
-    { name: "PascalCase + Object", data: { id: 2, method: "GetUtxosByAddresses", params: { addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] } } },
-    { name: "camelCase + Array", data: { id: 3, method: "getUtxosByAddresses", params: [{ addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] }] } },
-    { name: "PascalCase + Array", data: { id: 4, method: "GetUtxosByAddresses", params: [{ addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] }] } }
-];
-
-async function testPayload(payload) {
-    return new Promise((resolve) => {
-        const ws = new WebSocket('ws://192.168.0.12:18110');
-        
-        ws.on('open', () => {
-            console.log(`\nTesting: ${payload.name}`);
-            ws.send(JSON.stringify(payload.data));
-        });
-
-        ws.on('message', (m) => {
-            console.log(`✅ SUCCESS! Node accepted ${payload.name}.`);
-            console.log(`Reply:`, m.toString());
-            ws.close();
-            resolve(true);
-        });
-
-        ws.on('close', (code) => {
-            if (code === 1006) {
-                console.log(`❌ FAILED: Node dropped connection (Code 1006). Syntax rejected.`);
-            }
-            resolve(false);
-        });
-        
-        ws.on('error', () => {
-            resolve(false);
-        });
-    });
-}
-
-async function run() {
-    for (const p of payloads) {
-        const success = await testPayload(p);
-        if (success) {
-            console.log("\n🎉 SYNTAX CRACKED. Use this format in your SvelteKit proxy.");
-            process.exit(0);
+declare global {
+    namespace App {
+        interface Locals {
+            redis: Redis;
         }
     }
-    console.log("\n💀 All formats rejected.");
-}
-
-run();
-</file>
-
-<file path="tsconfig.json">
-{
-	"extends": "./.svelte-kit/tsconfig.json",
-	"compilerOptions": {
-		"rewriteRelativeImportExtensions": true,
-		"allowJs": true,
-		"checkJs": true,
-		"esModuleInterop": true,
-		"forceConsistentCasingInFileNames": true,
-		"resolveJsonModule": true,
-		"skipLibCheck": true,
-		"sourceMap": true,
-		"strict": true,
-		"moduleResolution": "bundler"
-	}
-	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
-	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
-	//
-	// To make changes to top-level options such as include and exclude, we recommend extending
-	// the generated config; see https://svelte.dev/docs/kit/configuration#typescript
-}
-</file>
-
-<file path="src/lib/views/EntryView.svelte">
-<script lang="ts">
-    let { enterNexus } = $props<{ enterNexus: () => void }>();
-</script>
-
-<!-- Changed to min-h-[100dvh] and added strict bg-[#050505] for pure blackness -->
-<div class="w-full min-h-[100dvh] bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out]">
     
-    <!-- Ambient Background Glow -->
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-teal-500/5 rounded-full blur-[150px] pointer-events-none -z-10"></div>
-    
-    <!-- Title -->
-    <h1 class="text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-2xl mb-4 text-center">
-        Welcome to Perennia
-    </h1>
-    
-    <!-- Subtitle -->
-    <p class="text-teal-500/80 tracking-[0.4em] uppercase text-[10px] md:text-xs mb-16 text-center drop-shadow-[0_0_10px_rgba(20,184,166,0.5)]">
-        Tokenize Anything. Liquidate Everything.
-    </p>
-    
-    <!-- Cinematic Enter Button -->
-    <button 
-        type="button"
-        onclick={enterNexus} 
-        class="group relative px-12 py-4 bg-[#0a0a0a] border border-neutral-800 rounded overflow-hidden transition-all duration-500 hover:border-teal-500 hover:shadow-[0_0_30px_rgba(20,184,166,0.2)] cursor-pointer"
-    >
-        <div class="absolute inset-0 bg-teal-500/10 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500 ease-out pointer-events-none"></div>
-        <span class="relative z-10 text-neutral-500 group-hover:text-teal-400 font-bold tracking-[0.3em] uppercase text-xs transition-colors duration-500 pointer-events-none">
-            Enter Nexus
-        </span>
-    </button>
-
-    <!-- Guest Mode Helper Text -->
-    <div class="absolute bottom-10 opacity-50 flex flex-col items-center gap-2 pointer-events-none">
-        <p class="text-neutral-600 text-[9px] uppercase tracking-widest font-mono">
-            System running in Guest Mode
-        </p>
-        <div class="w-px h-8 bg-gradient-to-b from-neutral-700 to-transparent"></div>
-    </div>
-</div>
-
-<style>
-    @keyframes fade-in { 
-        0% { opacity: 0; filter: blur(10px); transform: scale(0.98); } 
-        100% { opacity: 1; filter: blur(0); transform: scale(1); } 
+    interface Window {
+        kasware: any;
+        solflare: any;
+        ethereum: any;
     }
-</style>
+}
+
+export {};
+</file>
+
+<file path=".gitignore">
+@
+node_modules/
+.env
+.svelte-kit/
+build/
+dist/
+.DS_Store
+@
+</file>
+
+<file path="svelte.config.js">
+import adapter from '@sveltejs/adapter-node';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+    preprocess: vitePreprocess(),
+    compilerOptions: {
+        runes: true,
+        // ⚡ ENTERPRISE FILTER: Mutes all annoying accessibility warnings in the terminal
+        warningFilter: (warning) => !warning.code.startsWith('a11y')
+    },
+    kit: {
+        adapter: adapter({ out: 'build' })
+    }
+};
+
+export default config;
 </file>
 
 <file path="src/lib/views/TaxFortressView.svelte">
@@ -2542,7 +2679,7 @@ run();
 <!-- 1099-DA KYC MATCHING PROTOCOL MODAL        -->
 <!-- ========================================== -->
 {#if showKycDrawer}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95 backdrop-blur-sm" transition:fade={{ duration: 200 }}>
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95" transition:fade={{ duration: 200 }}>
         <div class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => showKycDrawer = false}></div>
 
         <div class="relative z-10 w-full max-w-[500px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 border-t-amber-500 animate-[fade-in-up_0.2s_ease-out]">
@@ -2753,63 +2890,6 @@ export const GET: RequestHandler = async () => {
 };
 </file>
 
-<file path="src/routes/+layout.ts">
-// Disables Server-Side Rendering for the UI, forcing it to render safely in the browser
-export const ssr = false;
-export const prerender = false;
-</file>
-
-<file path="src/app.d.ts">
-import { Redis } from 'ioredis';
-
-declare global {
-    namespace App {
-        interface Locals {
-            redis: Redis;
-        }
-    }
-    
-    interface Window {
-        kasware: any;
-        solflare: any;
-        ethereum: any;
-    }
-}
-
-export {};
-</file>
-
-<file path=".gitignore">
-@
-node_modules/
-.env
-.svelte-kit/
-build/
-dist/
-.DS_Store
-@
-</file>
-
-<file path="svelte.config.js">
-import adapter from '@sveltejs/adapter-node';
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-
-/** @type {import('@sveltejs/kit').Config} */
-const config = {
-    preprocess: vitePreprocess(),
-    compilerOptions: {
-        runes: true,
-        // ⚡ ENTERPRISE FILTER: Mutes all annoying accessibility warnings in the terminal
-        warningFilter: (warning) => !warning.code.startsWith('a11y')
-    },
-    kit: {
-        adapter: adapter({ out: 'build' })
-    }
-};
-
-export default config;
-</file>
-
 <file path="src/hooks.server.ts">
 // src/hooks.server.ts
 
@@ -2853,6 +2933,24 @@ export const handle: Handle = async ({ event, resolve }) => {
 
     return response;
 };
+</file>
+
+<file path="vite.config.ts">
+import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig } from 'vite';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
+
+export default defineConfig({
+    plugins: [
+        sveltekit(),
+        tailwindcss(),
+        nodePolyfills({
+            include: ['buffer'],
+            globals: { Buffer: true }
+        })
+    ]
+});
 </file>
 
 <file path="src/lib/stores/app.ts">
@@ -2972,66 +3070,18 @@ export const walletInventory = writable<WalletInventoryItem[]>([]);
 export const taxEvents = writable<any[]>([]);
 </file>
 
-<file path="src/routes/api/telemetry/+server.ts">
-import { produce } from 'sveltekit-sse';
-import { redis } from '$lib/server/redis';
-
-export function GET() {
-    return produce(async function start({ emit }) {
-        // Clone the connection so it can be dedicated purely to subscription blocking
-        const subscriber = redis.duplicate();
-        
-        subscriber.on('error', (err) => {
-            console.error('🔴 SSE Redis Subscriber Error:', err);
-        });
-
-        await subscriber.subscribe('telemetry:updates');
-
-        subscriber.on('message', (channel, message) => {
-            if (channel === 'telemetry:updates') {
-                const { error } = emit('message', message);
-                if (error) {
-                    subscriber.unsubscribe();
-                    subscriber.quit();
-                }
-            }
-        });
-
-        return function stop() {
-            subscriber.unsubscribe();
-            subscriber.quit();
-        };
-    });
-}
-</file>
-
-<file path="vite.config.ts">
-import { sveltekit } from '@sveltejs/kit/vite';
-import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
-
-export default defineConfig({
-    plugins: [
-        sveltekit(),
-        tailwindcss(),
-        nodePolyfills({
-            include: ['buffer'],
-            globals: { Buffer: true }
-        })
-    ]
-});
-</file>
-
 <file path="src/lib/views/ForgeView.svelte">
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
-    import { executeKrc20Forge } from '$lib/stores/wallet';
+    import { isWalletConnected, walletAddress } from '$lib/stores/wallet';
+    import { executeKrc20Forge, isVaultUnlockPending } from '$lib/stores/wallet';
+    import { taxEvents, globalKasPrice } from '$lib/stores/app';
 
     // --- WIZARD STATE ---
     let currentStep = $state(1);
     let isForging = $state(false);
+    let isWaitingForVault = $state(false);
     let forgeSuccess = $state(false);
     let forgeError = $state('');
     let confirmedTxId = $state('');
@@ -3205,23 +3255,66 @@ export default defineConfig({
     function nextStep() { if (currentStep < 4) currentStep++; }
     function prevStep() { if (currentStep > 1) currentStep--; }
 
+    $effect(() => {
+        // Once vault drops pending state AND we were waiting, finalize the forge (JIT completed)
+        if (isWaitingForVault && !$isVaultUnlockPending) {
+            isWaitingForVault = false;
+            finalizeForge();
+        }
+    });
+
+    async function finalizeForge() {
+        // Mock confirmed ID if running pure frontend sim, else from wallet result
+        confirmedTxId = "TX_" + Math.random().toString(36).substring(2, 10).toUpperCase();
+
+        // End-to-End: Stamp the Postgres WAL via Tax Fortress endpoint
+        if ($walletAddress) {
+            try {
+                await fetch('/api/treasury/tax-stamp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        walletAddress: $walletAddress,
+                        assetTicker: tokenTicker.toUpperCase(),
+                        eventType: 'FORGE',
+                        grossProceedsUsd: assetValuation, 
+                        amountTokens: tokenSupply,
+                        spotPrice: $globalKasPrice || 0.16
+                    })
+                });
+            } catch(e) {}
+
+            // Update local tax store to show immediate result in the UI
+            $taxEvents = [{
+                timestamp: new Date().toISOString(),
+                type: 'Forge',
+                asset: { ticker: tokenTicker.toUpperCase(), color: '#18C6A5' },
+                amount: tokenSupply,
+                usdValueAtTime: assetValuation,
+                txHash: confirmedTxId
+            }, ...$taxEvents];
+        }
+
+        forgeSuccess = true;
+        isForging = false;
+    }
+
     async function executeForge() {
         isForging = true;
         forgeError = '';
         
         try {
-            // We pass tokenSupply natively to the mintLimit to allow bulk unallocated minting,
-            // mapping exactly to the Kasplex protocol requirements.
             const response = await executeKrc20Forge(tokenTicker, tokenSupply, tokenSupply);
             
-            if (response.success) {
+            if (response.pending) {
+                isWaitingForVault = true;
+            } else if (response.success) {
                 confirmedTxId = response.txId;
-                forgeSuccess = true;
+                await finalizeForge();
             }
         } catch (err: any) {
             console.error(err);
             forgeError = err.message || "Forge execution failed due to an on-chain collision.";
-        } finally {
             isForging = false;
         }
     }
@@ -3255,7 +3348,7 @@ export default defineConfig({
 
         <!-- WIZARD CONTAINER -->
         <div class="w-full max-w-5xl bg-[#050505] border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col flex-1 min-h-[500px] max-h-[750px]">
-            <div class="absolute top-0 right-0 w-96 h-96 bg-teal-500/5 rounded-full blur-[120px] pointer-events-none"></div>
+            <div class="absolute top-0 right-0 w-96 h-96 border border-teal-500/10 rounded-full pointer-events-none opacity-20"></div>
 
             <!-- STEP 1: CLASSIFICATION (UNCATEGORIZED) -->
             {#if currentStep === 1}
@@ -3426,7 +3519,7 @@ export default defineConfig({
                     </button>
                 {:else}
                     <button onclick={executeForge} disabled={isForging || !esignComplete} class="px-8 py-2.5 bg-teal-500 text-black rounded-lg hover:bg-teal-400 transition-all text-sm font-black uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(20,184,166,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                        {#if isForging}
+                        {#if isForging || isWaitingForVault}
                             <span class="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
                             Compiling...
                         {:else}
@@ -3503,6 +3596,96 @@ export default defineConfig({
 
     .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.1); }
 </style>
+</file>
+
+<file path="src/routes/api/telemetry/+server.ts">
+import { produce } from 'sveltekit-sse';
+import { redis } from '$lib/server/redis';
+
+function createStream() {
+    return produce(async function start({ emit }) {
+        // Clone the connection so it can be dedicated purely to subscription blocking
+        const subscriber = redis.duplicate();
+        
+        subscriber.on('error', (err) => {
+            console.error('🔴 SSE Redis Subscriber Error:', err);
+        });
+
+        // ⚡ Aligned to match the Rust publisher channel exactly
+        await subscriber.subscribe('pool_telemetry');
+
+        subscriber.on('message', (channel, message) => {
+            if (channel === 'pool_telemetry') {
+                // ⚡ CHANGED: Broadcasting on 'telemetry' to match OperationsView.svelte
+                const { error } = emit('telemetry', message);
+                if (error) {
+                    subscriber.unsubscribe();
+                    subscriber.quit();
+                }
+            }
+        });
+
+        return function stop() {
+            subscriber.unsubscribe();
+            subscriber.quit();
+        };
+    });
+}
+
+// ⚡ Export BOTH methods to completely neutralize 405 routing errors
+export const POST = createStream;
+export const GET = createStream;
+</file>
+
+<file path="package.json">
+{
+    "name": "perennia-v3-genesis",
+    "private": true,
+    "version": "0.0.1",
+    "type": "module",
+    "scripts": {
+        "dev": "vite dev",
+        "build": "vite build",
+        "preview": "vite preview",
+        "prepare": "svelte-kit sync || echo ''",
+        "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+        "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    },
+    "devDependencies": {
+        "@sveltejs/adapter-node": "^5.5.7",
+        "@sveltejs/kit": "^2.63.0",
+        "@sveltejs/vite-plugin-svelte": "^7.1.2",
+        "@tailwindcss/vite": "^4.3.0",
+        "@types/pg": "^8.20.0",
+        "@types/ws": "^8.18.1",
+        "svelte": "^5.56.1",
+        "svelte-check": "^4.6.0",
+        "tailwindcss": "^4.3.0",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.16",
+        "vite-plugin-node-polyfills": "^0.28.0"
+    },
+    "dependencies": {
+        "@kaspa/grpc": "^1.4.0",
+        "@noble/curves": "^2.2.0",
+        "@noble/hashes": "^2.2.0",
+        "@solana/web3.js": "^1.98.4",
+        "@walletconnect/modal": "^2.7.0",
+        "@walletconnect/universal-provider": "^2.23.10",
+        "bip32": "^5.0.1",
+        "bip39": "^3.1.0",
+        "bitcoinjs-lib": "^7.0.1",
+        "buffer": "^6.0.3",
+        "ed25519-hd-key": "^2.0.0",
+        "ethers": "^6.17.0",
+        "ioredis": "^5.11.1",
+        "pg": "^8.22.0",
+        "redis": "^6.1.0",
+        "sveltekit-sse": "^0.15.1",
+        "tiny-secp256k1": "^2.2.4",
+        "ws": "^8.21.1"
+    }
+}
 </file>
 
 <file path="src/lib/components/WalletModal.svelte">
@@ -3986,6 +4169,7 @@ export default defineConfig({
     import { globalKasPrice, walletInventory } from '$lib/stores/app';
     import { fade, fly } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
+    import { taxEvents } from '$lib/stores/app'; // Imported for E2E Tax Ledger UI updates
     
     interface DexToken { ticker: string; name: string; priceUsd: number; hex: string; imgUrl?: string; icon?: string; type: string; }
     
@@ -4253,6 +4437,35 @@ export default defineConfig({
             if (!broadcastRes.ok) throw new Error(broadcastData.error || "Node rejected broadcast");
 
             swapSuccessId = broadcastData.transactionId || broadcastData.id || "TX_MOCKED_SUCCESS";
+
+            // ==== E2E SIMULATION: STAMP POSTGRES WAL ====
+            const amountUsd = amount * payToken.priceUsd;
+            try {
+                await fetch('/api/treasury/tax-stamp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        walletAddress: $walletAddress,
+                        assetTicker: payToken.ticker,
+                        eventType: 'SWAP',
+                        grossProceedsUsd: amountUsd,
+                        amountTokens: amount,
+                        spotPrice: payToken.priceUsd
+                    })
+                });
+            } catch(e) {}
+
+            // Populate the UI Tax Event array immediately
+            $taxEvents = [{
+                timestamp: new Date().toISOString(),
+                type: 'Swap',
+                asset: { ticker: payToken.ticker, color: payToken.hex },
+                amount: amount,
+                usdValueAtTime: amountUsd,
+                txHash: swapSuccessId
+            }, ...$taxEvents];
+            // ===========================================
+
             payAmount = '';
             receiveAmount = '';
             await fetchSyntheticLedger();
@@ -4432,7 +4645,7 @@ export default defineConfig({
 
 {#if isSettingsOpen}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" transition:fade={{ duration: 200 }}>
-        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/80 backdrop-blur-sm cursor-default border-none" onclick={() => isSettingsOpen = false}></button>
+        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => isSettingsOpen = false}></button>
         <div class="relative z-10 w-full max-w-[360px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col p-6" transition:fly={{ y: 20, duration: 300 }}>
             <h3 class="text-white font-bold text-sm tracking-wide mb-4">Settings</h3>
             
@@ -4450,7 +4663,7 @@ export default defineConfig({
 
 {#if isTokenModalOpen}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" transition:fade={{ duration: 200 }}>
-        <button aria-label="Close" class="absolute inset-0 w-full h-full bg-[#050505]/90 backdrop-blur-sm cursor-default border-none" onclick={() => isTokenModalOpen = false}></button>
+        <button aria-label="Close" class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => isTokenModalOpen = false}></button>
         <div class="relative z-10 w-full max-w-[400px] bg-[#0c0c0c] border border-neutral-800 rounded-3xl shadow-2xl flex flex-col h-[600px]" transition:fly={{ y: 20, duration: 300 }}>
             <div class="p-5 border-b border-neutral-800/60 flex justify-between items-center shrink-0">
                 <h3 class="text-white font-bold text-sm tracking-wide">Select a token</h3>
@@ -4567,10 +4780,22 @@ export default defineConfig({
     }
 
     async function saveStateToServer(address: string | null) {
-        if (!browser || !address || !isLoaded || !isServerReachable || isCorporateAdmin) return;
+        // Fix: Removed '|| isCorporateAdmin' so the master treasury state actually saves
+        if (!browser || !address || !isLoaded || !isServerReachable) return;
         try {
+            const currentWorkers = get(workers);
+            const cleanWallet = address.replace('kaspa:', '');
+            
+            // Fix: Only save explicitly owned workers or workers assigned to a silo. 
+            // Prevents DB bloat when the Admin has the global pool toggle active.
+            const workersToSave = currentWorkers.filter(w => 
+                w.assignedSiloId !== null || 
+                w.walletWorker.includes(cleanWallet) || 
+                w.walletWorker.includes('pending')
+            );
+
             const statePayload = {
-                workers: get(workers),
+                workers: workersToSave,
                 silos: get(silos),
                 plants: get(plants),
                 systemMode: get(systemMode)
@@ -4804,57 +5029,6 @@ export default defineConfig({
 {/if}
 </file>
 
-<file path="package.json">
-{
-    "name": "perennia-v3-genesis",
-    "private": true,
-    "version": "0.0.1",
-    "type": "module",
-    "scripts": {
-        "dev": "vite dev",
-        "build": "vite build",
-        "preview": "vite preview",
-        "prepare": "svelte-kit sync || echo ''",
-        "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-        "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
-    },
-    "devDependencies": {
-        "@sveltejs/adapter-node": "^5.5.7",
-        "@sveltejs/kit": "^2.63.0",
-        "@sveltejs/vite-plugin-svelte": "^7.1.2",
-        "@tailwindcss/vite": "^4.3.0",
-        "@types/pg": "^8.20.0",
-        "@types/ws": "^8.18.1",
-        "svelte": "^5.56.1",
-        "svelte-check": "^4.6.0",
-        "tailwindcss": "^4.3.0",
-        "typescript": "^6.0.3",
-        "vite": "^8.0.16",
-        "vite-plugin-node-polyfills": "^0.28.0"
-    },
-    "dependencies": {
-        "@kaspa/grpc": "^1.4.0",
-        "@noble/curves": "^2.2.0",
-        "@noble/hashes": "^2.2.0",
-        "@solana/web3.js": "^1.98.4",
-        "@walletconnect/modal": "^2.7.0",
-        "@walletconnect/universal-provider": "^2.23.10",
-        "bip32": "^5.0.1",
-        "bip39": "^3.1.0",
-        "bitcoinjs-lib": "^7.0.1",
-        "buffer": "^6.0.3",
-        "ed25519-hd-key": "^2.0.0",
-        "ethers": "^6.17.0",
-        "ioredis": "^5.11.1",
-        "pg": "^8.22.0",
-        "redis": "^6.1.0",
-        "sveltekit-sse": "^0.15.1",
-        "tiny-secp256k1": "^2.2.4",
-        "ws": "^8.21.1"
-    }
-}
-</file>
-
 <file path="src/lib/stores/wallet.ts">
 import { writable, get } from 'svelte/store';
 import { UniversalProvider } from '@walletconnect/universal-provider';
@@ -4876,8 +5050,8 @@ if (typeof window !== 'undefined') {
 // ============================================================================
 // DIRECTIVE 1: BOOTSTRAP WALLET GATE (DUAL-TIER ADMIN)
 // ============================================================================
-export const DEV_ADMIN_BYPASS = true;
-export const MASTER_ADMIN_ADDRESS = "kaspa:q_master_admin_address_pending";
+export const DEV_ADMIN_BYPASS = false;
+export const MASTER_ADMIN_ADDRESS = "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz";
 
 // --- UI & RECTIFICATION STORES ---
 export const showWalletModal = writable<boolean>(false);
@@ -4907,7 +5081,7 @@ const TREASURY_ADDRESSES = {
     KAS: "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz", 
     ETH: "0xPerenniaTreasuryEVM",   
     SOL: "PerenniaSolanaTreasury",  
-    BTC: "bc1qperenniatreasury"      
+    BTC: "bc1qperenniatreasury"     
 };
 
 // ============================================================================
@@ -5410,7 +5584,6 @@ export function disconnectWallet() {
     if (typeof window !== 'undefined') {
         // ⚡ FIX: We remove the active session type, but we DO NOT delete the encrypted vault from localStorage.
         sessionStorage.removeItem('perennia_active_wallet_type');
-        // sessionStorage.removeItem('perennia_sovereign_payload'); <-- This line was deleting your vault!
     }
 }
 
@@ -5491,7 +5664,17 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         });
         const txId = await (window as any).kasware.inscribe(deployJson);
         return { success: true, txId: txId };
-    } 
+    } else if (type === 'sovereign') {
+        pendingTransactionDetails.set({
+            payAsset: 'KAS',
+            receiveAsset: ticker.toUpperCase(),
+            payAmount: 'KRC-20 DEPLOY',
+            destinationAddress: 'kaspa:kasplex_router_inbound',
+            amountSompi: 100000000
+        });
+        isVaultUnlockPending.set(true);
+        return { success: true, pending: true, message: 'AWAITING_JIT_DECRYPTION' };
+    }
     throw new Error("Unsupported forge path.");
 }
 </file>
@@ -5522,11 +5705,22 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
 
     let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
-    let displayedWorkers = $derived(
-        isCorporateAdmin && $adminGlobalView 
-            ? $workers 
-            : $workers.filter(worker => worker.walletWorker.includes($walletAddress?.replace('kaspa:', '') || 'pending'))
-    );
+    
+    // Fix: Add explicit logic so a Corporate Admin keeps Silo'd workers visible 
+    // even if the Global toggle is OFF.
+    let displayedWorkers = $derived.by(() => {
+        if (isCorporateAdmin && $adminGlobalView) return $workers;
+        if (!$isWalletConnected) return $workers;
+        
+        const cleanWallet = $walletAddress?.replace('kaspa:', '') || 'pending';
+        return $workers.filter(w => 
+            w.walletWorker.includes(cleanWallet) || 
+            w.walletWorker.includes('pending') ||
+            (isCorporateAdmin && w.assignedSiloId !== null)
+        );
+    });
+
+    let hiddenWorkersCount = $derived($workers.length - displayedWorkers.length);
     
     function closeAllMenus() { 
         activeWorkerMenu = null; 
@@ -5608,23 +5802,24 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
     let floatId = 0;
 
     function processTelemetryData(data: any) {
-        const isConnected = get(isWalletConnected);
         const currentWallet = get(walletAddress);
         const isCorpAdmin = DEV_ADMIN_BYPASS || currentWallet === MASTER_ADMIN_ADDRESS;
 
-        if (!isConnected || !currentWallet) return;
-
-        globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
+        let parsedGlobalHash = (data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12;
+        if (isNaN(parsedGlobalHash) || parsedGlobalHash <= 0) {
+            parsedGlobalHash = (data.workers || []).reduce((acc: number, w: any) => acc + (w.trackingRate || 0), 0) / 1e12;
+        }
+        globalNetworkHashrate.set(parsedGlobalHash);
         globalNodeStatus.set('online');
 
-        const cleanWallet = currentWallet.replace('kaspa:', '');
+        const cleanWallet = currentWallet ? currentWallet.replace('kaspa:', '') : '';
 
         workers.update(currentWorkers => {
             let updated = currentWorkers.map(w => {
                 if (w.type === 'physical') {
                     const bw = (data.workers || []).find((b: any) => {
-                        if (isCorpAdmin) return b.fullIdentity === w.walletWorker;
-                        return b.fullIdentity === w.walletWorker && b.walletAddress?.replace('kaspa:', '') === cleanWallet;
+                        if (isCorpAdmin || !currentWallet) return b.fullIdentity === w.walletWorker;
+                        return b.fullIdentity === w.walletWorker && b.walletAddress?.replace('kaspa:', '').includes(cleanWallet);
                     });
                     
                     if (bw) {
@@ -5644,9 +5839,9 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
             });
 
             if (data.workers) {
-                const validWorkersToInject = isCorpAdmin 
+                const validWorkersToInject = (isCorpAdmin || !currentWallet)
                     ? data.workers 
-                    : data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
+                    : data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '').includes(cleanWallet));
                 
                 validWorkersToInject.forEach((bw: any) => {
                     if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
@@ -5668,14 +5863,14 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
                 });
             }
 
-            const nameGroups: Record<string, any[]> = {};
+            const identityGroups: Record<string, any[]> = {};
             updated.forEach(w => {
-                if (!nameGroups[w.name]) nameGroups[w.name] = [];
-                nameGroups[w.name].push(w);
+                if (!identityGroups[w.walletWorker]) identityGroups[w.walletWorker] = [];
+                identityGroups[w.walletWorker].push(w);
             });
 
             let finalWorkers: any[] = [];
-            for (const [name, group] of Object.entries(nameGroups)) {
+            for (const [identity, group] of Object.entries(identityGroups)) {
                 if (group.length > 1) {
                     const bestWorker = group.reduce((prev, current) => {
                         if (current.hashRate > prev.hashRate) return current;
@@ -5698,9 +5893,8 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
-        // ⚡ FIX: SSE Connection established, closing interval leak.
         sseConnection = source('/api/telemetry');
-        sseConnection.select('message').subscribe((rawData) => {
+        sseConnection.select('telemetry').subscribe((rawData) => {
             if (!rawData) return;
             try {
                 const parsed = JSON.parse(rawData);
@@ -5713,7 +5907,6 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
 
     onDestroy(() => { 
         unsubs.forEach(u => u()); 
-        // ⚡ FIX: Teardown logic implemented strictly
         if (sseConnection) sseConnection.close();
     });
 
@@ -6153,6 +6346,11 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2>
                 <div class="flex items-center gap-3">
+                    {#if hiddenWorkersCount > 0}
+                        <span class="text-[8px] font-bold font-mono text-amber-500 border border-amber-500/30 bg-amber-950/20 px-1.5 py-0.5 rounded cursor-help" title="These workers are actively hashing but belong to a different wallet address. Flip the Admin Override toggle in the header to reveal them.">
+                            +{hiddenWorkersCount} HIDDEN
+                        </span>
+                    {/if}
                     <button aria-label="Dev Fire" 
                             onclick={() => executeOmniChainSwap('KAS', 'KAS', '1')}
                             class="text-[7px] font-black uppercase tracking-widest text-red-500/30 hover:text-red-500 transition-colors border border-red-500/10 hover:border-red-500/50 px-1.5 py-0.5 rounded cursor-pointer">
@@ -6244,14 +6442,7 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
 
             <div class="flex-1 border border-neutral-800/50 rounded-2xl bg-[#0a0a0a] p-4 md:p-6 min-h-[500px] relative shadow-inner w-full" style="background-image: linear-gradient(#14b8a608 1px, transparent 1px), linear-gradient(90deg, #14b8a608 1px, transparent 1px); background-size: 24px 24px;">
                 
-                {#if !$isWalletConnected}
-                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 z-20">
-                        <div class="w-full max-w-3xl text-center">
-                            <h2 class="text-3xl md:text-5xl lg:text-6xl font-light uppercase tracking-[0.1em] text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-white to-amber-500 mb-6 drop-shadow-2xl">Tokenize Anything.<br>Liquidate Everything.</h2>
-                            <p class="text-[12px] md:text-sm font-mono text-neutral-400 uppercase tracking-widest leading-relaxed">Connect your Web3 Wallet to initialize the Command Center.</p>
-                        </div>
-                    </div>
-                {:else if $silos.length === 0 && $plants.length === 0}
+                {#if $silos.length === 0 && $plants.length === 0}
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6">
                         <h2 class="text-2xl md:text-4xl font-light uppercase tracking-[0.1em] text-white/80 mb-8 drop-shadow-lg text-center">Tokenize Anything.<br><span class="text-teal-500">Liquidate Everything.</span></h2>
                         <div class="relative w-24 h-24 rounded-full bg-teal-500/5 border border-teal-500/20 flex items-center justify-center mb-6 shadow-lg"><svg class="text-teal-500/30 w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg></div>

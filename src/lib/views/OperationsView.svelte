@@ -4,6 +4,7 @@
     import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
+    import { executeSovereignTransaction, executeTestCovenantSweep } from '$lib/stores/transaction.svelte';
 
     let sseConnection: ReturnType<typeof source> | null = null;
     let unsubs: any[] = [];
@@ -23,11 +24,58 @@
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
 
     let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
-    let displayedWorkers = $derived(
-        isCorporateAdmin && $adminGlobalView 
-            ? $workers 
-            : $workers.filter(worker => worker.walletWorker.includes($walletAddress?.replace('kaspa:', '') || 'pending'))
-    );
+    
+    let displayedWorkers = $derived.by(() => {
+        if (isCorporateAdmin && $adminGlobalView) return $workers;
+        if (!$isWalletConnected) return $workers;
+        
+        const cleanWallet = $walletAddress?.replace('kaspa:', '') || 'pending';
+        return $workers.filter(w => 
+            w.walletWorker.includes(cleanWallet) || 
+            w.walletWorker.includes('pending') ||
+            (isCorporateAdmin && w.assignedSiloId !== null)
+        );
+    });
+
+    let hiddenWorkersCount = $derived($workers.length - displayedWorkers.length);
+    
+    // 🧪 BURN TEST STATE
+    let isBurnTestRunning = $state(false);
+    let burnTestLogs = $state<string[]>([]);
+
+    // ⚡ Expected Rust output defaults
+    const TEST_P2SH_ADDR = "kaspatest:prvshc482q42qq3m80n5v5twn08r50wvw6920fhw6z2j33unp5lxyu3qmsnve"; 
+    const TEST_REDEEM_HEX = "014287";
+
+    async function runTN12BurnTest() {
+        // ⚡ FIX: Lock the store value into a strictly typed local const to satisfy the TS compiler
+        const currentAddress = $walletAddress;
+        if (!currentAddress) return alert("Connect Sovereign Wallet First");
+        
+        isBurnTestRunning = true;
+        burnTestLogs = ["🚀 Initiating TN12 P2SH Covenant Burn Test..."];
+
+        try {
+            // STEP 2: LOCK
+            burnTestLogs = [...burnTestLogs, `🔒 Locking 1.0 KAS into P2SH Covenant: ${TEST_P2SH_ADDR.substring(0,20)}...`];
+            const lockTx = await executeSovereignTransaction(TEST_P2SH_ADDR, 1.0);
+            burnTestLogs = [...burnTestLogs, `✅ Lock TX Broadcasted: ${lockTx}`];
+            
+            burnTestLogs = [...burnTestLogs, `⏳ Waiting 10 seconds for DAG Inclusion...`];
+            await new Promise(r => setTimeout(r, 10000));
+
+            // STEP 3: UNLOCK
+            burnTestLogs = [...burnTestLogs, `🔓 Constructing Sweep Transaction (Pushing Unlocking Argument 0x42)...`];
+            const sweepTx = await executeTestCovenantSweep(TEST_P2SH_ADDR, TEST_REDEEM_HEX, currentAddress);
+            burnTestLogs = [...burnTestLogs, `✅ Sweep TX Broadcasted: ${sweepTx}`];
+            burnTestLogs = [...burnTestLogs, `🎉 COVENANT FULLY EXECUTED ON TN12!`];
+
+        } catch (e: any) {
+            burnTestLogs = [...burnTestLogs, `❌ FAILED: ${e.message}`];
+        } finally {
+            isBurnTestRunning = false;
+        }
+    }
     
     function closeAllMenus() { 
         activeWorkerMenu = null; 
@@ -109,23 +157,24 @@
     let floatId = 0;
 
     function processTelemetryData(data: any) {
-        const isConnected = get(isWalletConnected);
         const currentWallet = get(walletAddress);
         const isCorpAdmin = DEV_ADMIN_BYPASS || currentWallet === MASTER_ADMIN_ADDRESS;
 
-        if (!isConnected || !currentWallet) return;
-
-        globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
+        let parsedGlobalHash = (data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12;
+        if (isNaN(parsedGlobalHash) || parsedGlobalHash <= 0) {
+            parsedGlobalHash = (data.workers || []).reduce((acc: number, w: any) => acc + (w.trackingRate || 0), 0) / 1e12;
+        }
+        globalNetworkHashrate.set(parsedGlobalHash);
         globalNodeStatus.set('online');
 
-        const cleanWallet = currentWallet.replace('kaspa:', '');
+        const cleanWallet = currentWallet ? currentWallet.replace('kaspa:', '') : '';
 
         workers.update(currentWorkers => {
             let updated = currentWorkers.map(w => {
                 if (w.type === 'physical') {
                     const bw = (data.workers || []).find((b: any) => {
-                        if (isCorpAdmin) return b.fullIdentity === w.walletWorker;
-                        return b.fullIdentity === w.walletWorker && b.walletAddress?.replace('kaspa:', '') === cleanWallet;
+                        if (isCorpAdmin || !currentWallet) return b.fullIdentity === w.walletWorker;
+                        return b.fullIdentity === w.walletWorker && b.walletAddress?.replace('kaspa:', '').includes(cleanWallet);
                     });
                     
                     if (bw) {
@@ -145,9 +194,9 @@
             });
 
             if (data.workers) {
-                const validWorkersToInject = isCorpAdmin 
+                const validWorkersToInject = (isCorpAdmin || !currentWallet)
                     ? data.workers 
-                    : data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
+                    : data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '').includes(cleanWallet));
                 
                 validWorkersToInject.forEach((bw: any) => {
                     if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
@@ -169,14 +218,14 @@
                 });
             }
 
-            const nameGroups: Record<string, any[]> = {};
+            const identityGroups: Record<string, any[]> = {};
             updated.forEach(w => {
-                if (!nameGroups[w.name]) nameGroups[w.name] = [];
-                nameGroups[w.name].push(w);
+                if (!identityGroups[w.walletWorker]) identityGroups[w.walletWorker] = [];
+                identityGroups[w.walletWorker].push(w);
             });
 
             let finalWorkers: any[] = [];
-            for (const [name, group] of Object.entries(nameGroups)) {
+            for (const [identity, group] of Object.entries(identityGroups)) {
                 if (group.length > 1) {
                     const bestWorker = group.reduce((prev, current) => {
                         if (current.hashRate > prev.hashRate) return current;
@@ -199,9 +248,8 @@
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
-        // ⚡ FIX: SSE Connection established, closing interval leak.
         sseConnection = source('/api/telemetry');
-        sseConnection.select('message').subscribe((rawData) => {
+        sseConnection.select('telemetry').subscribe((rawData) => {
             if (!rawData) return;
             try {
                 const parsed = JSON.parse(rawData);
@@ -214,7 +262,6 @@
 
     onDestroy(() => { 
         unsubs.forEach(u => u()); 
-        // ⚡ FIX: Teardown logic implemented strictly
         if (sseConnection) sseConnection.close();
     });
 
@@ -654,6 +701,23 @@
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
                 <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">The Field</h2>
                 <div class="flex items-center gap-3">
+                    {#if hiddenWorkersCount > 0}
+                        <span class="text-[8px] font-bold font-mono text-amber-500 border border-amber-500/30 bg-amber-950/20 px-1.5 py-0.5 rounded cursor-help" title="These workers are actively hashing but belong to a different wallet address. Flip the Admin Override toggle in the header to reveal them.">
+                            +{hiddenWorkersCount} HIDDEN
+                        </span>
+                    {/if}
+
+                    <!-- 🧪 BURN TEST BUTTON -->
+                    <button aria-label="Burn Test" 
+                        onclick={runTN12BurnTest}
+                        disabled={isBurnTestRunning}
+                        class="text-[7px] font-black uppercase tracking-widest text-orange-500/80 hover:text-orange-500 transition-colors border border-orange-500/20 hover:border-orange-500/50 px-1.5 py-0.5 rounded cursor-pointer disabled:opacity-50 flex items-center gap-1">
+                        {#if isBurnTestRunning}
+                            <span class="w-1.5 h-1.5 rounded-full border-t border-orange-500 animate-spin"></span>
+                        {/if}
+                        [TN12 BURN TEST]
+                    </button>
+
                     <button aria-label="Dev Fire" 
                             onclick={() => executeOmniChainSwap('KAS', 'KAS', '1')}
                             class="text-[7px] font-black uppercase tracking-widest text-red-500/30 hover:text-red-500 transition-colors border border-red-500/10 hover:border-red-500/50 px-1.5 py-0.5 rounded cursor-pointer">
@@ -662,6 +726,21 @@
                     <span class="text-[9px] font-mono text-neutral-600">{displayedWorkers.filter(w => w.assignedSiloId === null).length} UNASSIGNED</span>
                 </div>
             </div>
+
+            <!-- 🧪 BURN TEST LOGS DISPLAY -->
+            {#if burnTestLogs.length > 0}
+                <div class="w-full bg-orange-950/20 border border-orange-500/30 rounded-xl p-4 font-mono text-[10px] text-orange-400/80 my-2 animate-[fade-in-down_0.3s_ease-out]">
+                    <div class="flex justify-between items-center mb-2 border-b border-orange-900/50 pb-2">
+                        <span class="font-bold text-orange-500 tracking-widest uppercase">TN12 P2SH Telemetry</span>
+                        <button onclick={() => burnTestLogs = []} class="text-orange-500/50 hover:text-orange-500 cursor-pointer">✕</button>
+                    </div>
+                    <div class="flex flex-col gap-1.5">
+                        {#each burnTestLogs as log}
+                            <span>{log}</span>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
             
             <div class="flex flex-row gap-2 w-full">
                 <button aria-label="Add Physical Worker" onclick={() => addWorker('physical')} disabled={!$isWalletConnected} class="flex-1 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 hover:border-teal-500/50 text-white text-[9px] font-bold uppercase tracking-widest py-2.5 rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">+ PHYS</button>
@@ -745,14 +824,7 @@
 
             <div class="flex-1 border border-neutral-800/50 rounded-2xl bg-[#0a0a0a] p-4 md:p-6 min-h-[500px] relative shadow-inner w-full" style="background-image: linear-gradient(#14b8a608 1px, transparent 1px), linear-gradient(90deg, #14b8a608 1px, transparent 1px); background-size: 24px 24px;">
                 
-                {#if !$isWalletConnected}
-                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 z-20">
-                        <div class="w-full max-w-3xl text-center">
-                            <h2 class="text-3xl md:text-5xl lg:text-6xl font-light uppercase tracking-[0.1em] text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-white to-amber-500 mb-6 drop-shadow-2xl">Tokenize Anything.<br>Liquidate Everything.</h2>
-                            <p class="text-[12px] md:text-sm font-mono text-neutral-400 uppercase tracking-widest leading-relaxed">Connect your Web3 Wallet to initialize the Command Center.</p>
-                        </div>
-                    </div>
-                {:else if $silos.length === 0 && $plants.length === 0}
+                {#if $silos.length === 0 && $plants.length === 0}
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6">
                         <h2 class="text-2xl md:text-4xl font-light uppercase tracking-[0.1em] text-white/80 mb-8 drop-shadow-lg text-center">Tokenize Anything.<br><span class="text-teal-500">Liquidate Everything.</span></h2>
                         <div class="relative w-24 h-24 rounded-full bg-teal-500/5 border border-teal-500/20 flex items-center justify-center mb-6 shadow-lg"><svg class="text-teal-500/30 w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg></div>
@@ -1087,30 +1159,8 @@
 {/if}
 
 <style>
-    .custom-slider {
-        -webkit-appearance: none;
-        appearance: none;
-        background: #1a1a1a;
-        height: 8px;
-        border-radius: 4px;
-        outline: none;
-        border: 1px solid #222;
-    }
-    
-    .custom-slider::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: #111;
-        cursor: pointer;
-        border: 2px solid #14b8a6;
-        box-shadow: 0 0 15px rgba(20, 184, 166, 0.4);
-        transition: transform 0.1s;
-    }
-
-    .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); background: #14b8a6; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
     @keyframes float-up-1 {
         0% { opacity: 0; transform: translateY(10px) scale(0.9); }

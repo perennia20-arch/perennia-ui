@@ -5,8 +5,8 @@
 <!-- Changed to min-h-[100dvh] and added strict bg-[#050505] for pure blackness -->
 <div class="w-full min-h-[100dvh] bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out]">
     
-    <!-- Ambient Background Glow -->
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-teal-500/5 rounded-full blur-[150px] pointer-events-none -z-10"></div>
+    <!-- Ambient Background Glow Removed: Replaced with Brutalist Outline -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-teal-500/10 rounded-full pointer-events-none -z-10 opacity-30"></div>
     
     <!-- Title -->
     <h1 class="text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-2xl mb-4 text-center">
@@ -41,7 +41,7 @@
 
 <style>
     @keyframes fade-in { 
-        0% { opacity: 0; filter: blur(10px); transform: scale(0.98); } 
-        100% { opacity: 1; filter: blur(0); transform: scale(1); } 
+        0% { opacity: 0; transform: scale(0.98); } 
+        100% { opacity: 1; transform: scale(1); } 
     }
 </style>

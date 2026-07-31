@@ -70,10 +70,22 @@
     }
 
     async function saveStateToServer(address: string | null) {
-        if (!browser || !address || !isLoaded || !isServerReachable || isCorporateAdmin) return;
+        // Fix: Removed '|| isCorporateAdmin' so the master treasury state actually saves
+        if (!browser || !address || !isLoaded || !isServerReachable) return;
         try {
+            const currentWorkers = get(workers);
+            const cleanWallet = address.replace('kaspa:', '');
+            
+            // Fix: Only save explicitly owned workers or workers assigned to a silo. 
+            // Prevents DB bloat when the Admin has the global pool toggle active.
+            const workersToSave = currentWorkers.filter(w => 
+                w.assignedSiloId !== null || 
+                w.walletWorker.includes(cleanWallet) || 
+                w.walletWorker.includes('pending')
+            );
+
             const statePayload = {
-                workers: get(workers),
+                workers: workersToSave,
                 silos: get(silos),
                 plants: get(plants),
                 systemMode: get(systemMode)
