@@ -4,6 +4,7 @@
     import { isWalletConnected, activeWalletType, sovereignKeys, walletAddress, walletBalance } from '$lib/stores/wallet';
     import { browser } from '$app/environment';
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
+    import RwaRow from '$lib/components/treasury/RwaRow.svelte';
 
     let estate = $state<any>(null);
     let isLoading = $state(false);
@@ -364,6 +365,9 @@
             <NetworkRow asset={assets[9]} bind:subAssets={trxAssets} bind:selectedTokens={selectedTrxTokens} standardLabel="TRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
             <NetworkRow asset={assets[10]} bind:subAssets={zecAssets} bind:selectedTokens={selectedZecTokens} standardLabel="Shielded Notes" {searchGlobalNetwork} bind:activeHoverSegment />
         </div>
+
+        <!-- RWA ORACLE ROW SECTION -->
+        <RwaRow />
 
         <!-- CHRONOS YIELD PROJECTION MATRIX -->
         <div class="relative bg-[#0a0a0a] border border-neutral-800/80 rounded-[32px] p-6 md:p-10 shadow-[inset_0_0_80px_rgba(0,0,0,0.4)] overflow-hidden mt-4 transition-all duration-700 min-h-[400px]">
