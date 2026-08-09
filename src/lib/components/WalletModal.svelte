@@ -1,7 +1,9 @@
 <script lang="ts">
-    import { fade, fly } from 'svelte/transition';
+    import { fade, fly, scale } from 'svelte/transition';
     import { browser } from '$app/environment';
     import { onMount } from 'svelte';
+    import * as bip39 from '@scure/bip39';
+    import { wordlist } from '@scure/bip39/wordlists/english';
     import { 
         showWalletModal, 
         isConnecting, 
@@ -12,18 +14,19 @@
         connectWalletConnect,
         connectObserver,
         generateSovereignHoneycomb,
+        importSovereignVault,
         authorizeSovereignVault,
         unlockSovereignVault,
         confirmSovereignTransaction
     } from '$lib/stores/wallet';
 
     let isKasWareInstalled = $state(false);
-    let viewState = $state<'menu' | 'create_pass' | 'create_seed' | 'unlock' | 'authorize'>('menu');
+    let viewState = $state<'menu' | 'create_pass' | 'import_seed' | 'create_seed' | 'unlock' | 'authorize'>('menu');
     let hasStoredVault = $state(false);
 
-    // Form Binding
     let password = $state('');
     let confirmPassword = $state('');
+    let importSeed = $state('');
     let seedWords = $state<string[]>([]);
     let tempVaultPayload = $state<any>(null);
     let derivedKaspa = $state('');
@@ -37,7 +40,6 @@
         }
     });
 
-    // Reactive State Routing for JIT Interception
     $effect(() => {
         if ($isVaultUnlockPending && $pendingTransactionDetails) {
             viewState = 'authorize';
@@ -48,22 +50,21 @@
     });
 
     function close() {
-        if (viewState === 'create_seed') return; // Strictly enforce backup acknowledgment
+        if (viewState === 'create_seed') return; 
         if ($isConnecting) return;
         
         showWalletModal.set(false);
 
-        // Terminate pending JIT state if user aborts
         if ($isVaultUnlockPending) {
             isVaultUnlockPending.set(false);
             pendingTransactionDetails.set(null);
         }
 
-        // Silently reset the UI state after modal animation finishes
         setTimeout(() => {
             viewState = 'menu';
             password = '';
             confirmPassword = '';
+            importSeed = '';
             seedWords = [];
             tempVaultPayload = null;
             derivedKaspa = '';
@@ -90,13 +91,48 @@
             if (res && res.success && res.mnemonic) {
                 seedWords = res.mnemonic.split(' ');
                 tempVaultPayload = res.payload;
-                derivedKaspa = res.addresses?.kaspa || '';
-                derivedBtc = res.addresses?.bitcoin || '';
+                derivedKaspa = res.addresses?.kaspa?.address || '';
+                derivedBtc = res.addresses?.bitcoin?.address || '';
                 viewState = 'create_seed';
             }
         } catch (e: any) {
             console.error(e);
             localError = 'CRYPTOGRAPHIC GENERATION FAILED.';
+        }
+    }
+
+    async function handleImport() {
+        localError = '';
+        if (password.length < 8) {
+            localError = 'PASSWORD MUST BE AT LEAST 8 CHARACTERS.';
+            return;
+        }
+        if (password !== confirmPassword) {
+            localError = 'PASSWORDS DO NOT MATCH.';
+            return;
+        }
+        
+        const cleanSeed = importSeed.trim().toLowerCase();
+        const words = cleanSeed.split(/\s+/);
+        
+        if (words.length !== 24 && words.length !== 12) {
+            localError = `EXPECTED 12 OR 24 WORDS. GOT ${words.length}.`;
+            return;
+        }
+        if (!bip39.validateMnemonic(cleanSeed, wordlist)) {
+            localError = 'INVALID BIP-39 CHECKSUM ON SEED PHRASE.';
+            return;
+        }
+
+        try {
+            const res = await importSovereignVault(password, cleanSeed);
+            if (res && res.success) {
+                tempVaultPayload = res.payload;
+                handleSecure(); 
+            }
+        } catch (e: any) {
+            console.error(e);
+            localError = 'CRYPTOGRAPHIC IMPORT FAILED.';
         }
     }
 
@@ -120,7 +156,7 @@
         } else {
             password = '';
             walletMessage.set(''); 
-            localError = 'INVALID ENCRYPTION KEY.'; // Force rendered error text to be explicitly Red
+            localError = 'INVALID ENCRYPTION KEY.'; 
         }
     }
 
@@ -148,7 +184,7 @@
             }
         } catch (e: any) {
             localError = e.message || 'AUTHORIZATION FAILED.';
-            password = ''; // Force re-entry of password on failure
+            password = ''; 
         }
     }
 
@@ -184,16 +220,17 @@
         tabindex="0"
     >
         <div 
-            class="w-full {viewState === 'create_seed' ? 'max-w-md' : 'max-w-sm'} rounded-none border border-neutral-800 bg-[#111] shadow-[0_0_40px_rgba(20,184,166,0.05)] p-6 text-white transition-all duration-200"
+            class="w-full {viewState === 'create_seed' ? 'max-w-md' : 'max-w-sm'} rounded-none border border-neutral-800 bg-[#111] shadow-[0_0_40px_rgba(20,184,166,0.05)] p-6 text-white transition-all duration-200 relative overflow-hidden"
             transition:fly={{ y: 10, duration: 200 }}
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.stopPropagation()}
             role="dialog"
         >
-            <div class="flex justify-between items-center mb-6">
+            <div class="flex justify-between items-center mb-6 relative z-10">
                 <h2 class="text-sm font-black tracking-widest uppercase text-teal-500">
                     {#if viewState === 'menu'}Initialize Link
                     {:else if viewState === 'create_pass'}Perennia Wallet
+                    {:else if viewState === 'import_seed'}Import Vault
                     {:else if viewState === 'create_seed'}Zero-Knowledge Vault
                     {:else if viewState === 'unlock'}Decrypt Matrix
                     {:else if viewState === 'authorize'}Sign Payload
@@ -208,64 +245,142 @@
                 {/if}
             </div>
 
-            <!-- STATE ROUTER -->
-            <div class="flex flex-col gap-3 min-h-[160px]">
+            <div class="flex flex-col gap-3 min-h-[160px] relative z-10">
                 
-                <!-- MENU STATE -->
                 {#if viewState === 'menu'}
-                    <div class="flex flex-col gap-3" in:fade={{ duration: 150 }}>
-                        {#if hasStoredVault}
-                            <button 
-                                onclick={() => viewState = 'unlock'} 
-                                disabled={$isConnecting}
-                                class="w-full flex items-center justify-between p-4 bg-[#161616] border border-teal-900 hover:border-teal-500 hover:bg-teal-900/20 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
-                            >
-                                <span class="text-xs font-bold tracking-widest text-teal-400 uppercase">Unlock Perennia Wallet</span>
-                                <span class="w-2 h-2 rounded-none bg-teal-500 shadow-[0_0_10px_#14b8a6] animate-pulse"></span>
-                            </button>
-                        {:else}
-                            <button 
-                                onclick={() => viewState = 'create_pass'} 
-                                disabled={$isConnecting}
-                                class="w-full flex items-center justify-between p-4 bg-[#111] border border-teal-900 hover:border-teal-500/50 hover:bg-teal-900/20 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
-                            >
-                                <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">Create Perennia Wallet</span>
-                            </button>
-                        {/if}
+                    <div class="flex flex-col gap-3 items-center" in:fade={{ duration: 150 }}>
+                        
+                        <!-- Morph Ball Visual -->
+                        <div class="group relative flex items-center justify-center w-24 h-24 rounded-full mb-4 transition-all duration-700 pointer-events-none">
+                            <div class="absolute inset-0 rounded-full border-2 border-neutral-800 transition-all duration-700 {$isConnecting ? 'border-[#18C6A5] scale-110 blur-sm' : ''}"></div>
+                            <div class="relative w-16 h-16 rounded-full flex items-center justify-center overflow-hidden transition-all duration-700 shadow-inner z-10 {$isConnecting ? 'bg-[#18C6A5] shadow-[0_0_30px_rgba(24,198,165,0.6)] animate-pulse' : 'bg-[#161616] border border-neutral-800'}">
+                               {#if $isConnecting}
+                                 <span class="text-black font-black tracking-widest text-[8px] z-20">SYNC</span>
+                               {:else}
+                                 <div class="w-4 h-4 rounded-full bg-neutral-700"></div>
+                               {/if}
+                            </div>
+                        </div>
 
-                        <div class="h-px w-full bg-neutral-900 my-2"></div>
-
-                        <button 
-                            onclick={connectKasware} 
-                            disabled={$isConnecting}
-                            class="w-full flex items-center justify-between p-4 bg-[#0a0a0a] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
-                        >
-                            <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">KasWare</span>
-                            {#if isKasWareInstalled}
-                                <span class="w-2 h-2 rounded-none bg-green-500 shadow-[0_0_10px_#22c55e]"></span>
+                        <div class="w-full flex flex-col gap-3">
+                            {#if hasStoredVault}
+                                <button 
+                                    onclick={() => viewState = 'unlock'} 
+                                    disabled={$isConnecting}
+                                    class="w-full flex items-center justify-between p-4 bg-[#161616] border border-teal-900 hover:border-teal-500 hover:bg-teal-900/20 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
+                                >
+                                    <span class="text-xs font-bold tracking-widest text-teal-400 uppercase">Unlock Perennia Wallet</span>
+                                    <span class="w-2 h-2 rounded-none bg-teal-500 shadow-[0_0_10px_#14b8a6] animate-pulse"></span>
+                                </button>
                             {:else}
-                                <span class="text-[10px] uppercase text-neutral-600">Not Detected</span>
+                                <!-- ⚡ NEW: Split "Create Vault" and "Import Vault" Buttons -->
+                                <div class="flex gap-2">
+                                    <button 
+                                        onclick={() => viewState = 'create_pass'} 
+                                        disabled={$isConnecting}
+                                        class="flex-1 p-4 bg-[#111] border border-teal-900 hover:border-teal-500/50 hover:bg-teal-900/20 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
+                                    >
+                                        <span class="text-[10px] font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase block text-center">New Vault</span>
+                                    </button>
+                                    <button 
+                                        onclick={() => viewState = 'import_seed'} 
+                                        disabled={$isConnecting}
+                                        class="flex-1 p-4 bg-[#111] border border-neutral-800 hover:border-neutral-500/50 hover:bg-neutral-900 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
+                                    >
+                                        <span class="text-[10px] font-bold tracking-widest text-neutral-400 group-hover:text-white transition-colors uppercase block text-center">Import Seed</span>
+                                    </button>
+                                </div>
                             {/if}
-                        </button>
 
-                        <button 
-                            onclick={connectWalletConnect} 
-                            disabled={$isConnecting}
-                            class="w-full flex items-center justify-between p-4 bg-[#0a0a0a] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
-                        >
-                            <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">WalletConnect</span>
-                        </button>
+                            <div class="h-px w-full bg-neutral-900 my-2"></div>
 
-                        <button 
-                            onclick={connectObserver} 
-                            disabled={$isConnecting}
-                            class="w-full flex items-center justify-between p-4 bg-[#0a0a0a] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
-                        >
-                            <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">Observer Mode</span>
-                        </button>
+                            <button 
+                                onclick={connectKasware} 
+                                disabled={$isConnecting}
+                                class="w-full flex items-center justify-between p-4 bg-[#0a0a0a] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
+                            >
+                                <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">KasWare</span>
+                                {#if isKasWareInstalled}
+                                    <span class="w-2 h-2 rounded-none bg-green-500 shadow-[0_0_10px_#22c55e]"></span>
+                                {:else}
+                                    <span class="text-[10px] uppercase text-neutral-600">Not Detected</span>
+                                {/if}
+                            </button>
+
+                            <button 
+                                onclick={connectWalletConnect} 
+                                disabled={$isConnecting}
+                                class="w-full flex items-center justify-between p-4 bg-[#0a0a0a] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
+                            >
+                                <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">WalletConnect</span>
+                            </button>
+
+                            <button 
+                                onclick={connectObserver} 
+                                disabled={$isConnecting}
+                                class="w-full flex items-center justify-between p-4 bg-[#0a0a0a] border border-neutral-800 hover:border-teal-500/50 hover:bg-teal-900/10 transition-colors group disabled:opacity-50 rounded-none focus:outline-none cursor-pointer"
+                            >
+                                <span class="text-xs font-bold tracking-widest group-hover:text-teal-400 transition-colors uppercase">Observer Mode</span>
+                            </button>
+                        </div>
                     </div>
 
-                <!-- CREATE PASSWORD STATE -->
+                <!-- ⚡ NEW IMPORT PIPELINE -->
+                {:else if viewState === 'import_seed'}
+                    <form onsubmit={(e) => { e.preventDefault(); handleImport(); }} class="flex flex-col gap-4" in:fade={{ duration: 150 }}>
+                        <p class="text-[10px] text-neutral-500 leading-relaxed uppercase tracking-widest font-bold">
+                            Restore an existing Omni-Chain Matrix.
+                        </p>
+                        
+                        <textarea 
+                            bind:value={importSeed}
+                            placeholder="PASTE YOUR 24-WORD SEED PHRASE..."
+                            rows="3"
+                            disabled={$isConnecting}
+                            class="w-full bg-[#0a0a0a] border border-neutral-800 focus:outline-none focus:border-[#18C6A5]/50 text-teal-400 p-3 text-[10px] rounded-none transition-colors resize-none disabled:opacity-50 uppercase placeholder-neutral-700 tracking-widest font-mono"
+                        ></textarea>
+
+                        <div class="h-px w-full bg-neutral-900 my-1"></div>
+
+                        <p class="text-[10px] text-neutral-500 leading-relaxed uppercase tracking-widest font-bold">
+                            Set a local cipher to encrypt this seed on your device.
+                        </p>
+
+                        <input 
+                            type="password" 
+                            bind:value={password}
+                            placeholder="NEW VAULT PASSWORD"
+                            disabled={$isConnecting}
+                            class="w-full bg-[#0a0a0a] border border-neutral-800 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-none transition-colors disabled:opacity-50 uppercase placeholder-neutral-700 tracking-widest"
+                        />
+                        
+                        <input 
+                            type="password" 
+                            bind:value={confirmPassword}
+                            placeholder="CONFIRM PASSWORD"
+                            disabled={$isConnecting}
+                            class="w-full bg-[#0a0a0a] border border-neutral-800 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-none transition-colors disabled:opacity-50 uppercase placeholder-neutral-700 tracking-widest"
+                        />
+
+                        <div class="flex gap-2 mt-2">
+                            <button 
+                                type="button"
+                                onclick={() => { viewState = 'menu'; localError = ''; password = ''; confirmPassword = ''; importSeed = ''; }} 
+                                disabled={$isConnecting}
+                                class="w-1/3 p-3 bg-[#0a0a0a] border border-neutral-800 hover:bg-neutral-900 text-neutral-500 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50 transition-colors focus:outline-none cursor-pointer"
+                            >
+                                Abort
+                            </button>
+                            <button 
+                                type="submit"
+                                disabled={$isConnecting || !password || !confirmPassword || !importSeed}
+                                class="w-2/3 p-3 bg-teal-900/20 border border-teal-500/50 hover:bg-teal-900/40 text-teal-400 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50 transition-colors focus:outline-none cursor-pointer"
+                            >
+                                Import Keys
+                            </button>
+                        </div>
+                    </form>
+
                 {:else if viewState === 'create_pass'}
                     <form onsubmit={(e) => { e.preventDefault(); handleGenerate(); }} class="flex flex-col gap-4" in:fade={{ duration: 150 }}>
                         <p class="text-[10px] text-neutral-500 leading-relaxed uppercase tracking-widest font-bold">
@@ -307,7 +422,6 @@
                         </div>
                     </form>
 
-                <!-- BACKUP SEED STATE -->
                 {:else if viewState === 'create_seed'}
                     <div class="flex flex-col gap-4" in:fade={{ duration: 150 }}>
                         <div class="border border-red-500/50 bg-[#1a0505] p-3 text-[10px] text-red-500 uppercase tracking-widest leading-relaxed font-bold">
@@ -361,7 +475,6 @@
                         </div>
                     </div>
 
-                <!-- UNLOCK STATE -->
                 {:else if viewState === 'unlock'}
                     <form onsubmit={(e) => { e.preventDefault(); handleUnlock(); }} class="flex flex-col gap-4" in:fade={{ duration: 150 }}>
                         <div class="flex justify-between items-start">
@@ -369,7 +482,6 @@
                                 Enter your local cipher to decrypt the Omni-Chain Matrix.
                             </p>
                             
-                            <!-- ⚡ FIX: The Reset button now correctly deletes from permanent storage -->
                             <button 
                                 type="button" 
                                 onclick={() => { localStorage.removeItem('perennia_sovereign_payload'); hasStoredVault = false; viewState = 'menu'; localError = ''; password = ''; }}
@@ -407,7 +519,6 @@
                         </div>
                     </form>
 
-                <!-- AUTHORIZE STATE -->
                 {:else if viewState === 'authorize' && $pendingTransactionDetails}
                     <form onsubmit={(e) => { e.preventDefault(); handleAuthorize(); }} class="flex flex-col gap-4" in:fade={{ duration: 150 }}>
                         <div class="bg-[#0a0a0a] border border-teal-900/50 p-4 flex flex-col gap-3">
@@ -459,9 +570,8 @@
                 {/if}
             </div>
 
-            <!-- GLOBAL ERROR / LOADING INDICATOR -->
             {#if localError || $walletMessage || $isConnecting}
-                <div class="mt-6 text-center border-t border-neutral-900 pt-4 min-h-[40px] flex items-center justify-center" transition:fade>
+                <div class="mt-6 text-center border-t border-neutral-900 pt-4 min-h-[40px] flex items-center justify-center relative z-10" transition:fade>
                     <p class="text-[10px] uppercase tracking-widest font-bold {localError ? 'text-red-500' : 'text-teal-500'}">
                         {localError || $walletMessage || 'PROCESSING...'}
                     </p>

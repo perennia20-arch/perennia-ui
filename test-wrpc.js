@@ -1,15 +1,15 @@
 import WebSocket from 'ws';
 
 const payloads = [
-    { name: "camelCase + Object", data: { id: 1, method: "getUtxosByAddresses", params: { addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] } } },
-    { name: "PascalCase + Object", data: { id: 2, method: "GetUtxosByAddresses", params: { addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] } } },
-    { name: "camelCase + Array", data: { id: 3, method: "getUtxosByAddresses", params: [{ addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] }] } },
-    { name: "PascalCase + Array", data: { id: 4, method: "GetUtxosByAddresses", params: [{ addresses: ["kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz"] }] } }
+    { name: "camelCase + Object", data: { id: 1, method: "getUtxosByAddresses", params: { addresses: ["kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2"] } } },
+    { name: "PascalCase + Object", data: { id: 2, method: "GetUtxosByAddresses", params: { addresses: ["kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2"] } } },
+    { name: "camelCase + Array", data: { id: 3, method: "getUtxosByAddresses", params: [{ addresses: ["kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2"] }] } },
+    { name: "PascalCase + Array", data: { id: 4, method: "GetUtxosByAddresses", params: [{ addresses: ["kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2"] }] } }
 ];
 
 async function testPayload(payload) {
     return new Promise((resolve) => {
-        const ws = new WebSocket('ws://192.168.0.12:18110');
+        const ws = new WebSocket('ws://api.kaspa.org:18110');
         
         ws.on('open', () => {
             console.log(`\nTesting: ${payload.name}`);

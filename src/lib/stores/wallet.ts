@@ -6,27 +6,39 @@ import * as bitcoin from 'bitcoinjs-lib';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { Buffer } from 'buffer';
+import { blake2b } from '@noble/hashes/blake2.js';
+import { schnorr } from '@noble/curves/secp256k1.js';
 
-// @ts-ignore - Svelte 5 Runes require the .svelte.ts extension; TS throws a false positive here.
-import { executeSovereignTransaction, txState } from './transaction.svelte.ts';
+// ⚡ Injecting the Omni-Chain Derivation Engine
+import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
 
-// Polyfill Buffer globally for browser/Vite environments
+// @ts-ignore
+import { executeSovereignTransaction, executeSovereignPSBT, txState } from './transaction.svelte.ts';
+
 if (typeof window !== 'undefined') {
     (window as any).Buffer = (window as any).Buffer || Buffer;
 }
 
-// ============================================================================
-// DIRECTIVE 1: BOOTSTRAP WALLET GATE (DUAL-TIER ADMIN)
-// ============================================================================
-export const DEV_ADMIN_BYPASS = true;
-export const MASTER_ADMIN_ADDRESS = "kaspa:q_master_admin_address_pending";
+function hexToBytes(hex: string): Uint8Array {
+    if (hex.length % 2 !== 0) throw new Error("ERR_INVALID_HEX_LENGTH");
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+}
 
-// --- UI & RECTIFICATION STORES ---
+function bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export const DEV_ADMIN_BYPASS = true;
+export const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
+
 export const showWalletModal = writable<boolean>(false);
 export const isConnecting = writable<boolean>(false);
 export const walletMessage = writable<string>('');
 
-// --- JIT DECRYPTION STORES ---
 export const isVaultUnlockPending = writable<boolean>(false);
 export const pendingTransactionDetails = writable<{
     payAsset: string;
@@ -34,27 +46,23 @@ export const pendingTransactionDetails = writable<{
     payAmount: string;
     destinationAddress: string;
     amountSompi: number;
+    psbtData?: { psbt: any, formattedUtxos: any[] };
 } | null>(null);
 
-// --- REACTIVE CORE STORES ---
 export const isWalletConnected = writable<boolean>(false);
 export const walletAddress = writable<string | null>(null);
 export const walletBalance = writable<string>("0"); 
-export const activeWalletType = writable<'kasware' | 'walletconnect' | 'sovereign' | null>(null);
+export const activeWalletType = writable<'kasware' | 'walletconnect' | 'sovereign' | 'observer' | null>(null);
 export const sovereignKeys = writable<any>(null);
 export const networkStatus = writable<'syncing' | 'connected' | 'offline'>('offline');
 
-// ALIGNMENT PATCH: User's Validated Kaspa Receive Address
 const TREASURY_ADDRESSES = {
-    KAS: "kaspa:qz2sehqzx8xetzkhz2ycqflwf8dhusyxhj0myv4ez72k0n6vdaj827jexnyzz", 
+    KAS: "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2", 
     ETH: "0xPerenniaTreasuryEVM",   
     SOL: "PerenniaSolanaTreasury",  
-    BTC: "bc1qperenniatreasury"      
+    BTC: "bc1qperenniatreasury"     
 };
 
-// ============================================================================
-// ADDRESS NORMALIZATION UTILITY
-// ============================================================================
 export function normalizeKaspaAddress(addr: string | null | undefined): string | null {
     if (!addr) return null;
     const clean = addr.trim().toLowerCase();
@@ -67,9 +75,6 @@ export function getCleanKaspaAddress(addr: string | null | undefined): string {
     return addr.replace(/^kaspa:/i, '').trim().toLowerCase();
 }
 
-// ============================================================================
-// ZERO-DEPENDENCY KASPA ADDRESS ENCODER (CASHADDR + 40-BIT POLYMOD)
-// ============================================================================
 function getKaspaAddress(pubKeyHex: string): string {
     const prefix = "kaspa";
     let polymodData = [];
@@ -123,9 +128,6 @@ function getKaspaAddress(pubKeyHex: string): string {
     return address;
 }
 
-// ============================================================================
-// WEB CRYPTO VAULT ENCRYPTION
-// ============================================================================
 const CRYPTO_ITERATIONS = 250000;
 
 async function getDerivationKey(password: string, salt: Uint8Array) {
@@ -184,54 +186,62 @@ export async function decryptVault(password: string, encryptedB64: string): Prom
     return dec.decode(decryptedBuf);
 }
 
-// ============================================================================
-// SOVEREIGN HONEYCOMB GENERATION
-// ============================================================================
-export async function generateSovereignHoneycomb(password: string) {
+// ⚡ CENTRALIZED VAULT BUILDER - Routes 11 chains through honeycomb.ts
+async function buildAndSecureVault(password: string, mnemonic: string, isImport = false) {
     isConnecting.set(true);
-    walletMessage.set('Forging Sovereign Matrix (24-word Entropy)...');
+    walletMessage.set(isImport ? 'Importing Omni-Chain Matrix...' : 'Forging Omni-Chain Matrix...');
     
     try {
-        const randomEntropy = window.crypto.getRandomValues(new Uint8Array(32));
-        const mnemonicObj = ethers.Mnemonic.fromEntropy(randomEntropy);
-        const mnemonic = mnemonicObj.phrase;
+        const keys = await deriveHoneycombKeys(mnemonic);
+        const kasAddress = normalizeKaspaAddress(keys.kaspa.address)!;
+
+        walletMessage.set('Executing Local Zero-Trust Handshake...');
         
-        walletMessage.set('Deriving Omni-Chain Matrix...');
+        const challengeRes = await fetch('/api/auth/challenge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: kasAddress })
+        });
         
-        // ⚡ Ethers v6 Root Node Derivation Fix: Instantiate at Absolute Root (Depth 0)
-        const seed = mnemonicObj.computeSeed();
-        const rootNode = ethers.HDNodeWallet.fromSeed(seed);
+        if (!challengeRes.ok) throw new Error("Failed to secure connection challenge.");
+        const { message } = await challengeRes.json();
 
-        // KASPA
-        const kaspaNode = rootNode.derivePath("m/44'/111111'/0'/0/0");
-        const kaspaXCoordinate = kaspaNode.publicKey.substring(4);
-        const kasAddress = normalizeKaspaAddress(getKaspaAddress(kaspaXCoordinate))!;
+        let privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
+        const msgBuf = new TextEncoder().encode(message);
+        const hash = blake2b(msgBuf, { dkLen: 32 });
+        const signatureBytes = schnorr.sign(hash, hexToBytes(privateKeyHex));
+        const signature = bytesToHex(signatureBytes);
 
-        // ETHEREUM
-        const ethNode = rootNode.derivePath("m/44'/60'/0'/0/0");
-        const ethAddress = ethNode.address;
+        privateKeyHex = "0".repeat(64); // Scrub memory
 
-        // BITCOIN
-        const btcNode = rootNode.derivePath("m/84'/0'/0'/0/0");
-        const btcPubkeyBuffer = Buffer.from(btcNode.publicKey.substring(2), 'hex');
-        const { address: btcAddress } = bitcoin.payments.p2wpkh({ pubkey: btcPubkeyBuffer });
+        const authRes = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: kasAddress, signature, message, provider: 'sovereign' })
+        });
 
-        // SOLANA
-        const seedHex = mnemonicObj.computeSeed().substring(2); 
-        const solDerived = derivePath("m/44'/501'/0'/0'", seedHex);
-        const solKeypair = Keypair.fromSeed(solDerived.key);
-        const solAddress = solKeypair.publicKey.toBase58();
+        if (!authRes.ok) throw new Error("Matrix Authentication Failed.");
 
         walletMessage.set('Encrypting Ephemeral Vault...');
         const encryptedVault = await encryptVault(password, mnemonic);
 
+        // Map all 11 chains safely to state (Addresses ONLY, never private keys in local storage)
+        const safeWallets = {
+            kaspa: { address: keys.kaspa.address },
+            bitcoin: { address: keys.bitcoin.address },
+            ethereum: { address: keys.ethereum.address },
+            solana: { address: keys.solana.address },
+            doge: { address: keys.doge.address },
+            xrp: { address: keys.xrp.address },
+            polygon: { address: keys.polygon.address },
+            avalanche: { address: keys.avalanche.address },
+            sui: { address: keys.sui.address },
+            tron: { address: keys.tron.address },
+            zcash: { address: keys.zcash.address }
+        };
+
         const vaultPayload = {
-            wallets: {
-                kaspa: { address: kasAddress, path: "m/44'/111111'/0'/0/0" },
-                bitcoin: { address: btcAddress, path: "m/84'/0'/0'/0/0" },
-                ethereum: { address: ethAddress, path: "m/44'/60'/0'/0/0" },
-                solana: { address: solAddress, path: "m/44'/501'/0'/0'" }
-            },
+            wallets: safeWallets,
             vault: encryptedVault
         };
 
@@ -239,12 +249,7 @@ export async function generateSovereignHoneycomb(password: string) {
             success: true, 
             payload: vaultPayload, 
             mnemonic,
-            addresses: {
-                kaspa: kasAddress,
-                bitcoin: btcAddress,
-                ethereum: ethAddress,
-                solana: solAddress
-            }
+            addresses: safeWallets
         };
 
     } catch (e) {
@@ -257,43 +262,99 @@ export async function generateSovereignHoneycomb(password: string) {
     }
 }
 
-// ============================================================================
-// SOVEREIGN UNLOCK HANDLER
-// ============================================================================
+export async function generateSovereignHoneycomb(password: string) {
+    const randomEntropy = window.crypto.getRandomValues(new Uint8Array(32));
+    const mnemonicObj = ethers.Mnemonic.fromEntropy(randomEntropy);
+    const mnemonic = mnemonicObj.phrase;
+    return await buildAndSecureVault(password, mnemonic, false);
+}
+
+// ⚡ NEW IMPORT PIPELINE EXPORT
+export async function importSovereignVault(password: string, mnemonic: string) {
+    return await buildAndSecureVault(password, mnemonic.trim().toLowerCase(), true);
+}
+
 export async function unlockSovereignVault(password: string) {
     isConnecting.set(true);
     walletMessage.set('Decrypting Vault...');
+    let privateKeyHex = "";
+    
     try {
-        // ⚡ FIX: Pull from permanent localStorage
         const rawPayload = localStorage.getItem('perennia_sovereign_payload');
         if (!rawPayload) throw new Error("No vault found on this device.");
         
         const vaultPayload = JSON.parse(rawPayload);
-        await decryptVault(password, vaultPayload.vault);
+        const mnemonic = await decryptVault(password, vaultPayload.vault);
         
+        // ⚡ AUTO-UPGRADE HOOK: By routing through honeycomb.ts on unlock, 
+        // we automatically upgrade legacy 4-chain sessions to full 11-chain sessions dynamically!
+        const keys = await deriveHoneycombKeys(mnemonic);
+        privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
+        const kasAddress = normalizeKaspaAddress(keys.kaspa.address)!;
+
+        walletMessage.set('Requesting cryptographic handshake...');
+        const challengeRes = await fetch('/api/auth/challenge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: kasAddress })
+        });
+        
+        if (!challengeRes.ok) throw new Error("Failed to secure connection challenge.");
+        const { message } = await challengeRes.json();
+
+        walletMessage.set('Signing identity matrix...');
+        const msgBuf = new TextEncoder().encode(message);
+        const hash = blake2b(msgBuf, { dkLen: 32 });
+        const signatureBytes = schnorr.sign(hash, hexToBytes(privateKeyHex));
+        const signature = bytesToHex(signatureBytes);
+
+        privateKeyHex = "0".repeat(64);
+
+        walletMessage.set('Verifying zero-trust session...');
+        const authRes = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: kasAddress, signature, message, provider: 'sovereign' })
+        });
+
+        if (!authRes.ok) throw new Error("Sovereign authentication rejected by backend.");
+
         walletMessage.set('Hydrating Omni-Chain Balances...');
+        
+        // Inject the newly upgraded 11-chain addresses back into the payload before authorization
+        vaultPayload.wallets = {
+            kaspa: { address: keys.kaspa.address },
+            bitcoin: { address: keys.bitcoin.address },
+            ethereum: { address: keys.ethereum.address },
+            solana: { address: keys.solana.address },
+            doge: { address: keys.doge.address },
+            xrp: { address: keys.xrp.address },
+            polygon: { address: keys.polygon.address },
+            avalanche: { address: keys.avalanche.address },
+            sui: { address: keys.sui.address },
+            tron: { address: keys.tron.address },
+            zcash: { address: keys.zcash.address }
+        };
+
         authorizeSovereignVault(vaultPayload);
         
         return { success: true };
-    } catch (e) {
-        console.error("Decryption failed:", e);
+    } catch (e: any) {
+        console.error("Decryption/Auth failed:", e);
         walletMessage.set('');
-        return { success: false };
+        return { success: false, error: e.message };
     } finally {
+        privateKeyHex = "0".repeat(64);
         isConnecting.set(false);
     }
 }
 
-// ============================================================================
-// JUST-IN-TIME (JIT) DECRYPTION HANDLER
-// ============================================================================
-export async function confirmSovereignTransaction(password: string, destinationAddress: string, amountSompi: number) {
+export async function confirmSovereignTransaction(password: string, destinationAddress: string, amountSompi: number, psbtData?: any) {
     let privateKey = "";
     isConnecting.set(true);
     walletMessage.set('Authorizing Transaction...');
     
     try {
-        // ⚡ FIX: Pull from permanent localStorage
         const rawPayload = localStorage.getItem('perennia_sovereign_payload');
         if (!rawPayload) throw new Error("No vault found on this device.");
         
@@ -301,26 +362,24 @@ export async function confirmSovereignTransaction(password: string, destinationA
         const mnemonic = await decryptVault(password, vaultPayload.vault);
         
         walletMessage.set('Signing Transaction...');
-        const mnemonicObj = ethers.Mnemonic.fromPhrase(mnemonic);
+        const keys = await deriveHoneycombKeys(mnemonic);
         
-        // ⚡ Ethers v6 Root Node Derivation Fix
-        const seed = mnemonicObj.computeSeed();
-        const rootNode = ethers.HDNodeWallet.fromSeed(seed);
-        
-        const kaspaNode = rootNode.derivePath(vaultPayload.wallets.kaspa.path);
-        privateKey = kaspaNode.privateKey;
+        privateKey = keys.kaspa.privateKey;
         if (privateKey.startsWith('0x')) {
             privateKey = privateKey.substring(2);
         }
         
-        // 1. Inject Private Key strictly into the Svelte 5 Rune State (Zero-Trust execution proxy)
         txState.decryptedPrivateKeyHex = privateKey;
         
-        // 2. Denomination Fix: Convert Sompi back to raw KAS before triggering the engine 
-        const amountKas = amountSompi / 100000000;
-        
         walletMessage.set('Broadcasting Sovereign Transaction...');
-        const txId = await executeSovereignTransaction(destinationAddress, amountKas);
+        let txId = "";
+        
+        if (psbtData) {
+            txId = await executeSovereignPSBT(psbtData.psbt, psbtData.formattedUtxos);
+        } else {
+            const amountKas = amountSompi / 100000000;
+            txId = await executeSovereignTransaction(destinationAddress, amountKas);
+        }
         
         isVaultUnlockPending.set(false);
         pendingTransactionDetails.set(null);
@@ -332,16 +391,12 @@ export async function confirmSovereignTransaction(password: string, destinationA
         walletMessage.set('TRANSACTION FAILED.');
         throw e;
     } finally {
-        // Zero-Trust Mandate: Scrub the key from local and global Svelte memory scopes immediately
         privateKey = "0".repeat(64);
         txState.decryptedPrivateKeyHex = ""; 
         isConnecting.set(false);
     }
 }
 
-// ============================================================================
-// EXTENSION POLLING
-// ============================================================================
 async function getKaswareWithRetry(maxAttempts = 10, delayMs = 100): Promise<any> {
     if (typeof window === 'undefined') return null;
     for (let i = 0; i < maxAttempts; i++) {
@@ -364,9 +419,6 @@ function setupKaswareListeners(kasware: any) {
     });
 }
 
-// ============================================================================
-// UNIFIED BALANCE & NETWORK HYDRATION
-// ============================================================================
 export async function updateBalance(maxAttempts = 15, delayMs = 200): Promise<boolean> {
     const type = get(activeWalletType);
     const address = get(walletAddress);
@@ -402,7 +454,7 @@ export async function updateBalance(maxAttempts = 15, delayMs = 200): Promise<bo
                 } else {
                     throw new Error(`Sovereign Fetch Failed: ${res.status}`);
                 }
-            } else if (type === 'walletconnect') {
+            } else if (type === 'walletconnect' || type === 'observer') {
                 networkStatus.set('connected');
                 return true; 
             }
@@ -420,19 +472,39 @@ export async function updateBalance(maxAttempts = 15, delayMs = 200): Promise<bo
     return false;
 }
 
-// ============================================================================
-// CONNECTION HANDLERS WITH ATOMIC STORE SYNCHRONIZATION
-// ============================================================================
 export async function connectKasware() {
     isConnecting.set(true);
-    walletMessage.set('Requesting KasWare signature...');
+    walletMessage.set('Requesting KasWare connection...');
     try {
         const kasware = await getKaswareWithRetry(10, 100);
         if (kasware) {
             const accounts = await kasware.requestAccounts();
             if (accounts && accounts.length > 0) {
-                // Atomic address update BEFORE setting connection state
-                const formattedAddress = normalizeKaspaAddress(accounts[0]);
+                const formattedAddress = normalizeKaspaAddress(accounts[0]) as string;
+                
+                walletMessage.set('Requesting cryptographic handshake...');
+                const challengeRes = await fetch('/api/auth/challenge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: formattedAddress })
+                });
+                
+                if (!challengeRes.ok) throw new Error("Failed to secure connection challenge.");
+                const { message } = await challengeRes.json();
+                
+                walletMessage.set('Awaiting KasWare signature...');
+                const signatureObj = await kasware.signMessage(message);
+                const signature = typeof signatureObj === 'string' ? signatureObj : signatureObj.signature;
+
+                walletMessage.set('Verifying identity matrix...');
+                const authRes = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: formattedAddress, signature, message, provider: 'kasware' })
+                });
+
+                if (!authRes.ok) throw new Error("Backend verification rejected the signature.");
+
                 walletAddress.set(formattedAddress);
                 activeWalletType.set('kasware');
                 
@@ -450,8 +522,9 @@ export async function connectKasware() {
         } else {
             walletMessage.set('KasWare extension not found.');
         }
-    } catch (error) {
-        walletMessage.set('Connection aborted.');
+    } catch (error: any) {
+        console.error("KasWare Connect Error:", error);
+        walletMessage.set(error.message || 'Connection aborted.');
         disconnectWallet();
     } finally {
         isConnecting.set(false);
@@ -490,6 +563,31 @@ export async function connectWalletConnect() {
 
         if (session) {
             const address = session.namespaces.eip155.accounts[0].split(":")[2];
+            
+            walletMessage.set('Requesting cryptographic handshake...');
+            const challengeRes = await fetch('/api/auth/challenge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address })
+            });
+            if (!challengeRes.ok) throw new Error("Failed to secure connection challenge.");
+            const { message } = await challengeRes.json();
+
+            walletMessage.set('Awaiting WalletConnect signature...');
+            const signature = await provider.request({
+                method: "personal_sign",
+                params: [ethers.hexlify(ethers.toUtf8Bytes(message)), address]
+            }, "eip155:1");
+
+            walletMessage.set('Verifying identity matrix...');
+            const authRes = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address, signature, message, provider: 'walletconnect' })
+            });
+
+            if (!authRes.ok) throw new Error("Backend verification rejected the signature.");
+
             walletAddress.set(address);
             activeWalletType.set('walletconnect');
             
@@ -512,14 +610,12 @@ export async function connectWalletConnect() {
 export function authorizeSovereignVault(vaultPayload: any) {
     sovereignKeys.set(vaultPayload.wallets);
     
-    // Explicit address normalization before raising connection flag
     const formattedAddress = normalizeKaspaAddress(vaultPayload.wallets.kaspa.address);
     walletAddress.set(formattedAddress); 
     activeWalletType.set('sovereign');
     
     if (typeof window !== 'undefined') {
         sessionStorage.setItem('perennia_active_wallet_type', 'sovereign');
-        // ⚡ FIX: Save the encrypted vault permanently to localStorage
         localStorage.setItem('perennia_sovereign_payload', JSON.stringify(vaultPayload));
     }
     
@@ -539,6 +635,8 @@ export function disconnectWallet() {
         } catch (e) {}
     }
     
+    fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
+    
     walletAddress.set(null);
     isWalletConnected.set(false);
     activeWalletType.set(null);
@@ -547,17 +645,26 @@ export function disconnectWallet() {
     sovereignKeys.set(null); 
     isVaultUnlockPending.set(false);
     pendingTransactionDetails.set(null);
-    txState.decryptedPrivateKeyHex = ""; // Zero-trust state wipe upon disconnect
+    txState.decryptedPrivateKeyHex = ""; 
     
     if (typeof window !== 'undefined') {
-        // ⚡ FIX: We remove the active session type, but we DO NOT delete the encrypted vault from localStorage.
         sessionStorage.removeItem('perennia_active_wallet_type');
-        // sessionStorage.removeItem('perennia_sovereign_payload'); <-- This line was deleting your vault!
     }
 }
 
 export async function restoreSession() {
     if (typeof window === 'undefined') return;
+    
+    try {
+        const meRes = await fetch('/api/auth/me');
+        if (!meRes.ok) {
+            disconnectWallet();
+            return;
+        }
+    } catch (e) {
+        console.warn("Session validation unreachable.");
+    }
+
     const savedType = sessionStorage.getItem('perennia_active_wallet_type');
     if (!savedType) return;
 
@@ -578,7 +685,6 @@ export async function restoreSession() {
                 }
             }
         } else if (savedType === 'sovereign') {
-            // ⚡ FIX: Pull from permanent localStorage on reload
             const rawPayload = localStorage.getItem('perennia_sovereign_payload');
             if (rawPayload) {
                 const vaultPayload = JSON.parse(rawPayload);
@@ -586,6 +692,15 @@ export async function restoreSession() {
                 walletAddress.set(normalizeKaspaAddress(vaultPayload.wallets.kaspa.address)); 
                 activeWalletType.set('sovereign');
                 
+                await updateBalance(15, 200);
+                isWalletConnected.set(true);
+            }
+        } else if (savedType === 'observer') {
+            const authRes = await fetch('/api/auth/me');
+            if (authRes.ok) {
+                const { address } = await authRes.json();
+                walletAddress.set(address);
+                activeWalletType.set('observer');
                 await updateBalance(15, 200);
                 isWalletConnected.set(true);
             }
@@ -598,11 +713,37 @@ export async function restoreSession() {
 
 export async function connectObserver() {
     walletMessage.set('Observer mode initializing...');
+    
+    const address = prompt("Enter Kaspa Address to Observe:");
+    if (!address) {
+        walletMessage.set('Observer mode aborted.');
+        isConnecting.set(false);
+        return;
+    }
+    
+    const formattedAddress = normalizeKaspaAddress(address);
+    
+    const authRes = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: formattedAddress, provider: 'observer' })
+    });
+
+    if (authRes.ok) {
+        walletAddress.set(formattedAddress);
+        activeWalletType.set('observer');
+        if (typeof window !== 'undefined') {
+            sessionStorage.setItem('perennia_active_wallet_type', 'observer');
+        }
+        await updateBalance(15, 200);
+        isWalletConnected.set(true);
+        showWalletModal.set(false);
+    } else {
+        walletMessage.set('Observer connection rejected.');
+    }
+    isConnecting.set(false);
 }
 
-// ============================================================================
-// OMNI-CHAIN ROUTING EXPORTS
-// ============================================================================
 export async function executeOmniChainSwap(payAsset: string, receiveAsset: string, payAmount: string) {
     const type = get(activeWalletType);
     if (payAsset === 'KAS') {

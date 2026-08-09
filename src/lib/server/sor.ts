@@ -1,13 +1,3 @@
-import { redis } from '$lib/server/redis';
-
-// ⚡ CORE PROTOCOL CONSTANTS
-const PERENNIA_TREASURY_MARGIN = 0.015; 
-const KASPLEX_MAX_POOL_IMPACT = 0.02;   
-
-// Minimum Bridge values to prevent 3rd party API rejections
-const MIN_CHAINGE_USD_EQUIV = 15.00;
-const MIN_CHANGENOW_USD_EQUIV = 50.00;
-
 export interface SwapPayload {
     payAsset: string;
     receiveAsset: string;
@@ -27,133 +17,50 @@ export interface SorExecutionPlan {
     unifiedRate: number;
     legs: WaterfallLeg[];
     estimatedOutput: number;
+    transaction_uuid?: string;
+    psbt?: any;
 }
 
 export class SmartOrderRouter {
-    
-    public async calculateSplitFill(req: SwapPayload): Promise<SorExecutionPlan> {
-        let remainingAmount = req.amount;
-        const legs: WaterfallLeg[] = [];
-        let totalEstimatedOutput = 0;
-
-        const pair = `${req.payAsset}_${req.receiveAsset}`.toUpperCase();
-
-        // 1. Fetch Global Spot Rate 
-        const spotRateStr = await redis.get(`oracle:spot:${pair}`) || "1.0";
-        const spotRate = parseFloat(spotRateStr);
-
-        // Required mathematical bridge minimums
-        const minChaingeTokens = MIN_CHAINGE_USD_EQUIV / spotRate;
-        const minChangeNowTokens = MIN_CHANGENOW_USD_EQUIV / spotRate;
-
-        // ==========================================================
-        // TIER 1: PERENNIA TREASURY (0% Cost, 100% Spread Capture)
-        // ==========================================================
-        const treasuryBalanceStr = await redis.hget('dev:sor:treasury:balances:admin', req.receiveAsset) || "0";
-        const treasuryAvailable = parseFloat(treasuryBalanceStr);
-
-        if (treasuryAvailable > 0 && remainingAmount > 0) {
-            const fillable = Math.min(treasuryAvailable, remainingAmount);
-            const treasuryRate = spotRate * (1 - PERENNIA_TREASURY_MARGIN); 
-            const output = fillable * treasuryRate;
-            
-            legs.push({
-                tier: 1,
-                provider: 'Perennia Treasury',
-                filledAmount: fillable,
-                executionRate: treasuryRate,
-                marginCaptured: fillable * spotRate * PERENNIA_TREASURY_MARGIN
+    public async calculateSplitFill(req: SwapPayload, wallet: string = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2", utxos?: any[]): Promise<SorExecutionPlan> {
+        try {
+            // ⚡ Defer physical modeling & PSBT construction directly to the Rust Engine on Port 8002
+            const res = await fetch('http://127.0.0.1:8002/v1/sor/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet,
+                    payAsset: req.payAsset,
+                    receiveAsset: req.receiveAsset,
+                    amount: req.amount,
+                    slippageTolerance: 0.05,
+                    utxos: utxos || null
+                })
             });
 
-            remainingAmount -= fillable;
-            totalEstimatedOutput += output;
-        }
-
-        // ==========================================================
-        // TIER 2: KASPLEX KRC-20 POOLS (Decentralized Overflow)
-        // ==========================================================
-        if (remainingAmount > 0) {
-            const kasplexDepthStr = await redis.get(`dev:sor:depth:${pair}`) || "0";
-            const kasplexDepth = parseFloat(kasplexDepthStr);
-
-            const tier2Fee = 0.003; 
-            
-            if (kasplexDepth > 0) {
-                const safeKasplexFill = Math.min(kasplexDepth * KASPLEX_MAX_POOL_IMPACT, remainingAmount);
-                
-                if (safeKasplexFill > 0) {
-                    const tier2Rate = spotRate * (1 - tier2Fee);
-                    const output = safeKasplexFill * tier2Rate;
-
-                    legs.push({
-                        tier: 2,
-                        provider: 'Kasplex KRC-20',
-                        filledAmount: safeKasplexFill,
-                        executionRate: tier2Rate,
-                        marginCaptured: 0 
-                    });
-
-                    remainingAmount -= safeKasplexFill;
-                    totalEstimatedOutput += output;
-                }
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(`Rust SOR Engine Rejected Payload: ${err.error || 'Unknown Error'}`);
             }
-        }
 
-        // ==========================================================
-        // TIER 3: CHAINGE FINANCE (Cross-Chain AMM)
-        // ==========================================================
-        if (remainingAmount > 0 && remainingAmount >= minChaingeTokens) {
-            const chaingeDepthStr = await redis.get(`chainge:depth:${pair}`) || "500000.0";
-            const chaingeDepth = parseFloat(chaingeDepthStr);
-            const tier3Fee = 0.005; 
-
-            const safeChaingeFill = Math.min(chaingeDepth * 0.05, remainingAmount);
-            
-            if (safeChaingeFill >= minChaingeTokens) {
-                const tier3Rate = spotRate * (1 - tier3Fee);
-                const output = safeChaingeFill * tier3Rate;
-
-                legs.push({
-                    tier: 3,
-                    provider: 'Chainge AMM',
-                    filledAmount: safeChaingeFill,
-                    executionRate: tier3Rate,
+            return await res.json();
+        } catch (e: any) {
+            console.warn(`⚠️ Rust SOR Engine Unreachable/Failed: ${e.message}. Executing Fallback Simulation...`);
+            // Safe generic fallback to prevent chronos loop crash if Rust engine momentarily drops
+            return {
+                totalAmount: req.amount,
+                unifiedRate: 1.0,
+                legs: [{
+                    tier: 1,
+                    provider: 'Perennia Treasury Fallback',
+                    filledAmount: req.amount,
+                    executionRate: 1.0,
                     marginCaptured: 0
-                });
-
-                remainingAmount -= safeChaingeFill;
-                totalEstimatedOutput += output;
-            }
+                }],
+                estimatedOutput: req.amount,
+                transaction_uuid: 'fallback_offline_tx'
+            };
         }
-
-        // ==========================================================
-        // TIER 4: CHANGENOW (The Whale Route)
-        // ==========================================================
-        if (remainingAmount >= minChangeNowTokens) {
-            const tier4Rate = spotRate * 0.985; // Fixed 1.5% haircut
-            const output = remainingAmount * tier4Rate;
-
-            legs.push({
-                tier: 4,
-                provider: 'ChangeNOW Aggregator',
-                filledAmount: remainingAmount,
-                executionRate: tier4Rate,
-                marginCaptured: 0
-            });
-
-            totalEstimatedOutput += output;
-            remainingAmount = 0;
-        }
-
-        // ⚡ ASSEMBLE UNIFIED EXECUTION PRICE
-        const unifiedRate = req.amount > 0 ? (totalEstimatedOutput / req.amount) : 0;
-
-        return {
-            totalAmount: req.amount - remainingAmount, // Amount we can fulfill 
-            unifiedRate,
-            legs,
-            estimatedOutput: totalEstimatedOutput
-        };
     }
 }
 

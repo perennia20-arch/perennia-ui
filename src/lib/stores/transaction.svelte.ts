@@ -1,7 +1,7 @@
 // ================================================================================
 // PERENNIA SOVEREIGN TRANSACTION ENGINE // ZERO-TRUST // PURE SILICON
 // ================================================================================
-import { blake2b } from '@noble/hashes/blake2.js'; // <-- PATCHED ESM PATH
+import { blake2b } from '@noble/hashes/blake2.js'; 
 import { schnorr } from '@noble/curves/secp256k1.js';
 
 // ============================================================================
@@ -17,7 +17,7 @@ class TransactionEngineState {
     // Brutalist UI Overlay Adherence via Svelte 5 Class Getter
     get overlayClass() {
         return this.isBroadcasting 
-            ? "fixed inset-0 z-50 flex items-center justify-center bg-[#0a0a0a] bg-opacity-95 font-mono text-white font-bold tracking-widest uppercase transition-none" 
+            ? "fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a] bg-opacity-95 font-mono text-white font-bold tracking-widest uppercase transition-none" 
             : "hidden";
     }
 }
@@ -74,10 +74,7 @@ function concatBytes(...arrays: Uint8Array[]): Uint8Array {
     return res;
 }
 
-// ============================================================================
-// III. NATIVE BASE32 DECODER & SCRIPT COMPILER
-// ============================================================================
-function decodeAddressToPubkey(address: string): Uint8Array {
+export function decodeAddressToPubkey(address: string): Uint8Array {
     const parts = address.split(':');
     if (parts.length !== 2) throw new Error("ERR_INVALID_ADDRESS_FORMAT");
     
@@ -109,6 +106,109 @@ function decodeAddressToPubkey(address: string): Uint8Array {
 // ============================================================================
 // IV. SOVEREIGN EXECUTION & SIGHASH CASCADE PIPELINE
 // ============================================================================
+// ⚡ This function now takes a pre-assembled, unsigned PSBT from the Chronos engine,
+// signs it locally in the browser, and fires it directly to the broadcast proxy.
+export async function executeSovereignPSBT(unsignedTx: any, utxoReferenceData: any[]): Promise<string> {
+    if (!txState.decryptedPrivateKeyHex) throw new Error("ERR_VAULT_LOCKED");
+    txState.isBroadcasting = true;
+    txState.error = "";
+
+    try {
+        const privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
+        const tx = JSON.parse(JSON.stringify(unsignedTx)); // Clone the incoming transaction
+
+        // 1. BIP-143 Hash Cascades
+        const prevOutsHash = blake2b(concatBytes(...tx.inputs.map((i: any) => concatBytes(
+            hexToBytes(i.previousOutpoint.transactionId),
+            writeUint32LE(i.previousOutpoint.index)
+        ))), { dkLen: 32 });
+
+        const sequencesHash = blake2b(concatBytes(...tx.inputs.map((i: any) => writeBigUint64LE(BigInt(i.sequence)))), { dkLen: 32 });
+        const sigOpCountsHash = blake2b(concatBytes(...tx.inputs.map((i: any) => new Uint8Array([i.sigOpCount]))), { dkLen: 32 });
+
+        const outputsHash = blake2b(concatBytes(...tx.outputs.map((o: any) => {
+            const spkBytes = hexToBytes(o.scriptPublicKey);
+            return concatBytes(
+                writeBigUint64LE(BigInt(o.amount)),
+                writeUint16LE(0), // Script Version
+                writeBigUint64LE(BigInt(spkBytes.length)),
+                spkBytes
+            );
+        })), { dkLen: 32 });
+
+        const subnetworkIdBytes = new Uint8Array(20); // 40-zero string -> 20 zero bytes
+        const payloadHash = new Uint8Array(32); 
+
+        // 2. Schnorr Cryptographic Pipeline Execution
+        for (let i = 0; i < tx.inputs.length; i++) {
+            const input = tx.inputs[i];
+            const utxo = utxoReferenceData.find(u => u.transactionId === input.previousOutpoint.transactionId && u.index === input.previousOutpoint.index);
+            
+            if (!utxo) throw new Error(`ERR_MISSING_UTXO_REFERENCE_FOR_INPUT_${i}`);
+            
+            const spkHex = utxo.scriptPublicKey;
+            const amt = BigInt(utxo.amount);
+            const spkBytes = hexToBytes(spkHex);
+            
+            const sigHashData = concatBytes(
+                writeUint16LE(tx.version),
+                prevOutsHash,
+                sequencesHash,
+                sigOpCountsHash,
+                hexToBytes(input.previousOutpoint.transactionId),
+                writeUint32LE(input.previousOutpoint.index),
+                writeUint16LE(0), // Script Version
+                writeBigUint64LE(BigInt(spkBytes.length)),
+                spkBytes,
+                writeBigUint64LE(amt),
+                writeBigUint64LE(BigInt(input.sequence)),
+                new Uint8Array([input.sigOpCount]),
+                outputsHash,
+                writeBigUint64LE(BigInt(tx.lockTime)),
+                subnetworkIdBytes,
+                writeBigUint64LE(BigInt(tx.gas)),
+                payloadHash,
+                new Uint8Array([SIGHASH_ALL])
+            );
+
+            // Domain-Keyed Blake2b Hash
+            const sighash = blake2b(sigHashData, { dkLen: 32, key: TX_SIGNING_KEY });
+            const signature = schnorr.sign(sighash, privKeyBytes);
+            
+            // 0x41 (Push 65 Bytes) + 64-byte Sig + 0x01 (SIGHASH_ALL)
+            input.signatureScript = `41${bytesToHex(signature)}01`;
+        }
+
+        // Clean outputs for broadcasting
+        for (const output of tx.outputs) {
+            delete output._metadata;
+        }
+
+        // 3. Push finalized payload to Blind Proxy Node Mempool
+        const broadcastRes = await fetch('/api/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction: tx })
+        });
+
+        if (!broadcastRes.ok) {
+            const errData = await broadcastRes.json().catch(() => ({}));
+            throw new Error(`ERR_BROADCAST_REJECTED: ${errData.error || 'Node refused payload'}`);
+        }
+
+        const resData = await broadcastRes.json();
+        txState.lastTxId = resData.transactionId || resData.id;
+        return txState.lastTxId;
+
+    } catch (e: any) {
+        txState.error = e.message;
+        throw e;
+    } finally {
+        txState.isBroadcasting = false;
+        txState.decryptedPrivateKeyHex = "";
+    }
+}
+
 export async function executeSovereignTransaction(destinationAddress: string, amountKas: number): Promise<string> {
     if (!txState.decryptedPrivateKeyHex) throw new Error("ERR_VAULT_LOCKED");
     txState.isBroadcasting = true;
@@ -119,13 +219,15 @@ export async function executeSovereignTransaction(destinationAddress: string, am
         const myPubKeyBytes = schnorr.getPublicKey(privKeyBytes);
         const sourceScriptHex = `20${bytesToHex(myPubKeyBytes)}ac`;
 
-        // 1. Memory-Mapped UTXO Fetch via CommonJS Proxy
-        const utxoRes = await fetch(`/api/utxos`);
-        if (!utxoRes.ok) throw new Error("ERR_UTXO_PROXY_UNREACHABLE");
-        const utxoData = await utxoRes.json();
-        const utxos = Array.isArray(utxoData) ? utxoData : utxoData.utxos || [];
+        const meRes = await fetch('/api/auth/me');
+        if (!meRes.ok) throw new Error("ERR_LOST_SESSION");
+        const { address: myAddress } = await meRes.json();
 
-        // 2. Mass Optimizer (Largest UTXOs first) & Output Allocation
+        const utxoFetchRes = await fetch(`/api/utxos?address=${encodeURIComponent(myAddress)}`);
+        if (!utxoFetchRes.ok) throw new Error("ERR_UTXO_PROXY_UNREACHABLE");
+        const utxoData = await utxoFetchRes.json();
+        const utxos = Array.isArray(utxoData) ? utxoData : utxoData.entries || [];
+
         const targetSompi = BigInt(Math.floor(amountKas * 1e8));
         const sortedUtxos = [...utxos].sort((a, b) => {
             const amtA = BigInt(a.amount ?? a.utxoEntry?.amount ?? 0);
@@ -156,7 +258,6 @@ export async function executeSovereignTransaction(destinationAddress: string, am
         const destPubKey = decodeAddressToPubkey(destinationAddress);
         const destScriptHex = `20${bytesToHex(destPubKey)}ac`;
 
-        // 3. Strict JSON Type Assembly (Flattened strings, pure integers)
         const txInputs = selectedUtxos.map(u => {
             const txId = u.outpoint?.transactionId ?? u.transactionId;
             const index = u.outpoint?.index ?? u.index;
@@ -197,7 +298,6 @@ export async function executeSovereignTransaction(destinationAddress: string, am
             storageMass: 0
         };
 
-        // 4. BIP-143 Hash Cascades
         const prevOutsHash = blake2b(concatBytes(...tx.inputs.map(i => concatBytes(
             hexToBytes(i.previousOutpoint.transactionId),
             writeUint32LE(i.previousOutpoint.index)
@@ -210,16 +310,15 @@ export async function executeSovereignTransaction(destinationAddress: string, am
             const spkBytes = hexToBytes(o.scriptPublicKey);
             return concatBytes(
                 writeBigUint64LE(BigInt(o.amount)),
-                writeUint16LE(0), // Script Version
+                writeUint16LE(0),
                 writeBigUint64LE(BigInt(spkBytes.length)),
                 spkBytes
             );
         })), { dkLen: 32 });
 
-        const subnetworkIdBytes = new Uint8Array(20); // 40-zero string -> 20 zero bytes
+        const subnetworkIdBytes = new Uint8Array(20); 
         const payloadHash = new Uint8Array(32); 
 
-        // 5. Schnorr Cryptographic Pipeline Execution
         for (let i = 0; i < tx.inputs.length; i++) {
             const input = tx.inputs[i];
             const utxo = selectedUtxos[i];
@@ -236,7 +335,7 @@ export async function executeSovereignTransaction(destinationAddress: string, am
                 sigOpCountsHash,
                 hexToBytes(input.previousOutpoint.transactionId),
                 writeUint32LE(input.previousOutpoint.index),
-                writeUint16LE(0), // Script Version
+                writeUint16LE(0),
                 writeBigUint64LE(BigInt(spkBytes.length)),
                 spkBytes,
                 writeBigUint64LE(amt),
@@ -250,24 +349,21 @@ export async function executeSovereignTransaction(destinationAddress: string, am
                 new Uint8Array([SIGHASH_ALL])
             );
 
-            // Domain-Keyed Blake2b Hash
             const sighash = blake2b(sigHashData, { dkLen: 32, key: TX_SIGNING_KEY });
             const signature = schnorr.sign(sighash, privKeyBytes);
             
-            // 0x41 (Push 65 Bytes) + 64-byte Sig + 0x01 (SIGHASH_ALL)
             input.signatureScript = `41${bytesToHex(signature)}01`;
         }
 
-        // 6. Push finalized payload to Blind Proxy Node Mempool
         const broadcastRes = await fetch('/api/broadcast', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction: tx })
+            body: JSON.stringify({ transaction: tx }) 
         });
 
         if (!broadcastRes.ok) {
-            const errText = await broadcastRes.text();
-            throw new Error(`ERR_BROADCAST_REJECTED: ${errText}`);
+            const errData = await broadcastRes.json().catch(() => ({}));
+            throw new Error(`ERR_BROADCAST_REJECTED: ${errData.error || 'Node refused payload'}`);
         }
 
         const resData = await broadcastRes.json();
@@ -279,5 +375,6 @@ export async function executeSovereignTransaction(destinationAddress: string, am
         throw e;
     } finally {
         txState.isBroadcasting = false;
+        txState.decryptedPrivateKeyHex = "0".repeat(64);
     }
 }

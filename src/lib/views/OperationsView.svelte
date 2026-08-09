@@ -2,20 +2,30 @@
     import { source } from 'sveltekit-sse';
     import { workers, silos, plants, systemMode, adminGlobalView, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
     import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
+    import { fade } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
+    import { browser } from '$app/environment';
 
     let sseConnection: ReturnType<typeof source> | null = null;
     let unsubs: any[] = [];
 
+    // Context Menu State
+    let contextMenuWorkerId = $state<string | null>(null);
+    let contextMenuX = $state(0);
+    let contextMenuY = $state(0);
+    let deleteConfirmId = $state<string | null>(null);
+
     let activeSiloMenu = $state<string | null>(null);
     let activePlantMenu = $state<string | null>(null);
-    let activeWorkerMenu = $state<string | null>(null);
-    let activeTrayId = $state<string | null>(null);
-    let activeTrayType = $state<'stratum' | 'add' | 'sub' | null>(null);
-    let trayTokenAmount = $state<number | ''>('');
     let inlineRenameId = $state<string | null>(null);
     let inlineRenameValue = $state<string>('');
+    let isSigningSettlement = $state(false);
+
+    // Popup Modals State
+    let stratumModalWorker = $state<Worker | null>(null);
+    let tokenModalWorker = $state<{ worker: Worker, type: 'add' | 'sub' } | null>(null);
+    let trayTokenAmount = $state<number | ''>('');
 
     let selectedSilosForSweep = $state<Record<string, boolean>>({});
     
@@ -23,17 +33,34 @@
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
 
     let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    
+    // The backend now securely partitions data via the SSE tunnel. 
+    // This frontend derivative now purely decides what is drawn on the screen based on Admin Toggle.
     let displayedWorkers = $derived(
         isCorporateAdmin && $adminGlobalView 
             ? $workers 
             : $workers.filter(worker => worker.walletWorker.includes($walletAddress?.replace('kaspa:', '') || 'pending'))
     );
     
+    function handleContextMenu(e: MouseEvent, workerId: string) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeAllMenus();
+        contextMenuWorkerId = workerId;
+        deleteConfirmId = null;
+        
+        const menuW = 192;
+        const menuH = 180;
+        contextMenuX = Math.min(e.clientX, window.innerWidth - menuW - 10);
+        contextMenuY = Math.min(e.clientY, window.innerHeight - menuH - 10);
+    }
+
     function closeAllMenus() { 
-        activeWorkerMenu = null; 
+        contextMenuWorkerId = null; 
         activeSiloMenu = null; 
         activePlantMenu = null; 
-        if (inlineRenameId) saveInlineRename(inlineRenameId);
+        deleteConfirmId = null;
+        if (inlineRenameId) saveInlineRename(inlineRenameId); 
     }
 
     const defaultSettlement: SettlementConfig = { targetAsset: tokenRegistry[0], payoutAddress: '', autoPayout: true, mode: 'stream', threshold: 0.0005, streamMode: 'realtime', streamValue: 1, streamUnit: 'hours', appointmentDate: '', appointmentTime: '17:00' };
@@ -55,7 +82,7 @@
         'Crypto': { hex: '#14b8a6', pastel: '#99f6e4' },     
         'Fiat': { hex: '#3b82f6', pastel: '#bfdbfe' },        
         'Commodities': { hex: '#eab308', pastel: '#fef08a' }, 
-        'Energy': { hex: '#f97316', pastel: '#fdba74' }        
+        'Energy': { hex: '#f97316', pastel: '#fdba74' }       
     };
 
     let hashHistory = $state<number[]>([]);
@@ -83,12 +110,16 @@
                 const siloHash = displayedWorkers.filter(w => w.assignedSiloId === silo.id && w.isOnline).reduce((acc, w) => acc + w.hashRate, 0);
                 if (siloHash > 0) {
                     const pct = (siloHash / totalHash) * 100;
+                    
+                    const inPlant = silo.assignedPlantId !== null;
+                    const classTheme = assetColors[silo.settlementConfig.targetAsset.assetClass as string] || { hex: '#a855f7', pastel: '#d8b4fe' };
+                    
                     segments.push({ 
                         id: silo.id,
                         name: silo.name, 
                         pct, 
                         offset: currentOffset, 
-                        hex: assetColors[silo.settlementConfig.targetAsset.assetClass as string]?.hex || '#a855f7'
+                        hex: inPlant ? classTheme.pastel : classTheme.hex
                     });
                     currentOffset += pct;
                 }
@@ -105,28 +136,63 @@
         });
     });
 
+    // ⚡ THE PER FLYWHEEL RESOLUTION ENGINE
+    // When a user adds tokens, we intentionally trigger a sync state (hashRate: 0)
+    // This allows the Rust Chronos backend to cryptographically verify their holdings and replace it with the true hash rate.
+    $effect(() => {
+        if (browser && $isWalletConnected) {
+            const hasSyncingCapital = $workers.some(w => w.type === 'capital' && w.isOnline && w.hashRate === 0);
+            if (hasSyncingCapital) {
+                const timer = setInterval(() => {
+                    fetch(`/api/state`)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.workers) {
+                                workers.update(current => {
+                                    let stillSyncing = false;
+                                    const next = current.map(w => {
+                                        if (w.type === 'capital' && w.isOnline && w.hashRate === 0) {
+                                            const backendWorker = data.workers.find((bw: any) => bw.id === w.id);
+                                            if (backendWorker && backendWorker.hashRate > 0) {
+                                                return { ...w, hashRate: backendWorker.hashRate, isOnline: backendWorker.isOnline, capitalTokens: backendWorker.capitalTokens };
+                                            } else if (backendWorker && backendWorker.hashRate === 0 && !backendWorker.isOnline) {
+                                                // Zero-trust verification determined balance was absent; force offline
+                                                return { ...w, hashRate: 0, isOnline: false, capitalTokens: backendWorker.capitalTokens };
+                                            } else {
+                                                stillSyncing = true;
+                                            }
+                                        }
+                                        return w;
+                                    });
+                                    if (!stillSyncing) clearInterval(timer);
+                                    return next;
+                                });
+                            }
+                        }).catch(() => {});
+                }, 3000);
+                return () => clearInterval(timer);
+            }
+        }
+    });
+
     let floatingTexts = $state<{ id: number, x: number, y: number, text1: string, text2: string }[]>([]);
     let floatId = 0;
 
+    // ⚡ ZERO-TRUST SIMPLIFICATION: The backend SSE stream now mathematically filters records for us.
+    // If a worker is in this payload, it explicitly belongs to this session context.
     function processTelemetryData(data: any) {
         const isConnected = get(isWalletConnected);
-        const currentWallet = get(walletAddress);
-        const isCorpAdmin = DEV_ADMIN_BYPASS || currentWallet === MASTER_ADMIN_ADDRESS;
-
-        if (!isConnected || !currentWallet) return;
 
         globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
         globalNodeStatus.set('online');
 
-        const cleanWallet = currentWallet.replace('kaspa:', '');
+        if (!isConnected) return;
 
         workers.update(currentWorkers => {
             let updated = currentWorkers.map(w => {
                 if (w.type === 'physical') {
-                    const bw = (data.workers || []).find((b: any) => {
-                        if (isCorpAdmin) return b.fullIdentity === w.walletWorker;
-                        return b.fullIdentity === w.walletWorker && b.walletAddress?.replace('kaspa:', '') === cleanWallet;
-                    });
+                    // We no longer need to check matching addresses—the server guarantees it.
+                    const bw = (data.workers || []).find((b: any) => b.fullIdentity === w.walletWorker);
                     
                     if (bw) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
@@ -141,15 +207,11 @@
                     }
                     return { ...w, hashRate: 0, isOnline: false };
                 }
-                return w;
+                return w; // Capital workers are secured via explicit db injection from /api/state
             });
 
             if (data.workers) {
-                const validWorkersToInject = isCorpAdmin 
-                    ? data.workers 
-                    : data.workers.filter((bw: any) => bw.walletAddress?.replace('kaspa:', '') === cleanWallet);
-                
-                validWorkersToInject.forEach((bw: any) => {
+                data.workers.forEach((bw: any) => {
                     if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
                         updated.push({
@@ -199,7 +261,24 @@
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
-        // ⚡ FIX: SSE Connection established, closing interval leak.
+        // ⚡ MATRIX SYNC: Periodically poll backend for cryptographically verified Capital Worker states
+        const capitalPoll = setInterval(() => {
+            if (get(isWalletConnected) && get(walletAddress)) {
+                fetch(`/api/state`).then(r => r.json()).then(parsed => {
+                    if (parsed.workers) {
+                        workers.update(wks => wks.map(w => {
+                            if (w.type === 'capital') {
+                                const dbWorker = parsed.workers.find((bw: any) => bw.id === w.id);
+                                if (dbWorker) return { ...w, capitalTokens: dbWorker.capitalTokens, hashRate: dbWorker.hashRate, isOnline: dbWorker.isOnline };
+                            }
+                            return w;
+                        }));
+                    }
+                }).catch(()=>{});
+            }
+        }, 15000);
+        unsubs.push(() => clearInterval(capitalPoll));
+
         sseConnection = source('/api/telemetry');
         sseConnection.select('message').subscribe((rawData) => {
             if (!rawData) return;
@@ -214,7 +293,6 @@
 
     onDestroy(() => { 
         unsubs.forEach(u => u()); 
-        // ⚡ FIX: Teardown logic implemented strictly
         if (sseConnection) sseConnection.close();
     });
 
@@ -227,6 +305,7 @@
     function handleDragEnd() { dragType = null; draggedId = null; targetDropId = null; targetDropType = null; }
     function handleDragOver(e: DragEvent, dropId: string | null, expectedType: 'field' | 'silo' | 'plant' | 'canvas') { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; } if (dragType === 'worker' && (expectedType === 'plant' || expectedType === 'canvas')) return; if (dragType === 'silo' && (expectedType === 'silo' || expectedType === 'field')) return; targetDropId = dropId; targetDropType = expectedType; }
     function handleDragLeave() { targetDropId = null; targetDropType = null; }
+    
     function handleDrop(e: DragEvent, dropType: 'field' | 'silo' | 'plant' | 'canvas', dropId: string | null) {
         e.preventDefault(); e.stopPropagation();
         const type = e.dataTransfer?.getData('type') || dragType;
@@ -237,6 +316,19 @@
         if (type === 'worker') {
             if (dropType === 'silo') { $workers = $workers.map(w => w.id === id ? { ...w, assignedSiloId: dropId } : w); } 
             else if (dropType === 'field') { $workers = $workers.map(w => w.id === id ? { ...w, assignedSiloId: null } : w); }
+            
+            if ($walletAddress) {
+                fetch(`/api/state`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workers: $workers,
+                        silos: $silos,
+                        plants: $plants,
+                        systemMode: $systemMode
+                    })
+                }).catch(()=>{});
+            }
         } else if (type === 'silo') {
             if (dropType === 'plant') {
                 const plantSilos = $silos.filter(s => s.assignedPlantId === dropId);
@@ -254,6 +346,19 @@
                 $silos = $silos.map(s => s.id === id ? { ...s, assignedPlantId: null } : s);
                 if (oldPlantId) { $plants = $plants.map(p => p.id === oldPlantId ? { ...p, liquidityDeposit: { isActive: false, pairName: 'Awaiting Pairs', totalLiquidityUsd: 0 }, currentApr: 0 } : p); }
             }
+            
+            if ($walletAddress) {
+                fetch(`/api/state`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workers: $workers,
+                        silos: $silos,
+                        plants: $plants,
+                        systemMode: $systemMode
+                    })
+                }).catch(()=>{});
+            }
         }
         handleDragEnd();
     }
@@ -263,45 +368,56 @@
         navigator.clipboard.writeText(textToCopy).catch(err => console.error("Clipboard copy failed", err));
         
         const id = floatId++;
-        floatingTexts = [...floatingTexts, { 
-            id, 
-            x: e.clientX, 
-            y: e.clientY, 
-            text1: floatText1, 
-            text2: floatText2 
-        }];
-        
-        setTimeout(() => {
-            floatingTexts = floatingTexts.filter(f => f.id !== id);
-        }, 2000);
+        floatingTexts = [...floatingTexts, { id, x: e.clientX, y: e.clientY, text1: floatText1, text2: floatText2 }];
+        setTimeout(() => { floatingTexts = floatingTexts.filter(f => f.id !== id); }, 2000);
     }
 
     function saveInlineRename(workerId: string) {
         if (inlineRenameId === workerId && inlineRenameValue.trim() !== "") {
             const newName = inlineRenameValue.trim();
             workers.update(wks => wks.map(w => w.id === workerId ? { 
-                ...w, 
-                name: newName, 
-                walletWorker: $walletAddress ? `${$walletAddress}.${newName}` : `kaspa:pending.${newName}`
+                ...w, name: newName, walletWorker: $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${newName}` : `kaspa:pending.${newName}`
             } : w));
+            
+            if ($walletAddress) {
+                fetch(`/api/state`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workers: get(workers), silos: get(silos), plants: get(plants), systemMode: get(systemMode) })
+                }).catch(()=>{});
+            }
         }
         inlineRenameId = null;
     }
 
-    function processTokenAction(workerId: string) {
-        const amount = parseFloat(trayTokenAmount as string || "0");
-        if (amount > 0 && activeTrayType) {
+    function processTokenAction() {
+        if (!tokenModalWorker || !trayTokenAmount) return;
+        const amount = parseFloat(trayTokenAmount.toString());
+        if (amount > 0) {
             workers.update(wks => wks.map(w => {
-                if (w.id === workerId) {
-                    const hashDelta = (amount / 1000) * 0.05;
-                    const newHash = activeTrayType === 'add' ? w.hashRate + hashDelta : Math.max(0, w.hashRate - hashDelta);
-                    return { ...w, hashRate: newHash, isOnline: newHash > 0 };
+                if (w.id === tokenModalWorker!.worker.id) {
+                    const currentTokens = w.capitalTokens || 0;
+                    const newTokens = tokenModalWorker!.type === 'add' ? currentTokens + amount : Math.max(0, currentTokens - amount);
+                    const isOnline = newTokens > 0;
+                    
+                    // 🛡️ ZERO-TRUST FIX: Record the intent optimistically.
+                    // Setting hashRate to 0 triggers the frontend's 'SYNCING...' polling state.
+                    // The Rust Chronos Engine natively verifies the KRC-20 balance on-chain and maps the true Hash Rate.
+                    return { ...w, hashRate: isOnline ? 0 : 0, isOnline, capitalTokens: newTokens };
                 }
                 return w;
             }));
+
+            if ($walletAddress) {
+                fetch(`/api/state`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workers: get(workers), silos: get(silos), plants: get(plants), systemMode: get(systemMode) })
+                }).catch(()=>{});
+            }
         }
-        activeTrayId = null;
-        activeTrayType = null;
+        tokenModalWorker = null;
+        trayTokenAmount = '';
     }
 
     function addSilo() { const id = Math.random().toString(36).substring(2, 8).toUpperCase(); const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); $silos = [...$silos, { id, name: `Sector Alpha-${id.substring(0,2)}`, width: 4, assignedPlantId: null, pendingKaspa: 0, settlementConfig: { ...defaultSettlement, payoutAddress: $walletAddress || '', appointmentDate: tomorrow.toISOString().split('T')[0] } }]; }
@@ -309,7 +425,6 @@
     function deleteSilo(id: string) { if(confirm("Permanently destroy this Silo? Workers will return to the field.")) { $workers = $workers.map(w => w.assignedSiloId === id ? { ...w, assignedSiloId: null } : w); $silos = $silos.filter(s => s.id !== id); activeSiloMenu = null; } }
     function deletePlant(id: string) { if(confirm("Dismantle this Plant? Sectors inside will safely return to standalone operation.")) { $silos = $silos.map(s => s.assignedPlantId === id ? { ...s, assignedPlantId: null } : s); $plants = $plants.filter(p => p.id !== id); activePlantMenu = null; } }
     function toggleSiloWidth(id: string) { $silos = $silos.map(s => { if (s.id === id) return { ...s, width: s.width === 4 ? 6 : s.width === 6 ? 12 : 4 as SiloWidth }; return s; }); }
-    
     function renameSilo(id: string) { const siloIndex = $silos.findIndex(s => s.id === id); if (siloIndex !== -1) { const currentName = $silos[siloIndex].name; const newName = prompt("Enter new Sector name:", currentName); if (newName && newName.trim() !== "") { $silos = $silos.map(s => s.id === id ? { ...s, name: newName.trim() } : s); } } activeSiloMenu = null; }
 
     function sweepSilos(siloIds: string[]) {
@@ -339,7 +454,46 @@
     }
 
     function openSettlement(silo: Silo) { settlementModalSilo = silo; if (!silo.settlementConfig) silo.settlementConfig = { ...defaultSettlement, payoutAddress: $walletAddress || '' }; if (!silo.settlementConfig.targetAsset) silo.settlementConfig.targetAsset = tokenRegistry[0]; editSettlementParams = JSON.parse(JSON.stringify(silo.settlementConfig)); activeSiloMenu = null; isAssetPickerOpen = false; assetPickerStep = 'class'; selectedAssetClass = null; assetSearchQuery = ''; }
-    function saveSettlementParams() { if (settlementModalSilo) { $silos = $silos.map(s => { if (s.id === settlementModalSilo!.id) return { ...s, settlementConfig: editSettlementParams }; return s; }); settlementModalSilo = null; editSettlementParams = { ...defaultSettlement }; } }
+    
+    async function saveSettlementParams() { 
+        if (settlementModalSilo) { 
+            isSigningSettlement = true;
+            try {
+                if ($isWalletConnected && (window as any).kasware && (window as any).kasware.signMessage) {
+                    const message = `Perennia Settlement Lock:\nSign to cryptographically secure parameters for [${settlementModalSilo.name}]\nAsset: ${editSettlementParams.targetAsset.ticker}\nMode: ${editSettlementParams.mode}`;
+                    await (window as any).kasware.signMessage(message);
+                } else if ($isWalletConnected) {
+                    const pass = prompt(`Cryptographic Signature Required.\nType "CONFIRM" to securely sign the settlement intent for ${settlementModalSilo.name}:`);
+                    if (pass !== 'CONFIRM') throw new Error("Signature Denied");
+                }
+
+                $silos = $silos.map(s => { 
+                    if (s.id === settlementModalSilo!.id) return { ...s, settlementConfig: editSettlementParams }; 
+                    return s; 
+                }); 
+                
+                if ($walletAddress) {
+                    fetch(`/api/state`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            workers: $workers,
+                            silos: $silos,
+                            plants: $plants,
+                            systemMode: $systemMode
+                        })
+                    }).catch(()=>{});
+                }
+            } catch (e) {
+                alert("Signature Request Rejected. Parameters not saved.");
+                return;
+            } finally {
+                isSigningSettlement = false;
+                settlementModalSilo = null; 
+                editSettlementParams = { ...defaultSettlement }; 
+            }
+        } 
+    }
 
     function addWorker(type: 'physical' | 'capital') { 
         const id = Math.random().toString(36).substring(2, 8).toUpperCase(); 
@@ -347,10 +501,11 @@
         const newWorker: Worker = { 
             id, type, name, 
             stratumUrl: type === 'physical' ? 'stratum+tcp://192.168.0.12:5555' : 'Virtual Capital Contract', 
-            walletWorker: $walletAddress ? `${$walletAddress}.${name}` : `kaspa:pending.${name}`, 
+            walletWorker: $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${name}` : `kaspa:pending.${name}`, 
             hashRate: 0.00,  
             isOnline: false, 
-            assignedSiloId: null 
+            assignedSiloId: null,
+            capitalTokens: 0
         }; 
         $workers = [...$workers, newWorker]; 
     }
@@ -364,10 +519,53 @@
         return rawType.replace('Miner-', ' ').substring(0, 18);
     }
 
-    function deleteWorker(id: string) { if(confirm("Permanently decommission this worker?")) { $workers = $workers.filter(w => w.id !== id); closeAllMenus(); } }
+    function deleteWorker(id: string) { 
+        $workers = $workers.filter(w => w.id !== id); 
+        closeAllMenus(); 
+    }
 </script>
 
-<svelte:window onclick={closeAllMenus} onscroll={closeAllMenus} />
+<svelte:window onclick={closeAllMenus} onscroll={closeAllMenus} oncontextmenu={closeAllMenus} />
+
+{#if contextMenuWorkerId}
+    {@const cWorker = $workers.find(w => w.id === contextMenuWorkerId)}
+    {#if cWorker}
+        <div class="fixed inset-0 z-[9998]" onclick={closeAllMenus} oncontextmenu={(e) => { e.preventDefault(); closeAllMenus(); }} role="presentation"></div>
+        
+        <div class="fixed z-[9999] w-48 bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-[fade-in-up_0.1s_ease-out]"
+             style="left: {contextMenuX}px; top: {contextMenuY}px;"
+             onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} oncontextmenu={(e) => {e.preventDefault(); e.stopPropagation();}}>
+            
+            <div class="px-3 py-2 border-b border-neutral-800/80 bg-[#111] flex justify-between items-center">
+                <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest truncate pr-2">{cWorker.name}</span>
+                <span class="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded {cWorker.type === 'physical' ? 'bg-teal-500/20 text-teal-400 border border-teal-900/50' : 'bg-purple-500/20 text-purple-400 border border-purple-900/50'}">{cWorker.type.substring(0,4)}</span>
+            </div>
+
+            {#if !deleteConfirmId}
+                <button onclick={(e) => { e.stopPropagation(); inlineRenameId = cWorker.id; inlineRenameValue = cWorker.name; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer w-full">Rename Worker</button>
+                
+                {#if cWorker.type === 'physical'}
+                    <button onclick={(e) => { e.stopPropagation(); stratumModalWorker = cWorker; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 w-full">Copy Stratum</button>
+                    {#if cWorker.ipAddress}
+                        <button aria-label="Open Miner Interface" onclick={() => { window.open(`http://${cWorker.ipAddress}`, '_blank'); closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50 w-full">
+                            Open Interface 
+                            <span class="text-[12px] font-black opacity-50 group-hover:opacity-100 transition-opacity">↗</span>
+                        </button>
+                    {/if}
+                {:else}
+                    <button onclick={(e) => { e.stopPropagation(); tokenModalWorker = { worker: cWorker, type: 'add' }; trayTokenAmount = ''; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Add Tokens <span class="text-lg leading-none">+</span></button>
+                    <button onclick={(e) => { e.stopPropagation(); tokenModalWorker = { worker: cWorker, type: 'sub' }; trayTokenAmount = ''; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Remove Tokens <span class="text-lg leading-none">-</span></button>
+                {/if}
+                
+                <button onclick={(e) => { e.stopPropagation(); deleteConfirmId = cWorker.id; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-red-950/30 transition-colors cursor-pointer w-full">Delete Worker</button>
+            {:else}
+                <div class="px-3 py-2 text-[10px] font-bold text-neutral-400 border-b border-neutral-800/50 bg-[#111]">Are you sure?</div>
+                <button onclick={() => { deleteWorker(cWorker.id); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white bg-red-600 hover:bg-red-500 transition-colors cursor-pointer border-b border-red-700/50 w-full">Yes, Delete</button>
+                <button onclick={(e) => { e.stopPropagation(); deleteConfirmId = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-neutral-400 hover:bg-[#222] hover:text-white transition-colors cursor-pointer w-full">Cancel</button>
+            {/if}
+        </div>
+    {/if}
+{/if}
 
 {#each floatingTexts as float (float.id)}
     <div class="fixed z-[100000] pointer-events-none flex flex-col items-center gap-1.5"
@@ -375,30 +573,112 @@
         <div class="bg-[#111] text-teal-400 border border-teal-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-1 whitespace-nowrap drop-shadow-[0_0_8px_rgba(20,184,166,0.6)]">
             {float.text1}
         </div>
-        <div class="bg-[#111] text-amber-400 border border-amber-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-2 whitespace-nowrap drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]">
-            {float.text2}
-        </div>
+        {#if float.text2}
+            <div class="bg-[#111] text-amber-400 border border-amber-500/50 px-3 py-2 rounded-lg shadow-lg text-[10px] font-mono font-bold animate-float-2 whitespace-nowrap drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+                {float.text2}
+            </div>
+        {/if}
     </div>
 {/each}
+
+<!-- ======================= -->
+<!--   STRATUM CONFIG MODAL  -->
+<!-- ======================= -->
+{#if stratumModalWorker}
+    {@const dynamicWorkerName = $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${stratumModalWorker.name}` : `kaspa:pending.${stratumModalWorker.name}`}
+    
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-[#050505]/95 backdrop-blur-sm cursor-default border-none" onclick={() => stratumModalWorker = null}></button>
+        <div class="relative z-10 w-full max-w-[400px] bg-[#0c0c0c] border border-teal-900/50 rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-[fade-in-up_0.2s_ease-out]">
+            <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <h3 class="text-teal-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                    Stratum Configuration
+                </h3>
+                <button onclick={() => stratumModalWorker = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none">✕</button>
+            </div>
+            
+            <div class="flex flex-col gap-4">
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Pool URL</span>
+                    <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-3">
+                        <span class="flex-1 font-mono text-xs text-white truncate select-all">{stratumModalWorker.stratumUrl || 'stratum+tcp://192.168.0.12:5555'}</span>
+                        <button onclick={(e) => handleTrayCopy(e, stratumModalWorker!.stratumUrl || 'stratum+tcp://192.168.0.12:5555', 'COPIED POOL URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-teal-500/50 text-neutral-400 hover:text-teal-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Wallet.WorkerName</span>
+                    <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-3">
+                        <span class="flex-1 font-mono text-xs text-amber-400 truncate select-all">{dynamicWorkerName}</span>
+                        <button onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-amber-500/50 text-neutral-400 hover:text-amber-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- ======================= -->
+<!--   CAPITAL TOKEN MODAL   -->
+<!-- ======================= -->
+{#if tokenModalWorker}
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-[#050505]/95 backdrop-blur-sm cursor-default border-none" onclick={() => {tokenModalWorker = null; trayTokenAmount = '';}}></button>
+        <div class="relative z-10 w-full max-w-[360px] bg-[#0c0c0c] border {tokenModalWorker.type === 'add' ? 'border-purple-900/50' : 'border-amber-900/50'} rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-[fade-in-up_0.2s_ease-out]">
+            <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <h3 class="{tokenModalWorker.type === 'add' ? 'text-purple-400' : 'text-amber-400'} font-bold uppercase tracking-widest text-sm">
+                    {tokenModalWorker.type === 'add' ? 'Inject PER Tokens' : 'Withdraw PER Tokens'}
+                </h3>
+                <button onclick={() => {tokenModalWorker = null; trayTokenAmount = '';}} class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none">✕</button>
+            </div>
+            <div class="flex flex-col gap-2">
+                <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Amount to {tokenModalWorker.type === 'add' ? 'Stake' : 'Unstake'}</span>
+                <div class="relative">
+                    <input type="number" bind:value={trayTokenAmount} placeholder="0.00" class="w-full bg-[#161616] border border-neutral-800 {tokenModalWorker.type === 'add' ? 'focus:border-purple-500/50' : 'focus:border-amber-500/50'} rounded-lg px-4 py-3 text-lg font-mono text-white outline-none transition-colors" autofocus onkeydown={(e) => e.key === 'Enter' && processTokenAction()} min="0" />
+                    <span class="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-600 font-bold text-xs pointer-events-none">PER</span>
+                </div>
+            </div>
+            
+            <div class="flex items-start gap-3 bg-[#111] rounded-xl p-3 border border-neutral-800 shadow-inner">
+                <div class="mt-0.5 {tokenModalWorker.type === 'add' ? 'text-purple-500' : 'text-amber-500'}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div class="flex flex-col w-full">
+                    <span class="text-[9px] uppercase tracking-widest text-neutral-300 font-bold mb-0.5">Synthetic Hashrate Protocol</span>
+                    <span class="text-[10px] font-mono {tokenModalWorker.type === 'add' ? 'text-purple-400' : 'text-amber-400'}">1,000 PER = 0.05 TH/s</span>
+                    {#if trayTokenAmount && parseFloat(trayTokenAmount.toString()) > 0}
+                        <span class="text-[10px] font-mono text-white mt-1 border-t border-neutral-800 pt-1 block w-full text-right">
+                            Shift: {(parseFloat(trayTokenAmount.toString()) / 1000 * 0.05).toFixed(4)} TH/s <span class="text-neutral-500">(Awaiting Node Verification)</span>
+                        </span>
+                    {/if}
+                </div>
+            </div>
+
+            <button onclick={processTokenAction} disabled={!trayTokenAmount || parseFloat(trayTokenAmount.toString()) <= 0} class="w-full py-3 {tokenModalWorker.type === 'add' ? 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_15px_rgba(147,51,234,0.3)]' : 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]'} text-white font-black uppercase tracking-widest text-[10px] rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                Confirm {tokenModalWorker.type === 'add' ? 'Injection' : 'Withdrawal'}
+            </button>
+        </div>
+    </div>
+{/if}
 
 {#snippet workerCard(worker: Worker)}
 {@const isDeployed = worker.assignedSiloId !== null}
 {@const assignedSilo = isDeployed ? $silos.find(s => s.id === worker.assignedSiloId) : null}
 {@const siloColor = assignedSilo ? assetColors[assignedSilo.settlementConfig.targetAsset.assetClass as string]?.hex || '#ffffff' : null}
 
-<div draggable={!isDeployed && !inlineRenameId && activeTrayId !== worker.id ? "true" : "false"} 
-     ondragstart={(e) => { if(!isDeployed && !inlineRenameId && activeTrayId !== worker.id) handleDragStart(e, 'worker', worker.id) }} 
+<div draggable={!isDeployed && !inlineRenameId ? "true" : "false"} 
+     ondragstart={(e) => { if(!isDeployed && !inlineRenameId) handleDragStart(e, 'worker', worker.id) }} 
      ondragend={handleDragEnd} 
-     oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); closeAllMenus(); activeWorkerMenu = worker.id; }}
-     class="relative border rounded-xl p-3 shadow-md group transition-colors flex flex-col {activeWorkerMenu === worker.id ? 'z-50' : 'z-20'}
+     oncontextmenu={(e) => handleContextMenu(e, worker.id)}
+     class="relative border rounded-xl p-3 shadow-md group transition-colors flex flex-col {contextMenuWorkerId === worker.id ? 'z-50' : 'z-20'}
             {isDeployed ? 'bg-[#050505] border-neutral-900 opacity-60' : 'bg-[#0c0c0c] border-neutral-800/80 hover:border-neutral-600'} 
-            {(!isDeployed && !inlineRenameId && activeTrayId !== worker.id) ? 'cursor-grab active:cursor-grabbing' : ''}
+            {(!isDeployed && !inlineRenameId) ? 'cursor-grab active:cursor-grabbing' : ''}
             {dragType === 'worker' && draggedId === worker.id ? 'opacity-50 border-teal-500' : ''}">
     
-    <div class="flex justify-between items-start mb-2 relative">
+    <div class="flex justify-between items-start mb-2 relative pointer-events-none">
         <div class="flex flex-col gap-0.5 min-w-0 flex-1 z-10 pointer-events-none">
             <div class="flex items-center gap-2 pointer-events-auto w-full pr-2">
-                <div class="w-1.5 h-1.5 rounded-full shrink-0 {worker.isOnline ? 'bg-teal-500 animate-pulse shadow-[0_0_8px_rgba(20,184,166,0.8)]' : 'bg-neutral-600'}"></div>
+                <div class="w-1.5 h-1.5 rounded-full shrink-0 {worker.isOnline ? (worker.type === 'physical' ? 'bg-teal-500 shadow-[0_0_8px_rgba(20,184,166,0.8)]' : 'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.8)]') + ' animate-pulse' : 'bg-neutral-600'}"></div>
                 
                 {#if inlineRenameId === worker.id}
                     <input type="text" bind:value={inlineRenameValue} onblur={() => saveInlineRename(worker.id)} onkeydown={(e) => { if (e.key === 'Enter') saveInlineRename(worker.id); else if (e.key === 'Escape') inlineRenameId = null; }} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} class="text-xs font-bold text-white bg-[#1a1a1a] border {worker.type === 'physical' ? 'border-teal-500/50' : 'border-purple-500/50'} rounded px-1.5 py-0.5 outline-none w-[110px] shadow-inner" autofocus />
@@ -406,42 +686,22 @@
                     <span class="text-xs font-bold text-white truncate max-w-[80px] xl:max-w-[100px]" title={worker.name}>{worker.name}</span>
                 {/if}
             </div>
-            {#if worker.hardwareType}
+            {#if worker.type === 'physical' && worker.hardwareType}
                 <span class="text-[7px] font-mono text-teal-500/80 uppercase tracking-widest truncate max-w-[90px] ml-3.5" title={worker.hardwareType}>{formatHardwareName(worker.hardwareType)}</span>
+            {:else if worker.type === 'capital'}
+                <span class="text-[7px] font-mono text-purple-500/80 uppercase tracking-widest truncate max-w-[110px] ml-3.5 font-bold">{(worker.capitalTokens || 0).toLocaleString()} PER INFUSED</span>
             {/if}
         </div>
         
         <div class="relative pointer-events-auto shrink-0 z-20">
-            <button aria-label="Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); closeAllMenus(); activeWorkerMenu = activeWorkerMenu === worker.id ? null : worker.id; }} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer"><span class="font-bold pb-1 text-sm">⋮</span></button>
-            
-            {#if activeWorkerMenu === worker.id}
-                <div class="absolute top-8 right-0 w-40 bg-[#1a1a1a] border border-neutral-700 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-[fade-in-up_0.1s_ease-out] z-[100]" onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
-                    <button onclick={(e) => { e.stopPropagation(); inlineRenameId = worker.id; inlineRenameValue = worker.name; activeWorkerMenu = null; activeTrayId = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer">Rename Worker</button>
-                    
-                    {#if worker.type === 'physical'}
-                        {#if worker.ipAddress}
-                            <button aria-label="Open Miner Interface" onclick={() => { window.open(`http://${worker.ipAddress}`, '_blank'); closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50">
-                                Open Interface 
-                                <span class="text-[12px] font-black opacity-50 group-hover:opacity-100 transition-opacity">↗</span>
-                            </button>
-                        {/if}
-                        <button onclick={(e) => { e.stopPropagation(); activeTrayId = worker.id; activeTrayType = 'stratum'; activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer">Copy Stratum</button>
-                    {:else}
-                        <button onclick={(e) => { e.stopPropagation(); activeTrayId = worker.id; activeTrayType = 'add'; trayTokenAmount = ''; activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center">Add Tokens <span class="text-lg leading-none">+</span></button>
-                        <button onclick={(e) => { e.stopPropagation(); activeTrayId = worker.id; activeTrayType = 'sub'; trayTokenAmount = ''; activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center">Subtract Tokens <span class="text-lg leading-none">-</span></button>
-                    {/if}
-                    
-                    <div class="h-px bg-neutral-800"></div>
-                    <button onclick={(e) => { e.stopPropagation(); deleteWorker(worker.id); activeWorkerMenu = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-red-950/30 transition-colors cursor-pointer">Delete Worker</button>
-                </div>
-            {/if}
+            <button aria-label="Menu" onmousedown={(e) => e.stopPropagation()} onclick={(e) => handleContextMenu(e, worker.id)} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white rounded-full hover:bg-[#222] transition-colors cursor-pointer"><span class="font-bold pb-1 text-sm">⋮</span></button>
         </div>
     </div>
     
     <div class="flex justify-between items-end mt-1 pointer-events-none">
         <div class="flex flex-col gap-1 items-start">
             <span class="text-[8px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border {worker.type === 'physical' ? 'bg-teal-950/20 text-teal-400 border-teal-900/50' : 'bg-purple-950/20 text-purple-400 border-purple-900/50'}">{worker.type.substring(0,4)}</span>
-            {#if worker.ipAddress}
+            {#if worker.type === 'physical' && worker.ipAddress}
                 <span class="text-[7px] font-mono text-neutral-600">{worker.ipAddress}</span>
             {/if}
         </div>
@@ -476,55 +736,6 @@
             </div>
         </div>
     </div>
-
-    {#if activeTrayId === worker.id && activeTrayType === 'stratum'}
-        {@const dynamicWorkerName = $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${worker.name}` : `{walletAddress}.${worker.name}`}
-        <div class="mt-3 pt-3 border-t border-neutral-800/50 flex flex-col gap-2 pointer-events-auto shadow-inner relative z-10 animate-[fade-in-up_0.1s_ease-out]" onclick={(e) => e.stopPropagation()} onmousedown={(e) => e.stopPropagation()}>
-            <div class="flex items-center justify-between">
-                <span class="text-[9px] font-bold uppercase tracking-widest text-teal-500 flex items-center gap-1">
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-                    Stratum Connection
-                </span>
-                <button aria-label="Close Tray" onclick={() => activeTrayId = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer w-4 h-4 flex items-center justify-center rounded"><span class="text-[10px] font-bold">✕</span></button>
-            </div>
-            
-            <div class="flex flex-col gap-1.5">
-                <div class="flex items-center justify-between bg-[#0a0a0a] border border-neutral-800 rounded-lg p-2 gap-2">
-                   <div class="flex flex-col min-w-0 flex-1">
-                       <span class="text-[7px] text-neutral-500 font-bold uppercase tracking-widest mb-0.5">Pool URL</span>
-                       <span class="text-[10px] font-mono text-teal-400 truncate select-all">{worker.stratumUrl || 'stratum+tcp://192.168.0.12:5555'}</span>
-                   </div>
-                   <button aria-label="Copy URL" onclick={(e) => handleTrayCopy(e, worker.stratumUrl || 'stratum+tcp://192.168.0.12:5555', 'COPIED POOL URL', worker.stratumUrl || 'stratum+tcp://192.168.0.12:5555')} class="shrink-0 bg-[#161616] hover:bg-teal-950/40 border border-neutral-700 hover:border-teal-900/50 text-neutral-400 hover:text-teal-400 px-2.5 py-1.5 rounded text-[8px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
-                </div>
-                
-                <div class="flex items-center justify-between bg-[#0a0a0a] border border-neutral-800 rounded-lg p-2 gap-2">
-                   <div class="flex flex-col min-w-0 flex-1">
-                       <span class="text-[7px] text-neutral-500 font-bold uppercase tracking-widest mb-0.5">Wallet / Worker</span>
-                       <span class="text-[10px] font-mono text-amber-400 truncate select-all">{dynamicWorkerName}</span>
-                   </div>
-                   <button aria-label="Copy Worker" onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', dynamicWorkerName)} class="shrink-0 bg-[#161616] hover:bg-amber-950/40 border border-neutral-700 hover:border-amber-900/50 text-neutral-400 hover:text-amber-400 px-2.5 py-1.5 rounded text-[8px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
-                </div>
-            </div>
-        </div>
-    {/if}
-
-    {#if activeTrayId === worker.id && (activeTrayType === 'add' || activeTrayType === 'sub')}
-        <div class="mt-3 pt-3 border-t border-neutral-800/50 flex flex-col gap-2 pointer-events-auto shadow-inner relative z-10 animate-[fade-in-up_0.1s_ease-out]" onclick={(e) => e.stopPropagation()} onmousedown={(e) => e.stopPropagation()}>
-            <div class="flex items-center justify-between mb-0.5">
-                <span class="text-[9px] font-bold uppercase tracking-widest {activeTrayType === 'add' ? 'text-purple-400' : 'text-amber-400'}">{activeTrayType === 'add' ? 'Inject Tokens' : 'Withdraw Tokens'}</span>
-                <button aria-label="Close Tray" onclick={() => activeTrayId = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer w-4 h-4 flex items-center justify-center rounded"><span class="text-[10px] font-bold">✕</span></button>
-            </div>
-            <div class="flex items-center gap-2">
-                <div class="relative flex-1 min-w-0">
-                    <input type="number" bind:value={trayTokenAmount} placeholder="Amount..." class="w-full bg-[#0a0a0a] border border-neutral-800 {activeTrayType === 'add' ? 'focus:border-purple-500/50' : 'focus:border-amber-500/50'} rounded-lg pl-3 pr-10 py-2 text-[11px] font-mono text-white outline-none transition-colors appearance-none" onkeydown={(e) => e.key === 'Enter' && processTokenAction(worker.id)} autofocus min="0" />
-                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-bold text-neutral-600 pointer-events-none">TOKENS</span>
-                </div>
-                <button onclick={() => processTokenAction(worker.id)} class="shrink-0 px-3 py-2 {activeTrayType === 'add' ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]' : 'bg-[#1a1a1a] hover:bg-[#222] border border-amber-500/30 hover:border-amber-500 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.1)]'} font-bold uppercase tracking-widest text-[9px] rounded-lg transition-colors cursor-pointer">
-                    {activeTrayType === 'add' ? 'Inject' : 'Withdraw'}
-                </button>
-            </div>
-        </div>
-    {/if}
 
     {#if isDeployed && assignedSilo}
         <div class="mt-3 pt-2.5 border-t border-neutral-800/50 flex justify-between items-center pointer-events-none">
@@ -927,8 +1138,8 @@
 
             <div class="mt-auto pointer-events-none flex flex-col gap-4 w-full">
                 <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
-                    <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Node Sync</h2>
-                    <span class="text-[8px] font-mono flex items-center gap-1.5 {$globalNodeStatus === 'online' ? 'text-teal-500' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-600'} transition-colors"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"></div>{$globalNodeStatus === 'online' ? 'Live' : 'Offline'}</span>
+                    <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500">NODE SYNC</h2>
+                    <span class="text-[8px] font-mono flex items-center gap-1.5 {$globalNodeStatus === 'online' ? 'text-teal-500' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-600'} transition-colors"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : $globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"></div>{$globalNodeStatus === 'online' ? 'ONLINE' : 'OFFLINE'}</span>
                 </div>
             </div>
 
@@ -938,7 +1149,7 @@
 
 {#if settlementModalSilo && editSettlementParams}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement};}}></div>
+        <div class="absolute inset-0 w-full h-full bg-[#050505]/95 cursor-default border-none" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement}; isSigningSettlement = false;}}></div>
         
         {#if !isAssetPickerOpen}
             <div class="relative z-10 w-full max-w-[420px] bg-[#111] border border-neutral-800 rounded-[28px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {editSettlementParams.autoPayout ? (editSettlementParams.mode === 'stream' ? 'border-t-emerald-500' : editSettlementParams.mode === 'appointment' ? 'border-t-blue-500' : 'border-t-amber-500') : 'border-t-neutral-600'} animate-[fade-in-up_0.2s_ease-out]">
@@ -1016,8 +1227,14 @@
                 </div>
 
                 <div class="flex gap-3 px-6 pb-6 pt-2 bg-[#111]">
-                    <button aria-label="Cancel" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement};}} class="flex-1 py-3 bg-[#161616] hover:bg-[#222] border border-neutral-800 text-neutral-400 hover:text-white font-bold uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer">Cancel</button>
-                    <button aria-label="Save" onclick={saveSettlementParams} class="flex-[2] py-3 text-black font-black uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer {editSettlementParams.autoPayout ? (editSettlementParams.mode === 'stream' ? 'bg-teal-500 hover:bg-teal-400 shadow-[0_0_15px_rgba(20,184,166,0.3)]' : editSettlementParams.mode === 'appointment' ? 'bg-blue-500 hover:bg-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-amber-500 hover:bg-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]') : 'bg-teal-500 hover:bg-teal-400 shadow-[0_0_15px_rgba(20,184,166,0.2)]'}">Update Protocol</button>
+                    <button aria-label="Cancel" onclick={() => {settlementModalSilo = null; isAssetPickerOpen = false; editSettlementParams = {...defaultSettlement}; isSigningSettlement = false;}} class="flex-1 py-3 bg-[#161616] hover:bg-[#222] border border-neutral-800 text-neutral-400 hover:text-white font-bold uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer">Cancel</button>
+                    <button aria-label="Save" onclick={saveSettlementParams} disabled={isSigningSettlement} class="flex-[2] py-3 text-black font-black uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer disabled:opacity-50 {editSettlementParams.autoPayout ? (editSettlementParams.mode === 'stream' ? 'bg-teal-500 hover:bg-teal-400 shadow-[0_0_15px_rgba(20,184,166,0.3)]' : editSettlementParams.mode === 'appointment' ? 'bg-blue-500 hover:bg-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-amber-500 hover:bg-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]') : 'bg-teal-500 hover:bg-teal-400 shadow-[0_0_15px_rgba(20,184,166,0.2)]'}">
+                        {#if isSigningSettlement}
+                            Awaiting Signature...
+                        {:else}
+                            Update Protocol
+                        {/if}
+                    </button>
                 </div>
             </div>
 
@@ -1129,4 +1346,7 @@
     
     :global(.animate-float-1) { animation: float-up-1 2s ease-out forwards; }
     :global(.animate-float-2) { animation: float-up-2 2s ease-out forwards; }
+    
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>

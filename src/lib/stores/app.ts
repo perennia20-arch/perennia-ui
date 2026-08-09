@@ -13,7 +13,7 @@ export interface TokenAsset {
     name: string;
     assetClass: AssetClass;
     priceUsd: number;
-    imgUrl?: string; // <-- Fixes the TypeScript Error!
+    imgUrl?: string; 
     icon?: string;
     type?: string;
 }
@@ -51,6 +51,7 @@ export interface Worker {
     assignedSiloId: string | null;
     ipAddress?: string;
     hardwareType?: string;
+    capitalTokens?: number; // ⚡ PER Flywheel: Infused Capital Amount
 }
 
 export interface Plant {
@@ -75,7 +76,6 @@ export interface WalletInventoryItem {
 export const hasEntered = writable<boolean>(false);
 export const activeTab = writable<string>('DEX');
 export const systemMode = writable<SystemMode>('base');
-// ⚡ NEW: Master Admin global view toggle
 export const adminGlobalView = writable<boolean>(false);
 
 // Global Oracle State
@@ -97,8 +97,8 @@ export const tokenRegistry: TokenAsset[] = [
     { ticker: 'PER', name: 'Perennia Hash', assetClass: 'Energy', priceUsd: 1.00, icon: 'P', type: 'Infrastructure' },
     { ticker: 'USDC', name: 'USD Coin', assetClass: 'Crypto', priceUsd: 1.00, imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', type: 'Stablecoin' },
     { ticker: 'USDT', name: 'Tether USD', assetClass: 'Crypto', priceUsd: 1.00, imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', type: 'Stablecoin' },
-    { ticker: 'wBTC', name: 'Wrapped Bitcoin', assetClass: 'Crypto', priceUsd: 65200.00, imgUrl: 'https://cryptologos.cc/logos/bitcoin-btc-logo.svg?v=032', type: 'Crypto' },
-    { ticker: 'wETH', name: 'Wrapped Ethereum', assetClass: 'Crypto', priceUsd: 3450.00, imgUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=032', type: 'Crypto' },
+    { ticker: 'BTC', name: 'Bitcoin', assetClass: 'Crypto', priceUsd: 65200.00, imgUrl: 'https://cryptologos.cc/logos/bitcoin-btc-logo.svg?v=032', type: 'Crypto' },
+    { ticker: 'ETH', name: 'Ethereum', assetClass: 'Crypto', priceUsd: 3450.00, imgUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=032', type: 'Crypto' },
     { ticker: 'SOL', name: 'Solana', assetClass: 'Crypto', priceUsd: 145.20, imgUrl: 'https://cryptologos.cc/logos/solana-sol-logo.svg?v=032', type: 'Crypto' },
     { ticker: 'RE-IDX', name: 'Commercial R.E. Index', assetClass: 'Real Estate', priceUsd: 1250.00, icon: '🏢', type: 'Real World Asset' },
     { ticker: 'GLDT', name: 'Vaulted Gold (1oz)', assetClass: 'Commodities', priceUsd: 2340.50, icon: '🪙', type: 'Commodity' },

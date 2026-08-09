@@ -1,14 +1,29 @@
-// src/routes/api/broadcast/+server.ts
-
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-export async function POST({ request }: RequestEvent) {
-    const payload = await request.json();
-    const nodeIp = process.env.UBUNTU_NODE_IP || '192.168.0.12';
+export async function POST({ request, cookies }: RequestEvent) {
+    // ⚡ ZERO-TRUST: Ensure broadcast requests only originate from an authenticated session
+    const sessionCookie = cookies.get('perennia_session');
+    if (!sessionCookie) {
+        return json({ error: 'UNAUTHORIZED_BROADCAST_ATTEMPT' }, { status: 401 });
+    }
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch (e) {
+        return json({ error: 'INVALID_PAYLOAD_FORMAT' }, { status: 400 });
+    }
+
+    const tx = payload.transaction || payload;
+    if (!tx || !tx.inputs || !tx.outputs || typeof tx.version !== 'number') {
+        return json({ error: 'MALFORMED_TRANSACTION_PAYLOAD' }, { status: 400 });
+    }
+
+    const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
 
     return new Promise((resolve) => {
         let isResolved = false; // ⚡ Immutable state lock
@@ -26,7 +41,7 @@ export async function POST({ request }: RequestEvent) {
 
         ws.on('open', () => {
             console.log(`[+] Socket OPENED. Firing transaction payload...`);
-            const rpcPayload = { id: 2, method: "submitTransaction", params: { transaction: payload, allowOrphan: false } };
+            const rpcPayload = { id: 2, method: "submitTransaction", params: { transaction: tx, allowOrphan: false } };
             ws.send(JSON.stringify(rpcPayload));
         });
 
@@ -41,7 +56,7 @@ export async function POST({ request }: RequestEvent) {
                 if (response.error) {
                     console.error("❌ [Perennia Proxy] Broadcast Error:", response.error.message);
                     ws.terminate();
-                    resolve(json({ error: response.error.message }, { status: 500 }));
+                    resolve(json({ error: response.error.message }, { status: 422 }));
                     return;
                 }
                 console.log("🟢 Payload Broadcasted:", response);

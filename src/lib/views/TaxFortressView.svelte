@@ -8,6 +8,7 @@
     let showKycDrawer = $state(false);
     let isSubmittingKyc = $state(false);
     let kycError = $state('');
+    let isExporting = $state(false);
     
     // Entity Matrix
     let kycForm = $state({
@@ -18,7 +19,23 @@
     });
 
     function exportCSV() { 
-        alert("Initiating Master Ledger CSV Export..."); 
+        if ($taxEvents.length === 0) {
+            alert("No taxable events to export.");
+            return;
+        }
+
+        const headers = "Timestamp,Type,Asset,Amount,USD_Value,TxHash\n";
+        const rows = $taxEvents.map(e => `${e.timestamp},${e.type},${e.asset.ticker},${e.amount},${e.usdValueAtTime},${e.txHash}`).join("\n");
+        const blob = new Blob([headers + rows], { type: 'text/csv' });
+        
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Perennia_Ledger_${new Date().getFullYear()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
     }
     
     async function export1099() { 
@@ -27,6 +44,7 @@
             return;
         }
 
+        isExporting = true;
         try {
             const res = await fetch('/api/treasury/1099-da', {
                 method: 'POST',
@@ -37,19 +55,30 @@
                 })
             });
 
-            const data = await res.json();
-
             if (!res.ok) {
-                alert(`Error: ${data.message || 'Failed to compile ledger'}`);
+                const data = await res.json().catch(() => ({}));
+                alert(`Error: ${data?.message || 'Failed to compile ledger'}`);
                 return;
             }
 
-            console.dir(data.documentData);
-            alert(`SUCCESS: Compiled 1099-DA Pipeline for ${data.documentData.recipient.name}.\n\nGross Proceeds: $${data.documentData.financials.grossProceeds.toFixed(2)}\n\nPayload ready for PDF generator routing.`); 
+            // Stream buffer to browser memory and trigger instant download
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Perennia_1099_DA_${new Date().getFullYear()}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
             
+            alert(`SUCCESS: 1099-DA Document securely compiled and downloaded.`); 
+
         } catch (error) {
             console.error(error);
             alert("Network routing error during 1099-DA compilation.");
+        } finally {
+            isExporting = false;
         }
     }
 
@@ -137,8 +166,13 @@
                 <button onclick={exportCSV} class="flex-1 md:flex-none px-6 py-3 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> Export CSV Ledger
                 </button>
-                <button onclick={export1099} class="flex-1 md:flex-none px-6 py-3 bg-teal-950/30 hover:bg-teal-900/50 border border-teal-900 text-teal-400 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors shadow-[0_0_15px_rgba(20,184,166,0.1)] cursor-pointer flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> Generate 1099-DA
+                <button onclick={export1099} disabled={isExporting} class="flex-1 md:flex-none px-6 py-3 bg-teal-950/30 hover:bg-teal-900/50 border border-teal-900 text-teal-400 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors shadow-[0_0_15px_rgba(20,184,166,0.1)] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {#if isExporting}
+                        <div class="w-3.5 h-3.5 border-2 border-teal-500/20 border-t-teal-500 rounded-full animate-spin"></div>
+                        Generating PDF...
+                    {:else}
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> Generate 1099-DA
+                    {/if}
                 </button>
             </div>
         </div>

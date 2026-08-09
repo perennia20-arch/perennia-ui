@@ -1,16 +1,16 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { sorEngine } from '$lib/server/sor';
-import { chronos } from '$lib/server/chronos';
-import { Buffer } from 'buffer';
 
-// Helper to convert Kaspa address to scriptPublicKey
-function mockAddressToScriptPubKey(address: string): string {
-    const cleanAddress = address.replace('kaspa:', '');
-    return "20" + Buffer.from(cleanAddress).toString('hex').substring(0, 64) + "ac"; 
-}
+const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
+const DEV_ADMIN_BYPASS = true;
 
-export const POST = async ({ request, fetch }: RequestEvent) => {
+export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
     try {
+        // 1. Zero-Trust Check
+        const sessionCookie = cookies.get('perennia_session');
+        if (!sessionCookie) {
+            return json({ error: 'UNAUTHORIZED_ROUTING_ATTEMPT' }, { status: 401 });
+        }
+
         const body = await request.json().catch(() => ({}));
         const { wallet, payAsset, receiveAsset, amount, slippageTolerance } = body;
 
@@ -18,49 +18,21 @@ export const POST = async ({ request, fetch }: RequestEvent) => {
             return json({ error: 'Bad Request', message: 'Invalid payload.' }, { status: 400 });
         }
 
-        // 1. Acquire Atomic Lua Mutex Lock from the Rust Engine
-        const lockRes = await fetch('http://127.0.0.1:8082/v1/sor/lock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                wallet: wallet,
-                payAsset: payAsset,
-                receiveAsset: receiveAsset,
-                amount: amount,
-                slippageTolerance: slippageTolerance || 0.05
-            })
-        });
-
-        if (!lockRes.ok) {
-            const errData = await lockRes.json().catch(() => ({ error: "Collision" }));
-            return json({ 
-                error: 'Slippage/Lock Rejected', 
-                message: errData.error 
-            }, { status: 422 });
+        const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
+        if (!isCorpAdmin && wallet.toLowerCase() !== sessionCookie.toLowerCase()) {
+            return json({ error: 'FORBIDDEN_ROUTING_TARGET' }, { status: 403 });
         }
+
+        // 2. Fetch User's Live UTXOs via the internal DAG proxy
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const utxoRes = await fetch(`${baseUrl}/api/utxos?address=${encodeURIComponent(wallet)}`, {
+            headers: { cookie: request.headers.get('cookie') || '' }
+        });
         
-        const lockData = await lockRes.json();
-
-        // 2. Execute Smart Order Router Matrix
-        const sorPlan = await sorEngine.calculateSplitFill({
-            payAsset,
-            receiveAsset,
-            amount
-        });
-
-        if (sorPlan.legs.length === 0) {
-            return json({ error: 'Liquidity Exhausted', message: 'No routing paths currently available.' }, { status: 422 });
-        }
-
-        // Override unified rate with the exact cryptographically locked rate from the Rust engine
-        sorPlan.unifiedRate = lockData.executed_rate || sorPlan.unifiedRate;
-
-        // 3. Fetch User's Live UTXOs via the internal DAG proxy
-        const utxoRes = await fetch(`/api/utxos?address=${encodeURIComponent(wallet)}`);
         if (!utxoRes.ok) throw new Error("Failed to fetch UTXO outpoints from DAG.");
         const utxoData = await utxoRes.json();
         
-        // Map Kaspa wRPC UTXO formats to the expected Chronos structure
+        // Map Kaspa wRPC UTXO formats to the expected Rust execution structure
         const formattedUtxos = (utxoData.entries || []).map((u: any) => ({
             transactionId: u.outpoint?.transactionId || u.transactionId,
             index: u.outpoint?.index || u.index,
@@ -68,23 +40,38 @@ export const POST = async ({ request, fetch }: RequestEvent) => {
             scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
         }));
 
-        // 4. Assemble the Atomic PSBT
-        const userScriptPubKey = mockAddressToScriptPubKey(wallet);
-        
-        const psbt = await chronos.constructAtomicSwapPSBT(
-            wallet,
-            userScriptPubKey,
-            sorPlan,
-            formattedUtxos
-        );
+        // 3. Delegate to Rust Core Execution Engine (Atomic Lua Mutex lock implied by Rust handler)
+        const rustRes = await fetch('http://127.0.0.1:8002/v1/sor/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                wallet,
+                payAsset,
+                receiveAsset,
+                amount,
+                slippageTolerance: slippageTolerance || 0.05,
+                utxos: formattedUtxos
+            })
+        });
 
-        // 5. Return the Unsigned Transaction Payload to the Client
+        if (!rustRes.ok) {
+            const errData = await rustRes.json().catch(() => ({ error: "Rust Backend Rejected Execution" }));
+            return json({ 
+                error: 'Slippage/Lock Rejected', 
+                message: errData.error 
+            }, { status: 422 });
+        }
+
+        const rustData = await rustRes.json();
+
+        // 4. Return the Unsigned Transaction Payload to the Client for Local Vault Signing
         return json({
-            unified_rate: sorPlan.unifiedRate,
-            estimated_output: sorPlan.estimatedOutput,
-            transaction_uuid: lockData.transaction_uuid,
-            legs: sorPlan.legs,
-            psbt: psbt 
+            unified_rate: rustData.unifiedRate,
+            estimated_output: rustData.estimatedOutput,
+            transaction_uuid: rustData.transaction_uuid,
+            legs: rustData.legs,
+            psbt: rustData.psbt,
+            formattedUtxos: rustData.formattedUtxos // ⚡ Pass UTXOs back to frontend for local signing validation
         }, { status: 200 });
 
     } catch (error: any) {

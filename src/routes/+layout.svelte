@@ -32,6 +32,9 @@
     let isServerReachable = $state(true);
     let showCopyToast = $state(false);
 
+    // Step 3: Cascading Glow State Trigger
+    let appAwakened = $derived($isWalletConnected && isLoaded);
+
     function purgeApplicationState() {
         workers.set([]);
         silos.set([]);
@@ -47,10 +50,11 @@
         }
     }
 
-    async function loadStateFromServer(address: string | null) {
-        if (!browser || !address) return;
+    // ⚡ ZERO-TRUST: Fetching state via secure HTTP-Only cookie, NO address parameter
+    async function loadStateFromServer() {
+        if (!browser || !$walletAddress) return;
         try {
-            const res = await fetch(`${BACKEND_BASE}/api/state/${address.toLowerCase()}`);
+            const res = await fetch(`${BACKEND_BASE}/api/state`);
             if (res.ok) {
                 const parsed = await res.json();
                 workers.set(parsed.workers || []);
@@ -69,8 +73,9 @@
         } 
     }
 
-    async function saveStateToServer(address: string | null) {
-        if (!browser || !address || !isLoaded || !isServerReachable || isCorporateAdmin) return;
+    // ⚡ ZERO-TRUST: Saving state via secure HTTP-Only cookie, NO address parameter
+    async function saveStateToServer() {
+        if (!browser || !$walletAddress || !isLoaded || !isServerReachable || isCorporateAdmin) return;
         try {
             const statePayload = {
                 workers: get(workers),
@@ -78,7 +83,7 @@
                 plants: get(plants),
                 systemMode: get(systemMode)
             };
-            await fetch(`${BACKEND_BASE}/api/state/${address.toLowerCase()}`, {
+            await fetch(`${BACKEND_BASE}/api/state`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(statePayload)
@@ -90,7 +95,7 @@
         if (browser) {
             if ($isWalletConnected && $walletAddress) {
                 isLoaded = false; 
-                loadStateFromServer($walletAddress);
+                loadStateFromServer();
                 syncKasWareState();
             } else if (!$isWalletConnected) {
                 isLoaded = false;
@@ -101,7 +106,7 @@
 
     $effect(() => {
         if (browser && $isWalletConnected && $walletAddress && isLoaded && isServerReachable) {
-            saveStateToServer($walletAddress);
+            saveStateToServer();
         }
     });
 
@@ -146,7 +151,7 @@
 
     async function fetchPriceData() {
         try {
-            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_24hr_change=true');
+            const res = await fetch('/api/prices?ids=kaspa&include_24hr_change=true');
             if (res.ok) {
                 const data = await res.json();
                 if (data?.kaspa) { 
@@ -171,9 +176,10 @@
 {#if !$isWalletConnected && !hasEntered}
     <EntryView {enterNexus} />
 {:else}
-    <div class="min-h-[100dvh] w-full bg-[#050505] text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out]">
+    <!-- Step 3: Cascading Glow Wrapper -->
+    <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}">
         
-        <header class="h-16 border-b border-neutral-800/80 bg-[#0a0a0a]/95 backdrop-blur-xl flex items-center justify-center z-50 shrink-0 w-full sticky top-0">
+        <header class="h-16 border-b border-neutral-800/80 bg-transparent flex items-center justify-center z-50 shrink-0 w-full sticky top-0 backdrop-blur-xl">
             <div class="w-full max-w-[1600px] px-4 lg:px-10 flex justify-between items-center h-full">
                 <div class="flex items-center gap-2 md:gap-3 cursor-pointer" onclick={() => window.location.href = '/'}>
                     <div class="w-7 h-7 md:w-8 md:h-8 bg-gradient-to-br from-[#18C6A5] to-teal-700 rounded shadow-[0_0_15px_rgba(24,198,165,0.3)] flex items-center justify-center shrink-0">
@@ -229,7 +235,7 @@
             </div>
         </header>
 
-        <nav class="h-12 bg-[#050505] border-b border-neutral-800/60 flex justify-center w-full z-40 shrink-0 shadow-inner hide-scrollbar">
+        <nav class="h-12 bg-transparent border-b border-neutral-800/60 flex justify-center w-full z-40 shrink-0 shadow-inner hide-scrollbar">
             <div class="w-full max-w-[1600px] px-4 lg:px-10 flex items-center justify-start overflow-x-auto h-full hide-scrollbar">
                 <div class="flex gap-4 sm:gap-8 h-full min-w-max items-center">
                     {#each tabs as tab}
@@ -254,8 +260,8 @@
             </div>
         </nav>
         
-        <main class="flex-1 overflow-y-auto relative bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0a0f1a] via-[#050810] to-[#020305] pb-24">
-            <div class="w-full h-full relative">
+        <main class="flex-1 overflow-y-auto relative pb-24">
+            <div class="w-full h-full relative z-10">
                 {@render children()}
             </div>
         </main>
@@ -263,3 +269,22 @@
 {/if}
 
 <WalletModal />
+
+<style>
+    /* Step 3: Cascading Transitions & Glowing States */
+    .app-wrapper {
+        transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out;
+    }
+    
+    .app-wrapper.dormant {
+        background-color: #050505;
+        box-shadow: inset 0 0 0px rgba(24, 198, 165, 0);
+    }
+
+    .app-wrapper.glow-active {
+        background-color: #0a0f12; 
+        /* Massive cascading internal glow tracking the connection */
+        box-shadow: inset 0 0 150px rgba(24, 198, 165, 0.05),
+                    inset 0 0 50px rgba(168, 85, 247, 0.03); 
+    }
+</style>

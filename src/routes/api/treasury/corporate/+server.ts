@@ -1,133 +1,140 @@
-// src/routes/api/treasury/corporate/+server.ts
-
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { perenniaKMS } from '$lib/server/kms';
-import { env } from '$env/dynamic/private';
-import pg from 'pg';
 
-const { Pool } = pg;
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+export const GET: RequestHandler = async ({ url }) => {
+    const kasAddr = url.searchParams.get('kas');
+    const btcAddr = url.searchParams.get('btc');
+    const ethAddr = url.searchParams.get('eth');
+    const solAddr = url.searchParams.get('sol');
+    const dogeAddr = url.searchParams.get('doge');
+    const xrpAddr = url.searchParams.get('xrp');
+    const polAddr = url.searchParams.get('pol');
+    const avaxAddr = url.searchParams.get('avax');
+    const suiAddr = url.searchParams.get('sui');
+    const trxAddr = url.searchParams.get('trx');
+    const zecAddr = url.searchParams.get('zec');
 
-// BARE-METAL POSTGRES CONNECTION
-const pool = new Pool({
-    user: 'postgres',
-    host: nodeIp,
-    database: 'perennia',
-    password: 'password', // Adjust to match bare-metal prod configuration
-    port: 5432,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 3000, // 3s fast-fail timeout to prevent API hangs
-});
-
-pool.on('error', (err) => {
-    console.error('🔥 POSTGRESQL FAULT:', err);
-});
-
-export const GET: RequestHandler = async () => {
-    let client;
-    let liveStreamingBalance = 0.00;
-    let recentBlocks: Array<{ hash: string; worker: string; difficulty: number; timestamp: string }> = [];
-
-    let corporateAddresses = {
-        KAS: 'offline-kas-address',
-        BTC: 'offline-btc-address',
-        ETH: 'offline-eth-address',
-        SOL: 'offline-sol-address'
-    };
+    let kasBalance = 0;
+    let btcBalance = 0;
+    let ethBalance = 0; 
+    let solBalance = 0; 
+    let dogeBalance = 0;
+    let xrpBalance = 0;
+    let polBalance = 0;
+    let avaxBalance = 0;
+    let suiBalance = 0;
+    let trxBalance = 0;
+    let zecBalance = 0;
 
     try {
-        corporateAddresses = await perenniaKMS.getCorporateAddresses();
-    } catch (kmsErr) {
-        console.error("⚠️ KMS Address Retrieval Failed:", kmsErr);
-    }
+        // 1. BITCOIN (Mempool.space API)
+        if (btcAddr && !btcAddr.includes('Awaiting')) {
+            const res = await fetch(`https://mempool.space/api/address/${btcAddr}`);
+            if (res.ok) {
+                const data = await res.json();
+                const sats = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
+                btcBalance = sats / 100_000_000;
+            }
+        }
 
-    const mainWallet = corporateAddresses.KAS || '';
+        // 2. KASPA (Official REST API)
+        if (kasAddr && !kasAddr.includes('Awaiting')) {
+            const res = await fetch(`https://api.kaspa.org/addresses/${kasAddr}/balance`);
+            if (res.ok) {
+                const data = await res.json();
+                kasBalance = (data.balance || 0) / 100_000_000;
+            }
+        }
 
-    // Non-destructive DB connection attempt
-    try {
-        client = await pool.connect();
-
-        if (mainWallet && !mainWallet.includes('offline')) {
-            try {
-                const yieldRes = await client.query(
-                    `SELECT streaming_balance_kas, total_yield_kas 
-                     FROM yield_reservoirs 
-                     WHERE wallet_address = $1`,
-                    [mainWallet]
-                );
-
-                if (yieldRes.rows.length > 0) {
-                    liveStreamingBalance = parseFloat(yieldRes.rows[0].streaming_balance_kas || 0) + parseFloat(yieldRes.rows[0].total_yield_kas || 0);
+        // 3. ETHEREUM (PublicNode RPC)
+        if (ethAddr && !ethAddr.includes('Awaiting')) {
+            const res = await fetch('https://ethereum-rpc.publicnode.com', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [ethAddr, 'latest'], id: 1 })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.result) {
+                    const wei = BigInt(data.result);
+                    ethBalance = Number(wei / 1000000000n) / 1000000000;
                 }
-            } catch (dbErr) {
-                console.error("⚠️ PostgreSQL Yield Query Failed:", dbErr);
             }
         }
 
-        try {
-            const blockRes = await client.query(
-                `SELECT block_hash, worker_id, network_diff, discovered_at 
-                 FROM network_blocks 
-                 ORDER BY discovered_at DESC 
-                 LIMIT 5`
-            );
-            recentBlocks = blockRes.rows.map(row => ({
-                hash: row.block_hash,
-                worker: row.worker_id,
-                difficulty: parseFloat(row.network_diff || 0),
-                timestamp: row.discovered_at
-            }));
-        } catch (dbErr) {
-            console.error("⚠️ PostgreSQL Block Query Failed:", dbErr);
+        // 4. SOLANA (Mainnet RPC)
+        if (solAddr && !solAddr.includes('Awaiting')) {
+            const res = await fetch('https://api.mainnet-beta.solana.com', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [solAddr] })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.result && data.result.value !== undefined) {
+                    solBalance = data.result.value / 1e9;
+                }
+            }
         }
 
-    } catch (connErr: any) {
-        console.error("⚠️ PostgreSQL Connection Handshake Failed:", connErr.message);
-    } finally {
-        if (client) client.release();
+        // 5. DOGECOIN (Blockcypher / SoChain API)
+        if (dogeAddr && !dogeAddr.includes('Awaiting')) {
+            const res = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${dogeAddr}/balance`);
+            if (res.ok) {
+                const data = await res.json();
+                dogeBalance = (data.final_balance || 0) / 100_000_000;
+            }
+        }
+
+        // 6. POLYGON (EVM PublicNode RPC)
+        if (polAddr && !polAddr.includes('Awaiting')) {
+            const res = await fetch('https://polygon-bor-rpc.publicnode.com', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [polAddr, 'latest'], id: 1 })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.result) {
+                    const wei = BigInt(data.result);
+                    polBalance = Number(wei / 1000000000n) / 1000000000;
+                }
+            }
+        }
+
+        // 7. AVALANCHE C-CHAIN (EVM PublicNode RPC)
+        if (avaxAddr && !avaxAddr.includes('Awaiting')) {
+            const res = await fetch('https://avalanche-c-chain-rpc.publicnode.com', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [avaxAddr, 'latest'], id: 1 })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.result) {
+                    const wei = BigInt(data.result);
+                    avaxBalance = Number(wei / 1000000000n) / 1000000000;
+                }
+            }
+        }
+
+    } catch (e) {
+        console.error("Treasury Multi-Chain API Hydration Error:", e);
     }
 
-    const corporateEstate = {
-        masterIdentity: "Perennia Holdings, LLC",
-        timestamp: Date.now(),
-        networkBlocks: recentBlocks,
+    return json({
         assets: [
-            {
-                symbol: 'KAS',
-                name: 'Kaspa Native',
-                address: mainWallet,
-                balance: liveStreamingBalance, 
-                network: 'kaspa-mainnet',
-                color: '#18C6A5' 
-            },
-            {
-                symbol: 'BTC',
-                name: 'Bitcoin Vault',
-                address: corporateAddresses.BTC,
-                balance: 0.00, 
-                network: 'bitcoin-segwit',
-                color: '#F7931A'
-            },
-            {
-                symbol: 'ETH',
-                name: 'Ethereum Vault',
-                address: corporateAddresses.ETH,
-                balance: 0.00, 
-                network: 'ethereum-mainnet',
-                color: '#627EEA'
-            },
-            {
-                symbol: 'SOL',
-                name: 'Solana Vault',
-                address: corporateAddresses.SOL,
-                balance: 0.00, 
-                network: 'solana-mainnet',
-                color: '#14F195'
-            }
+            { symbol: 'KAS', address: kasAddr, balance: kasBalance },
+            { symbol: 'BTC', address: btcAddr, balance: btcBalance },
+            { symbol: 'ETH', address: ethAddr, balance: ethBalance },
+            { symbol: 'SOL', address: solAddr, balance: solBalance },
+            { symbol: 'DOGE', address: dogeAddr, balance: dogeBalance },
+            { symbol: 'XRP', address: xrpAddr, balance: xrpBalance },
+            { symbol: 'POL', address: polAddr, balance: polBalance },
+            { symbol: 'AVAX', address: avaxAddr, balance: avaxBalance },
+            { symbol: 'SUI', address: suiAddr, balance: suiBalance },
+            { symbol: 'TRX', address: trxAddr, balance: trxBalance },
+            { symbol: 'ZEC', address: zecAddr, balance: zecBalance }
         ]
-    };
-
-    return json(corporateEstate);
+    });
 };

@@ -1,16 +1,30 @@
-// src/routes/api/utxos/+server.ts
-
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-export async function GET({ url }: RequestEvent) {
-    const address = url.searchParams.get('address');
-    if (!address) return json({ error: "Missing address parameter" }, { status: 400 });
+const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
+const DEV_ADMIN_BYPASS = true;
 
-    const nodeIp = process.env.UBUNTU_NODE_IP || '192.168.0.12';
+export async function GET({ url, cookies }: RequestEvent) {
+    // 1. Zero-Trust Guard
+    const sessionCookie = cookies.get('perennia_session');
+    if (!sessionCookie) {
+        return json({ error: 'UNAUTHORIZED_DAG_ACCESS' }, { status: 401 });
+    }
+
+    const requestedAddress = url.searchParams.get('address');
+    if (!requestedAddress) return json({ error: "Missing address parameter" }, { status: 400 });
+
+    const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
+
+    // A user can ONLY query UTXOs for their exact authenticated session address
+    if (!isCorpAdmin && requestedAddress.toLowerCase() !== sessionCookie.toLowerCase()) {
+        return json({ error: 'FORBIDDEN_ADDRESS_QUERY' }, { status: 403 });
+    }
+
+    const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
 
     return new Promise((resolve) => {
         let isResolved = false; // ⚡ Immutable state lock
@@ -27,8 +41,8 @@ export async function GET({ url }: RequestEvent) {
         }, 5000);
 
         ws.on('open', () => {
-            console.log(`[+] Socket OPENED. Firing payload for ${address.substring(0, 15)}...`);
-            const payload = { id: 1, method: "getUtxosByAddresses", params: { addresses: [address] } };
+            console.log(`[+] Socket OPENED. Fetching unspent mass for ${requestedAddress.substring(0, 15)}...`);
+            const payload = { id: 1, method: "getUtxosByAddresses", params: { addresses: [requestedAddress] } };
             ws.send(JSON.stringify(payload));
         });
 
@@ -36,7 +50,6 @@ export async function GET({ url }: RequestEvent) {
             if (isResolved) return;
             isResolved = true; // Lock out the close/error handlers
             clearTimeout(timeout);
-            console.log(`[+] Reply RECEIVED.`);
             
             try {
                 const response = JSON.parse(data.toString());

@@ -2,14 +2,13 @@
     let { enterNexus } = $props<{ enterNexus: () => void }>();
 </script>
 
-<!-- Changed to min-h-[100dvh] and added strict bg-[#050505] for pure blackness -->
 <div class="w-full min-h-[100dvh] bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out]">
     
     <!-- Ambient Background Glow -->
     <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-teal-500/5 rounded-full blur-[150px] pointer-events-none -z-10"></div>
     
-    <!-- Title -->
-    <h1 class="text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-2xl mb-4 text-center">
+    <!-- Title with Step 1 Subliminal Creep -->
+    <h1 class="subliminal-text text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-2xl mb-4 text-center">
         Welcome to Perennia
     </h1>
     
@@ -22,7 +21,7 @@
     <button 
         type="button"
         onclick={enterNexus} 
-        class="group relative px-12 py-4 bg-[#0a0a0a] border border-neutral-800 rounded overflow-hidden transition-all duration-500 hover:border-teal-500 hover:shadow-[0_0_30px_rgba(20,184,166,0.2)] cursor-pointer"
+        class="group relative px-12 py-4 bg-[#0a0a0a] border border-neutral-800 rounded overflow-hidden transition-all duration-500 hover:border-teal-500 hover:shadow-[0_0_30px_rgba(20,184,166,0.2)] cursor-pointer z-10"
     >
         <div class="absolute inset-0 bg-teal-500/10 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500 ease-out pointer-events-none"></div>
         <span class="relative z-10 text-neutral-500 group-hover:text-teal-400 font-bold tracking-[0.3em] uppercase text-xs transition-colors duration-500 pointer-events-none">
@@ -43,5 +42,20 @@
     @keyframes fade-in { 
         0% { opacity: 0; filter: blur(10px); transform: scale(0.98); } 
         100% { opacity: 1; filter: blur(0); transform: scale(1); } 
+    }
+
+    /* Step 1: Pure CSS Subliminal Creep */
+    .subliminal-text {
+        animation: subliminal-creep 60s linear infinite alternate;
+        will-change: transform; 
+    }
+
+    @keyframes subliminal-creep {
+        0% {
+            transform: scale(1);
+        }
+        100% {
+            transform: scale(1.15);
+        }
     }
 </style>
