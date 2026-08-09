@@ -6,6 +6,7 @@ import { Keypair as SolKeypair } from '@solana/web3.js';
 import createHash from 'create-hash';
 import bs58check from 'bs58check';
 import { Wallet as XrpWallet } from 'xrpl';
+// ⚡ NOTE: @kaspa/core-lib has been completely removed to bypass WASM crashes
 
 export interface SovereignVaultKeys {
     kaspa: { address: string; privateKey: string };
@@ -29,9 +30,10 @@ export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVa
     const seed = await bip39.mnemonicToSeed(mnemonic);
     const masterHdKey = HDKey.fromMasterSeed(seed);
 
-    // 1. KASPA (m/44'/111111'/0'/0/0)
+    // 1. KASPA (m/44'/111111'/0'/0/0) - Pure JS Bech32m Derivation (No WASM)
     const kasKey = masterHdKey.derive("m/44'/111111'/0'/0/0");
-    const kaspaAddress = `kaspa:q${Buffer.from(kasKey.publicKey!.slice(1, 33)).toString('hex')}`;
+    const pubKeyX = Buffer.from(kasKey.publicKey!.slice(1, 33)); // Extract 32-byte X coordinate
+    const kaspaAddress = encodeKaspaAddress(pubKeyX);
 
     // 2. BITCOIN (m/44'/0'/0'/0/0)
     const btcKey = masterHdKey.derive("m/44'/0'/0'/0/0");
@@ -49,7 +51,6 @@ export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVa
 
     // 5. DOGECOIN (m/44'/3'/0'/0/0) - Base58Check with Prefix 0x1E
     const dogeKey = masterHdKey.derive("m/44'/3'/0'/0/0");
-    // ⚡ FIXED: Explicitly casting Uint8Array to Buffer for createHash
     const dogeHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(dogeKey.publicKey!)).digest()).digest();
     const dogeAddress = bs58check.encode(Buffer.concat([Buffer.from([0x1E]), dogeHash]));
 
@@ -64,7 +65,6 @@ export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVa
 
     // 9. SUI NETWORK (m/44'/784'/0'/0'/0')
     const suiKey = masterHdKey.derive("m/44'/784'/0'/0'/0'");
-    // ⚡ FIXED: Buffer cast
     const suiAddress = `0x${createHash('sha256').update(Buffer.from(suiKey.publicKey!)).digest('hex').slice(0, 40)}`;
 
     // 10. TRON (m/44'/195'/0'/0/0) - Base58Check with Prefix 0x41
@@ -75,7 +75,6 @@ export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVa
 
     // 11. ZCASH (m/44'/133'/0'/0/0) - Base58Check with Prefix 0x1CB8 (t1)
     const zecKey = masterHdKey.derive("m/44'/133'/0'/0/0");
-    // ⚡ FIXED: Buffer cast
     const zecHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(zecKey.publicKey!)).digest()).digest();
     const zcashAddress = bs58check.encode(Buffer.concat([Buffer.from([0x1C, 0xB8]), zecHash]));
 
@@ -92,4 +91,44 @@ export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVa
         tron: { address: tronAddress, privateKey: Buffer.from(trxKey.privateKey!).toString('hex') },
         zcash: { address: zcashAddress, privateKey: Buffer.from(zecKey.privateKey!).toString('hex') }
     };
+}
+
+// --- KASPA BECH32M ENCODER (Bypasses @kaspa/core-lib WASM) ---
+function encodeKaspaAddress(pubKeyX: Buffer): string {
+    const KASPA_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    
+    const polymod = (values: number[]) => {
+        let c = 1n;
+        for (const v of values) {
+            const c0 = c >> 35n;
+            c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(v);
+            if (c0 & 1n) c ^= 0x98f2bc8e61n;
+            if (c0 & 2n) c ^= 0x79b76d99e2n;
+            if (c0 & 4n) c ^= 0xf33e5fb3c4n;
+            if (c0 & 8n) c ^= 0xae2eabe2a8n;
+            if (c0 & 16n) c ^= 0x1e4f43e470n;
+        }
+        return c ^ 1n;
+    };
+
+    const prefix = "kaspa";
+    const prefixValues = prefix.split('').map(c => c.charCodeAt(0) & 31).concat([0]);
+    const payload = [0, ...pubKeyX]; // Version byte 0 for P2PK-Schnorr
+
+    let acc = 0, bits = 0;
+    const payload5: number[] = [];
+    for (const byte of payload) {
+        acc = (acc << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+            bits -= 5;
+            payload5.push((acc >> bits) & 31);
+        }
+    }
+    if (bits > 0) payload5.push((acc << (5 - bits)) & 31);
+
+    const mod = polymod([...prefixValues, ...payload5, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const checksum = [0, 1, 2, 3, 4, 5, 6, 7].map(i => Number((mod >> BigInt(5 * (7 - i))) & 31n));
+
+    return prefix + ":" + [...payload5, ...checksum].map(v => KASPA_ALPHABET[v]).join('');
 }

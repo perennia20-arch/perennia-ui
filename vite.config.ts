@@ -8,8 +8,8 @@ export default defineConfig({
         sveltekit(),
         tailwindcss(),
         nodePolyfills({
-            include: ['buffer'],
-            globals: { Buffer: true }
+            include: ['buffer', 'crypto', 'stream', 'util'],
+            globals: { Buffer: true, global: true, process: true }
         })
     ]
 });
