@@ -2,13 +2,10 @@
     import { source } from 'sveltekit-sse';
     import { workers, silos, plants, systemMode, adminGlobalView, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
     import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
-    import { fade } from 'svelte/transition';
+    import { fade, slide } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
     import { browser } from '$app/environment';
-
-    let sseConnection: ReturnType<typeof source> | null = null;
-    let unsubs: any[] = [];
 
     // Context Menu State
     let contextMenuWorkerId = $state<string | null>(null);
@@ -32,14 +29,12 @@
     let totalPendingKAS = $derived($silos.reduce((acc, s) => acc + (s.pendingKaspa || 0), 0));
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
 
-    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
     
-    // The backend now securely partitions data via the SSE tunnel. 
-    // This frontend derivative now purely decides what is drawn on the screen based on Admin Toggle.
     let displayedWorkers = $derived(
         isCorporateAdmin && $adminGlobalView 
             ? $workers 
-            : $workers.filter(worker => worker.walletWorker.includes($walletAddress?.replace('kaspa:', '') || 'pending'))
+            : $workers.filter(worker => worker.walletWorker.toLowerCase().includes($walletAddress?.replace('kaspa:', '').toLowerCase() || 'pending'))
     );
     
     function handleContextMenu(e: MouseEvent, workerId: string) {
@@ -136,9 +131,6 @@
         });
     });
 
-    // ⚡ THE PER FLYWHEEL RESOLUTION ENGINE
-    // When a user adds tokens, we intentionally trigger a sync state (hashRate: 0)
-    // This allows the Rust Chronos backend to cryptographically verify their holdings and replace it with the true hash rate.
     $effect(() => {
         if (browser && $isWalletConnected) {
             const hasSyncingCapital = $workers.some(w => w.type === 'capital' && w.isOnline && w.hashRate === 0);
@@ -156,7 +148,6 @@
                                             if (backendWorker && backendWorker.hashRate > 0) {
                                                 return { ...w, hashRate: backendWorker.hashRate, isOnline: backendWorker.isOnline, capitalTokens: backendWorker.capitalTokens };
                                             } else if (backendWorker && backendWorker.hashRate === 0 && !backendWorker.isOnline) {
-                                                // Zero-trust verification determined balance was absent; force offline
                                                 return { ...w, hashRate: 0, isOnline: false, capitalTokens: backendWorker.capitalTokens };
                                             } else {
                                                 stillSyncing = true;
@@ -178,8 +169,6 @@
     let floatingTexts = $state<{ id: number, x: number, y: number, text1: string, text2: string }[]>([]);
     let floatId = 0;
 
-    // ⚡ ZERO-TRUST SIMPLIFICATION: The backend SSE stream now mathematically filters records for us.
-    // If a worker is in this payload, it explicitly belongs to this session context.
     function processTelemetryData(data: any) {
         const isConnected = get(isWalletConnected);
 
@@ -191,8 +180,11 @@
         workers.update(currentWorkers => {
             let updated = currentWorkers.map(w => {
                 if (w.type === 'physical') {
-                    // We no longer need to check matching addresses—the server guarantees it.
-                    const bw = (data.workers || []).find((b: any) => b.fullIdentity === w.walletWorker);
+                    const bw = (data.workers || []).find((b: any) => 
+                        b.fullIdentity === w.walletWorker || 
+                        b.fullIdentity?.toLowerCase() === w.walletWorker.toLowerCase() ||
+                        (b.name && w.name && b.name.toLowerCase() === w.name.toLowerCase())
+                    );
                     
                     if (bw) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
@@ -207,18 +199,18 @@
                     }
                     return { ...w, hashRate: 0, isOnline: false };
                 }
-                return w; // Capital workers are secured via explicit db injection from /api/state
+                return w; 
             });
 
             if (data.workers) {
                 data.workers.forEach((bw: any) => {
-                    if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
+                    if (!updated.find(w => w.walletWorker.toLowerCase() === bw.fullIdentity.toLowerCase() || w.name.toLowerCase() === (bw.name || '').toLowerCase())) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
                         updated.push({
                             id: Math.random().toString(36).substring(2, 8).toUpperCase(),
                             type: 'physical',
                             name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
-                            stratumUrl: 'stratum+tcp://192.168.0.12:5555',
+                            stratumUrl: 'Multi-Tier Stratum Protocol',
                             walletWorker: bw.fullIdentity,
                             hashRate: rawHash / 1e12,
                             isOnline: true,
@@ -255,13 +247,41 @@
         });
     }
 
+    // ⚡ FIX: The Async Reconnection Engine
+    // Automatically re-establishes SSE the moment the wallet address hydrates from local storage
+    $effect(() => {
+        if (browser && $isWalletConnected && $walletAddress) {
+            const connection = source(`/api/telemetry?address=${encodeURIComponent($walletAddress)}`);
+            
+            const unsubscribe = connection.select('message').subscribe((rawData) => {
+                if (!rawData) return;
+                try {
+                    const parsed = JSON.parse(rawData);
+                    if (parsed.error) {
+                        console.warn("SSE Rejected:", parsed.error);
+                        return;
+                    }
+                    processTelemetryData(parsed);
+                } catch(e) {
+                    globalNodeStatus.set('unreachable');
+                }
+            });
+
+            return () => {
+                unsubscribe();
+                connection.close();
+            };
+        }
+    });
+
+    let unsubs: any[] = [];
+
     onMount(() => { 
         hashHistory = Array(30).fill(get(globalNetworkHashrate));
         kasHistory = Array(30).fill(get(globalKasPrice));
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
-        // ⚡ MATRIX SYNC: Periodically poll backend for cryptographically verified Capital Worker states
         const capitalPoll = setInterval(() => {
             if (get(isWalletConnected) && get(walletAddress)) {
                 fetch(`/api/state`).then(r => r.json()).then(parsed => {
@@ -278,22 +298,10 @@
             }
         }, 15000);
         unsubs.push(() => clearInterval(capitalPoll));
-
-        sseConnection = source('/api/telemetry');
-        sseConnection.select('message').subscribe((rawData) => {
-            if (!rawData) return;
-            try {
-                const parsed = JSON.parse(rawData);
-                processTelemetryData(parsed);
-            } catch(e) {
-                globalNodeStatus.set('unreachable');
-            }
-        });
     });
 
     onDestroy(() => { 
         unsubs.forEach(u => u()); 
-        if (sseConnection) sseConnection.close();
     });
 
     let dragType = $state<'worker' | 'silo' | null>(null);
@@ -376,7 +384,7 @@
         if (inlineRenameId === workerId && inlineRenameValue.trim() !== "") {
             const newName = inlineRenameValue.trim();
             workers.update(wks => wks.map(w => w.id === workerId ? { 
-                ...w, name: newName, walletWorker: $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${newName}` : `kaspa:pending.${newName}`
+                ...w, name: newName, walletWorker: $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${newName}` : `kaspa:pending.${newName}`
             } : w));
             
             if ($walletAddress) {
@@ -400,9 +408,6 @@
                     const newTokens = tokenModalWorker!.type === 'add' ? currentTokens + amount : Math.max(0, currentTokens - amount);
                     const isOnline = newTokens > 0;
                     
-                    // 🛡️ ZERO-TRUST FIX: Record the intent optimistically.
-                    // Setting hashRate to 0 triggers the frontend's 'SYNCING...' polling state.
-                    // The Rust Chronos Engine natively verifies the KRC-20 balance on-chain and maps the true Hash Rate.
                     return { ...w, hashRate: isOnline ? 0 : 0, isOnline, capitalTokens: newTokens };
                 }
                 return w;
@@ -500,8 +505,8 @@
         const name = `${type === 'physical' ? 'Rig' : 'Cap'}-${id.substring(0,4)}`; 
         const newWorker: Worker = { 
             id, type, name, 
-            stratumUrl: type === 'physical' ? 'stratum+tcp://192.168.0.12:5555' : 'Virtual Capital Contract', 
-            walletWorker: $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${name}` : `kaspa:pending.${name}`, 
+            stratumUrl: type === 'physical' ? 'Multi-Tier Stratum Protocol' : 'Virtual Capital Contract', 
+            walletWorker: $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${name}` : `kaspa:pending.${name}`, 
             hashRate: 0.00,  
             isOnline: false, 
             assignedSiloId: null,
@@ -542,25 +547,25 @@
             </div>
 
             {#if !deleteConfirmId}
-                <button onclick={(e) => { e.stopPropagation(); inlineRenameId = cWorker.id; inlineRenameValue = cWorker.name; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer w-full">Rename Worker</button>
+                <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); inlineRenameId = w.id; inlineRenameValue = w.name; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer w-full">Rename Worker</button>
                 
                 {#if cWorker.type === 'physical'}
-                    <button onclick={(e) => { e.stopPropagation(); stratumModalWorker = cWorker; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 w-full">Copy Stratum</button>
+                    <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); stratumModalWorker = w; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 w-full">Copy Stratum</button>
                     {#if cWorker.ipAddress}
-                        <button aria-label="Open Miner Interface" onclick={() => { window.open(`http://${cWorker.ipAddress}`, '_blank'); closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50 w-full">
+                        <button aria-label="Open Miner Interface" onclick={() => { const ip = cWorker.ipAddress; closeAllMenus(); window.open(`http://${ip}`, '_blank'); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50 w-full">
                             Open Interface 
                             <span class="text-[12px] font-black opacity-50 group-hover:opacity-100 transition-opacity">↗</span>
                         </button>
                     {/if}
                 {:else}
-                    <button onclick={(e) => { e.stopPropagation(); tokenModalWorker = { worker: cWorker, type: 'add' }; trayTokenAmount = ''; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Add Tokens <span class="text-lg leading-none">+</span></button>
-                    <button onclick={(e) => { e.stopPropagation(); tokenModalWorker = { worker: cWorker, type: 'sub' }; trayTokenAmount = ''; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Remove Tokens <span class="text-lg leading-none">-</span></button>
+                    <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); tokenModalWorker = { worker: w, type: 'add' }; trayTokenAmount = ''; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Add Tokens <span class="text-lg leading-none">+</span></button>
+                    <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); tokenModalWorker = { worker: w, type: 'sub' }; trayTokenAmount = ''; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Remove Tokens <span class="text-lg leading-none">-</span></button>
                 {/if}
                 
                 <button onclick={(e) => { e.stopPropagation(); deleteConfirmId = cWorker.id; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-red-950/30 transition-colors cursor-pointer w-full">Delete Worker</button>
             {:else}
                 <div class="px-3 py-2 text-[10px] font-bold text-neutral-400 border-b border-neutral-800/50 bg-[#111]">Are you sure?</div>
-                <button onclick={() => { deleteWorker(cWorker.id); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white bg-red-600 hover:bg-red-500 transition-colors cursor-pointer border-b border-red-700/50 w-full">Yes, Delete</button>
+                <button onclick={() => { const id = cWorker.id; closeAllMenus(); deleteWorker(id); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white bg-red-600 hover:bg-red-500 transition-colors cursor-pointer border-b border-red-700/50 w-full">Yes, Delete</button>
                 <button onclick={(e) => { e.stopPropagation(); deleteConfirmId = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-neutral-400 hover:bg-[#222] hover:text-white transition-colors cursor-pointer w-full">Cancel</button>
             {/if}
         </div>
@@ -585,32 +590,54 @@
 <!--   STRATUM CONFIG MODAL  -->
 <!-- ======================= -->
 {#if stratumModalWorker}
-    {@const dynamicWorkerName = $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${stratumModalWorker.name}` : `kaspa:pending.${stratumModalWorker.name}`}
+    {@const dynamicWorkerName = $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${stratumModalWorker.name}` : `kaspa:pending.${stratumModalWorker.name}`}
     
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
         <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-[#050505]/95 backdrop-blur-sm cursor-default border-none" onclick={() => stratumModalWorker = null}></button>
-        <div class="relative z-10 w-full max-w-[400px] bg-[#0c0c0c] border border-teal-900/50 rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-[fade-in-up_0.2s_ease-out]">
+        <div class="relative z-10 w-full max-w-[450px] bg-[#0c0c0c] border border-teal-900/50 rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-[fade-in-up_0.2s_ease-out]">
             <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-                <h3 class="text-teal-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-                    Stratum Configuration
-                </h3>
-                <button onclick={() => stratumModalWorker = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none">✕</button>
+                <div class="flex flex-col">
+                    <h3 class="text-teal-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                        Stratum Configuration
+                    </h3>
+                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest mt-1">Multi-Tier Connectivity</span>
+                </div>
+                <button onclick={() => stratumModalWorker = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none mb-4">✕</button>
             </div>
             
             <div class="flex flex-col gap-4">
                 <div class="flex flex-col gap-1.5">
-                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Pool URL</span>
-                    <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-3">
-                        <span class="flex-1 font-mono text-xs text-white truncate select-all">{stratumModalWorker.stratumUrl || 'stratum+tcp://192.168.0.12:5555'}</span>
-                        <button onclick={(e) => handleTrayCopy(e, stratumModalWorker!.stratumUrl || 'stratum+tcp://192.168.0.12:5555', 'COPIED POOL URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-teal-500/50 text-neutral-400 hover:text-teal-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Tier 1: GPU / Mobile (Port 5551)</span>
+                    <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-2.5">
+                        <span class="flex-1 font-mono text-xs text-white truncate select-all">stratum+tcp://192.168.0.12:5551</span>
+                        <button onclick={(e) => handleTrayCopy(e, 'stratum+tcp://192.168.0.12:5551', 'COPIED TIER 1 URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-teal-500/50 text-neutral-400 hover:text-teal-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
                     </div>
                 </div>
+
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] text-teal-500 uppercase tracking-widest font-bold">Tier 2: Home ASICs (Port 5552)</span>
+                    <div class="flex items-center gap-2 bg-[#18C6A5]/10 border border-[#18C6A5]/30 rounded-lg p-2.5">
+                        <span class="flex-1 font-mono text-xs text-teal-400 truncate select-all">stratum+tcp://192.168.0.12:5552</span>
+                        <button onclick={(e) => handleTrayCopy(e, 'stratum+tcp://192.168.0.12:5552', 'COPIED TIER 2 URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-teal-700/50 hover:border-teal-500 text-teal-400 hover:text-white px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] text-amber-500 uppercase tracking-widest font-bold">Tier 3: Industrial ASICs (Port 5553)</span>
+                    <div class="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg p-2.5">
+                        <span class="flex-1 font-mono text-xs text-amber-400 truncate select-all">stratum+tcp://192.168.0.12:5553</span>
+                        <button onclick={(e) => handleTrayCopy(e, 'stratum+tcp://192.168.0.12:5553', 'COPIED TIER 3 URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-amber-700/50 hover:border-amber-500 text-amber-400 hover:text-white px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    </div>
+                </div>
+
+                <div class="h-px bg-neutral-800 my-1"></div>
+
                 <div class="flex flex-col gap-1.5">
                     <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Wallet.WorkerName</span>
                     <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-3">
-                        <span class="flex-1 font-mono text-xs text-amber-400 truncate select-all">{dynamicWorkerName}</span>
-                        <button onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-amber-500/50 text-neutral-400 hover:text-amber-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                        <span class="flex-1 font-mono text-xs text-white truncate select-all">{dynamicWorkerName}</span>
+                        <button onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-white/50 text-neutral-400 hover:text-white px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
                     </div>
                 </div>
             </div>
@@ -745,6 +772,8 @@
                 <span class="text-[8px] font-bold truncate max-w-[80px]" style="color: {siloColor}">{assignedSilo.name}</span>
             </div>
         </div>
+    {:else}
+        <div class="mt-3 pt-2.5 border-t border-neutral-800/50 flex justify-between items-center pointer-events-none"></div>
     {/if}
 </div>
 {/snippet}

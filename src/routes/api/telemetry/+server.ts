@@ -2,25 +2,28 @@ import { produce } from 'sveltekit-sse';
 import { redis } from '$lib/server/redis';
 import type { RequestEvent } from '@sveltejs/kit';
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true; // Match stores/wallet.ts
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false; 
 
-export function GET({ cookies }: RequestEvent) {
-    // 1. Zero-Trust Identity Lock
-    const rawSession = cookies.get('perennia_session');
+export function GET({ cookies, url }: RequestEvent) {
+    // 1. Zero-Trust Identity Lock - Support Cookie OR URL Param (Fixes the Async Race Condition)
+    let rawCookie = cookies.get('perennia_session');
+    if (!rawCookie) {
+        rawCookie = url.searchParams.get('address');
+    }
 
     return produce(async function start({ emit }) {
-        // Fallback if accessed without auth
-        if (!rawSession) {
+        if (!rawCookie) {
             emit('message', JSON.stringify({ error: "UNAUTHORIZED_MATRIX_ACCESS" }));
             return function stop() {};
         }
 
-        const sessionWallet = rawSession.toLowerCase();
-        const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionWallet === MASTER_ADMIN_ADDRESS;
-        const cleanSessionWallet = sessionWallet.replace('kaspa:', '');
+        const rawSession = decodeURIComponent(rawCookie);
+        const sessionWallet = rawSession.toLowerCase().trim();
+        
+        const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionWallet === MASTER_ADMIN_ADDRESS.toLowerCase();
+        const cleanSessionWallet = sessionWallet.replace('kaspa:', '').trim();
 
-        // Clone the connection so it can be dedicated purely to subscription blocking
         const subscriber = redis.duplicate();
         
         subscriber.on('error', (err) => {
@@ -39,16 +42,27 @@ export function GET({ cookies }: RequestEvent) {
                     try {
                         const parsed = JSON.parse(message);
                         
-                        // Filter the workers array to strictly matching hardware
                         if (parsed.workers && Array.isArray(parsed.workers)) {
+                            let isolatedHashrate = 0;
+                            
+                            // Scrub unowned hardware from the payload
                             parsed.workers = parsed.workers.filter((w: any) => {
-                                // Extract the wallet root from the Stratum Identity (kaspa:q...workerName)
                                 const identityBase = (w.walletAddress || w.fullIdentity || '').toLowerCase();
-                                return identityBase.includes(cleanSessionWallet);
+                                if (identityBase.includes(cleanSessionWallet)) {
+                                    isolatedHashrate += (w.trackingRate || w.hashrate || w.hashRate || 0);
+                                    return true;
+                                }
+                                return false;
                             });
+
+                            // ⚡ UPGRADE: Rewrite the total hashrate so the user only sees their own physical equipment's hash output
+                            if (parsed.pool) {
+                                parsed.pool.totalHashrate = isolatedHashrate;
+                            } else {
+                                parsed.totalHashrate = isolatedHashrate;
+                            }
                         }
                         
-                        // Re-serialize the scrubbed payload
                         partitionedMessage = JSON.stringify(parsed);
                         
                     } catch (e) {

@@ -14,7 +14,8 @@
 
     const tabs = ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS'];
     
-    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    // ⚡ FIX: Bulletproof case-insensitive check ensures the Sovereign Vault always gets admin rights
+    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
     
     let disabledTabs: string[] = $state([]); 
 
@@ -32,7 +33,6 @@
     let isServerReachable = $state(true);
     let showCopyToast = $state(false);
 
-    // Step 3: Cascading Glow State Trigger
     let appAwakened = $derived($isWalletConnected && isLoaded);
 
     function purgeApplicationState() {
@@ -50,7 +50,6 @@
         }
     }
 
-    // ⚡ ZERO-TRUST: Fetching state via secure HTTP-Only cookie, NO address parameter
     async function loadStateFromServer() {
         if (!browser || !$walletAddress) return;
         try {
@@ -73,7 +72,6 @@
         } 
     }
 
-    // ⚡ ZERO-TRUST: Saving state via secure HTTP-Only cookie, NO address parameter
     async function saveStateToServer() {
         if (!browser || !$walletAddress || !isLoaded || !isServerReachable || isCorporateAdmin) return;
         try {
@@ -176,7 +174,6 @@
 {#if !$isWalletConnected && !hasEntered}
     <EntryView {enterNexus} />
 {:else}
-    <!-- Step 3: Cascading Glow Wrapper -->
     <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}">
         
         <header class="h-16 border-b border-neutral-800/80 bg-transparent flex items-center justify-center z-50 shrink-0 w-full sticky top-0 backdrop-blur-xl">
@@ -271,7 +268,6 @@
 <WalletModal />
 
 <style>
-    /* Step 3: Cascading Transitions & Glowing States */
     .app-wrapper {
         transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out;
     }
@@ -283,7 +279,6 @@
 
     .app-wrapper.glow-active {
         background-color: #0a0f12; 
-        /* Massive cascading internal glow tracking the connection */
         box-shadow: inset 0 0 150px rgba(24, 198, 165, 0.05),
                     inset 0 0 50px rgba(168, 85, 247, 0.03); 
     }

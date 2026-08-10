@@ -135,8 +135,9 @@
         });
     });
 
+    // ⚡ ZERO-TRUST UPDATE: Remove `activeWalletType` restriction so everyone can hydrate the UI
     async function fetchTreasuryData() {
-        if (!isVaultDecrypted || $activeWalletType !== 'sovereign') return;
+        if (!isVaultDecrypted) return;
         try {
             const params = new URLSearchParams({ 
                 kas: kasAddr, btc: btcAddr, eth: ethAddr, sol: solAddr,

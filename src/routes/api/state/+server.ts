@@ -1,83 +1,49 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { dbPool } from '$lib/server/db';
+import { json, type RequestEvent } from '@sveltejs/kit';
+import { redis } from '$lib/server/redis';
 
-export const GET: RequestHandler = async ({ cookies }) => {
-    // 1. Absolute Zero-Trust: Extract Identity from Cryptographic Cookie
-    const address = cookies.get('perennia_session');
+export async function GET({ cookies }: RequestEvent) {
+    const rawCookie = cookies.get('perennia_session');
     
-    if (!address) {
-        return json({ error: 'Unauthorized matrix access' }, { status: 401 });
+    if (!rawCookie) {
+        return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
     }
 
-    let client;
+    // ⚡ FIX: Decode and normalize state keys
+    const sessionWallet = decodeURIComponent(rawCookie);
+    const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
+    const stateKey = `state:${cleanWallet}`;
+
     try {
-        client = await dbPool.connect();
-        const res = await client.query(
-            `SELECT layout_state FROM user_command_centers WHERE wallet_address = $1`,
-            [address.toLowerCase()]
-        );
-
-        if (res.rows.length > 0 && res.rows[0].layout_state) {
-            return json(res.rows[0].layout_state);
+        const rawState = await redis.get(stateKey);
+        if (rawState) {
+            return json(JSON.parse(rawState), { status: 200 });
         }
-        
-        // Return default base state if no layout exists yet
-        return json({ workers: [], silos: [], plants: [], systemMode: 'base' });
     } catch (e) {
-        console.error("State Hydration Fault:", e);
-        return json({ error: 'Failed to load command center state' }, { status: 500 });
-    } finally {
-        if (client) client.release();
+        console.error("🔴 State Fetch Fault:", e);
     }
-};
 
-export const POST: RequestHandler = async ({ request, cookies }) => {
-    // 1. Absolute Zero-Trust: Extract Identity from Cryptographic Cookie
-    const address = cookies.get('perennia_session');
+    return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
+}
+
+export async function POST({ request, cookies }: RequestEvent) {
+    const rawCookie = cookies.get('perennia_session');
     
-    if (!address) {
-        return json({ error: 'Unauthorized matrix write attempt' }, { status: 401 });
+    if (!rawCookie) {
+        return json({ error: 'UNAUTHORIZED_STATE_WRITE' }, { status: 401 });
     }
 
-    let client;
     try {
-        const body = await request.json();
+        const payload = await request.json();
         
-        // 🛡️ ZERO-TRUST PROTOCOL: Prevent frontend hashRate spoofing for Capital workers.
-        if (body.workers && Array.isArray(body.workers)) {
-            body.workers = body.workers.map((w: any) => {
-                if (w.type === 'capital') {
-                    const claimedTokens = parseFloat(w.capitalTokens) || 0;
-                    const expectedHashRate = (claimedTokens / 1000) * 0.05;
-                    // Prevent arbitrarily high spoofed hashRates. 
-                    // Let Chronos daemon strictly slash capitalTokens down to actual KRC-20 holdings on next tick.
-                    if ((parseFloat(w.hashRate) || 0) > expectedHashRate) {
-                        w.hashRate = expectedHashRate;
-                    }
-                }
-                return w;
-            });
-        }
-        
-        client = await dbPool.connect();
-        
-        // 2. High-Performance Upsert to JSONB Column
-        await client.query(
-            `INSERT INTO user_command_centers (wallet_address, layout_state, last_updated)
-             VALUES ($1, $2, CURRENT_TIMESTAMP)
-             ON CONFLICT (wallet_address) 
-             DO UPDATE SET 
-                layout_state = EXCLUDED.layout_state,
-                last_updated = CURRENT_TIMESTAMP`,
-            [address.toLowerCase(), body]
-        );
+        // ⚡ FIX: Decode and normalize state keys
+        const sessionWallet = decodeURIComponent(rawCookie);
+        const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
+        const stateKey = `state:${cleanWallet}`;
 
-        return json({ success: true });
+        await redis.set(stateKey, JSON.stringify(payload));
+        return json({ success: true }, { status: 200 });
     } catch (e) {
-        console.error("State Persistence Fault:", e);
-        return json({ error: 'Failed to save command center state' }, { status: 500 });
-    } finally {
-        if (client) client.release();
+        console.error("🔴 State Save Fault:", e);
+        return json({ error: 'Failed to persist state' }, { status: 500 });
     }
-};
+}

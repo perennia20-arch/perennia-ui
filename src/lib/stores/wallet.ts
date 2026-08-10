@@ -8,6 +8,8 @@ import { Keypair } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
+import createHash from 'create-hash';
+import bs58check from 'bs58check';
 
 // ⚡ Injecting the Omni-Chain Derivation Engine
 import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
@@ -32,8 +34,8 @@ function bytesToHex(bytes: Uint8Array): string {
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export const DEV_ADMIN_BYPASS = true;
-export const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
+export const DEV_ADMIN_BYPASS = false;
+export const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 
 export const showWalletModal = writable<boolean>(false);
 export const isConnecting = writable<boolean>(false);
@@ -57,10 +59,10 @@ export const sovereignKeys = writable<any>(null);
 export const networkStatus = writable<'syncing' | 'connected' | 'offline'>('offline');
 
 const TREASURY_ADDRESSES = {
-    KAS: "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2", 
-    ETH: "0xPerenniaTreasuryEVM",   
-    SOL: "PerenniaSolanaTreasury",  
-    BTC: "bc1qperenniatreasury"     
+    KAS: MASTER_ADMIN_ADDRESS, 
+    ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",   
+    SOL: "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a",  
+    BTC: "1Cw18pUXoH1T3GL7HMHmSB9DGeGa1Pip5EP"     
 };
 
 export function normalizeKaspaAddress(addr: string | null | undefined): string | null {
@@ -73,59 +75,6 @@ export function normalizeKaspaAddress(addr: string | null | undefined): string |
 export function getCleanKaspaAddress(addr: string | null | undefined): string {
     if (!addr) return '';
     return addr.replace(/^kaspa:/i, '').trim().toLowerCase();
-}
-
-function getKaspaAddress(pubKeyHex: string): string {
-    const prefix = "kaspa";
-    let polymodData = [];
-    for (let i = 0; i < prefix.length; i++) {
-        polymodData.push(prefix.charCodeAt(i) & 31);
-    }
-    polymodData.push(0);
-
-    let payload = [0]; 
-    for (let i = 0; i < pubKeyHex.length; i += 2) {
-        payload.push(parseInt(pubKeyHex.substring(i, i + 2), 16));
-    }
-
-    let acc = 0;
-    let bits = 0;
-    let payload5 = [];
-    for (let value of payload) {
-        acc = (acc << 8) | value;
-        bits += 8;
-        while (bits >= 5) {
-            bits -= 5;
-            payload5.push((acc >> bits) & 31);
-        }
-    }
-    if (bits > 0) {
-        payload5.push((acc << (5 - bits)) & 31);
-    }
-
-    polymodData = polymodData.concat(payload5).concat([0, 0, 0, 0, 0, 0, 0, 0]);
-
-    let c = 1n;
-    for (let d of polymodData) {
-        let c0 = c >> 35n;
-        c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
-        if (c0 & 1n) c ^= 0x98f2bc8e61n;
-        if (c0 & 2n) c ^= 0x79b76d99e2n;
-        if (c0 & 4n) c ^= 0xf33e5fb3c4n;
-        if (c0 & 8n) c ^= 0xae2eabe2a8n;
-        if (c0 & 16n) c ^= 0x1e4f43e470n;
-    }
-    let checksum = c ^ 1n;
-
-    const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-    let address = prefix + ":";
-    for (let i = 0; i < payload5.length; i++) {
-        address += charset[payload5[i]];
-    }
-    for (let i = 0; i < 8; i++) {
-        address += charset[Number((checksum >> BigInt(5 * (7 - i))) & 31n)];
-    }
-    return address;
 }
 
 const CRYPTO_ITERATIONS = 250000;
@@ -186,7 +135,6 @@ export async function decryptVault(password: string, encryptedB64: string): Prom
     return dec.decode(decryptedBuf);
 }
 
-// ⚡ CENTRALIZED VAULT BUILDER - Routes 11 chains through honeycomb.ts
 async function buildAndSecureVault(password: string, mnemonic: string, isImport = false) {
     isConnecting.set(true);
     walletMessage.set(isImport ? 'Importing Omni-Chain Matrix...' : 'Forging Omni-Chain Matrix...');
@@ -225,7 +173,6 @@ async function buildAndSecureVault(password: string, mnemonic: string, isImport 
         walletMessage.set('Encrypting Ephemeral Vault...');
         const encryptedVault = await encryptVault(password, mnemonic);
 
-        // Map all 11 chains safely to state (Addresses ONLY, never private keys in local storage)
         const safeWallets = {
             kaspa: { address: keys.kaspa.address },
             bitcoin: { address: keys.bitcoin.address },
@@ -269,7 +216,6 @@ export async function generateSovereignHoneycomb(password: string) {
     return await buildAndSecureVault(password, mnemonic, false);
 }
 
-// ⚡ NEW IMPORT PIPELINE EXPORT
 export async function importSovereignVault(password: string, mnemonic: string) {
     return await buildAndSecureVault(password, mnemonic.trim().toLowerCase(), true);
 }
@@ -286,8 +232,6 @@ export async function unlockSovereignVault(password: string) {
         const vaultPayload = JSON.parse(rawPayload);
         const mnemonic = await decryptVault(password, vaultPayload.vault);
         
-        // ⚡ AUTO-UPGRADE HOOK: By routing through honeycomb.ts on unlock, 
-        // we automatically upgrade legacy 4-chain sessions to full 11-chain sessions dynamically!
         const keys = await deriveHoneycombKeys(mnemonic);
         privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
         const kasAddress = normalizeKaspaAddress(keys.kaspa.address)!;
@@ -321,7 +265,6 @@ export async function unlockSovereignVault(password: string) {
 
         walletMessage.set('Hydrating Omni-Chain Balances...');
         
-        // Inject the newly upgraded 11-chain addresses back into the payload before authorization
         vaultPayload.wallets = {
             kaspa: { address: keys.kaspa.address },
             bitcoin: { address: keys.bitcoin.address },

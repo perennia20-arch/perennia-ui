@@ -35,9 +35,10 @@ export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVa
     const pubKeyX = Buffer.from(kasKey.publicKey!.slice(1, 33)); // Extract 32-byte X coordinate
     const kaspaAddress = encodeKaspaAddress(pubKeyX);
 
-    // 2. BITCOIN (m/44'/0'/0'/0/0)
+    // 2. BITCOIN (m/44'/0'/0'/0/0) - ⚡ FIXED: Properly Hashed & Base58Check Encoded (Legacy P2PKH)
     const btcKey = masterHdKey.derive("m/44'/0'/0'/0/0");
-    const btcAddress = `bc1q${Buffer.from(btcKey.publicKey!.slice(1, 21)).toString('hex')}`;
+    const btcHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(btcKey.publicKey!)).digest()).digest();
+    const btcAddress = bs58check.encode(Buffer.concat([Buffer.from([0x00]), btcHash]));
 
     // 3. ETHEREUM (m/44'/60'/0'/0/0)
     const ethKey = masterHdKey.derive("m/44'/60'/0'/0/0");

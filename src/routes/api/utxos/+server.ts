@@ -4,22 +4,23 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true;
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false;
 
 export async function GET({ url, cookies }: RequestEvent) {
-    // 1. Zero-Trust Guard
-    const sessionCookie = cookies.get('perennia_session');
-    if (!sessionCookie) {
+    const rawCookie = cookies.get('perennia_session');
+    if (!rawCookie) {
         return json({ error: 'UNAUTHORIZED_DAG_ACCESS' }, { status: 401 });
     }
 
+    // ⚡ FIX: Decode cookie
+    const sessionCookie = decodeURIComponent(rawCookie);
     const requestedAddress = url.searchParams.get('address');
+    
     if (!requestedAddress) return json({ error: "Missing address parameter" }, { status: 400 });
 
-    const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
+    const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
 
-    // A user can ONLY query UTXOs for their exact authenticated session address
     if (!isCorpAdmin && requestedAddress.toLowerCase() !== sessionCookie.toLowerCase()) {
         return json({ error: 'FORBIDDEN_ADDRESS_QUERY' }, { status: 403 });
     }
@@ -27,7 +28,7 @@ export async function GET({ url, cookies }: RequestEvent) {
     const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
 
     return new Promise((resolve) => {
-        let isResolved = false; // ⚡ Immutable state lock
+        let isResolved = false;
         console.log(`\n⏳ UTXO Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
         
         const ws = new WebSocket(`ws://${nodeIp}:18110`);
@@ -48,7 +49,7 @@ export async function GET({ url, cookies }: RequestEvent) {
 
         ws.on('message', (data: any) => {
             if (isResolved) return;
-            isResolved = true; // Lock out the close/error handlers
+            isResolved = true; 
             clearTimeout(timeout);
             
             try {
@@ -56,7 +57,7 @@ export async function GET({ url, cookies }: RequestEvent) {
                 const entries = response.params?.entries || response.entries || [];
                 console.log(`[+] Mapped ${entries.length} UTXOs.`);
                 
-                ws.terminate(); // Instantly destroy socket to prevent 1006 cascade
+                ws.terminate();
                 resolve(json({ entries }, { status: 200 }));
             } catch (e) {
                 console.error("❌ [Perennia Proxy] Failed to parse wRPC response");

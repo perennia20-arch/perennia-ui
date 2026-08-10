@@ -2,19 +2,20 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { redis } from '$lib/server/redis'; 
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true;
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false;
 
 export const GET: RequestHandler = async ({ cookies }) => {
-    // 1. Zero-Trust Identity Check
-    const sessionCookie = cookies.get('perennia_session');
+    const rawCookie = cookies.get('perennia_session');
     
-    if (!sessionCookie) {
+    if (!rawCookie) {
         return json({ error: 'UNAUTHORIZED_MATRIX_ACCESS' }, { status: 401 });
     }
 
+    // ⚡ FIX: Decode cookie
+    const sessionCookie = decodeURIComponent(rawCookie);
     const cleanSessionWallet = sessionCookie.toLowerCase().replace('kaspa:', '');
-    const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
+    const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
 
     try {
         const totalHashrateStr = await redis.get('pool:hashrate');
@@ -24,15 +25,13 @@ export const GET: RequestHandler = async ({ cookies }) => {
         const workers = [];
         
         for (const fullIdentity of workerKeys) {
-            // Identity Extraction: kaspa:qxxx.workerName
             const nameParts = fullIdentity.split('.');
             const rawWalletAddress = nameParts[0];
             const walletAddress = rawWalletAddress.toLowerCase().replace('kaspa:', '');
             const workerName = nameParts.length > 1 ? nameParts.slice(1).join('.') : fullIdentity;
 
-            // 2. Fog of War Filter
             if (!isCorporateAdmin && walletAddress !== cleanSessionWallet) {
-                continue; // Skip exposing this worker's data to the unauthorized caller
+                continue; 
             }
 
             const [hashRateStr, blocksStr, sharesStr] = await Promise.all([
@@ -43,7 +42,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
             workers.push({
                 name: workerName,
-                walletAddress: rawWalletAddress, // Keep original format for the payload
+                walletAddress: rawWalletAddress, 
                 fullIdentity: fullIdentity,
                 trackingRate: parseFloat(hashRateStr || "0"),
                 blocksFound: parseInt(blocksStr || "0", 10),
@@ -51,11 +50,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
             });
         }
 
-        return json({
-            status: "ONLINE",
-            pool: { totalHashrate },
-            workers: workers
-        });
+        return json({ status: "ONLINE", pool: { totalHashrate }, workers: workers });
         
     } catch (error) {
         console.error("🚨 Redis Telemetry Fetch Error:", error);
