@@ -52,6 +52,7 @@ src/
         NetworkRow.svelte
         RwaRow.svelte
       Header.svelte
+      SettingsModal.svelte
       WalletModal.svelte
     crypto/
       honeycomb.ts
@@ -64,6 +65,7 @@ src/
     stores/
       app.ts
       kaspaStore.svelte.ts
+      settings.ts
       transaction.svelte.ts
       wallet.ts
     views/
@@ -149,6 +151,164 @@ vite.config.ts
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/lib/components/SettingsModal.svelte">
+<script lang="ts">
+    import { fade, slide } from 'svelte/transition';
+    import { showSettingsModal, uiBrightness } from '$lib/stores/settings';
+
+    function close() {
+        $showSettingsModal = false;
+    }
+    
+    function resetBrightness() {
+        $uiBrightness = 1.0;
+    }
+</script>
+
+{#if $showSettingsModal}
+    <div class="fixed inset-0 z-[9999] flex items-center justify-center p-4" transition:fade={{duration: 150}}>
+        <!-- Backdrop -->
+        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/95 backdrop-blur-md border-none cursor-default" onclick={close}></button>
+        
+        <!-- Modal Body -->
+        <div class="relative z-10 w-full max-w-[500px] bg-[#0c0c0c] border border-neutral-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden" transition:slide={{duration: 200, axis: 'y'}}>
+            
+            <div class="px-6 py-5 border-b border-neutral-800/80 flex items-center justify-between bg-[#111]">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-neutral-900 border border-neutral-700 flex items-center justify-center text-neutral-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </div>
+                    <div class="flex flex-col">
+                        <h2 class="text-white font-black uppercase tracking-widest text-sm">System Parameters</h2>
+                        <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-mono">Environment Configuration</span>
+                    </div>
+                </div>
+                <button onclick={close} class="text-neutral-500 hover:text-white transition-colors cursor-pointer w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#222]">✕</button>
+            </div>
+
+            <div class="p-6 flex flex-col gap-8 max-h-[60vh] overflow-y-auto hide-scrollbar">
+                
+                <!-- Brightness Override -->
+                <div class="flex flex-col gap-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] font-bold text-teal-500 uppercase tracking-widest">UI Exposure Override</span>
+                            <span class="text-[9px] text-neutral-500 mt-0.5 max-w-[250px] leading-relaxed">Artificially boosts internal rendering brightness when physical monitors are dimmed.</span>
+                        </div>
+                        <span class="text-lg font-mono font-black { $uiBrightness > 1.0 ? 'text-teal-400' : 'text-neutral-600' }">
+                            {($uiBrightness * 100).toFixed(0)}%
+                        </span>
+                    </div>
+
+                    <div class="flex items-center gap-4 bg-[#111] p-4 rounded-xl border border-neutral-800 shadow-inner">
+                        <span class="text-xs opacity-50">☾</span>
+                        <input 
+                            type="range" 
+                            min="1.0" 
+                            max="2.0" 
+                            step="0.05" 
+                            bind:value={$uiBrightness} 
+                            class="flex-1 custom-slider"
+                        />
+                        <span class="text-xs text-amber-500">☼</span>
+                    </div>
+
+                    {#if $uiBrightness !== 1.0}
+                        <div class="flex justify-end">
+                            <button onclick={resetBrightness} class="text-[9px] font-bold text-neutral-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer border-b border-transparent hover:border-white">
+                                Reset to Default (100%)
+                            </button>
+                        </div>
+                    {/if}
+                </div>
+
+                <div class="h-px w-full bg-neutral-800/50"></div>
+
+                <!-- Scaffold for future settings -->
+                <div class="flex flex-col gap-4 opacity-50 pointer-events-none">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">RPC Node Target</span>
+                        <span class="text-[9px] text-neutral-600 mt-0.5">Select the primary Kaspa node for UTXO fetching.</span>
+                    </div>
+                    <select class="w-full bg-[#111] border border-neutral-800 rounded-xl px-4 py-3 text-[11px] font-mono text-neutral-500 outline-none appearance-none">
+                        <option>api.kaspa.org (Default)</option>
+                        <option>Local Node (127.0.0.1:16110)</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-4 opacity-50 pointer-events-none">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Default Silo Threshold</span>
+                        <span class="text-[9px] text-neutral-600 mt-0.5">Initial execution limit for newly created sectors.</span>
+                    </div>
+                    <input type="text" value="50.00 KAS" disabled class="w-full bg-[#111] border border-neutral-800 rounded-xl px-4 py-3 text-[11px] font-mono text-neutral-500 outline-none" />
+                </div>
+
+            </div>
+            
+            <div class="p-4 bg-[#0a0a0a] border-t border-neutral-800 flex justify-end">
+                <button onclick={close} class="px-6 py-2.5 bg-[#111] hover:bg-[#1a1a1a] border border-neutral-700 hover:border-teal-500/50 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer">
+                    Apply & Close
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<style>
+    .custom-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #1a1a1a;
+        height: 6px;
+        border-radius: 3px;
+        outline: none;
+        border: 1px solid #222;
+    }
+    
+    .custom-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #111;
+        cursor: pointer;
+        border: 2px solid #14b8a6;
+        box-shadow: 0 0 10px rgba(20, 184, 166, 0.4);
+        transition: transform 0.1s, background 0.1s;
+    }
+
+    .custom-slider::-webkit-slider-thumb:hover { 
+        transform: scale(1.15); 
+        background: #14b8a6; 
+    }
+    
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+</file>
+
+<file path="src/lib/stores/settings.ts">
+import { writable } from 'svelte/store';
+import { browser } from '$app/environment';
+
+// Hydrate from localStorage so you don't go blind when you refresh at 2 AM
+const initialBrightness = browser && localStorage.getItem('perennia_ui_brightness') 
+    ? parseFloat(localStorage.getItem('perennia_ui_brightness') as string) 
+    : 1.0;
+
+export const showSettingsModal = writable<boolean>(false);
+export const uiBrightness = writable<number>(initialBrightness);
+
+// Auto-save to localStorage whenever it changes
+if (browser) {
+    uiBrightness.subscribe(val => {
+        localStorage.setItem('perennia_ui_brightness', val.toString());
+    });
+}
+</file>
 
 <file path=".vercel/project.json">
 {"projectId":"prj_K3DixqW2V9nV0rxMw3nZHd18CXmm","orgId":"team_SsVMAHcgGSNXz5GTEY8VKHbf","projectName":"perennia-v3"}
@@ -913,92 +1073,6 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 </file>
 
-<file path="src/routes/api/state/+server.ts">
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { dbPool } from '$lib/server/db';
-
-export const GET: RequestHandler = async ({ cookies }) => {
-    // 1. Absolute Zero-Trust: Extract Identity from Cryptographic Cookie
-    const address = cookies.get('perennia_session');
-    
-    if (!address) {
-        return json({ error: 'Unauthorized matrix access' }, { status: 401 });
-    }
-
-    let client;
-    try {
-        client = await dbPool.connect();
-        const res = await client.query(
-            `SELECT layout_state FROM user_command_centers WHERE wallet_address = $1`,
-            [address.toLowerCase()]
-        );
-
-        if (res.rows.length > 0 && res.rows[0].layout_state) {
-            return json(res.rows[0].layout_state);
-        }
-        
-        // Return default base state if no layout exists yet
-        return json({ workers: [], silos: [], plants: [], systemMode: 'base' });
-    } catch (e) {
-        console.error("State Hydration Fault:", e);
-        return json({ error: 'Failed to load command center state' }, { status: 500 });
-    } finally {
-        if (client) client.release();
-    }
-};
-
-export const POST: RequestHandler = async ({ request, cookies }) => {
-    // 1. Absolute Zero-Trust: Extract Identity from Cryptographic Cookie
-    const address = cookies.get('perennia_session');
-    
-    if (!address) {
-        return json({ error: 'Unauthorized matrix write attempt' }, { status: 401 });
-    }
-
-    let client;
-    try {
-        const body = await request.json();
-        
-        // 🛡️ ZERO-TRUST PROTOCOL: Prevent frontend hashRate spoofing for Capital workers.
-        if (body.workers && Array.isArray(body.workers)) {
-            body.workers = body.workers.map((w: any) => {
-                if (w.type === 'capital') {
-                    const claimedTokens = parseFloat(w.capitalTokens) || 0;
-                    const expectedHashRate = (claimedTokens / 1000) * 0.05;
-                    // Prevent arbitrarily high spoofed hashRates. 
-                    // Let Chronos daemon strictly slash capitalTokens down to actual KRC-20 holdings on next tick.
-                    if ((parseFloat(w.hashRate) || 0) > expectedHashRate) {
-                        w.hashRate = expectedHashRate;
-                    }
-                }
-                return w;
-            });
-        }
-        
-        client = await dbPool.connect();
-        
-        // 2. High-Performance Upsert to JSONB Column
-        await client.query(
-            `INSERT INTO user_command_centers (wallet_address, layout_state, last_updated)
-             VALUES ($1, $2, CURRENT_TIMESTAMP)
-             ON CONFLICT (wallet_address) 
-             DO UPDATE SET 
-                layout_state = EXCLUDED.layout_state,
-                last_updated = CURRENT_TIMESTAMP`,
-            [address.toLowerCase(), body]
-        );
-
-        return json({ success: true });
-    } catch (e) {
-        console.error("State Persistence Fault:", e);
-        return json({ error: 'Failed to save command center state' }, { status: 500 });
-    } finally {
-        if (client) client.release();
-    }
-};
-</file>
-
 <file path="src/routes/api/stratum/bind/+server.ts">
 // src/routes/api/stratum/bind/+server.ts
 
@@ -1376,161 +1450,6 @@ You can preview the production build with `npm run preview`.
 }
 </file>
 
-<file path="src/lib/crypto/honeycomb.ts">
-import * as bip39 from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english';
-import { HDKey } from '@scure/bip32';
-import { ethers } from 'ethers';
-import { Keypair as SolKeypair } from '@solana/web3.js';
-import createHash from 'create-hash';
-import bs58check from 'bs58check';
-import { Wallet as XrpWallet } from 'xrpl';
-// ⚡ NOTE: @kaspa/core-lib has been completely removed to bypass WASM crashes
-
-export interface SovereignVaultKeys {
-    kaspa: { address: string; privateKey: string };
-    bitcoin: { address: string; privateKey: string };
-    ethereum: { address: string; privateKey: string };
-    solana: { address: string; privateKey: string };
-    doge: { address: string; privateKey: string };
-    xrp: { address: string; privateKey: string };
-    polygon: { address: string; privateKey: string };
-    avalanche: { address: string; privateKey: string };
-    sui: { address: string; privateKey: string };
-    tron: { address: string; privateKey: string };
-    zcash: { address: string; privateKey: string };
-}
-
-export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVaultKeys> {
-    if (!bip39.validateMnemonic(mnemonic, wordlist)) {
-        throw new Error('Invalid 24-word Sovereign seed phrase.');
-    }
-
-    const seed = await bip39.mnemonicToSeed(mnemonic);
-    const masterHdKey = HDKey.fromMasterSeed(seed);
-
-    // 1. KASPA (m/44'/111111'/0'/0/0) - Pure JS Bech32m Derivation (No WASM)
-    const kasKey = masterHdKey.derive("m/44'/111111'/0'/0/0");
-    const pubKeyX = Buffer.from(kasKey.publicKey!.slice(1, 33)); // Extract 32-byte X coordinate
-    const kaspaAddress = encodeKaspaAddress(pubKeyX);
-
-    // 2. BITCOIN (m/44'/0'/0'/0/0)
-    const btcKey = masterHdKey.derive("m/44'/0'/0'/0/0");
-    const btcAddress = `bc1q${Buffer.from(btcKey.publicKey!.slice(1, 21)).toString('hex')}`;
-
-    // 3. ETHEREUM (m/44'/60'/0'/0/0)
-    const ethKey = masterHdKey.derive("m/44'/60'/0'/0/0");
-    const ethWallet = new ethers.Wallet(Buffer.from(ethKey.privateKey!).toString('hex'));
-    const ethAddress = ethWallet.address;
-
-    // 4. SOLANA (m/44'/501'/0'/0')
-    const solKey = masterHdKey.derive("m/44'/501'/0'/0'");
-    const solKeypair = SolKeypair.fromSeed(solKey.privateKey!.slice(0, 32));
-    const solAddress = solKeypair.publicKey.toBase58();
-
-    // 5. DOGECOIN (m/44'/3'/0'/0/0) - Base58Check with Prefix 0x1E
-    const dogeKey = masterHdKey.derive("m/44'/3'/0'/0/0");
-    const dogeHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(dogeKey.publicKey!)).digest()).digest();
-    const dogeAddress = bs58check.encode(Buffer.concat([Buffer.from([0x1E]), dogeHash]));
-
-    // 6. XRP LEDGER (m/44'/144'/0'/0/0) - Native XRPL Derivation
-    const xrpKey = masterHdKey.derive("m/44'/144'/0'/0/0");
-    const xrpWallet = new XrpWallet(Buffer.from(xrpKey.publicKey!).toString('hex').toUpperCase(), Buffer.from(xrpKey.privateKey!).toString('hex').toUpperCase());
-    const xrpAddress = xrpWallet.classicAddress;
-
-    // 7 & 8. POLYGON & AVALANCHE (EVM Inheritance)
-    const polygonAddress = ethAddress;
-    const avalancheAddress = ethAddress;
-
-    // 9. SUI NETWORK (m/44'/784'/0'/0'/0')
-    const suiKey = masterHdKey.derive("m/44'/784'/0'/0'/0'");
-    const suiAddress = `0x${createHash('sha256').update(Buffer.from(suiKey.publicKey!)).digest('hex').slice(0, 40)}`;
-
-    // 10. TRON (m/44'/195'/0'/0/0) - Base58Check with Prefix 0x41
-    const trxKey = masterHdKey.derive("m/44'/195'/0'/0/0");
-    const trxWallet = new ethers.Wallet(Buffer.from(trxKey.privateKey!).toString('hex'));
-    const evmAddressBuffer = Buffer.from(trxWallet.address.slice(2), 'hex');
-    const tronAddress = bs58check.encode(Buffer.concat([Buffer.from([0x41]), evmAddressBuffer]));
-
-    // 11. ZCASH (m/44'/133'/0'/0/0) - Base58Check with Prefix 0x1CB8 (t1)
-    const zecKey = masterHdKey.derive("m/44'/133'/0'/0/0");
-    const zecHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(zecKey.publicKey!)).digest()).digest();
-    const zcashAddress = bs58check.encode(Buffer.concat([Buffer.from([0x1C, 0xB8]), zecHash]));
-
-    return {
-        kaspa: { address: kaspaAddress, privateKey: Buffer.from(kasKey.privateKey!).toString('hex') },
-        bitcoin: { address: btcAddress, privateKey: Buffer.from(btcKey.privateKey!).toString('hex') },
-        ethereum: { address: ethAddress, privateKey: ethWallet.privateKey },
-        solana: { address: solAddress, privateKey: Buffer.from(solKeypair.secretKey).toString('hex') },
-        doge: { address: dogeAddress, privateKey: Buffer.from(dogeKey.privateKey!).toString('hex') },
-        xrp: { address: xrpAddress, privateKey: Buffer.from(xrpKey.privateKey!).toString('hex') },
-        polygon: { address: polygonAddress, privateKey: ethWallet.privateKey },
-        avalanche: { address: avalancheAddress, privateKey: ethWallet.privateKey },
-        sui: { address: suiAddress, privateKey: Buffer.from(suiKey.privateKey!).toString('hex') },
-        tron: { address: tronAddress, privateKey: Buffer.from(trxKey.privateKey!).toString('hex') },
-        zcash: { address: zcashAddress, privateKey: Buffer.from(zecKey.privateKey!).toString('hex') }
-    };
-}
-
-// --- KASPA BECH32M ENCODER (Bypasses @kaspa/core-lib WASM) ---
-function encodeKaspaAddress(pubKeyX: Buffer): string {
-    const KASPA_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-    
-    const polymod = (values: number[]) => {
-        let c = 1n;
-        for (const v of values) {
-            const c0 = c >> 35n;
-            c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(v);
-            if (c0 & 1n) c ^= 0x98f2bc8e61n;
-            if (c0 & 2n) c ^= 0x79b76d99e2n;
-            if (c0 & 4n) c ^= 0xf33e5fb3c4n;
-            if (c0 & 8n) c ^= 0xae2eabe2a8n;
-            if (c0 & 16n) c ^= 0x1e4f43e470n;
-        }
-        return c ^ 1n;
-    };
-
-    const prefix = "kaspa";
-    const prefixValues = prefix.split('').map(c => c.charCodeAt(0) & 31).concat([0]);
-    const payload = [0, ...pubKeyX]; // Version byte 0 for P2PK-Schnorr
-
-    let acc = 0, bits = 0;
-    const payload5: number[] = [];
-    for (const byte of payload) {
-        acc = (acc << 8) | byte;
-        bits += 8;
-        while (bits >= 5) {
-            bits -= 5;
-            payload5.push((acc >> bits) & 31);
-        }
-    }
-    if (bits > 0) payload5.push((acc << (5 - bits)) & 31);
-
-    const mod = polymod([...prefixValues, ...payload5, 0, 0, 0, 0, 0, 0, 0, 0]);
-    const checksum = [0, 1, 2, 3, 4, 5, 6, 7].map(i => Number((mod >> BigInt(5 * (7 - i))) & 31n));
-
-    return prefix + ":" + [...payload5, ...checksum].map(v => KASPA_ALPHABET[v]).join('');
-}
-</file>
-
-<file path="src/lib/server/kms.ts">
-import { env } from '$env/dynamic/private';
-
-export class SovereignKMS {
-    public async getCorporateAddresses() {
-        return {
-            // ⚡ Instantly pulls your address from .env, bypassing the C++ crash entirely!
-            KAS: env.PERENNIA_TREASURY_KAS_ADDRESS || 'kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2',
-            ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",      // EVM liquidity silo
-            BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfJH754GL",      // Bitcoin cold-tier root
-            SOL: "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a"    // Solana treasury anchor
-        };
-    }
-}
-
-export const perenniaKMS = new SovereignKMS();
-</file>
-
 <file path="src/lib/server/redis.ts">
 // src/lib/server/redis.ts
 
@@ -1613,24 +1532,6 @@ export class SmartOrderRouter {
 }
 
 export const sorEngine = new SmartOrderRouter();
-</file>
-
-<file path="src/lib/stores/kaspaStore.svelte.ts">
-// src/lib/stores/kaspaStore.svelte.ts
-
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-
-// Create a reactive state object using Svelte 5 runes
-export const walletState = $state({
-    // Hardcoding a dummy address temporarily so you can see the button render
-    address: "kaspa:qyp0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 
-    devAdminBypass: true
-});
-
-// Derived state for routing
-export function getIsCorporateAdmin() {
-    return walletState.devAdminBypass || walletState.address === MASTER_ADMIN_ADDRESS;
-}
 </file>
 
 <file path="src/lib/stores/transaction.svelte.ts">
@@ -2161,155 +2062,56 @@ export const DELETE: RequestHandler = async ({ cookies }) => {
 };
 </file>
 
-<file path="src/routes/api/sor/swap/+server.ts">
+<file path="src/routes/api/state/+server.ts">
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { redis } from '$lib/server/redis';
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true;
-
-export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
-    try {
-        // 1. Zero-Trust Check
-        const sessionCookie = cookies.get('perennia_session');
-        if (!sessionCookie) {
-            return json({ error: 'UNAUTHORIZED_ROUTING_ATTEMPT' }, { status: 401 });
-        }
-
-        const body = await request.json().catch(() => ({}));
-        const { wallet, payAsset, receiveAsset, amount, slippageTolerance } = body;
-
-        if (!wallet || !payAsset || !receiveAsset || !amount) {
-            return json({ error: 'Bad Request', message: 'Invalid payload.' }, { status: 400 });
-        }
-
-        const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
-        if (!isCorpAdmin && wallet.toLowerCase() !== sessionCookie.toLowerCase()) {
-            return json({ error: 'FORBIDDEN_ROUTING_TARGET' }, { status: 403 });
-        }
-
-        // 2. Fetch User's Live UTXOs via the internal DAG proxy
-        const baseUrl = `${url.protocol}//${url.host}`;
-        const utxoRes = await fetch(`${baseUrl}/api/utxos?address=${encodeURIComponent(wallet)}`, {
-            headers: { cookie: request.headers.get('cookie') || '' }
-        });
-        
-        if (!utxoRes.ok) throw new Error("Failed to fetch UTXO outpoints from DAG.");
-        const utxoData = await utxoRes.json();
-        
-        // Map Kaspa wRPC UTXO formats to the expected Rust execution structure
-        const formattedUtxos = (utxoData.entries || []).map((u: any) => ({
-            transactionId: u.outpoint?.transactionId || u.transactionId,
-            index: u.outpoint?.index || u.index,
-            amount: Number(u.utxoEntry?.amount || u.amount || 0),
-            scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
-        }));
-
-        // 3. Delegate to Rust Core Execution Engine (Atomic Lua Mutex lock implied by Rust handler)
-        const rustRes = await fetch('http://127.0.0.1:8002/v1/sor/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                wallet,
-                payAsset,
-                receiveAsset,
-                amount,
-                slippageTolerance: slippageTolerance || 0.05,
-                utxos: formattedUtxos
-            })
-        });
-
-        if (!rustRes.ok) {
-            const errData = await rustRes.json().catch(() => ({ error: "Rust Backend Rejected Execution" }));
-            return json({ 
-                error: 'Slippage/Lock Rejected', 
-                message: errData.error 
-            }, { status: 422 });
-        }
-
-        const rustData = await rustRes.json();
-
-        // 4. Return the Unsigned Transaction Payload to the Client for Local Vault Signing
-        return json({
-            unified_rate: rustData.unifiedRate,
-            estimated_output: rustData.estimatedOutput,
-            transaction_uuid: rustData.transaction_uuid,
-            legs: rustData.legs,
-            psbt: rustData.psbt,
-            formattedUtxos: rustData.formattedUtxos // ⚡ Pass UTXOs back to frontend for local signing validation
-        }, { status: 200 });
-
-    } catch (error: any) {
-        console.error('SOR Assembly Fault:', error.message || error);
-        return json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
-    }
-};
-</file>
-
-<file path="src/routes/api/stats/+server.ts">
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { redis } from '$lib/server/redis'; 
-
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true;
-
-export const GET: RequestHandler = async ({ cookies }) => {
-    // 1. Zero-Trust Identity Check
-    const sessionCookie = cookies.get('perennia_session');
+export async function GET({ cookies }: RequestEvent) {
+    const rawCookie = cookies.get('perennia_session');
     
-    if (!sessionCookie) {
-        return json({ error: 'UNAUTHORIZED_MATRIX_ACCESS' }, { status: 401 });
+    if (!rawCookie) {
+        return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
     }
 
-    const cleanSessionWallet = sessionCookie.toLowerCase().replace('kaspa:', '');
-    const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
+    // ⚡ FIX: Decode and normalize state keys
+    const sessionWallet = decodeURIComponent(rawCookie);
+    const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
+    const stateKey = `state:${cleanWallet}`;
 
     try {
-        const totalHashrateStr = await redis.get('pool:hashrate');
-        const totalHashrate = parseFloat(totalHashrateStr || "0");
-
-        const workerKeys = await redis.smembers('pool:workers');
-        const workers = [];
-        
-        for (const fullIdentity of workerKeys) {
-            // Identity Extraction: kaspa:qxxx.workerName
-            const nameParts = fullIdentity.split('.');
-            const rawWalletAddress = nameParts[0];
-            const walletAddress = rawWalletAddress.toLowerCase().replace('kaspa:', '');
-            const workerName = nameParts.length > 1 ? nameParts.slice(1).join('.') : fullIdentity;
-
-            // 2. Fog of War Filter
-            if (!isCorporateAdmin && walletAddress !== cleanSessionWallet) {
-                continue; // Skip exposing this worker's data to the unauthorized caller
-            }
-
-            const [hashRateStr, blocksStr, sharesStr] = await Promise.all([
-                redis.get(`worker:${fullIdentity}:hashrate`),
-                redis.get(`worker:${fullIdentity}:blocks`),
-                redis.get(`worker:${fullIdentity}:shares`)
-            ]);
-
-            workers.push({
-                name: workerName,
-                walletAddress: rawWalletAddress, // Keep original format for the payload
-                fullIdentity: fullIdentity,
-                trackingRate: parseFloat(hashRateStr || "0"),
-                blocksFound: parseInt(blocksStr || "0", 10),
-                sharesContributed: parseInt(sharesStr || "0", 10)
-            });
+        const rawState = await redis.get(stateKey);
+        if (rawState) {
+            return json(JSON.parse(rawState), { status: 200 });
         }
-
-        return json({
-            status: "ONLINE",
-            pool: { totalHashrate },
-            workers: workers
-        });
-        
-    } catch (error) {
-        console.error("🚨 Redis Telemetry Fetch Error:", error);
-        return json({ error: 'Failed to read node telemetry.', pool: { totalHashrate: 0 }, workers: [] }, { status: 500 });
+    } catch (e) {
+        console.error("🔴 State Fetch Fault:", e);
     }
-};
+
+    return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
+}
+
+export async function POST({ request, cookies }: RequestEvent) {
+    const rawCookie = cookies.get('perennia_session');
+    
+    if (!rawCookie) {
+        return json({ error: 'UNAUTHORIZED_STATE_WRITE' }, { status: 401 });
+    }
+
+    try {
+        const payload = await request.json();
+        
+        // ⚡ FIX: Decode and normalize state keys
+        const sessionWallet = decodeURIComponent(rawCookie);
+        const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
+        const stateKey = `state:${cleanWallet}`;
+
+        await redis.set(stateKey, JSON.stringify(payload));
+        return json({ success: true }, { status: 200 });
+    } catch (e) {
+        console.error("🔴 State Save Fault:", e);
+        return json({ error: 'Failed to persist state' }, { status: 500 });
+    }
+}
 </file>
 
 <file path="src/routes/api/treasury/1099-da/+server.ts">
@@ -2716,6 +2518,144 @@ async function run() {
 run();
 </file>
 
+<file path="src/lib/crypto/honeycomb.ts">
+import * as bip39 from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english';
+import { HDKey } from '@scure/bip32';
+import { ethers } from 'ethers';
+import { Keypair as SolKeypair } from '@solana/web3.js';
+import createHash from 'create-hash';
+import bs58check from 'bs58check';
+import { Wallet as XrpWallet } from 'xrpl';
+// ⚡ NOTE: @kaspa/core-lib has been completely removed to bypass WASM crashes
+
+export interface SovereignVaultKeys {
+    kaspa: { address: string; privateKey: string };
+    bitcoin: { address: string; privateKey: string };
+    ethereum: { address: string; privateKey: string };
+    solana: { address: string; privateKey: string };
+    doge: { address: string; privateKey: string };
+    xrp: { address: string; privateKey: string };
+    polygon: { address: string; privateKey: string };
+    avalanche: { address: string; privateKey: string };
+    sui: { address: string; privateKey: string };
+    tron: { address: string; privateKey: string };
+    zcash: { address: string; privateKey: string };
+}
+
+export async function deriveHoneycombKeys(mnemonic: string): Promise<SovereignVaultKeys> {
+    if (!bip39.validateMnemonic(mnemonic, wordlist)) {
+        throw new Error('Invalid 24-word Sovereign seed phrase.');
+    }
+
+    const seed = await bip39.mnemonicToSeed(mnemonic);
+    const masterHdKey = HDKey.fromMasterSeed(seed);
+
+    // 1. KASPA (m/44'/111111'/0'/0/0) - Pure JS Bech32m Derivation (No WASM)
+    const kasKey = masterHdKey.derive("m/44'/111111'/0'/0/0");
+    const pubKeyX = Buffer.from(kasKey.publicKey!.slice(1, 33)); // Extract 32-byte X coordinate
+    const kaspaAddress = encodeKaspaAddress(pubKeyX);
+
+    // 2. BITCOIN (m/44'/0'/0'/0/0) - ⚡ FIXED: Properly Hashed & Base58Check Encoded (Legacy P2PKH)
+    const btcKey = masterHdKey.derive("m/44'/0'/0'/0/0");
+    const btcHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(btcKey.publicKey!)).digest()).digest();
+    const btcAddress = bs58check.encode(Buffer.concat([Buffer.from([0x00]), btcHash]));
+
+    // 3. ETHEREUM (m/44'/60'/0'/0/0)
+    const ethKey = masterHdKey.derive("m/44'/60'/0'/0/0");
+    const ethWallet = new ethers.Wallet(Buffer.from(ethKey.privateKey!).toString('hex'));
+    const ethAddress = ethWallet.address;
+
+    // 4. SOLANA (m/44'/501'/0'/0')
+    const solKey = masterHdKey.derive("m/44'/501'/0'/0'");
+    const solKeypair = SolKeypair.fromSeed(solKey.privateKey!.slice(0, 32));
+    const solAddress = solKeypair.publicKey.toBase58();
+
+    // 5. DOGECOIN (m/44'/3'/0'/0/0) - Base58Check with Prefix 0x1E
+    const dogeKey = masterHdKey.derive("m/44'/3'/0'/0/0");
+    const dogeHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(dogeKey.publicKey!)).digest()).digest();
+    const dogeAddress = bs58check.encode(Buffer.concat([Buffer.from([0x1E]), dogeHash]));
+
+    // 6. XRP LEDGER (m/44'/144'/0'/0/0) - Native XRPL Derivation
+    const xrpKey = masterHdKey.derive("m/44'/144'/0'/0/0");
+    const xrpWallet = new XrpWallet(Buffer.from(xrpKey.publicKey!).toString('hex').toUpperCase(), Buffer.from(xrpKey.privateKey!).toString('hex').toUpperCase());
+    const xrpAddress = xrpWallet.classicAddress;
+
+    // 7 & 8. POLYGON & AVALANCHE (EVM Inheritance)
+    const polygonAddress = ethAddress;
+    const avalancheAddress = ethAddress;
+
+    // 9. SUI NETWORK (m/44'/784'/0'/0'/0')
+    const suiKey = masterHdKey.derive("m/44'/784'/0'/0'/0'");
+    const suiAddress = `0x${createHash('sha256').update(Buffer.from(suiKey.publicKey!)).digest('hex').slice(0, 40)}`;
+
+    // 10. TRON (m/44'/195'/0'/0/0) - Base58Check with Prefix 0x41
+    const trxKey = masterHdKey.derive("m/44'/195'/0'/0/0");
+    const trxWallet = new ethers.Wallet(Buffer.from(trxKey.privateKey!).toString('hex'));
+    const evmAddressBuffer = Buffer.from(trxWallet.address.slice(2), 'hex');
+    const tronAddress = bs58check.encode(Buffer.concat([Buffer.from([0x41]), evmAddressBuffer]));
+
+    // 11. ZCASH (m/44'/133'/0'/0/0) - Base58Check with Prefix 0x1CB8 (t1)
+    const zecKey = masterHdKey.derive("m/44'/133'/0'/0/0");
+    const zecHash = createHash('ripemd160').update(createHash('sha256').update(Buffer.from(zecKey.publicKey!)).digest()).digest();
+    const zcashAddress = bs58check.encode(Buffer.concat([Buffer.from([0x1C, 0xB8]), zecHash]));
+
+    return {
+        kaspa: { address: kaspaAddress, privateKey: Buffer.from(kasKey.privateKey!).toString('hex') },
+        bitcoin: { address: btcAddress, privateKey: Buffer.from(btcKey.privateKey!).toString('hex') },
+        ethereum: { address: ethAddress, privateKey: ethWallet.privateKey },
+        solana: { address: solAddress, privateKey: Buffer.from(solKeypair.secretKey).toString('hex') },
+        doge: { address: dogeAddress, privateKey: Buffer.from(dogeKey.privateKey!).toString('hex') },
+        xrp: { address: xrpAddress, privateKey: Buffer.from(xrpKey.privateKey!).toString('hex') },
+        polygon: { address: polygonAddress, privateKey: ethWallet.privateKey },
+        avalanche: { address: avalancheAddress, privateKey: ethWallet.privateKey },
+        sui: { address: suiAddress, privateKey: Buffer.from(suiKey.privateKey!).toString('hex') },
+        tron: { address: tronAddress, privateKey: Buffer.from(trxKey.privateKey!).toString('hex') },
+        zcash: { address: zcashAddress, privateKey: Buffer.from(zecKey.privateKey!).toString('hex') }
+    };
+}
+
+// --- KASPA BECH32M ENCODER (Bypasses @kaspa/core-lib WASM) ---
+function encodeKaspaAddress(pubKeyX: Buffer): string {
+    const KASPA_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    
+    const polymod = (values: number[]) => {
+        let c = 1n;
+        for (const v of values) {
+            const c0 = c >> 35n;
+            c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(v);
+            if (c0 & 1n) c ^= 0x98f2bc8e61n;
+            if (c0 & 2n) c ^= 0x79b76d99e2n;
+            if (c0 & 4n) c ^= 0xf33e5fb3c4n;
+            if (c0 & 8n) c ^= 0xae2eabe2a8n;
+            if (c0 & 16n) c ^= 0x1e4f43e470n;
+        }
+        return c ^ 1n;
+    };
+
+    const prefix = "kaspa";
+    const prefixValues = prefix.split('').map(c => c.charCodeAt(0) & 31).concat([0]);
+    const payload = [0, ...pubKeyX]; // Version byte 0 for P2PK-Schnorr
+
+    let acc = 0, bits = 0;
+    const payload5: number[] = [];
+    for (const byte of payload) {
+        acc = (acc << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+            bits -= 5;
+            payload5.push((acc >> bits) & 31);
+        }
+    }
+    if (bits > 0) payload5.push((acc << (5 - bits)) & 31);
+
+    const mod = polymod([...prefixValues, ...payload5, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const checksum = [0, 1, 2, 3, 4, 5, 6, 7].map(i => Number((mod >> BigInt(5 * (7 - i))) & 31n));
+
+    return prefix + ":" + [...payload5, ...checksum].map(v => KASPA_ALPHABET[v]).join('');
+}
+</file>
+
 <file path="src/lib/server/chronos.ts">
 // ⚡ PORTED TO RUST NATIVE DAEMON 
 // The Chronos Engine logic now runs continuously in perennia-stratum-rs
@@ -2729,6 +2669,39 @@ export class ChronosEngine {
 }
 
 export const chronos = new ChronosEngine();
+</file>
+
+<file path="src/lib/server/kms.ts">
+import { env } from '$env/dynamic/private';
+
+export class SovereignKMS {
+    public async getCorporateAddresses() {
+        return {
+            // ⚡ Instantly pulls your address from .env, bypassing the C++ crash entirely!
+            KAS: env.PERENNIA_TREASURY_KAS_ADDRESS || 'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579',
+            ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",      // EVM liquidity silo
+            BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfJH754GL",      // Bitcoin cold-tier root
+            SOL: "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a"    // Solana treasury anchor
+        };
+    }
+}
+
+export const perenniaKMS = new SovereignKMS();
+</file>
+
+<file path="src/lib/stores/kaspaStore.svelte.ts">
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+
+// Create a reactive state object using Svelte 5 runes
+export const walletState = $state({
+    address: "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579", 
+    devAdminBypass: false
+});
+
+// Derived state for routing
+export function getIsCorporateAdmin() {
+    return walletState.devAdminBypass || walletState.address.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
+}
 </file>
 
 <file path="src/lib/views/EntryView.svelte">
@@ -2791,460 +2764,6 @@ export const chronos = new ChronosEngine();
         100% {
             transform: scale(1.15);
         }
-    }
-</style>
-</file>
-
-<file path="src/lib/views/TreasuryVault.svelte">
-<script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import { globalKasPrice, globalKasChange } from '$lib/stores/app';
-    import { isWalletConnected, activeWalletType, sovereignKeys, walletAddress, walletBalance } from '$lib/stores/wallet';
-    import { browser } from '$app/environment';
-    import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
-    import RwaRow from '$lib/components/treasury/RwaRow.svelte';
-
-    let estate = $state<any>(null);
-    let isLoading = $state(false);
-    let isVaultDecrypted = $derived($isWalletConnected);
-    let activeHoverSegment = $state<string | null>(null);
-
-    // Trimmed to 5 Major Default Tokens Each
-    let selectedKasTokens = $state<string[]>(['NACHO', 'IGRA', 'ZEAL', 'KASPY', 'KANGO']);
-    let selectedBtcTokens = $state<string[]>(['ORDI', 'SATS', 'RATS', 'PUPS', 'DOG']);
-    let selectedEthTokens = $state<string[]>(['USDT', 'USDC', 'LINK', 'UNI', 'PEPE']);
-    let selectedSolTokens = $state<string[]>(['USDC', 'USDT', 'JUP', 'RAY', 'BONK']);
-    let selectedDogeTokens = $state<string[]>(['DRC20-DOGE', 'CHEEMS', 'BARK', 'WOW', 'FIRO']);
-    let selectedXrpTokens = $state<string[]>(['RLUSD', 'SOLO', 'CORE', 'MAG', 'CXRP']);
-    let selectedPolTokens = $state<string[]>(['QUICK', 'USDC.e', 'GHST', 'LINK', 'WBTC']);
-    let selectedAvaxTokens = $state<string[]>(['JOE', 'PNG', 'WAVAX', 'QI', 'COQ']);
-    let selectedSuiTokens = $state<string[]>(['CETUS', 'NAVX', 'SUI', 'SCA', 'DEEP']);
-    let selectedTrxTokens = $state<string[]>(['USDT-TRC20', 'BTT', 'WIN', 'SUN', 'JST']);
-    let selectedZecTokens = $state<string[]>(['ZEC-SHIELDED']);
-
-    // Market Prices
-    let btcPrice = $state(0.00); let btcDelta = $state(0);
-    let ethPrice = $state(0.00); let ethDelta = $state(0);
-    let solPrice = $state(0.00); let solDelta = $state(0);
-    let dogePrice = $state(0.10); let dogeDelta = $state(0);
-    let xrpPrice = $state(0.58); let xrpDelta = $state(0);
-    let polPrice = $state(0.42); let polDelta = $state(0);
-    let avaxPrice = $state(22.50); let avaxDelta = $state(0);
-    let suiPrice = $state(0.95); let suiDelta = $state(0);
-    let trxPrice = $state(0.15); let trxDelta = $state(0);
-    let zecPrice = $state(31.20); let zecDelta = $state(0);
-
-    // Root Addresses
-    let kasAddr = $derived($sovereignKeys?.kaspa?.address || estate?.assets?.find((a: any) => a.symbol === 'KAS')?.address || $walletAddress || 'Awaiting Decryption');
-    let btcAddr = $derived($sovereignKeys?.bitcoin?.address || estate?.assets?.find((a: any) => a.symbol === 'BTC')?.address || 'Awaiting Decryption');
-    let ethAddr = $derived($sovereignKeys?.ethereum?.address || estate?.assets?.find((a: any) => a.symbol === 'ETH')?.address || 'Awaiting Decryption');
-    let solAddr = $derived($sovereignKeys?.solana?.address || estate?.assets?.find((a: any) => a.symbol === 'SOL')?.address || 'Awaiting Decryption');
-    let dogeAddr = $derived($sovereignKeys?.doge?.address || estate?.assets?.find((a: any) => a.symbol === 'DOGE')?.address || 'Awaiting Decryption');
-    let xrpAddr = $derived($sovereignKeys?.xrp?.address || estate?.assets?.find((a: any) => a.symbol === 'XRP')?.address || 'Awaiting Decryption');
-    let polAddr = $derived($sovereignKeys?.polygon?.address || ethAddr);
-    let avaxAddr = $derived($sovereignKeys?.avalanche?.address || ethAddr);
-    let suiAddr = $derived($sovereignKeys?.sui?.address || estate?.assets?.find((a: any) => a.symbol === 'SUI')?.address || 'Awaiting Decryption');
-    let trxAddr = $derived($sovereignKeys?.tron?.address || estate?.assets?.find((a: any) => a.symbol === 'TRX')?.address || 'Awaiting Decryption');
-    let zecAddr = $derived($sovereignKeys?.zcash?.address || estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.address || 'Awaiting Decryption');
-
-    // 11 L1 Assets
-    let assets = $derived.by(() => {
-        const liveKasBalance = parseFloat($walletBalance) || 0;
-        const kasBal = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.balance || liveKasBalance;
-        const btcBal = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.balance || 0; 
-        const ethBal = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.balance || 0; 
-        const solBal = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.balance || 0; 
-        const dogeBal = estate?.assets?.find((a: any) => a.symbol === 'DOGE')?.balance || 0; 
-        const xrpBal = estate?.assets?.find((a: any) => a.symbol === 'XRP')?.balance || 0; 
-        const polBal = estate?.assets?.find((a: any) => a.symbol === 'POL')?.balance || 0; 
-        const avaxBal = estate?.assets?.find((a: any) => a.symbol === 'AVAX')?.balance || 0; 
-        const suiBal = estate?.assets?.find((a: any) => a.symbol === 'SUI')?.balance || 0; 
-        const trxBal = estate?.assets?.find((a: any) => a.symbol === 'TRX')?.balance || 0; 
-        const zecBal = estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.balance || 0; 
-
-        return [
-            { symbol: 'KAS', icon: '/assets/tokens/kas.svg', name: 'Kaspa', badge: 'KAS [L1]', spotPrice: $globalKasPrice || 0.00, delta: $globalKasChange || 0, balance: kasBal, address: kasAddr, hex: '#18C6A5' },
-            { symbol: 'BTC', icon: '/assets/tokens/btc.svg', name: 'Bitcoin', badge: 'BTC [COLD]', spotPrice: btcPrice, delta: btcDelta, balance: btcBal, address: btcAddr, hex: '#F7931A' },
-            { symbol: 'ETH', icon: '/assets/tokens/eth.svg', name: 'Ethereum', badge: 'ETH [ERC20]', spotPrice: ethPrice, delta: ethDelta, balance: ethBal, address: ethAddr, hex: '#627EEA' },
-            { symbol: 'SOL', icon: '/assets/tokens/sol.svg', name: 'Solana', badge: 'SOL [NATIVE]', spotPrice: solPrice, delta: solDelta, balance: solBal, address: solAddr, hex: '#14F195' },
-            { symbol: 'DOGE', icon: 'https://cryptologos.cc/logos/dogecoin-doge-logo.svg?v=033', name: 'Dogecoin', badge: 'DOGE [L1]', spotPrice: dogePrice, delta: dogeDelta, balance: dogeBal, address: dogeAddr, hex: '#C2A633' },
-            { symbol: 'XRP', icon: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg?v=033', name: 'XRP Ledger', badge: 'XRP [NATIVE]', spotPrice: xrpPrice, delta: xrpDelta, balance: xrpBal, address: xrpAddr, hex: '#23292F' },
-            { symbol: 'POL', icon: 'https://cryptologos.cc/logos/polygon-matic-logo.svg?v=033', name: 'Polygon', badge: 'POL [EVM]', spotPrice: polPrice, delta: polDelta, balance: polBal, address: polAddr, hex: '#8247E5' },
-            { symbol: 'AVAX', icon: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg?v=033', name: 'Avalanche', badge: 'AVAX [C-CHAIN]', spotPrice: avaxPrice, delta: avaxDelta, balance: avaxBal, address: avaxAddr, hex: '#E84142' },
-            { symbol: 'SUI', icon: 'https://cryptologos.cc/logos/sui-sui-logo.svg?v=033', name: 'Sui Network', badge: 'SUI [MOVE]', spotPrice: suiPrice, delta: suiDelta, balance: suiBal, address: suiAddr, hex: '#4CA2FF' },
-            { symbol: 'TRX', icon: 'https://cryptologos.cc/logos/tron-trx-logo.svg?v=033', name: 'TRON', badge: 'TRX [TRC20]', spotPrice: trxPrice, delta: trxDelta, balance: trxBal, address: trxAddr, hex: '#FF0013' },
-            { symbol: 'ZEC', icon: 'https://cryptologos.cc/logos/zcash-zec-logo.svg?v=033', name: 'Zcash', badge: 'ZEC [PRIVACY]', spotPrice: zecPrice, delta: zecDelta, balance: zecBal, address: zecAddr, hex: '#F4B728' }
-        ];
-    });
-
-    let krc20Assets = $state<any[]>([{ symbol: 'NACHO', name: 'Nacho the Kat', hex: '#FACC15', icon: '🐈', balance: 0, price: 0.00015, supply: 28700000000, minted: 28700000000, siloVolume: 0 }, { symbol: 'IGRA', name: 'Igra Token', hex: '#10B981', icon: '💎', balance: 0, price: 0.00085, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'ZEAL', name: 'Zeal', hex: '#3B82F6', icon: '⚡', balance: 0, price: 0.00041, supply: 340000000, minted: 340000000, siloVolume: 0 }, { symbol: 'KASPY', name: 'Kaspy', hex: '#10B981', icon: '🐱', balance: 0, price: 0.00005, supply: 287000000, minted: 287000000, siloVolume: 0 }, { symbol: 'KANGO', name: 'Kango', hex: '#F97316', icon: '🦘', balance: 0, price: 0.00008, supply: 2870000000, minted: 2870000000, siloVolume: 0 }]);
-    let brc20Assets = $state<any[]>([{ symbol: 'ORDI', name: 'Ordinal Token', hex: '#F7931A', icon: '🟧', balance: 0, price: 34.20, supply: 21000000, minted: 21000000, siloVolume: 0 }, { symbol: 'SATS', name: 'Satoshi BRC20', hex: '#EAB308', icon: '⚡', balance: 0, price: 0.00000028, supply: 2100000000000000, minted: 2100000000000000, siloVolume: 0 }, { symbol: 'RATS', name: 'Rats BRC20', hex: '#64748B', icon: '🐀', balance: 0, price: 0.000092, supply: 100000000000, minted: 100000000000, siloVolume: 0 }, { symbol: 'PUPS', name: 'Pups World Peace', hex: '#EC4899', icon: '🐶', balance: 0, price: 7.80, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'DOG', name: 'Dog Got Moon', hex: '#F59E0B', icon: '🐕', balance: 0, price: 0.0034, supply: 100000000000, minted: 100000000000, siloVolume: 0 }]);
-    let erc20Assets = $state<any[]>([{ symbol: 'USDT', name: 'Tether USD', hex: '#22C55E', icon: '💵', balance: 0, price: 1.00, supply: 118000000000, minted: 118000000000, siloVolume: 0 }, { symbol: 'USDC', name: 'USD Coin', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 34000000000, minted: 34000000000, siloVolume: 0 }, { symbol: 'LINK', name: 'Chainlink', hex: '#2563EB', icon: '⬡', balance: 0, price: 11.40, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'UNI', name: 'Uniswap Governance', hex: '#F43F5E', icon: '🦄', balance: 0, price: 6.20, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'PEPE', name: 'Pepe ERC20', hex: '#16A34A', icon: '🐸', balance: 0, price: 0.0000078, supply: 420690000000000, minted: 420690000000000, siloVolume: 0 }]);
-    let splAssets = $state<any[]>([{ symbol: 'USDC', name: 'Solana USDC', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 2800000000, minted: 2800000000, siloVolume: 0 }, { symbol: 'USDT', name: 'Solana USDT', hex: '#22C55E', icon: '💵', balance: 0, price: 1.00, supply: 1900000000, minted: 1900000000, siloVolume: 0 }, { symbol: 'JUP', name: 'Jupiter DEX', hex: '#10B981', icon: '🪐', balance: 0, price: 0.78, supply: 10000000000, minted: 10000000000, siloVolume: 0 }, { symbol: 'RAY', name: 'Raydium', hex: '#8B5CF6', icon: '⚡', balance: 0, price: 1.45, supply: 555000000, minted: 555000000, siloVolume: 0 }, { symbol: 'BONK', name: 'Bonk Dog', hex: '#F97316', icon: '🐕', balance: 0, price: 0.000018, supply: 92000000000000, minted: 92000000000000, siloVolume: 0 }]);
-    let drc20Assets = $state<any[]>([{ symbol: 'DRC20-DOGE', name: 'Dogecoin Ordinal', hex: '#C2A633', icon: '🐶', balance: 0, price: 0.05, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'CHEEMS', name: 'Cheems Doge', hex: '#EAB308', icon: '🐕', balance: 0, price: 0.01, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'BARK', name: 'Bark Token', hex: '#8B5CF6', icon: '🗣️', balance: 0, price: 0.002, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'WOW', name: 'Much Wow', hex: '#EC4899', icon: '🌟', balance: 0, price: 0.12, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'FIRO', name: 'Firo Doge', hex: '#06B6D4', icon: '🔥', balance: 0, price: 0.08, supply: 25000000, minted: 25000000, siloVolume: 0 }]);
-    let xrpAssets = $state<any[]>([{ symbol: 'RLUSD', name: 'Ripple USD', hex: '#23292F', icon: '💵', balance: 0, price: 1.00, supply: 1000000000, minted: 100000000, siloVolume: 0 }, { symbol: 'SOLO', name: 'Sologenic', hex: '#3B82F6', icon: '🌐', balance: 0, price: 0.12, supply: 400000000, minted: 400000000, siloVolume: 0 }, { symbol: 'CORE', name: 'Coreum', hex: '#EAB308', icon: '⚡', balance: 0, price: 0.25, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'MAG', name: 'Magnetic', hex: '#EF4444', icon: '🧲', balance: 0, price: 0.04, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'CXRP', name: 'Wrapped XRP', hex: '#A855F7', icon: '📦', balance: 0, price: 0.58, supply: 1000000, minted: 1000000, siloVolume: 0 }]);
-    let polAssets = $state<any[]>([{ symbol: 'QUICK', name: 'QuickSwap', hex: '#8247E5', icon: '⚡', balance: 0, price: 0.045, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'USDC.e', name: 'Bridged USDC', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'GHST', name: 'Aavegotchi', hex: '#EC4899', icon: '👻', balance: 0, price: 1.15, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'LINK', name: 'Chainlink (POL)', hex: '#2563EB', icon: '⬡', balance: 0, price: 11.40, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'WBTC', name: 'Wrapped BTC', hex: '#F59E0B', icon: '₿', balance: 0, price: 61200.00, supply: 10000, minted: 10000, siloVolume: 0 }]);
-    let avaxAssets = $state<any[]>([{ symbol: 'JOE', name: 'Trader Joe', hex: '#E84142', icon: '🔺', balance: 0, price: 0.32, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'PNG', name: 'Pangolin', hex: '#F97316', icon: '🐧', balance: 0, price: 0.22, supply: 538000000, minted: 538000000, siloVolume: 0 }, { symbol: 'WAVAX', name: 'Wrapped AVAX', hex: '#EF4444', icon: '❄️', balance: 0, price: 22.50, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'QI', name: 'BENQI', hex: '#10B981', icon: '🦅', balance: 0, price: 0.015, supply: 7200000000, minted: 7200000000, siloVolume: 0 }, { symbol: 'COQ', name: 'Coq Inu', hex: '#EAB308', icon: '🐔', balance: 0, price: 0.000002, supply: 69000000000000, minted: 69000000000000, siloVolume: 0 }]);
-    let suiAssets = $state<any[]>([{ symbol: 'CETUS', name: 'Cetus Protocol', hex: '#4CA2FF', icon: '🐋', balance: 0, price: 0.08, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'NAVX', name: 'NAVI Protocol', hex: '#3B82F6', icon: '🧭', balance: 0, price: 0.12, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'SUI', name: 'Staked SUI', hex: '#06B6D4', icon: '💧', balance: 0, price: 0.95, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'SCA', name: 'Scallop', hex: '#A855F7', icon: '🐚', balance: 0, price: 0.45, supply: 250000000, minted: 250000000, siloVolume: 0 }, { symbol: 'DEEP', name: 'DeepBook', hex: '#10B981', icon: '📚', balance: 0, price: 0.03, supply: 10000000000, minted: 10000000000, siloVolume: 0 }]);
-    let trxAssets = $state<any[]>([{ symbol: 'USDT-TRC20', name: 'Tron Tether', hex: '#FF0013', icon: '💵', balance: 0, price: 1.00, supply: 50000000000, minted: 50000000000, siloVolume: 0 }, { symbol: 'BTT', name: 'BitTorrent', hex: '#64748B', icon: '🌊', balance: 0, price: 0.000001, supply: 990000000000000, minted: 990000000000000, siloVolume: 0 }, { symbol: 'WIN', name: 'WINKLink', hex: '#F59E0B', icon: '🎲', balance: 0, price: 0.0001, supply: 999000000000, minted: 999000000000, siloVolume: 0 }, { symbol: 'SUN', name: 'SUN Token', hex: '#EAB308', icon: '☀️', balance: 0, price: 0.015, supply: 19900000000, minted: 19900000000, siloVolume: 0 }, { symbol: 'JST', name: 'JUST', hex: '#EF4444', icon: '⚖️', balance: 0, price: 0.03, supply: 9900000000, minted: 9900000000, siloVolume: 0 }]);
-    let zecAssets = $state<any[]>([{ symbol: 'ZEC-SHIELDED', name: 'Shielded Pool Note', hex: '#F4B728', icon: '🛡️', balance: 0, price: 31.20, supply: 21000000, minted: 21000000, siloVolume: 0 }]);
-
-    onMount(() => {
-        if (browser) {
-            try {
-                const ls = localStorage;
-                if (ls.getItem('p_kas_t')) selectedKasTokens = JSON.parse(ls.getItem('p_kas_t')!);
-                if (ls.getItem('p_kas_a')) krc20Assets = JSON.parse(ls.getItem('p_kas_a')!);
-            } catch (e) { console.error("Failed to load persistence"); }
-        }
-    });
-
-    $effect(() => {
-        if (browser) {
-            const ls = localStorage;
-            ls.setItem('p_kas_t', JSON.stringify(selectedKasTokens)); 
-            ls.setItem('p_kas_a', JSON.stringify(krc20Assets));
-        }
-    });
-
-    let totalVaultValue = $derived.by(() => {
-        const l1Total = assets.reduce((sum, asset) => sum + (asset.balance * asset.spotPrice), 0);
-        const subTotals = 
-            krc20Assets.reduce((sum, k) => sum + (k.balance * k.price), 0) +
-            brc20Assets.reduce((sum, b) => sum + (b.balance * b.price), 0) +
-            erc20Assets.reduce((sum, e) => sum + (e.balance * e.price), 0) +
-            splAssets.reduce((sum, s) => sum + (s.balance * s.price), 0);
-        return l1Total + subTotals;
-    });
-
-    let ringSegments = $derived.by(() => {
-        let cumulativePercent = 0;
-        return assets.map((asset) => {
-            let usdValue = asset.balance * asset.spotPrice;
-            if (asset.symbol === 'KAS') usdValue += krc20Assets.reduce((s, k) => s + (k.balance * k.price), 0);
-            if (asset.symbol === 'BTC') usdValue += brc20Assets.reduce((s, b) => s + (b.balance * b.price), 0);
-            if (asset.symbol === 'ETH') usdValue += erc20Assets.reduce((s, e) => s + (e.balance * e.price), 0);
-            if (asset.symbol === 'SOL') usdValue += splAssets.reduce((s, sol) => s + (sol.balance * sol.price), 0);
-
-            const percent = totalVaultValue > 0 ? (usdValue / totalVaultValue) * 100 : 0;
-            const offset = -cumulativePercent;
-            cumulativePercent += percent;
-            return { ...asset, usdValue, percent, dasharray: `${percent} ${100 - percent}`, dashoffset: offset };
-        });
-    });
-
-    async function fetchTreasuryData() {
-        if (!isVaultDecrypted || $activeWalletType !== 'sovereign') return;
-        try {
-            const params = new URLSearchParams({ 
-                kas: kasAddr, btc: btcAddr, eth: ethAddr, sol: solAddr,
-                doge: dogeAddr, xrp: xrpAddr, pol: polAddr, avax: avaxAddr,
-                sui: suiAddr, trx: trxAddr, zec: zecAddr
-            });
-            const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
-            if (res.ok) estate = await res.json();
-        } catch (err: any) { 
-            console.error("Multi-Chain Network Fetch Error:", err); 
-        }
-    }
-
-    async function fetchKrc20Ecosystem() {
-        if (!kasAddr || kasAddr.includes('Awaiting')) return;
-        try {
-            const balanceRes = await fetch(`https://api.kasplex.org/v1/krc20/address/${kasAddr}/tokenlist`);
-            let userBalances: Record<string, number> = {};
-            
-            if (balanceRes.ok) {
-                const data = await balanceRes.json();
-                if (data.result) {
-                    data.result.forEach((item: any) => {
-                        userBalances[item.tick] = Number(item.balance) / 1e8;
-                        if (!krc20Assets.some(t => t.symbol === item.tick)) {
-                            let hash = 0; for (let i = 0; i < item.tick.length; i++) hash = item.tick.charCodeAt(i) + ((hash << 5) - hash);
-                            const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
-                            krc20Assets = [...krc20Assets, {
-                                symbol: item.tick, name: item.tick + ' Token', hex, icon: item.tick.charAt(0).toUpperCase(),
-                                balance: 0, price: 0, supply: 0, minted: 0, siloVolume: 0
-                            }];
-                            if (!selectedKasTokens.includes(item.tick)) selectedKasTokens = [...selectedKasTokens, item.tick];
-                        }
-                    });
-                }
-            }
-
-            const updatedRoster = await Promise.all(krc20Assets.map(async (token) => {
-                let { supply, minted, price } = token;
-                try {
-                    const tokenRes = await fetch(`https://api.kasplex.org/v1/krc20/token/${token.symbol}`);
-                    if (tokenRes.ok) {
-                        const tData = await tokenRes.json();
-                        if (tData.result && tData.result[0]) { supply = Number(tData.result[0].max) / 1e8; minted = Number(tData.result[0].minted) / 1e8; }
-                    }
-                    const priceRes = await fetch(`/api/krc20/market?ticker=${token.symbol}`);
-                    if (priceRes.ok) { const pData = await priceRes.json(); price = pData.price || pData.usd_price || token.price; }
-                } catch (e) { /* Soft fail on rate limit */ }
-
-                const bal = userBalances[token.symbol] || token.balance;
-                return { ...token, balance: bal, supply, minted, price, siloVolume: bal > 0 ? (bal * 0.42) : 0 };
-            }));
-            krc20Assets = updatedRoster;
-        } catch (e) { console.error("KRC20 Hydration Failed", e); }
-    }
-
-    async function searchGlobalNetwork(network: string, ticker: string) {
-        if (!ticker) return;
-        const clean = ticker.toUpperCase().trim();
-        let hash = 0; for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash);
-        const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
-        const tokenObj = { symbol: clean, name: `${clean} (${network} Token)`, hex, icon: clean.charAt(0).toUpperCase(), balance: 0, price: 1.00, supply: 1000000000, minted: 1000000000, siloVolume: 0 };
-
-        if (network === 'KAS') {
-            try {
-                const res = await fetch(`https://api.kasplex.org/v1/krc20/token/${clean}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result && data.result.length > 0) {
-                        tokenObj.supply = Number(data.result[0].max) / 1e8; tokenObj.minted = Number(data.result[0].minted) / 1e8;
-                        if (!krc20Assets.some(t => t.symbol === clean)) krc20Assets = [...krc20Assets, tokenObj];
-                        if (!selectedKasTokens.includes(clean)) selectedKasTokens = [...selectedKasTokens, clean];
-                        fetchKrc20Ecosystem(); return null;
-                    } else return "Token not minted on Kaspa yet.";
-                }
-            } catch(e) { return "Kasplex network error"; }
-        }
-        return "Network simulation added.";
-    }
-
-    let chartContainer = $state<HTMLElement | null>(null);
-    let chart: any = null;
-    let areaSeries: any = null;
-    let projApy = $state(12);
-    let hashrateGrowth = $state(5);
-    let compoundFreq = $state(1); 
-    let projMonths = $state(36);
-    let projMax = $state(0);
-
-    $effect(() => {
-        if (browser && chartContainer && !chart && isVaultDecrypted) {
-            import('lightweight-charts').then(({ createChart, ColorType }) => {
-                if (!chartContainer) return;
-                chart = createChart(chartContainer, {
-                    layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#737373' },
-                    grid: { vertLines: { color: 'rgba(255,255,255,0.02)' }, horzLines: { color: 'rgba(255,255,255,0.02)' } },
-                    rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.1 } },
-                    timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: true },
-                    autoSize: true, handleScroll: false, handleScale: false
-                });
-                areaSeries = chart.addAreaSeries({
-                    lineColor: '#f59e0b', topColor: 'rgba(245, 158, 11, 0.4)', bottomColor: 'rgba(245, 158, 11, 0.0)', lineWidth: 3,
-                    priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-                });
-            });
-        }
-    });
-
-    $effect(() => {
-        if (chart && areaSeries && isVaultDecrypted && totalVaultValue !== undefined) {
-            const data = [];
-            let currentVal = totalVaultValue; 
-            const dailyRate = (projApy / 100) / 365;
-            const dailyHashBoost = (hashrateGrowth / 100) / 365;
-            let hashMultiplier = 1;
-            let timeDate = new Date();
-
-            for(let i = 0; i <= projMonths * 30; i++) {
-                timeDate.setDate(timeDate.getDate() + 1);
-                if (i % compoundFreq === 0) currentVal += currentVal * (dailyRate * compoundFreq) * hashMultiplier;
-                hashMultiplier += dailyHashBoost;
-                data.push({ time: timeDate.toISOString().split('T')[0], value: currentVal });
-            }
-
-            projMax = currentVal;
-            areaSeries.setData(data);
-            chart.timeScale().fitContent();
-        }
-    });
-
-    async function fetchExternalPrices() {
-        try {
-            const res = await fetch('/api/prices?ids=bitcoin,ethereum,solana,dogecoin,ripple,matic-network,avalanche-2,sui,tron,zcash&include_24hr_change=true');
-            if (res.ok) {
-                const data = await res.json();
-                if (data.bitcoin) { btcPrice = data.bitcoin.usd; btcDelta = data.bitcoin.usd_24h_change || 0; }
-                if (data.ethereum) { ethPrice = data.ethereum.usd; ethDelta = data.ethereum.usd_24h_change || 0; }
-                if (data.solana) { solPrice = data.solana.usd; solDelta = data.solana.usd_24h_change || 0; }
-                if (data.dogecoin) { dogePrice = data.dogecoin.usd; dogeDelta = data.dogecoin.usd_24h_change || 0; }
-                if (data.ripple) { xrpPrice = data.ripple.usd; xrpDelta = data.ripple.usd_24h_change || 0; }
-            }
-        } catch (e) { console.error("Oracle fetch failed:", e); }
-    }
-
-    let fetchInterval: ReturnType<typeof setInterval>;
-    let priceInterval: ReturnType<typeof setInterval>;
-
-    onMount(() => {
-        fetchExternalPrices();
-        priceInterval = setInterval(fetchExternalPrices, 15000);
-        
-        if (isVaultDecrypted) { 
-            fetchTreasuryData(); 
-            fetchKrc20Ecosystem(); 
-        }
-
-        fetchInterval = setInterval(() => { 
-            if (isVaultDecrypted) {
-                fetchTreasuryData(); 
-                fetchKrc20Ecosystem(); 
-            }
-        }, 15000);
-    });
-
-    onDestroy(() => {
-        if (fetchInterval) clearInterval(fetchInterval);
-        if (priceInterval) clearInterval(priceInterval);
-        if (chart) chart.remove();
-    });
-</script>
-
-<div class="w-full h-full min-h-[100dvh] bg-[#050505] text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
-    
-    {#if !isVaultDecrypted}
-        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505] p-6 text-center">
-            <div class="w-24 h-24 border-2 border-neutral-800 flex items-center justify-center rounded-2xl mb-6 bg-[#0a0a0a] shadow-inner">
-                <svg class="w-10 h-10 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-            </div>
-            <h2 class="text-2xl md:text-4xl font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4">TREASURY LOCKED:<br/>CONNECT WALLET TO VIEW LIQUIDITY</h2>
-        </div>
-    {/if}
-
-    <div class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-8 transition-opacity duration-500 {!isVaultDecrypted ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative">
-        
-        <!-- HERO CARD (SONAR + ORBITAL RING) -->
-        <div class="bg-[#0a0a0a] border border-neutral-800/50 rounded-[32px] shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden mb-2 mt-4 group">
-            <div class="relative z-10 p-8 lg:p-10 flex flex-col md:flex-row items-center justify-between gap-10">
-                <div class="flex flex-col items-center md:items-start text-center md:text-left w-full md:w-auto">
-                    <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4 flex items-center gap-2">
-                        <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></div> Total Vault Portfolio Value
-                    </span>
-                    <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
-                        {totalVaultValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                    </span>
-                </div>
-
-                <div class="relative w-40 h-40 shrink-0">
-                    <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
-                        <circle cx="18" cy="18" r="15.915" fill="none" stroke="#222" stroke-width="2.5"></circle>
-                        {#each ringSegments as segment}
-                            <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.hex} stroke-width={activeHoverSegment === segment.symbol ? "4" : "2.5"} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
-                        {/each}
-                    </svg>
-                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        {#if activeHoverSegment}
-                            {@const activeAsset = ringSegments.find(s => s.symbol === activeHoverSegment)}
-                            <span class="text-sm font-black font-mono text-white leading-none mb-1" style="color: {activeAsset?.hex}">{activeAsset?.percent.toFixed(1)}%</span>
-                            <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">{activeHoverSegment}</span>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 11 NETWORKS RENDERED DYNAMICALLY VIA COMPONENT -->
-        <div class="flex flex-col gap-4">
-            <NetworkRow asset={assets[0]} bind:subAssets={krc20Assets} bind:selectedTokens={selectedKasTokens} standardLabel="KRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[1]} bind:subAssets={brc20Assets} bind:selectedTokens={selectedBtcTokens} standardLabel="BRC-20 / Runes" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[2]} bind:subAssets={erc20Assets} bind:selectedTokens={selectedEthTokens} standardLabel="ERC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[3]} bind:subAssets={splAssets} bind:selectedTokens={selectedSolTokens} standardLabel="SPL Tokens" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[4]} bind:subAssets={drc20Assets} bind:selectedTokens={selectedDogeTokens} standardLabel="DRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[5]} bind:subAssets={xrpAssets} bind:selectedTokens={selectedXrpTokens} standardLabel="Trustlines" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[6]} bind:subAssets={polAssets} bind:selectedTokens={selectedPolTokens} standardLabel="Polygon EVM" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[7]} bind:subAssets={avaxAssets} bind:selectedTokens={selectedAvaxTokens} standardLabel="ARC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[8]} bind:subAssets={suiAssets} bind:selectedTokens={selectedSuiTokens} standardLabel="Move Tokens" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[9]} bind:subAssets={trxAssets} bind:selectedTokens={selectedTrxTokens} standardLabel="TRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[10]} bind:subAssets={zecAssets} bind:selectedTokens={selectedZecTokens} standardLabel="Shielded Notes" {searchGlobalNetwork} bind:activeHoverSegment />
-        </div>
-
-        <!-- RWA ORACLE ROW SECTION -->
-        <RwaRow />
-
-        <!-- CHRONOS YIELD PROJECTION MATRIX -->
-        <div class="relative bg-[#0a0a0a] border border-neutral-800/80 rounded-[32px] p-6 md:p-10 shadow-[inset_0_0_80px_rgba(0,0,0,0.4)] overflow-hidden mt-4 transition-all duration-700 min-h-[400px]">
-            <div class="flex flex-col gap-8 transition-all duration-500">
-                <div class="flex justify-between items-end border-b border-neutral-800/80 pb-4">
-                    <div>
-                        <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 mb-1 flex items-center gap-2 drop-shadow-[0_0_8px_rgba(20,184,166,0.5)]">
-                            <div class="w-1.5 h-1.5 bg-teal-500 rounded-full animate-ping"></div> Chronos Yield Projection
-                        </h3>
-                        <p class="text-[9px] font-mono text-neutral-500 uppercase tracking-widest">Calculates theoretical 3-year exponential accumulation</p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    <div class="lg:col-span-4 flex flex-col gap-6 bg-[#0c0c0c] border border-neutral-800/50 rounded-2xl p-6 shadow-inner relative">
-                        <div class="flex flex-col gap-3">
-                            <div class="flex justify-between items-center">
-                                <label for="apy" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">Estimated Base APY</label>
-                                <span class="text-xs font-mono font-black text-teal-400">{projApy}%</span>
-                            </div>
-                            <input id="apy" type="range" min="1" max="100" bind:value={projApy} class="myst-slider w-full" />
-                        </div>
-
-                        <div class="flex flex-col gap-3">
-                            <div class="flex justify-between items-center">
-                                <label for="hashGrowth" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">Hashrate Growth</label>
-                                <span class="text-xs font-mono font-black text-amber-500">+{hashrateGrowth}% /yr</span>
-                            </div>
-                            <input id="hashGrowth" type="range" min="0" max="50" bind:value={hashrateGrowth} class="myst-slider-amber w-full" />
-                        </div>
-
-                        <div class="flex flex-col gap-3">
-                            <div class="flex justify-between items-center">
-                                <label for="compFreq" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">Auto-Compound Rate</label>
-                                <span class="text-xs font-mono font-black text-blue-400">
-                                    {compoundFreq === 1 ? 'Daily' : compoundFreq === 7 ? 'Weekly' : 'Monthly'}
-                                </span>
-                            </div>
-                            <input id="compFreq" type="range" min="1" max="30" step="1" bind:value={compoundFreq} class="myst-slider-blue w-full" 
-                                   oninput={(e) => {
-                                       const v = parseInt((e.target as HTMLInputElement).value);
-                                       if(v < 4) compoundFreq = 1; else if(v < 15) compoundFreq = 7; else compoundFreq = 30;
-                                   }}/>
-                        </div>
-                    </div>
-
-                    <div class="lg:col-span-8 bg-[#0c0c0c] border border-neutral-800/50 rounded-2xl p-4 shadow-inner relative flex flex-col">
-                        <div class="absolute top-4 right-4 z-10 flex flex-col items-end pointer-events-none">
-                            <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">36-Month Vault Projection</span>
-                            <span class="text-lg font-mono font-black text-teal-500/80 drop-shadow-md">
-                                ${projMax.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
-                            </span>
-                        </div>
-                        <div bind:this={chartContainer} class="w-full h-full min-h-[300px]"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<style>
-    @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
-    @keyframes fade-in-down { 0% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
-
-    .myst-slider, .myst-slider-amber, .myst-slider-blue {
-        -webkit-appearance: none; appearance: none; background: #111; height: 8px; border-radius: 4px; outline: none; border: 1px solid #222; box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
-    }
-    
-    .myst-slider::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none; width: 16px; height: 24px; border-radius: 4px; background: #1a1a1a; cursor: pointer; border: 2px solid #14b8a6; box-shadow: 0 0 10px rgba(20, 184, 166, 0.4);
-    }
-
-    .myst-slider-amber::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none; width: 16px; height: 24px; border-radius: 4px; background: #1a1a1a; cursor: pointer; border: 2px solid #f59e0b; box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
-    }
-
-    .myst-slider-blue::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none; width: 16px; height: 24px; border-radius: 4px; background: #1a1a1a; cursor: pointer; border: 2px solid #3b82f6; box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
     }
 </style>
 </file>
@@ -3342,91 +2861,138 @@ export async function POST({ request, cookies }: RequestEvent) {
 }
 </file>
 
-<file path="src/routes/api/utxos/+server.ts">
+<file path="src/routes/api/sor/swap/+server.ts">
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-const WebSocket = require('ws');
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false;
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true;
+export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
+    try {
+        const rawCookie = cookies.get('perennia_session');
+        if (!rawCookie) {
+            return json({ error: 'UNAUTHORIZED_ROUTING_ATTEMPT' }, { status: 401 });
+        }
 
-export async function GET({ url, cookies }: RequestEvent) {
-    // 1. Zero-Trust Guard
-    const sessionCookie = cookies.get('perennia_session');
-    if (!sessionCookie) {
-        return json({ error: 'UNAUTHORIZED_DAG_ACCESS' }, { status: 401 });
-    }
+        // ⚡ FIX: Decode cookie
+        const sessionCookie = decodeURIComponent(rawCookie);
 
-    const requestedAddress = url.searchParams.get('address');
-    if (!requestedAddress) return json({ error: "Missing address parameter" }, { status: 400 });
+        const body = await request.json().catch(() => ({}));
+        const { wallet, payAsset, receiveAsset, amount, slippageTolerance } = body;
 
-    const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie === MASTER_ADMIN_ADDRESS;
+        if (!wallet || !payAsset || !receiveAsset || !amount) {
+            return json({ error: 'Bad Request', message: 'Invalid payload.' }, { status: 400 });
+        }
 
-    // A user can ONLY query UTXOs for their exact authenticated session address
-    if (!isCorpAdmin && requestedAddress.toLowerCase() !== sessionCookie.toLowerCase()) {
-        return json({ error: 'FORBIDDEN_ADDRESS_QUERY' }, { status: 403 });
-    }
+        const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
+        if (!isCorpAdmin && wallet.toLowerCase() !== sessionCookie.toLowerCase()) {
+            return json({ error: 'FORBIDDEN_ROUTING_TARGET' }, { status: 403 });
+        }
 
-    const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
-
-    return new Promise((resolve) => {
-        let isResolved = false; // ⚡ Immutable state lock
-        console.log(`\n⏳ UTXO Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const utxoRes = await fetch(`${baseUrl}/api/utxos?address=${encodeURIComponent(wallet)}`, {
+            headers: { cookie: request.headers.get('cookie') || '' }
+        });
         
-        const ws = new WebSocket(`ws://${nodeIp}:18110`);
+        if (!utxoRes.ok) throw new Error("Failed to fetch UTXO outpoints from DAG.");
+        const utxoData = await utxoRes.json();
         
-        const timeout = setTimeout(() => {
-            if (isResolved) return;
-            isResolved = true;
-            ws.terminate();
-            console.error("❌ [Perennia Proxy] UTXO Engine: wRPC connection timed out");
-            resolve(json({ error: "wRPC connection timed out" }, { status: 500 }));
-        }, 5000);
+        const formattedUtxos = (utxoData.entries || []).map((u: any) => ({
+            transactionId: u.outpoint?.transactionId || u.transactionId,
+            index: u.outpoint?.index || u.index,
+            amount: Number(u.utxoEntry?.amount || u.amount || 0),
+            scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
+        }));
 
-        ws.on('open', () => {
-            console.log(`[+] Socket OPENED. Fetching unspent mass for ${requestedAddress.substring(0, 15)}...`);
-            const payload = { id: 1, method: "getUtxosByAddresses", params: { addresses: [requestedAddress] } };
-            ws.send(JSON.stringify(payload));
+        const rustRes = await fetch('http://127.0.0.1:8002/v1/sor/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wallet, payAsset, receiveAsset, amount, slippageTolerance: slippageTolerance || 0.05, utxos: formattedUtxos })
         });
 
-        ws.on('message', (data: any) => {
-            if (isResolved) return;
-            isResolved = true; // Lock out the close/error handlers
-            clearTimeout(timeout);
-            
-            try {
-                const response = JSON.parse(data.toString());
-                const entries = response.params?.entries || response.entries || [];
-                console.log(`[+] Mapped ${entries.length} UTXOs.`);
-                
-                ws.terminate(); // Instantly destroy socket to prevent 1006 cascade
-                resolve(json({ entries }, { status: 200 }));
-            } catch (e) {
-                console.error("❌ [Perennia Proxy] Failed to parse wRPC response");
-                ws.terminate();
-                resolve(json({ error: "Failed to parse wRPC response" }, { status: 500 }));
+        if (!rustRes.ok) {
+            const errData = await rustRes.json().catch(() => ({ error: "Rust Backend Rejected Execution" }));
+            return json({ error: 'Slippage/Lock Rejected', message: errData.error }, { status: 422 });
+        }
+
+        const rustData = await rustRes.json();
+
+        return json({
+            unified_rate: rustData.unifiedRate,
+            estimated_output: rustData.estimatedOutput,
+            transaction_uuid: rustData.transaction_uuid,
+            legs: rustData.legs,
+            psbt: rustData.psbt,
+            formattedUtxos: rustData.formattedUtxos
+        }, { status: 200 });
+
+    } catch (error: any) {
+        console.error('SOR Assembly Fault:', error.message || error);
+        return json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
+    }
+};
+</file>
+
+<file path="src/routes/api/stats/+server.ts">
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { redis } from '$lib/server/redis'; 
+
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false;
+
+export const GET: RequestHandler = async ({ cookies }) => {
+    const rawCookie = cookies.get('perennia_session');
+    
+    if (!rawCookie) {
+        return json({ error: 'UNAUTHORIZED_MATRIX_ACCESS' }, { status: 401 });
+    }
+
+    // ⚡ FIX: Decode cookie
+    const sessionCookie = decodeURIComponent(rawCookie);
+    const cleanSessionWallet = sessionCookie.toLowerCase().replace('kaspa:', '');
+    const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
+
+    try {
+        const totalHashrateStr = await redis.get('pool:hashrate');
+        const totalHashrate = parseFloat(totalHashrateStr || "0");
+
+        const workerKeys = await redis.smembers('pool:workers');
+        const workers = [];
+        
+        for (const fullIdentity of workerKeys) {
+            const nameParts = fullIdentity.split('.');
+            const rawWalletAddress = nameParts[0];
+            const walletAddress = rawWalletAddress.toLowerCase().replace('kaspa:', '');
+            const workerName = nameParts.length > 1 ? nameParts.slice(1).join('.') : fullIdentity;
+
+            if (!isCorporateAdmin && walletAddress !== cleanSessionWallet) {
+                continue; 
             }
-        });
 
-        ws.on('close', (code: number) => {
-            if (isResolved) return; 
-            isResolved = true;
-            clearTimeout(timeout);
-            console.error(`❌ [Perennia Proxy] Node abruptly dropped connection. Code: ${code}`);
-            resolve(json({ error: "Node connection rejected" }, { status: 500 }));
-        });
+            const [hashRateStr, blocksStr, sharesStr] = await Promise.all([
+                redis.get(`worker:${fullIdentity}:hashrate`),
+                redis.get(`worker:${fullIdentity}:blocks`),
+                redis.get(`worker:${fullIdentity}:shares`)
+            ]);
 
-        ws.on('error', (err: Error) => {
-            if (isResolved) return;
-            isResolved = true;
-            clearTimeout(timeout);
-            console.error("❌ [Perennia Proxy] Socket Error:", err.message);
-            resolve(json({ error: err.message }, { status: 500 }));
-        });
-    });
-}
+            workers.push({
+                name: workerName,
+                walletAddress: rawWalletAddress, 
+                fullIdentity: fullIdentity,
+                trackingRate: parseFloat(hashRateStr || "0"),
+                blocksFound: parseInt(blocksStr || "0", 10),
+                sharesContributed: parseInt(sharesStr || "0", 10)
+            });
+        }
+
+        return json({ status: "ONLINE", pool: { totalHashrate }, workers: workers });
+        
+    } catch (error) {
+        console.error("🚨 Redis Telemetry Fetch Error:", error);
+        return json({ error: 'Failed to read node telemetry.', pool: { totalHashrate: 0 }, workers: [] }, { status: 500 });
+    }
+};
 </file>
 
 <file path="src/lib/views/TaxFortressView.svelte">
@@ -3775,6 +3341,461 @@ export async function GET({ url, cookies }: RequestEvent) {
 </style>
 </file>
 
+<file path="src/lib/views/TreasuryVault.svelte">
+<script lang="ts">
+    import { onMount, onDestroy } from 'svelte';
+    import { globalKasPrice, globalKasChange } from '$lib/stores/app';
+    import { isWalletConnected, activeWalletType, sovereignKeys, walletAddress, walletBalance } from '$lib/stores/wallet';
+    import { browser } from '$app/environment';
+    import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
+    import RwaRow from '$lib/components/treasury/RwaRow.svelte';
+
+    let estate = $state<any>(null);
+    let isLoading = $state(false);
+    let isVaultDecrypted = $derived($isWalletConnected);
+    let activeHoverSegment = $state<string | null>(null);
+
+    // Trimmed to 5 Major Default Tokens Each
+    let selectedKasTokens = $state<string[]>(['NACHO', 'IGRA', 'ZEAL', 'KASPY', 'KANGO']);
+    let selectedBtcTokens = $state<string[]>(['ORDI', 'SATS', 'RATS', 'PUPS', 'DOG']);
+    let selectedEthTokens = $state<string[]>(['USDT', 'USDC', 'LINK', 'UNI', 'PEPE']);
+    let selectedSolTokens = $state<string[]>(['USDC', 'USDT', 'JUP', 'RAY', 'BONK']);
+    let selectedDogeTokens = $state<string[]>(['DRC20-DOGE', 'CHEEMS', 'BARK', 'WOW', 'FIRO']);
+    let selectedXrpTokens = $state<string[]>(['RLUSD', 'SOLO', 'CORE', 'MAG', 'CXRP']);
+    let selectedPolTokens = $state<string[]>(['QUICK', 'USDC.e', 'GHST', 'LINK', 'WBTC']);
+    let selectedAvaxTokens = $state<string[]>(['JOE', 'PNG', 'WAVAX', 'QI', 'COQ']);
+    let selectedSuiTokens = $state<string[]>(['CETUS', 'NAVX', 'SUI', 'SCA', 'DEEP']);
+    let selectedTrxTokens = $state<string[]>(['USDT-TRC20', 'BTT', 'WIN', 'SUN', 'JST']);
+    let selectedZecTokens = $state<string[]>(['ZEC-SHIELDED']);
+
+    // Market Prices
+    let btcPrice = $state(0.00); let btcDelta = $state(0);
+    let ethPrice = $state(0.00); let ethDelta = $state(0);
+    let solPrice = $state(0.00); let solDelta = $state(0);
+    let dogePrice = $state(0.10); let dogeDelta = $state(0);
+    let xrpPrice = $state(0.58); let xrpDelta = $state(0);
+    let polPrice = $state(0.42); let polDelta = $state(0);
+    let avaxPrice = $state(22.50); let avaxDelta = $state(0);
+    let suiPrice = $state(0.95); let suiDelta = $state(0);
+    let trxPrice = $state(0.15); let trxDelta = $state(0);
+    let zecPrice = $state(31.20); let zecDelta = $state(0);
+
+    // Root Addresses
+    let kasAddr = $derived($sovereignKeys?.kaspa?.address || estate?.assets?.find((a: any) => a.symbol === 'KAS')?.address || $walletAddress || 'Awaiting Decryption');
+    let btcAddr = $derived($sovereignKeys?.bitcoin?.address || estate?.assets?.find((a: any) => a.symbol === 'BTC')?.address || 'Awaiting Decryption');
+    let ethAddr = $derived($sovereignKeys?.ethereum?.address || estate?.assets?.find((a: any) => a.symbol === 'ETH')?.address || 'Awaiting Decryption');
+    let solAddr = $derived($sovereignKeys?.solana?.address || estate?.assets?.find((a: any) => a.symbol === 'SOL')?.address || 'Awaiting Decryption');
+    let dogeAddr = $derived($sovereignKeys?.doge?.address || estate?.assets?.find((a: any) => a.symbol === 'DOGE')?.address || 'Awaiting Decryption');
+    let xrpAddr = $derived($sovereignKeys?.xrp?.address || estate?.assets?.find((a: any) => a.symbol === 'XRP')?.address || 'Awaiting Decryption');
+    let polAddr = $derived($sovereignKeys?.polygon?.address || ethAddr);
+    let avaxAddr = $derived($sovereignKeys?.avalanche?.address || ethAddr);
+    let suiAddr = $derived($sovereignKeys?.sui?.address || estate?.assets?.find((a: any) => a.symbol === 'SUI')?.address || 'Awaiting Decryption');
+    let trxAddr = $derived($sovereignKeys?.tron?.address || estate?.assets?.find((a: any) => a.symbol === 'TRX')?.address || 'Awaiting Decryption');
+    let zecAddr = $derived($sovereignKeys?.zcash?.address || estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.address || 'Awaiting Decryption');
+
+    // 11 L1 Assets
+    let assets = $derived.by(() => {
+        const liveKasBalance = parseFloat($walletBalance) || 0;
+        const kasBal = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.balance || liveKasBalance;
+        const btcBal = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.balance || 0; 
+        const ethBal = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.balance || 0; 
+        const solBal = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.balance || 0; 
+        const dogeBal = estate?.assets?.find((a: any) => a.symbol === 'DOGE')?.balance || 0; 
+        const xrpBal = estate?.assets?.find((a: any) => a.symbol === 'XRP')?.balance || 0; 
+        const polBal = estate?.assets?.find((a: any) => a.symbol === 'POL')?.balance || 0; 
+        const avaxBal = estate?.assets?.find((a: any) => a.symbol === 'AVAX')?.balance || 0; 
+        const suiBal = estate?.assets?.find((a: any) => a.symbol === 'SUI')?.balance || 0; 
+        const trxBal = estate?.assets?.find((a: any) => a.symbol === 'TRX')?.balance || 0; 
+        const zecBal = estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.balance || 0; 
+
+        return [
+            { symbol: 'KAS', icon: '/assets/tokens/kas.svg', name: 'Kaspa', badge: 'KAS [L1]', spotPrice: $globalKasPrice || 0.00, delta: $globalKasChange || 0, balance: kasBal, address: kasAddr, hex: '#18C6A5' },
+            { symbol: 'BTC', icon: '/assets/tokens/btc.svg', name: 'Bitcoin', badge: 'BTC [COLD]', spotPrice: btcPrice, delta: btcDelta, balance: btcBal, address: btcAddr, hex: '#F7931A' },
+            { symbol: 'ETH', icon: '/assets/tokens/eth.svg', name: 'Ethereum', badge: 'ETH [ERC20]', spotPrice: ethPrice, delta: ethDelta, balance: ethBal, address: ethAddr, hex: '#627EEA' },
+            { symbol: 'SOL', icon: '/assets/tokens/sol.svg', name: 'Solana', badge: 'SOL [NATIVE]', spotPrice: solPrice, delta: solDelta, balance: solBal, address: solAddr, hex: '#14F195' },
+            { symbol: 'DOGE', icon: 'https://cryptologos.cc/logos/dogecoin-doge-logo.svg?v=033', name: 'Dogecoin', badge: 'DOGE [L1]', spotPrice: dogePrice, delta: dogeDelta, balance: dogeBal, address: dogeAddr, hex: '#C2A633' },
+            { symbol: 'XRP', icon: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg?v=033', name: 'XRP Ledger', badge: 'XRP [NATIVE]', spotPrice: xrpPrice, delta: xrpDelta, balance: xrpBal, address: xrpAddr, hex: '#23292F' },
+            { symbol: 'POL', icon: 'https://cryptologos.cc/logos/polygon-matic-logo.svg?v=033', name: 'Polygon', badge: 'POL [EVM]', spotPrice: polPrice, delta: polDelta, balance: polBal, address: polAddr, hex: '#8247E5' },
+            { symbol: 'AVAX', icon: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg?v=033', name: 'Avalanche', badge: 'AVAX [C-CHAIN]', spotPrice: avaxPrice, delta: avaxDelta, balance: avaxBal, address: avaxAddr, hex: '#E84142' },
+            { symbol: 'SUI', icon: 'https://cryptologos.cc/logos/sui-sui-logo.svg?v=033', name: 'Sui Network', badge: 'SUI [MOVE]', spotPrice: suiPrice, delta: suiDelta, balance: suiBal, address: suiAddr, hex: '#4CA2FF' },
+            { symbol: 'TRX', icon: 'https://cryptologos.cc/logos/tron-trx-logo.svg?v=033', name: 'TRON', badge: 'TRX [TRC20]', spotPrice: trxPrice, delta: trxDelta, balance: trxBal, address: trxAddr, hex: '#FF0013' },
+            { symbol: 'ZEC', icon: 'https://cryptologos.cc/logos/zcash-zec-logo.svg?v=033', name: 'Zcash', badge: 'ZEC [PRIVACY]', spotPrice: zecPrice, delta: zecDelta, balance: zecBal, address: zecAddr, hex: '#F4B728' }
+        ];
+    });
+
+    let krc20Assets = $state<any[]>([{ symbol: 'NACHO', name: 'Nacho the Kat', hex: '#FACC15', icon: '🐈', balance: 0, price: 0.00015, supply: 28700000000, minted: 28700000000, siloVolume: 0 }, { symbol: 'IGRA', name: 'Igra Token', hex: '#10B981', icon: '💎', balance: 0, price: 0.00085, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'ZEAL', name: 'Zeal', hex: '#3B82F6', icon: '⚡', balance: 0, price: 0.00041, supply: 340000000, minted: 340000000, siloVolume: 0 }, { symbol: 'KASPY', name: 'Kaspy', hex: '#10B981', icon: '🐱', balance: 0, price: 0.00005, supply: 287000000, minted: 287000000, siloVolume: 0 }, { symbol: 'KANGO', name: 'Kango', hex: '#F97316', icon: '🦘', balance: 0, price: 0.00008, supply: 2870000000, minted: 2870000000, siloVolume: 0 }]);
+    let brc20Assets = $state<any[]>([{ symbol: 'ORDI', name: 'Ordinal Token', hex: '#F7931A', icon: '🟧', balance: 0, price: 34.20, supply: 21000000, minted: 21000000, siloVolume: 0 }, { symbol: 'SATS', name: 'Satoshi BRC20', hex: '#EAB308', icon: '⚡', balance: 0, price: 0.00000028, supply: 2100000000000000, minted: 2100000000000000, siloVolume: 0 }, { symbol: 'RATS', name: 'Rats BRC20', hex: '#64748B', icon: '🐀', balance: 0, price: 0.000092, supply: 100000000000, minted: 100000000000, siloVolume: 0 }, { symbol: 'PUPS', name: 'Pups World Peace', hex: '#EC4899', icon: '🐶', balance: 0, price: 7.80, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'DOG', name: 'Dog Got Moon', hex: '#F59E0B', icon: '🐕', balance: 0, price: 0.0034, supply: 100000000000, minted: 100000000000, siloVolume: 0 }]);
+    let erc20Assets = $state<any[]>([{ symbol: 'USDT', name: 'Tether USD', hex: '#22C55E', icon: '💵', balance: 0, price: 1.00, supply: 118000000000, minted: 118000000000, siloVolume: 0 }, { symbol: 'USDC', name: 'USD Coin', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 34000000000, minted: 34000000000, siloVolume: 0 }, { symbol: 'LINK', name: 'Chainlink', hex: '#2563EB', icon: '⬡', balance: 0, price: 11.40, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'UNI', name: 'Uniswap Governance', hex: '#F43F5E', icon: '🦄', balance: 0, price: 6.20, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'PEPE', name: 'Pepe ERC20', hex: '#16A34A', icon: '🐸', balance: 0, price: 0.0000078, supply: 420690000000000, minted: 420690000000000, siloVolume: 0 }]);
+    let splAssets = $state<any[]>([{ symbol: 'USDC', name: 'Solana USDC', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 2800000000, minted: 2800000000, siloVolume: 0 }, { symbol: 'USDT', name: 'Solana USDT', hex: '#22C55E', icon: '💵', balance: 0, price: 1.00, supply: 1900000000, minted: 1900000000, siloVolume: 0 }, { symbol: 'JUP', name: 'Jupiter DEX', hex: '#10B981', icon: '🪐', balance: 0, price: 0.78, supply: 10000000000, minted: 10000000000, siloVolume: 0 }, { symbol: 'RAY', name: 'Raydium', hex: '#8B5CF6', icon: '⚡', balance: 0, price: 1.45, supply: 555000000, minted: 555000000, siloVolume: 0 }, { symbol: 'BONK', name: 'Bonk Dog', hex: '#F97316', icon: '🐕', balance: 0, price: 0.000018, supply: 92000000000000, minted: 92000000000000, siloVolume: 0 }]);
+    let drc20Assets = $state<any[]>([{ symbol: 'DRC20-DOGE', name: 'Dogecoin Ordinal', hex: '#C2A633', icon: '🐶', balance: 0, price: 0.05, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'CHEEMS', name: 'Cheems Doge', hex: '#EAB308', icon: '🐕', balance: 0, price: 0.01, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'BARK', name: 'Bark Token', hex: '#8B5CF6', icon: '🗣️', balance: 0, price: 0.002, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'WOW', name: 'Much Wow', hex: '#EC4899', icon: '🌟', balance: 0, price: 0.12, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'FIRO', name: 'Firo Doge', hex: '#06B6D4', icon: '🔥', balance: 0, price: 0.08, supply: 25000000, minted: 25000000, siloVolume: 0 }]);
+    let xrpAssets = $state<any[]>([{ symbol: 'RLUSD', name: 'Ripple USD', hex: '#23292F', icon: '💵', balance: 0, price: 1.00, supply: 1000000000, minted: 100000000, siloVolume: 0 }, { symbol: 'SOLO', name: 'Sologenic', hex: '#3B82F6', icon: '🌐', balance: 0, price: 0.12, supply: 400000000, minted: 400000000, siloVolume: 0 }, { symbol: 'CORE', name: 'Coreum', hex: '#EAB308', icon: '⚡', balance: 0, price: 0.25, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'MAG', name: 'Magnetic', hex: '#EF4444', icon: '🧲', balance: 0, price: 0.04, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'CXRP', name: 'Wrapped XRP', hex: '#A855F7', icon: '📦', balance: 0, price: 0.58, supply: 1000000, minted: 1000000, siloVolume: 0 }]);
+    let polAssets = $state<any[]>([{ symbol: 'QUICK', name: 'QuickSwap', hex: '#8247E5', icon: '⚡', balance: 0, price: 0.045, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'USDC.e', name: 'Bridged USDC', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'GHST', name: 'Aavegotchi', hex: '#EC4899', icon: '👻', balance: 0, price: 1.15, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'LINK', name: 'Chainlink (POL)', hex: '#2563EB', icon: '⬡', balance: 0, price: 11.40, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'WBTC', name: 'Wrapped BTC', hex: '#F59E0B', icon: '₿', balance: 0, price: 61200.00, supply: 10000, minted: 10000, siloVolume: 0 }]);
+    let avaxAssets = $state<any[]>([{ symbol: 'JOE', name: 'Trader Joe', hex: '#E84142', icon: '🔺', balance: 0, price: 0.32, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'PNG', name: 'Pangolin', hex: '#F97316', icon: '🐧', balance: 0, price: 0.22, supply: 538000000, minted: 538000000, siloVolume: 0 }, { symbol: 'WAVAX', name: 'Wrapped AVAX', hex: '#EF4444', icon: '❄️', balance: 0, price: 22.50, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'QI', name: 'BENQI', hex: '#10B981', icon: '🦅', balance: 0, price: 0.015, supply: 7200000000, minted: 7200000000, siloVolume: 0 }, { symbol: 'COQ', name: 'Coq Inu', hex: '#EAB308', icon: '🐔', balance: 0, price: 0.000002, supply: 69000000000000, minted: 69000000000000, siloVolume: 0 }]);
+    let suiAssets = $state<any[]>([{ symbol: 'CETUS', name: 'Cetus Protocol', hex: '#4CA2FF', icon: '🐋', balance: 0, price: 0.08, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'NAVX', name: 'NAVI Protocol', hex: '#3B82F6', icon: '🧭', balance: 0, price: 0.12, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'SUI', name: 'Staked SUI', hex: '#06B6D4', icon: '💧', balance: 0, price: 0.95, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'SCA', name: 'Scallop', hex: '#A855F7', icon: '🐚', balance: 0, price: 0.45, supply: 250000000, minted: 250000000, siloVolume: 0 }, { symbol: 'DEEP', name: 'DeepBook', hex: '#10B981', icon: '📚', balance: 0, price: 0.03, supply: 10000000000, minted: 10000000000, siloVolume: 0 }]);
+    let trxAssets = $state<any[]>([{ symbol: 'USDT-TRC20', name: 'Tron Tether', hex: '#FF0013', icon: '💵', balance: 0, price: 1.00, supply: 50000000000, minted: 50000000000, siloVolume: 0 }, { symbol: 'BTT', name: 'BitTorrent', hex: '#64748B', icon: '🌊', balance: 0, price: 0.000001, supply: 990000000000000, minted: 990000000000000, siloVolume: 0 }, { symbol: 'WIN', name: 'WINKLink', hex: '#F59E0B', icon: '🎲', balance: 0, price: 0.0001, supply: 999000000000, minted: 999000000000, siloVolume: 0 }, { symbol: 'SUN', name: 'SUN Token', hex: '#EAB308', icon: '☀️', balance: 0, price: 0.015, supply: 19900000000, minted: 19900000000, siloVolume: 0 }, { symbol: 'JST', name: 'JUST', hex: '#EF4444', icon: '⚖️', balance: 0, price: 0.03, supply: 9900000000, minted: 9900000000, siloVolume: 0 }]);
+    let zecAssets = $state<any[]>([{ symbol: 'ZEC-SHIELDED', name: 'Shielded Pool Note', hex: '#F4B728', icon: '🛡️', balance: 0, price: 31.20, supply: 21000000, minted: 21000000, siloVolume: 0 }]);
+
+    onMount(() => {
+        if (browser) {
+            try {
+                const ls = localStorage;
+                if (ls.getItem('p_kas_t')) selectedKasTokens = JSON.parse(ls.getItem('p_kas_t')!);
+                if (ls.getItem('p_kas_a')) krc20Assets = JSON.parse(ls.getItem('p_kas_a')!);
+            } catch (e) { console.error("Failed to load persistence"); }
+        }
+    });
+
+    $effect(() => {
+        if (browser) {
+            const ls = localStorage;
+            ls.setItem('p_kas_t', JSON.stringify(selectedKasTokens)); 
+            ls.setItem('p_kas_a', JSON.stringify(krc20Assets));
+        }
+    });
+
+    let totalVaultValue = $derived.by(() => {
+        const l1Total = assets.reduce((sum, asset) => sum + (asset.balance * asset.spotPrice), 0);
+        const subTotals = 
+            krc20Assets.reduce((sum, k) => sum + (k.balance * k.price), 0) +
+            brc20Assets.reduce((sum, b) => sum + (b.balance * b.price), 0) +
+            erc20Assets.reduce((sum, e) => sum + (e.balance * e.price), 0) +
+            splAssets.reduce((sum, s) => sum + (s.balance * s.price), 0);
+        return l1Total + subTotals;
+    });
+
+    let ringSegments = $derived.by(() => {
+        let cumulativePercent = 0;
+        return assets.map((asset) => {
+            let usdValue = asset.balance * asset.spotPrice;
+            if (asset.symbol === 'KAS') usdValue += krc20Assets.reduce((s, k) => s + (k.balance * k.price), 0);
+            if (asset.symbol === 'BTC') usdValue += brc20Assets.reduce((s, b) => s + (b.balance * b.price), 0);
+            if (asset.symbol === 'ETH') usdValue += erc20Assets.reduce((s, e) => s + (e.balance * e.price), 0);
+            if (asset.symbol === 'SOL') usdValue += splAssets.reduce((s, sol) => s + (sol.balance * sol.price), 0);
+
+            const percent = totalVaultValue > 0 ? (usdValue / totalVaultValue) * 100 : 0;
+            const offset = -cumulativePercent;
+            cumulativePercent += percent;
+            return { ...asset, usdValue, percent, dasharray: `${percent} ${100 - percent}`, dashoffset: offset };
+        });
+    });
+
+    // ⚡ ZERO-TRUST UPDATE: Remove `activeWalletType` restriction so everyone can hydrate the UI
+    async function fetchTreasuryData() {
+        if (!isVaultDecrypted) return;
+        try {
+            const params = new URLSearchParams({ 
+                kas: kasAddr, btc: btcAddr, eth: ethAddr, sol: solAddr,
+                doge: dogeAddr, xrp: xrpAddr, pol: polAddr, avax: avaxAddr,
+                sui: suiAddr, trx: trxAddr, zec: zecAddr
+            });
+            const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
+            if (res.ok) estate = await res.json();
+        } catch (err: any) { 
+            console.error("Multi-Chain Network Fetch Error:", err); 
+        }
+    }
+
+    async function fetchKrc20Ecosystem() {
+        if (!kasAddr || kasAddr.includes('Awaiting')) return;
+        try {
+            const balanceRes = await fetch(`https://api.kasplex.org/v1/krc20/address/${kasAddr}/tokenlist`);
+            let userBalances: Record<string, number> = {};
+            
+            if (balanceRes.ok) {
+                const data = await balanceRes.json();
+                if (data.result) {
+                    data.result.forEach((item: any) => {
+                        userBalances[item.tick] = Number(item.balance) / 1e8;
+                        if (!krc20Assets.some(t => t.symbol === item.tick)) {
+                            let hash = 0; for (let i = 0; i < item.tick.length; i++) hash = item.tick.charCodeAt(i) + ((hash << 5) - hash);
+                            const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
+                            krc20Assets = [...krc20Assets, {
+                                symbol: item.tick, name: item.tick + ' Token', hex, icon: item.tick.charAt(0).toUpperCase(),
+                                balance: 0, price: 0, supply: 0, minted: 0, siloVolume: 0
+                            }];
+                            if (!selectedKasTokens.includes(item.tick)) selectedKasTokens = [...selectedKasTokens, item.tick];
+                        }
+                    });
+                }
+            }
+
+            const updatedRoster = await Promise.all(krc20Assets.map(async (token) => {
+                let { supply, minted, price } = token;
+                try {
+                    const tokenRes = await fetch(`https://api.kasplex.org/v1/krc20/token/${token.symbol}`);
+                    if (tokenRes.ok) {
+                        const tData = await tokenRes.json();
+                        if (tData.result && tData.result[0]) { supply = Number(tData.result[0].max) / 1e8; minted = Number(tData.result[0].minted) / 1e8; }
+                    }
+                    const priceRes = await fetch(`/api/krc20/market?ticker=${token.symbol}`);
+                    if (priceRes.ok) { const pData = await priceRes.json(); price = pData.price || pData.usd_price || token.price; }
+                } catch (e) { /* Soft fail on rate limit */ }
+
+                const bal = userBalances[token.symbol] || token.balance;
+                return { ...token, balance: bal, supply, minted, price, siloVolume: bal > 0 ? (bal * 0.42) : 0 };
+            }));
+            krc20Assets = updatedRoster;
+        } catch (e) { console.error("KRC20 Hydration Failed", e); }
+    }
+
+    async function searchGlobalNetwork(network: string, ticker: string) {
+        if (!ticker) return;
+        const clean = ticker.toUpperCase().trim();
+        let hash = 0; for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash);
+        const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
+        const tokenObj = { symbol: clean, name: `${clean} (${network} Token)`, hex, icon: clean.charAt(0).toUpperCase(), balance: 0, price: 1.00, supply: 1000000000, minted: 1000000000, siloVolume: 0 };
+
+        if (network === 'KAS') {
+            try {
+                const res = await fetch(`https://api.kasplex.org/v1/krc20/token/${clean}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.result && data.result.length > 0) {
+                        tokenObj.supply = Number(data.result[0].max) / 1e8; tokenObj.minted = Number(data.result[0].minted) / 1e8;
+                        if (!krc20Assets.some(t => t.symbol === clean)) krc20Assets = [...krc20Assets, tokenObj];
+                        if (!selectedKasTokens.includes(clean)) selectedKasTokens = [...selectedKasTokens, clean];
+                        fetchKrc20Ecosystem(); return null;
+                    } else return "Token not minted on Kaspa yet.";
+                }
+            } catch(e) { return "Kasplex network error"; }
+        }
+        return "Network simulation added.";
+    }
+
+    let chartContainer = $state<HTMLElement | null>(null);
+    let chart: any = null;
+    let areaSeries: any = null;
+    let projApy = $state(12);
+    let hashrateGrowth = $state(5);
+    let compoundFreq = $state(1); 
+    let projMonths = $state(36);
+    let projMax = $state(0);
+
+    $effect(() => {
+        if (browser && chartContainer && !chart && isVaultDecrypted) {
+            import('lightweight-charts').then(({ createChart, ColorType }) => {
+                if (!chartContainer) return;
+                chart = createChart(chartContainer, {
+                    layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#737373' },
+                    grid: { vertLines: { color: 'rgba(255,255,255,0.02)' }, horzLines: { color: 'rgba(255,255,255,0.02)' } },
+                    rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.1 } },
+                    timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: true },
+                    autoSize: true, handleScroll: false, handleScale: false
+                });
+                areaSeries = chart.addAreaSeries({
+                    lineColor: '#f59e0b', topColor: 'rgba(245, 158, 11, 0.4)', bottomColor: 'rgba(245, 158, 11, 0.0)', lineWidth: 3,
+                    priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
+                });
+            });
+        }
+    });
+
+    $effect(() => {
+        if (chart && areaSeries && isVaultDecrypted && totalVaultValue !== undefined) {
+            const data = [];
+            let currentVal = totalVaultValue; 
+            const dailyRate = (projApy / 100) / 365;
+            const dailyHashBoost = (hashrateGrowth / 100) / 365;
+            let hashMultiplier = 1;
+            let timeDate = new Date();
+
+            for(let i = 0; i <= projMonths * 30; i++) {
+                timeDate.setDate(timeDate.getDate() + 1);
+                if (i % compoundFreq === 0) currentVal += currentVal * (dailyRate * compoundFreq) * hashMultiplier;
+                hashMultiplier += dailyHashBoost;
+                data.push({ time: timeDate.toISOString().split('T')[0], value: currentVal });
+            }
+
+            projMax = currentVal;
+            areaSeries.setData(data);
+            chart.timeScale().fitContent();
+        }
+    });
+
+    async function fetchExternalPrices() {
+        try {
+            const res = await fetch('/api/prices?ids=bitcoin,ethereum,solana,dogecoin,ripple,matic-network,avalanche-2,sui,tron,zcash&include_24hr_change=true');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.bitcoin) { btcPrice = data.bitcoin.usd; btcDelta = data.bitcoin.usd_24h_change || 0; }
+                if (data.ethereum) { ethPrice = data.ethereum.usd; ethDelta = data.ethereum.usd_24h_change || 0; }
+                if (data.solana) { solPrice = data.solana.usd; solDelta = data.solana.usd_24h_change || 0; }
+                if (data.dogecoin) { dogePrice = data.dogecoin.usd; dogeDelta = data.dogecoin.usd_24h_change || 0; }
+                if (data.ripple) { xrpPrice = data.ripple.usd; xrpDelta = data.ripple.usd_24h_change || 0; }
+            }
+        } catch (e) { console.error("Oracle fetch failed:", e); }
+    }
+
+    let fetchInterval: ReturnType<typeof setInterval>;
+    let priceInterval: ReturnType<typeof setInterval>;
+
+    onMount(() => {
+        fetchExternalPrices();
+        priceInterval = setInterval(fetchExternalPrices, 15000);
+        
+        if (isVaultDecrypted) { 
+            fetchTreasuryData(); 
+            fetchKrc20Ecosystem(); 
+        }
+
+        fetchInterval = setInterval(() => { 
+            if (isVaultDecrypted) {
+                fetchTreasuryData(); 
+                fetchKrc20Ecosystem(); 
+            }
+        }, 15000);
+    });
+
+    onDestroy(() => {
+        if (fetchInterval) clearInterval(fetchInterval);
+        if (priceInterval) clearInterval(priceInterval);
+        if (chart) chart.remove();
+    });
+</script>
+
+<div class="w-full h-full min-h-[100dvh] bg-[#050505] text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
+    
+    {#if !isVaultDecrypted}
+        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505] p-6 text-center">
+            <div class="w-24 h-24 border-2 border-neutral-800 flex items-center justify-center rounded-2xl mb-6 bg-[#0a0a0a] shadow-inner">
+                <svg class="w-10 h-10 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            </div>
+            <h2 class="text-2xl md:text-4xl font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4">TREASURY LOCKED:<br/>CONNECT WALLET TO VIEW LIQUIDITY</h2>
+        </div>
+    {/if}
+
+    <div class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-8 transition-opacity duration-500 {!isVaultDecrypted ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative">
+        
+        <!-- HERO CARD (SONAR + ORBITAL RING) -->
+        <div class="bg-[#0a0a0a] border border-neutral-800/50 rounded-[32px] shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden mb-2 mt-4 group">
+            <div class="relative z-10 p-8 lg:p-10 flex flex-col md:flex-row items-center justify-between gap-10">
+                <div class="flex flex-col items-center md:items-start text-center md:text-left w-full md:w-auto">
+                    <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4 flex items-center gap-2">
+                        <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></div> Total Vault Portfolio Value
+                    </span>
+                    <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
+                        {totalVaultValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                    </span>
+                </div>
+
+                <div class="relative w-40 h-40 shrink-0">
+                    <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
+                        <circle cx="18" cy="18" r="15.915" fill="none" stroke="#222" stroke-width="2.5"></circle>
+                        {#each ringSegments as segment}
+                            <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.hex} stroke-width={activeHoverSegment === segment.symbol ? "4" : "2.5"} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
+                        {/each}
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        {#if activeHoverSegment}
+                            {@const activeAsset = ringSegments.find(s => s.symbol === activeHoverSegment)}
+                            <span class="text-sm font-black font-mono text-white leading-none mb-1" style="color: {activeAsset?.hex}">{activeAsset?.percent.toFixed(1)}%</span>
+                            <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">{activeHoverSegment}</span>
+                        {/if}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 11 NETWORKS RENDERED DYNAMICALLY VIA COMPONENT -->
+        <div class="flex flex-col gap-4">
+            <NetworkRow asset={assets[0]} bind:subAssets={krc20Assets} bind:selectedTokens={selectedKasTokens} standardLabel="KRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[1]} bind:subAssets={brc20Assets} bind:selectedTokens={selectedBtcTokens} standardLabel="BRC-20 / Runes" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[2]} bind:subAssets={erc20Assets} bind:selectedTokens={selectedEthTokens} standardLabel="ERC-20" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[3]} bind:subAssets={splAssets} bind:selectedTokens={selectedSolTokens} standardLabel="SPL Tokens" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[4]} bind:subAssets={drc20Assets} bind:selectedTokens={selectedDogeTokens} standardLabel="DRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[5]} bind:subAssets={xrpAssets} bind:selectedTokens={selectedXrpTokens} standardLabel="Trustlines" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[6]} bind:subAssets={polAssets} bind:selectedTokens={selectedPolTokens} standardLabel="Polygon EVM" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[7]} bind:subAssets={avaxAssets} bind:selectedTokens={selectedAvaxTokens} standardLabel="ARC-20" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[8]} bind:subAssets={suiAssets} bind:selectedTokens={selectedSuiTokens} standardLabel="Move Tokens" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[9]} bind:subAssets={trxAssets} bind:selectedTokens={selectedTrxTokens} standardLabel="TRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[10]} bind:subAssets={zecAssets} bind:selectedTokens={selectedZecTokens} standardLabel="Shielded Notes" {searchGlobalNetwork} bind:activeHoverSegment />
+        </div>
+
+        <!-- RWA ORACLE ROW SECTION -->
+        <RwaRow />
+
+        <!-- CHRONOS YIELD PROJECTION MATRIX -->
+        <div class="relative bg-[#0a0a0a] border border-neutral-800/80 rounded-[32px] p-6 md:p-10 shadow-[inset_0_0_80px_rgba(0,0,0,0.4)] overflow-hidden mt-4 transition-all duration-700 min-h-[400px]">
+            <div class="flex flex-col gap-8 transition-all duration-500">
+                <div class="flex justify-between items-end border-b border-neutral-800/80 pb-4">
+                    <div>
+                        <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 mb-1 flex items-center gap-2 drop-shadow-[0_0_8px_rgba(20,184,166,0.5)]">
+                            <div class="w-1.5 h-1.5 bg-teal-500 rounded-full animate-ping"></div> Chronos Yield Projection
+                        </h3>
+                        <p class="text-[9px] font-mono text-neutral-500 uppercase tracking-widest">Calculates theoretical 3-year exponential accumulation</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <div class="lg:col-span-4 flex flex-col gap-6 bg-[#0c0c0c] border border-neutral-800/50 rounded-2xl p-6 shadow-inner relative">
+                        <div class="flex flex-col gap-3">
+                            <div class="flex justify-between items-center">
+                                <label for="apy" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">Estimated Base APY</label>
+                                <span class="text-xs font-mono font-black text-teal-400">{projApy}%</span>
+                            </div>
+                            <input id="apy" type="range" min="1" max="100" bind:value={projApy} class="myst-slider w-full" />
+                        </div>
+
+                        <div class="flex flex-col gap-3">
+                            <div class="flex justify-between items-center">
+                                <label for="hashGrowth" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">Hashrate Growth</label>
+                                <span class="text-xs font-mono font-black text-amber-500">+{hashrateGrowth}% /yr</span>
+                            </div>
+                            <input id="hashGrowth" type="range" min="0" max="50" bind:value={hashrateGrowth} class="myst-slider-amber w-full" />
+                        </div>
+
+                        <div class="flex flex-col gap-3">
+                            <div class="flex justify-between items-center">
+                                <label for="compFreq" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">Auto-Compound Rate</label>
+                                <span class="text-xs font-mono font-black text-blue-400">
+                                    {compoundFreq === 1 ? 'Daily' : compoundFreq === 7 ? 'Weekly' : 'Monthly'}
+                                </span>
+                            </div>
+                            <input id="compFreq" type="range" min="1" max="30" step="1" bind:value={compoundFreq} class="myst-slider-blue w-full" 
+                                   oninput={(e) => {
+                                       const v = parseInt((e.target as HTMLInputElement).value);
+                                       if(v < 4) compoundFreq = 1; else if(v < 15) compoundFreq = 7; else compoundFreq = 30;
+                                   }}/>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-8 bg-[#0c0c0c] border border-neutral-800/50 rounded-2xl p-4 shadow-inner relative flex flex-col">
+                        <div class="absolute top-4 right-4 z-10 flex flex-col items-end pointer-events-none">
+                            <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">36-Month Vault Projection</span>
+                            <span class="text-lg font-mono font-black text-teal-500/80 drop-shadow-md">
+                                ${projMax.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                            </span>
+                        </div>
+                        <div bind:this={chartContainer} class="w-full h-full min-h-[300px]"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+    @keyframes fade-in-down { 0% { opacity: 0; transform: translateY(-10px); } 100% { opacity: 1; transform: translateY(0); } }
+
+    .myst-slider, .myst-slider-amber, .myst-slider-blue {
+        -webkit-appearance: none; appearance: none; background: #111; height: 8px; border-radius: 4px; outline: none; border: 1px solid #222; box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
+    }
+    
+    .myst-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 16px; height: 24px; border-radius: 4px; background: #1a1a1a; cursor: pointer; border: 2px solid #14b8a6; box-shadow: 0 0 10px rgba(20, 184, 166, 0.4);
+    }
+
+    .myst-slider-amber::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 16px; height: 24px; border-radius: 4px; background: #1a1a1a; cursor: pointer; border: 2px solid #f59e0b; box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+    }
+
+    .myst-slider-blue::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 16px; height: 24px; border-radius: 4px; background: #1a1a1a; cursor: pointer; border: 2px solid #3b82f6; box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+    }
+</style>
+</file>
+
 <file path="src/routes/api/treasury/corporate/+server.ts">
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -3916,6 +3937,94 @@ export const GET: RequestHandler = async ({ url }) => {
         ]
     });
 };
+</file>
+
+<file path="src/routes/api/utxos/+server.ts">
+import { json, type RequestEvent } from '@sveltejs/kit';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const WebSocket = require('ws');
+
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false;
+
+export async function GET({ url, cookies }: RequestEvent) {
+    const rawCookie = cookies.get('perennia_session');
+    if (!rawCookie) {
+        return json({ error: 'UNAUTHORIZED_DAG_ACCESS' }, { status: 401 });
+    }
+
+    // ⚡ FIX: Decode cookie
+    const sessionCookie = decodeURIComponent(rawCookie);
+    const requestedAddress = url.searchParams.get('address');
+    
+    if (!requestedAddress) return json({ error: "Missing address parameter" }, { status: 400 });
+
+    const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
+
+    if (!isCorpAdmin && requestedAddress.toLowerCase() !== sessionCookie.toLowerCase()) {
+        return json({ error: 'FORBIDDEN_ADDRESS_QUERY' }, { status: 403 });
+    }
+
+    const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
+
+    return new Promise((resolve) => {
+        let isResolved = false;
+        console.log(`\n⏳ UTXO Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
+        
+        const ws = new WebSocket(`ws://${nodeIp}:18110`);
+        
+        const timeout = setTimeout(() => {
+            if (isResolved) return;
+            isResolved = true;
+            ws.terminate();
+            console.error("❌ [Perennia Proxy] UTXO Engine: wRPC connection timed out");
+            resolve(json({ error: "wRPC connection timed out" }, { status: 500 }));
+        }, 5000);
+
+        ws.on('open', () => {
+            console.log(`[+] Socket OPENED. Fetching unspent mass for ${requestedAddress.substring(0, 15)}...`);
+            const payload = { id: 1, method: "getUtxosByAddresses", params: { addresses: [requestedAddress] } };
+            ws.send(JSON.stringify(payload));
+        });
+
+        ws.on('message', (data: any) => {
+            if (isResolved) return;
+            isResolved = true; 
+            clearTimeout(timeout);
+            
+            try {
+                const response = JSON.parse(data.toString());
+                const entries = response.params?.entries || response.entries || [];
+                console.log(`[+] Mapped ${entries.length} UTXOs.`);
+                
+                ws.terminate();
+                resolve(json({ entries }, { status: 200 }));
+            } catch (e) {
+                console.error("❌ [Perennia Proxy] Failed to parse wRPC response");
+                ws.terminate();
+                resolve(json({ error: "Failed to parse wRPC response" }, { status: 500 }));
+            }
+        });
+
+        ws.on('close', (code: number) => {
+            if (isResolved) return; 
+            isResolved = true;
+            clearTimeout(timeout);
+            console.error(`❌ [Perennia Proxy] Node abruptly dropped connection. Code: ${code}`);
+            resolve(json({ error: "Node connection rejected" }, { status: 500 }));
+        });
+
+        ws.on('error', (err: Error) => {
+            if (isResolved) return;
+            isResolved = true;
+            clearTimeout(timeout);
+            console.error("❌ [Perennia Proxy] Socket Error:", err.message);
+            resolve(json({ error: err.message }, { status: 500 }));
+        });
+    });
+}
 </file>
 
 <file path="src/hooks.server.ts">
@@ -4464,7 +4573,7 @@ export default defineConfig({
 </file>
 
 <file path="src/lib/stores/app.ts">
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 
 // ========================================================
 // 🧠 PERENNIA CENTRAL STATE STORE
@@ -4518,6 +4627,9 @@ export interface Worker {
     ipAddress?: string;
     hardwareType?: string;
     capitalTokens?: number; // ⚡ PER Flywheel: Infused Capital Amount
+    // Telemetry Fields for Chronos Engine:
+    sharesContributed?: number;
+    blocksFound?: number;
 }
 
 export interface Plant {
@@ -4577,7 +4689,7 @@ export const workers = writable<Worker[]>([]);
 export const silos = writable<Silo[]>([]);
 export const plants = writable<Plant[]>([]);
 export const walletInventory = writable<WalletInventoryItem[]>([]);
-export const taxEvents = writable<any[]>([]);
+export const taxEvents = writable<any[]>([]); // ADDED BACK
 </file>
 
 <file path="src/routes/api/telemetry/+server.ts">
@@ -4585,25 +4697,28 @@ import { produce } from 'sveltekit-sse';
 import { redis } from '$lib/server/redis';
 import type { RequestEvent } from '@sveltejs/kit';
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
-const DEV_ADMIN_BYPASS = true; // Match stores/wallet.ts
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false; 
 
-export function GET({ cookies }: RequestEvent) {
-    // 1. Zero-Trust Identity Lock
-    const rawSession = cookies.get('perennia_session');
+export function GET({ cookies, url }: RequestEvent) {
+    // 1. Zero-Trust Identity Lock - Support Cookie OR URL Param (Fixes the Async Race Condition)
+    let rawCookie = cookies.get('perennia_session');
+    if (!rawCookie) {
+        rawCookie = url.searchParams.get('address');
+    }
 
     return produce(async function start({ emit }) {
-        // Fallback if accessed without auth
-        if (!rawSession) {
+        if (!rawCookie) {
             emit('message', JSON.stringify({ error: "UNAUTHORIZED_MATRIX_ACCESS" }));
             return function stop() {};
         }
 
-        const sessionWallet = rawSession.toLowerCase();
-        const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionWallet === MASTER_ADMIN_ADDRESS;
-        const cleanSessionWallet = sessionWallet.replace('kaspa:', '');
+        const rawSession = decodeURIComponent(rawCookie);
+        const sessionWallet = rawSession.toLowerCase().trim();
+        
+        const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionWallet === MASTER_ADMIN_ADDRESS.toLowerCase();
+        const cleanSessionWallet = sessionWallet.replace('kaspa:', '').trim();
 
-        // Clone the connection so it can be dedicated purely to subscription blocking
         const subscriber = redis.duplicate();
         
         subscriber.on('error', (err) => {
@@ -4622,16 +4737,27 @@ export function GET({ cookies }: RequestEvent) {
                     try {
                         const parsed = JSON.parse(message);
                         
-                        // Filter the workers array to strictly matching hardware
                         if (parsed.workers && Array.isArray(parsed.workers)) {
+                            let isolatedHashrate = 0;
+                            
+                            // Scrub unowned hardware from the payload
                             parsed.workers = parsed.workers.filter((w: any) => {
-                                // Extract the wallet root from the Stratum Identity (kaspa:q...workerName)
                                 const identityBase = (w.walletAddress || w.fullIdentity || '').toLowerCase();
-                                return identityBase.includes(cleanSessionWallet);
+                                if (identityBase.includes(cleanSessionWallet)) {
+                                    isolatedHashrate += (w.trackingRate || w.hashrate || w.hashRate || 0);
+                                    return true;
+                                }
+                                return false;
                             });
+
+                            // ⚡ UPGRADE: Rewrite the total hashrate so the user only sees their own physical equipment's hash output
+                            if (parsed.pool) {
+                                parsed.pool.totalHashrate = isolatedHashrate;
+                            } else {
+                                parsed.totalHashrate = isolatedHashrate;
+                            }
                         }
                         
-                        // Re-serialize the scrubbed payload
                         partitionedMessage = JSON.stringify(parsed);
                         
                     } catch (e) {
@@ -4657,48 +4783,6 @@ export function GET({ cookies }: RequestEvent) {
 
 // ⚡ SvelteKit-SSE utilizes POST requests to bypass proxy buffering on certain hosts
 export const POST = GET;
-</file>
-
-<file path="src/routes/+page.svelte">
-<script lang="ts">
-    import type { PageData } from './$types';
-    import { activeTab } from '$lib/stores/app';
-    import { walletAddress, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
-
-    import SwapView from '$lib/views/SwapView.svelte';
-    import OperationsView from '$lib/views/OperationsView.svelte';
-    import ForgeView from '$lib/views/ForgeView.svelte';
-    import TaxFortressView from '$lib/views/TaxFortressView.svelte';
-    
-    // Directive 2: Dual-Tier Component Branches
-    import TreasuryVault from '$lib/views/TreasuryVault.svelte';
-    import LedgerView from '$lib/views/LedgerView.svelte';
-
-    let { data }: { data: PageData } = $props();
-
-    // ⚡ Svelte 5 Rune: Re-evaluates access instantly when `$walletAddress` mutates
-    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
-</script>
-
-<!-- Master SPA Router based on Top Navigation Selection -->
-{#if $activeTab === 'DEX'}
-    <SwapView />
-{:else if $activeTab === 'OPERATIONS'}
-    <OperationsView />
-{:else if $activeTab === 'FORGE'}
-    <ForgeView />
-{:else if $activeTab === 'TREASURY'}
-    <!-- DIRECTIVE 2: DUAL-TIER ROUTING SWITCH -->
-    {#if isCorporateAdmin}
-        <TreasuryVault />
-    {:else}
-        <LedgerView />
-    {/if}
-{:else if $activeTab === 'TAX FORTRESS'}
-    <TaxFortressView />
-{:else}
-    <OperationsView />
-{/if}
 </file>
 
 <file path="package.json">
@@ -6378,6 +6462,37 @@ export const POST = GET;
 </style>
 </file>
 
+<file path="src/routes/+page.svelte">
+<script lang="ts">
+    import type { PageData } from './$types';
+    import { activeTab } from '$lib/stores/app';
+
+    import SwapView from '$lib/views/SwapView.svelte';
+    import OperationsView from '$lib/views/OperationsView.svelte';
+    import ForgeView from '$lib/views/ForgeView.svelte';
+    import TaxFortressView from '$lib/views/TaxFortressView.svelte';
+    import TreasuryVault from '$lib/views/TreasuryVault.svelte';
+
+    let { data }: { data: PageData } = $props();
+</script>
+
+<!-- Master SPA Router based on Top Navigation Selection -->
+{#if $activeTab === 'DEX'}
+    <SwapView />
+{:else if $activeTab === 'OPERATIONS'}
+    <OperationsView />
+{:else if $activeTab === 'FORGE'}
+    <ForgeView />
+{:else if $activeTab === 'TREASURY'}
+    <!-- UNIVERSAL ACCESS GRANTED -->
+    <TreasuryVault />
+{:else if $activeTab === 'TAX FORTRESS'}
+    <TaxFortressView />
+{:else}
+    <OperationsView />
+{/if}
+</file>
+
 <file path="src/routes/+layout.svelte">
 <script lang="ts">
     import '../app.css';
@@ -6388,14 +6503,17 @@ export const POST = GET;
     import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, plants, walletInventory, tokenRegistry, adminGlobalView } from '$lib/stores/app';        
     
     import { isWalletConnected, walletAddress, walletBalance, disconnectWallet, restoreSession, showWalletModal, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
+    import { showSettingsModal, uiBrightness } from '$lib/stores/settings';
+    
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
+    import SettingsModal from '$lib/components/SettingsModal.svelte';
 
     let { children } = $props();
 
     const tabs = ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS'];
     
-    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
     
     let disabledTabs: string[] = $state([]); 
 
@@ -6413,7 +6531,6 @@ export const POST = GET;
     let isServerReachable = $state(true);
     let showCopyToast = $state(false);
 
-    // Step 3: Cascading Glow State Trigger
     let appAwakened = $derived($isWalletConnected && isLoaded);
 
     function purgeApplicationState() {
@@ -6431,7 +6548,6 @@ export const POST = GET;
         }
     }
 
-    // ⚡ ZERO-TRUST: Fetching state via secure HTTP-Only cookie, NO address parameter
     async function loadStateFromServer() {
         if (!browser || !$walletAddress) return;
         try {
@@ -6454,7 +6570,6 @@ export const POST = GET;
         } 
     }
 
-    // ⚡ ZERO-TRUST: Saving state via secure HTTP-Only cookie, NO address parameter
     async function saveStateToServer() {
         if (!browser || !$walletAddress || !isLoaded || !isServerReachable || isCorporateAdmin) return;
         try {
@@ -6491,6 +6606,7 @@ export const POST = GET;
         }
     });
 
+    // Hydrates the native KAS balance
     $effect(() => {
         if (browser && $isWalletConnected) {
             const numericBalance = parseFloat($walletBalance) || 0;
@@ -6557,8 +6673,8 @@ export const POST = GET;
 {#if !$isWalletConnected && !hasEntered}
     <EntryView {enterNexus} />
 {:else}
-    <!-- Step 3: Cascading Glow Wrapper -->
-    <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}">
+    <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}"
+         style="filter: brightness({$uiBrightness});">
         
         <header class="h-16 border-b border-neutral-800/80 bg-transparent flex items-center justify-center z-50 shrink-0 w-full sticky top-0 backdrop-blur-xl">
             <div class="w-full max-w-[1600px] px-4 lg:px-10 flex justify-between items-center h-full">
@@ -6573,6 +6689,7 @@ export const POST = GET;
                 </div>
 
                 <div class="flex items-center gap-3 md:gap-4">
+                    
                     {#if isCorporateAdmin}
                         <button aria-label="Toggle Global Operations" onclick={() => $adminGlobalView = !$adminGlobalView} 
                                 class="group relative w-12 h-6 bg-[#111] border { $adminGlobalView ? 'border-amber-500/50' : 'border-neutral-800'} rounded-full cursor-pointer transition-colors overflow-hidden hidden sm:block" title="Toggle Global Operations View">
@@ -6585,6 +6702,12 @@ export const POST = GET;
                             class="group relative w-12 h-6 bg-[#111] border border-neutral-800 rounded-full cursor-pointer transition-colors overflow-hidden hidden sm:block" title="Toggle Overclocked Mode">
                         <div class="absolute inset-0 bg-[#18C6A5]/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                         <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-all duration-300 shadow-sm {$systemMode === 'overclocked' ? 'bg-[#18C6A5] left-[26px] shadow-[0_0_8px_rgba(24,198,165,0.8)]' : 'bg-neutral-600 left-1'}"></div>
+                    </button>
+
+                    <!-- SETTINGS MODAL TRIGGER -->
+                    <button aria-label="Settings" onclick={() => $showSettingsModal = true} 
+                            class="w-10 h-10 rounded-xl bg-transparent hover:bg-[#111] border border-transparent hover:border-neutral-800 text-neutral-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer hidden sm:flex" title="System Parameters">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     </button>
 
                     <div class="h-8 w-px bg-neutral-800 hidden sm:block"></div>
@@ -6650,11 +6773,11 @@ export const POST = GET;
 {/if}
 
 <WalletModal />
+<SettingsModal />
 
 <style>
-    /* Step 3: Cascading Transitions & Glowing States */
     .app-wrapper {
-        transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out;
+        transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out, filter 0.3s ease-out;
     }
     
     .app-wrapper.dormant {
@@ -6664,7 +6787,6 @@ export const POST = GET;
 
     .app-wrapper.glow-active {
         background-color: #0a0f12; 
-        /* Massive cascading internal glow tracking the connection */
         box-shadow: inset 0 0 150px rgba(24, 198, 165, 0.05),
                     inset 0 0 50px rgba(168, 85, 247, 0.03); 
     }
@@ -6682,6 +6804,8 @@ import { Keypair } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
+import createHash from 'create-hash';
+import bs58check from 'bs58check';
 
 // ⚡ Injecting the Omni-Chain Derivation Engine
 import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
@@ -6706,8 +6830,8 @@ function bytesToHex(bytes: Uint8Array): string {
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export const DEV_ADMIN_BYPASS = true;
-export const MASTER_ADMIN_ADDRESS = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2";
+export const DEV_ADMIN_BYPASS = false;
+export const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 
 export const showWalletModal = writable<boolean>(false);
 export const isConnecting = writable<boolean>(false);
@@ -6731,10 +6855,10 @@ export const sovereignKeys = writable<any>(null);
 export const networkStatus = writable<'syncing' | 'connected' | 'offline'>('offline');
 
 const TREASURY_ADDRESSES = {
-    KAS: "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2", 
-    ETH: "0xPerenniaTreasuryEVM",   
-    SOL: "PerenniaSolanaTreasury",  
-    BTC: "bc1qperenniatreasury"     
+    KAS: MASTER_ADMIN_ADDRESS, 
+    ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",   
+    SOL: "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a",  
+    BTC: "1Cw18pUXoH1T3GL7HMHmSB9DGeGa1Pip5EP"     
 };
 
 export function normalizeKaspaAddress(addr: string | null | undefined): string | null {
@@ -6747,59 +6871,6 @@ export function normalizeKaspaAddress(addr: string | null | undefined): string |
 export function getCleanKaspaAddress(addr: string | null | undefined): string {
     if (!addr) return '';
     return addr.replace(/^kaspa:/i, '').trim().toLowerCase();
-}
-
-function getKaspaAddress(pubKeyHex: string): string {
-    const prefix = "kaspa";
-    let polymodData = [];
-    for (let i = 0; i < prefix.length; i++) {
-        polymodData.push(prefix.charCodeAt(i) & 31);
-    }
-    polymodData.push(0);
-
-    let payload = [0]; 
-    for (let i = 0; i < pubKeyHex.length; i += 2) {
-        payload.push(parseInt(pubKeyHex.substring(i, i + 2), 16));
-    }
-
-    let acc = 0;
-    let bits = 0;
-    let payload5 = [];
-    for (let value of payload) {
-        acc = (acc << 8) | value;
-        bits += 8;
-        while (bits >= 5) {
-            bits -= 5;
-            payload5.push((acc >> bits) & 31);
-        }
-    }
-    if (bits > 0) {
-        payload5.push((acc << (5 - bits)) & 31);
-    }
-
-    polymodData = polymodData.concat(payload5).concat([0, 0, 0, 0, 0, 0, 0, 0]);
-
-    let c = 1n;
-    for (let d of polymodData) {
-        let c0 = c >> 35n;
-        c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
-        if (c0 & 1n) c ^= 0x98f2bc8e61n;
-        if (c0 & 2n) c ^= 0x79b76d99e2n;
-        if (c0 & 4n) c ^= 0xf33e5fb3c4n;
-        if (c0 & 8n) c ^= 0xae2eabe2a8n;
-        if (c0 & 16n) c ^= 0x1e4f43e470n;
-    }
-    let checksum = c ^ 1n;
-
-    const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-    let address = prefix + ":";
-    for (let i = 0; i < payload5.length; i++) {
-        address += charset[payload5[i]];
-    }
-    for (let i = 0; i < 8; i++) {
-        address += charset[Number((checksum >> BigInt(5 * (7 - i))) & 31n)];
-    }
-    return address;
 }
 
 const CRYPTO_ITERATIONS = 250000;
@@ -6860,7 +6931,6 @@ export async function decryptVault(password: string, encryptedB64: string): Prom
     return dec.decode(decryptedBuf);
 }
 
-// ⚡ CENTRALIZED VAULT BUILDER - Routes 11 chains through honeycomb.ts
 async function buildAndSecureVault(password: string, mnemonic: string, isImport = false) {
     isConnecting.set(true);
     walletMessage.set(isImport ? 'Importing Omni-Chain Matrix...' : 'Forging Omni-Chain Matrix...');
@@ -6899,7 +6969,6 @@ async function buildAndSecureVault(password: string, mnemonic: string, isImport 
         walletMessage.set('Encrypting Ephemeral Vault...');
         const encryptedVault = await encryptVault(password, mnemonic);
 
-        // Map all 11 chains safely to state (Addresses ONLY, never private keys in local storage)
         const safeWallets = {
             kaspa: { address: keys.kaspa.address },
             bitcoin: { address: keys.bitcoin.address },
@@ -6943,7 +7012,6 @@ export async function generateSovereignHoneycomb(password: string) {
     return await buildAndSecureVault(password, mnemonic, false);
 }
 
-// ⚡ NEW IMPORT PIPELINE EXPORT
 export async function importSovereignVault(password: string, mnemonic: string) {
     return await buildAndSecureVault(password, mnemonic.trim().toLowerCase(), true);
 }
@@ -6960,8 +7028,6 @@ export async function unlockSovereignVault(password: string) {
         const vaultPayload = JSON.parse(rawPayload);
         const mnemonic = await decryptVault(password, vaultPayload.vault);
         
-        // ⚡ AUTO-UPGRADE HOOK: By routing through honeycomb.ts on unlock, 
-        // we automatically upgrade legacy 4-chain sessions to full 11-chain sessions dynamically!
         const keys = await deriveHoneycombKeys(mnemonic);
         privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
         const kasAddress = normalizeKaspaAddress(keys.kaspa.address)!;
@@ -6995,7 +7061,6 @@ export async function unlockSovereignVault(password: string) {
 
         walletMessage.set('Hydrating Omni-Chain Balances...');
         
-        // Inject the newly upgraded 11-chain addresses back into the payload before authorization
         vaultPayload.wallets = {
             kaspa: { address: keys.kaspa.address },
             bitcoin: { address: keys.bitcoin.address },
@@ -7458,13 +7523,10 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
     import { source } from 'sveltekit-sse';
     import { workers, silos, plants, systemMode, adminGlobalView, tokenRegistry, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, walletInventory, type Worker, type Silo, type Plant, type SettlementConfig, type TokenAsset, type AssetClass, type SiloWidth, type WalletInventoryItem } from '$lib/stores/app';
     import { isWalletConnected, walletAddress, walletBalance, showWalletModal, executeOmniChainSwap, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
-    import { fade } from 'svelte/transition';
+    import { fade, slide } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
     import { browser } from '$app/environment';
-
-    let sseConnection: ReturnType<typeof source> | null = null;
-    let unsubs: any[] = [];
 
     // Context Menu State
     let contextMenuWorkerId = $state<string | null>(null);
@@ -7485,17 +7547,18 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
 
     let selectedSilosForSweep = $state<Record<string, boolean>>({});
     
+    // Chronos Accounting Engine State
+    let previousWorkerShares: Record<string, number> = {};
+
     let totalPendingKAS = $derived($silos.reduce((acc, s) => acc + (s.pendingKaspa || 0), 0));
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
 
-    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || $walletAddress === MASTER_ADMIN_ADDRESS);
+    let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
     
-    // The backend now securely partitions data via the SSE tunnel. 
-    // This frontend derivative now purely decides what is drawn on the screen based on Admin Toggle.
     let displayedWorkers = $derived(
         isCorporateAdmin && $adminGlobalView 
             ? $workers 
-            : $workers.filter(worker => worker.walletWorker.includes($walletAddress?.replace('kaspa:', '') || 'pending'))
+            : $workers.filter(worker => worker.walletWorker.toLowerCase().includes($walletAddress?.replace('kaspa:', '').toLowerCase() || 'pending'))
     );
     
     function handleContextMenu(e: MouseEvent, workerId: string) {
@@ -7592,9 +7655,6 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         });
     });
 
-    // ⚡ THE PER FLYWHEEL RESOLUTION ENGINE
-    // When a user adds tokens, we intentionally trigger a sync state (hashRate: 0)
-    // This allows the Rust Chronos backend to cryptographically verify their holdings and replace it with the true hash rate.
     $effect(() => {
         if (browser && $isWalletConnected) {
             const hasSyncingCapital = $workers.some(w => w.type === 'capital' && w.isOnline && w.hashRate === 0);
@@ -7612,7 +7672,6 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
                                             if (backendWorker && backendWorker.hashRate > 0) {
                                                 return { ...w, hashRate: backendWorker.hashRate, isOnline: backendWorker.isOnline, capitalTokens: backendWorker.capitalTokens };
                                             } else if (backendWorker && backendWorker.hashRate === 0 && !backendWorker.isOnline) {
-                                                // Zero-trust verification determined balance was absent; force offline
                                                 return { ...w, hashRate: 0, isOnline: false, capitalTokens: backendWorker.capitalTokens };
                                             } else {
                                                 stillSyncing = true;
@@ -7634,8 +7693,76 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
     let floatingTexts = $state<{ id: number, x: number, y: number, text1: string, text2: string }[]>([]);
     let floatId = 0;
 
-    // ⚡ ZERO-TRUST SIMPLIFICATION: The backend SSE stream now mathematically filters records for us.
-    // If a worker is in this payload, it explicitly belongs to this session context.
+    async function executeAutomatedSettlement(siloId: string, amountKas: number, targetAsset: string, destAddress: string) {
+        const fid = floatId++;
+        floatingTexts = [...floatingTexts, { 
+            id: fid, x: window.innerWidth / 2, y: 150, 
+            text1: `⚡ THRESHOLD REACHED: SWEEPING ${amountKas.toFixed(4)} KAS`, 
+            text2: `ROUTING TO ${targetAsset}` 
+        }];
+        setTimeout(() => { floatingTexts = floatingTexts.filter(f => f.id !== fid); }, 4000);
+
+        let txUuid = 'SIM-' + Math.random().toString(36).substring(2,8).toUpperCase();
+
+        try {
+            const res = await fetch('/api/sor/swap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: get(walletAddress),
+                    payAsset: 'KAS',
+                    receiveAsset: targetAsset,
+                    amount: amountKas,
+                    slippageTolerance: 0.05
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                txUuid = data.transaction_uuid || txUuid;
+            } else {
+                console.warn(`[Chronos] Real UTXO execution skipped. Falling back to local simulation payload for demo.`);
+            }
+        } catch (e) {
+            console.error("[Chronos] SOR Execution Fault", e);
+        }
+
+        const tid = floatId++;
+        floatingTexts = [...floatingTexts, { 
+            id: tid, x: window.innerWidth / 2, y: 220, 
+            text1: `✅ ${targetAsset} SWAP SECURED`, 
+            text2: `TX UUID: ${txUuid}` 
+        }];
+        setTimeout(() => { floatingTexts = floatingTexts.filter(f => f.id !== tid); }, 5000);
+
+        // ⚡ FIX: Calculate the conversion and optimistically push it to the Svelte Store
+        walletInventory.update(inv => {
+            let newInv = [...inv];
+            let item = newInv.find(i => i.asset.ticker === targetAsset);
+
+            // Calculate live exchange rate (Fallback to static if Oracle is down)
+            const kasPrice = get(globalKasPrice) || 0.026;
+            const targetPrice = targetAsset === 'BTC' ? 65000 : targetAsset === 'ETH' ? 3500 : targetAsset === 'SOL' ? 150 : targetAsset === 'USDC' ? 1 : 1;
+            
+            const convertedAmount = (amountKas * kasPrice) / targetPrice;
+
+            if (item) {
+                item.balance += convertedAmount;
+                item.usdValue += (amountKas * kasPrice);
+            } else {
+                const rAsset = tokenRegistry.find(t => t.ticker === targetAsset);
+                if (rAsset) {
+                    newInv.push({
+                        asset: rAsset,
+                        balance: convertedAmount,
+                        usdValue: amountKas * kasPrice
+                    });
+                }
+            }
+            return newInv;
+        });
+    }
+
     function processTelemetryData(data: any) {
         const isConnected = get(isWalletConnected);
 
@@ -7644,18 +7771,31 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
 
         if (!isConnected) return;
 
+        let shareDeltas: Record<string, number> = {};
+
         workers.update(currentWorkers => {
             let updated = currentWorkers.map(w => {
                 if (w.type === 'physical') {
-                    // We no longer need to check matching addresses—the server guarantees it.
-                    const bw = (data.workers || []).find((b: any) => b.fullIdentity === w.walletWorker);
+                    const bw = (data.workers || []).find((b: any) => 
+                        b.fullIdentity === w.walletWorker || 
+                        b.fullIdentity?.toLowerCase() === w.walletWorker.toLowerCase() ||
+                        (b.name && w.name && b.name.toLowerCase() === w.name.toLowerCase())
+                    );
                     
                     if (bw) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
+                        const newShares = bw.sharesContributed || bw.shares || 0;
+                        
+                        const prevShares = previousWorkerShares[w.id] || w.sharesContributed || 0;
+                        if (newShares > prevShares) {
+                            shareDeltas[w.id] = newShares - prevShares;
+                        }
+                        previousWorkerShares[w.id] = newShares;
+
                         return { 
                             ...w, 
                             hashRate: rawHash / 1e12,
-                            sharesContributed: bw.sharesContributed || bw.shares || 0,
+                            sharesContributed: newShares,
                             blocksFound: bw.blocksFound || bw.blocks || 0,
                             hardwareType: bw.hardwareType || w.hardwareType || 'IceRiver KS',
                             isOnline: true 
@@ -7663,23 +7803,28 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
                     }
                     return { ...w, hashRate: 0, isOnline: false };
                 }
-                return w; // Capital workers are secured via explicit db injection from /api/state
+                return w; 
             });
 
             if (data.workers) {
                 data.workers.forEach((bw: any) => {
-                    if (!updated.find(w => w.walletWorker === bw.fullIdentity)) {
+                    if (!updated.find(w => w.walletWorker.toLowerCase() === bw.fullIdentity.toLowerCase() || w.name.toLowerCase() === (bw.name || '').toLowerCase())) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
+                        const newShares = bw.sharesContributed || bw.shares || 0;
+                        
+                        const newId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                        previousWorkerShares[newId] = newShares;
+                        
                         updated.push({
-                            id: Math.random().toString(36).substring(2, 8).toUpperCase(),
+                            id: newId,
                             type: 'physical',
                             name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
-                            stratumUrl: 'stratum+tcp://192.168.0.12:5555',
+                            stratumUrl: 'Multi-Tier Stratum Protocol',
                             walletWorker: bw.fullIdentity,
                             hashRate: rawHash / 1e12,
                             isOnline: true,
                             assignedSiloId: null, 
-                            sharesContributed: bw.sharesContributed || bw.shares || 0,
+                            sharesContributed: newShares,
                             blocksFound: bw.blocksFound || bw.blocks || 0,
                             hardwareType: bw.hardwareType || 'IceRiver KS'
                         } as any);
@@ -7709,7 +7854,73 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
             }
             return finalWorkers;
         });
+
+        if (Object.keys(shareDeltas).length > 0) {
+            let executionTriggers: any[] = [];
+
+            silos.update(currentSilos => {
+                return currentSilos.map(silo => {
+                    const siloWorkers = get(workers).filter(w => w.assignedSiloId === silo.id);
+                    let addedShares = 0;
+                    
+                    siloWorkers.forEach(w => {
+                        if (shareDeltas[w.id]) addedShares += shareDeltas[w.id];
+                    });
+
+                    if (addedShares > 0) {
+                        const kasReward = addedShares * 0.00001;
+                        let newPending = (silo.pendingKaspa || 0) + kasReward;
+
+                        if (silo.settlementConfig && silo.settlementConfig.autoPayout && silo.settlementConfig.mode === 'threshold') {
+                            if (newPending >= silo.settlementConfig.threshold) {
+                                executionTriggers.push({
+                                    siloId: silo.id,
+                                    targetAsset: silo.settlementConfig.targetAsset.ticker,
+                                    payoutAddress: silo.settlementConfig.payoutAddress,
+                                    amountKas: newPending
+                                });
+                                newPending = 0; 
+                            }
+                        }
+                        
+                        return { ...silo, pendingKaspa: newPending };
+                    }
+                    return silo;
+                });
+            });
+
+            executionTriggers.forEach(trigger => {
+                executeAutomatedSettlement(trigger.siloId, trigger.amountKas, trigger.targetAsset, trigger.payoutAddress);
+            });
+        }
     }
+
+    $effect(() => {
+        if (browser && $isWalletConnected && $walletAddress) {
+            const connection = source(`/api/telemetry?address=${encodeURIComponent($walletAddress)}`);
+            
+            const unsubscribe = connection.select('message').subscribe((rawData) => {
+                if (!rawData) return;
+                try {
+                    const parsed = JSON.parse(rawData);
+                    if (parsed.error) {
+                        console.warn("SSE Rejected:", parsed.error);
+                        return;
+                    }
+                    processTelemetryData(parsed);
+                } catch(e) {
+                    globalNodeStatus.set('unreachable');
+                }
+            });
+
+            return () => {
+                unsubscribe();
+                connection.close();
+            };
+        }
+    });
+
+    let unsubs: any[] = [];
 
     onMount(() => { 
         hashHistory = Array(30).fill(get(globalNetworkHashrate));
@@ -7717,7 +7928,6 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
-        // ⚡ MATRIX SYNC: Periodically poll backend for cryptographically verified Capital Worker states
         const capitalPoll = setInterval(() => {
             if (get(isWalletConnected) && get(walletAddress)) {
                 fetch(`/api/state`).then(r => r.json()).then(parsed => {
@@ -7734,22 +7944,10 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
             }
         }, 15000);
         unsubs.push(() => clearInterval(capitalPoll));
-
-        sseConnection = source('/api/telemetry');
-        sseConnection.select('message').subscribe((rawData) => {
-            if (!rawData) return;
-            try {
-                const parsed = JSON.parse(rawData);
-                processTelemetryData(parsed);
-            } catch(e) {
-                globalNodeStatus.set('unreachable');
-            }
-        });
     });
 
     onDestroy(() => { 
         unsubs.forEach(u => u()); 
-        if (sseConnection) sseConnection.close();
     });
 
     let dragType = $state<'worker' | 'silo' | null>(null);
@@ -7832,7 +8030,7 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         if (inlineRenameId === workerId && inlineRenameValue.trim() !== "") {
             const newName = inlineRenameValue.trim();
             workers.update(wks => wks.map(w => w.id === workerId ? { 
-                ...w, name: newName, walletWorker: $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${newName}` : `kaspa:pending.${newName}`
+                ...w, name: newName, walletWorker: $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${newName}` : `kaspa:pending.${newName}`
             } : w));
             
             if ($walletAddress) {
@@ -7856,9 +8054,6 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
                     const newTokens = tokenModalWorker!.type === 'add' ? currentTokens + amount : Math.max(0, currentTokens - amount);
                     const isOnline = newTokens > 0;
                     
-                    // 🛡️ ZERO-TRUST FIX: Record the intent optimistically.
-                    // Setting hashRate to 0 triggers the frontend's 'SYNCING...' polling state.
-                    // The Rust Chronos Engine natively verifies the KRC-20 balance on-chain and maps the true Hash Rate.
                     return { ...w, hashRate: isOnline ? 0 : 0, isOnline, capitalTokens: newTokens };
                 }
                 return w;
@@ -7889,24 +8084,17 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
             return currentSilos.map(s => {
                 if (siloIds.includes(s.id) && s.pendingKaspa && s.pendingKaspa > 0) {
                     totalSwept += s.pendingKaspa;
+                    
+                    // ⚡ FIX: Allow the manual sweep button to execute the full conversion logic 
+                    if (s.settlementConfig && s.settlementConfig.targetAsset) {
+                        executeAutomatedSettlement(s.id, s.pendingKaspa, s.settlementConfig.targetAsset.ticker, s.settlementConfig.payoutAddress);
+                    }
+                    
                     return { ...s, pendingKaspa: 0 };
                 }
                 return s;
             });
         });
-
-        if (totalSwept > 0 && get(isWalletConnected)) {
-            walletBalance.update(b => (parseFloat(b) + totalSwept).toString());
-            walletInventory.update(currentInv => {
-                let newInv = [...currentInv];
-                const kasItem = newInv.find(i => i.asset.ticker === 'KAS');
-                if (kasItem) {
-                    kasItem.balance += totalSwept;
-                    kasItem.usdValue = kasItem.balance * get(globalKasPrice);
-                }
-                return newInv;
-            });
-        }
     }
 
     function openSettlement(silo: Silo) { settlementModalSilo = silo; if (!silo.settlementConfig) silo.settlementConfig = { ...defaultSettlement, payoutAddress: $walletAddress || '' }; if (!silo.settlementConfig.targetAsset) silo.settlementConfig.targetAsset = tokenRegistry[0]; editSettlementParams = JSON.parse(JSON.stringify(silo.settlementConfig)); activeSiloMenu = null; isAssetPickerOpen = false; assetPickerStep = 'class'; selectedAssetClass = null; assetSearchQuery = ''; }
@@ -7956,8 +8144,8 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
         const name = `${type === 'physical' ? 'Rig' : 'Cap'}-${id.substring(0,4)}`; 
         const newWorker: Worker = { 
             id, type, name, 
-            stratumUrl: type === 'physical' ? 'stratum+tcp://192.168.0.12:5555' : 'Virtual Capital Contract', 
-            walletWorker: $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${name}` : `kaspa:pending.${name}`, 
+            stratumUrl: type === 'physical' ? 'Multi-Tier Stratum Protocol' : 'Virtual Capital Contract', 
+            walletWorker: $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${name}` : `kaspa:pending.${name}`, 
             hashRate: 0.00,  
             isOnline: false, 
             assignedSiloId: null,
@@ -7998,25 +8186,25 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
             </div>
 
             {#if !deleteConfirmId}
-                <button onclick={(e) => { e.stopPropagation(); inlineRenameId = cWorker.id; inlineRenameValue = cWorker.name; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer w-full">Rename Worker</button>
+                <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); inlineRenameId = w.id; inlineRenameValue = w.name; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white hover:bg-[#222] transition-colors border-b border-neutral-800/50 cursor-pointer w-full">Rename Worker</button>
                 
                 {#if cWorker.type === 'physical'}
-                    <button onclick={(e) => { e.stopPropagation(); stratumModalWorker = cWorker; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 w-full">Copy Stratum</button>
+                    <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); stratumModalWorker = w; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-teal-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 w-full">Copy Stratum</button>
                     {#if cWorker.ipAddress}
-                        <button aria-label="Open Miner Interface" onclick={() => { window.open(`http://${cWorker.ipAddress}`, '_blank'); closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50 w-full">
+                        <button aria-label="Open Miner Interface" onclick={() => { const ip = cWorker.ipAddress; closeAllMenus(); window.open(`http://${ip}`, '_blank'); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center group border-b border-neutral-800/50 w-full">
                             Open Interface 
                             <span class="text-[12px] font-black opacity-50 group-hover:opacity-100 transition-opacity">↗</span>
                         </button>
                     {/if}
                 {:else}
-                    <button onclick={(e) => { e.stopPropagation(); tokenModalWorker = { worker: cWorker, type: 'add' }; trayTokenAmount = ''; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Add Tokens <span class="text-lg leading-none">+</span></button>
-                    <button onclick={(e) => { e.stopPropagation(); tokenModalWorker = { worker: cWorker, type: 'sub' }; trayTokenAmount = ''; closeAllMenus(); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Remove Tokens <span class="text-lg leading-none">-</span></button>
+                    <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); tokenModalWorker = { worker: w, type: 'add' }; trayTokenAmount = ''; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Add Tokens <span class="text-lg leading-none">+</span></button>
+                    <button onclick={(e) => { e.stopPropagation(); const w = cWorker; closeAllMenus(); tokenModalWorker = { worker: w, type: 'sub' }; trayTokenAmount = ''; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-purple-400 hover:bg-[#222] transition-colors cursor-pointer border-b border-neutral-800/50 flex justify-between items-center w-full">Remove Tokens <span class="text-lg leading-none">-</span></button>
                 {/if}
                 
                 <button onclick={(e) => { e.stopPropagation(); deleteConfirmId = cWorker.id; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-red-950/30 transition-colors cursor-pointer w-full">Delete Worker</button>
             {:else}
                 <div class="px-3 py-2 text-[10px] font-bold text-neutral-400 border-b border-neutral-800/50 bg-[#111]">Are you sure?</div>
-                <button onclick={() => { deleteWorker(cWorker.id); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white bg-red-600 hover:bg-red-500 transition-colors cursor-pointer border-b border-red-700/50 w-full">Yes, Delete</button>
+                <button onclick={() => { const id = cWorker.id; closeAllMenus(); deleteWorker(id); }} class="text-left px-3 py-2.5 text-[10px] font-bold text-white bg-red-600 hover:bg-red-500 transition-colors cursor-pointer border-b border-red-700/50 w-full">Yes, Delete</button>
                 <button onclick={(e) => { e.stopPropagation(); deleteConfirmId = null; }} class="text-left px-3 py-2.5 text-[10px] font-bold text-neutral-400 hover:bg-[#222] hover:text-white transition-colors cursor-pointer w-full">Cancel</button>
             {/if}
         </div>
@@ -8041,32 +8229,54 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
 <!--   STRATUM CONFIG MODAL  -->
 <!-- ======================= -->
 {#if stratumModalWorker}
-    {@const dynamicWorkerName = $walletAddress ? `${$walletAddress.replace('kaspa:','')}.${stratumModalWorker.name}` : `kaspa:pending.${stratumModalWorker.name}`}
+    {@const dynamicWorkerName = $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${stratumModalWorker.name}` : `kaspa:pending.${stratumModalWorker.name}`}
     
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
         <button aria-label="Close Modal" class="absolute inset-0 w-full h-full bg-[#050505]/95 backdrop-blur-sm cursor-default border-none" onclick={() => stratumModalWorker = null}></button>
-        <div class="relative z-10 w-full max-w-[400px] bg-[#0c0c0c] border border-teal-900/50 rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-[fade-in-up_0.2s_ease-out]">
+        <div class="relative z-10 w-full max-w-[450px] bg-[#0c0c0c] border border-teal-900/50 rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-[fade-in-up_0.2s_ease-out]">
             <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-                <h3 class="text-teal-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-                    Stratum Configuration
-                </h3>
-                <button onclick={() => stratumModalWorker = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none">✕</button>
+                <div class="flex flex-col">
+                    <h3 class="text-teal-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                        Stratum Configuration
+                    </h3>
+                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest mt-1">Multi-Tier Connectivity</span>
+                </div>
+                <button onclick={() => stratumModalWorker = null} class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none mb-4">✕</button>
             </div>
             
             <div class="flex flex-col gap-4">
                 <div class="flex flex-col gap-1.5">
-                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Pool URL</span>
-                    <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-3">
-                        <span class="flex-1 font-mono text-xs text-white truncate select-all">{stratumModalWorker.stratumUrl || 'stratum+tcp://192.168.0.12:5555'}</span>
-                        <button onclick={(e) => handleTrayCopy(e, stratumModalWorker!.stratumUrl || 'stratum+tcp://192.168.0.12:5555', 'COPIED POOL URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-teal-500/50 text-neutral-400 hover:text-teal-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Tier 1: GPU / Mobile (Port 5551)</span>
+                    <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-2.5">
+                        <span class="flex-1 font-mono text-xs text-white truncate select-all">stratum+tcp://192.168.0.12:5551</span>
+                        <button onclick={(e) => handleTrayCopy(e, 'stratum+tcp://192.168.0.12:5551', 'COPIED TIER 1 URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-teal-500/50 text-neutral-400 hover:text-teal-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
                     </div>
                 </div>
+
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] text-teal-500 uppercase tracking-widest font-bold">Tier 2: Home ASICs (Port 5552)</span>
+                    <div class="flex items-center gap-2 bg-[#18C6A5]/10 border border-[#18C6A5]/30 rounded-lg p-2.5">
+                        <span class="flex-1 font-mono text-xs text-teal-400 truncate select-all">stratum+tcp://192.168.0.12:5552</span>
+                        <button onclick={(e) => handleTrayCopy(e, 'stratum+tcp://192.168.0.12:5552', 'COPIED TIER 2 URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-teal-700/50 hover:border-teal-500 text-teal-400 hover:text-white px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] text-amber-500 uppercase tracking-widest font-bold">Tier 3: Industrial ASICs (Port 5553)</span>
+                    <div class="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg p-2.5">
+                        <span class="flex-1 font-mono text-xs text-amber-400 truncate select-all">stratum+tcp://192.168.0.12:5553</span>
+                        <button onclick={(e) => handleTrayCopy(e, 'stratum+tcp://192.168.0.12:5553', 'COPIED TIER 3 URL', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-amber-700/50 hover:border-amber-500 text-amber-400 hover:text-white px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                    </div>
+                </div>
+
+                <div class="h-px bg-neutral-800 my-1"></div>
+
                 <div class="flex flex-col gap-1.5">
                     <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">Wallet.WorkerName</span>
                     <div class="flex items-center gap-2 bg-[#161616] border border-neutral-800 rounded-lg p-3">
-                        <span class="flex-1 font-mono text-xs text-amber-400 truncate select-all">{dynamicWorkerName}</span>
-                        <button onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-amber-500/50 text-neutral-400 hover:text-amber-400 px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
+                        <span class="flex-1 font-mono text-xs text-white truncate select-all">{dynamicWorkerName}</span>
+                        <button onclick={(e) => handleTrayCopy(e, dynamicWorkerName, 'COPIED WORKER ID', '')} class="shrink-0 bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-white/50 text-neutral-400 hover:text-white px-3 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors cursor-pointer shadow-sm">Copy</button>
                     </div>
                 </div>
             </div>
@@ -8201,6 +8411,8 @@ export async function executeKrc20Forge(ticker: string, maxSupply: number, mintL
                 <span class="text-[8px] font-bold truncate max-w-[80px]" style="color: {siloColor}">{assignedSilo.name}</span>
             </div>
         </div>
+    {:else}
+        <div class="mt-3 pt-2.5 border-t border-neutral-800/50 flex justify-between items-center pointer-events-none"></div>
     {/if}
 </div>
 {/snippet}

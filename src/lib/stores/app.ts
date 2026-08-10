@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 
 // ========================================================
 // 🧠 PERENNIA CENTRAL STATE STORE
@@ -52,6 +52,9 @@ export interface Worker {
     ipAddress?: string;
     hardwareType?: string;
     capitalTokens?: number; // ⚡ PER Flywheel: Infused Capital Amount
+    // Telemetry Fields for Chronos Engine:
+    sharesContributed?: number;
+    blocksFound?: number;
 }
 
 export interface Plant {
@@ -111,4 +114,4 @@ export const workers = writable<Worker[]>([]);
 export const silos = writable<Silo[]>([]);
 export const plants = writable<Plant[]>([]);
 export const walletInventory = writable<WalletInventoryItem[]>([]);
-export const taxEvents = writable<any[]>([]);
+export const taxEvents = writable<any[]>([]); // ADDED BACK

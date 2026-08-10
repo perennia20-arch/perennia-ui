@@ -25,7 +25,11 @@
     let trayTokenAmount = $state<number | ''>('');
 
     let selectedSilosForSweep = $state<Record<string, boolean>>({});
+    let syntheticBalances = $state<Record<string, number>>({});
     
+    // Chronos Accounting Engine State
+    let previousWorkerShares: Record<string, number> = {};
+
     let totalPendingKAS = $derived($silos.reduce((acc, s) => acc + (s.pendingKaspa || 0), 0));
     let totalPendingUSD = $derived(totalPendingKAS * ($globalKasPrice || 0));
 
@@ -36,6 +40,46 @@
             ? $workers 
             : $workers.filter(worker => worker.walletWorker.toLowerCase().includes($walletAddress?.replace('kaspa:', '').toLowerCase() || 'pending'))
     );
+
+    let localHashrate = $derived(displayedWorkers.reduce((acc, w) => acc + w.hashRate, 0));
+    let displayHashrate = $derived(isCorporateAdmin && $adminGlobalView ? $globalNetworkHashrate : localHashrate);
+
+    let totalTreasuryValueUsd = $derived.by(() => {
+        let kasBal = parseFloat($walletBalance) || 0;
+        let kasPrice = $globalKasPrice || 0.16;
+        let total = kasBal * kasPrice;
+
+        for (const [ticker, bal] of Object.entries(syntheticBalances)) {
+            const price = ticker === 'BTC' ? 65000 : ticker === 'ETH' ? 3500 : ticker === 'SOL' ? 150 : 1;
+            total += (bal * price);
+        }
+        return total;
+    });
+
+    function syncLocalState() {
+        if (!$walletAddress || (isCorporateAdmin && get(adminGlobalView))) {
+            return; 
+        }
+
+        // 🧹 EXTRA GUARD: Forcefully scrub other people's workers from the payload before saving to Redis
+        const currentUserBase = $walletAddress.toLowerCase().replace('kaspa:', '');
+        const myCleanWorkers = get(workers).filter(w => {
+            if (w.type === 'capital') return true;
+            const wBase = (w.walletWorker || '').split('.')[0].replace('kaspa:', '').toLowerCase();
+            return wBase === currentUserBase || wBase === 'pending';
+        });
+        
+        fetch(`/api/state`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                workers: myCleanWorkers,
+                silos: get(silos),
+                plants: get(plants),
+                systemMode: get(systemMode)
+            })
+        }).catch(()=>{});
+    }
     
     function handleContextMenu(e: MouseEvent, workerId: string) {
         e.preventDefault();
@@ -80,8 +124,14 @@
         'Energy': { hex: '#f97316', pastel: '#fdba74' }       
     };
 
-    let hashHistory = $state<number[]>([]);
+    let displayHashHistory = $state<number[]>([]);
     let kasHistory = $state<number[]>([]);
+
+    $effect(() => {
+        if (displayHashHistory.length === 0) {
+            displayHashHistory = Array(30).fill(displayHashrate);
+        }
+    });
 
     function buildSvgPath(data: number[], width: number, height: number): string {
         if (!data || data.length === 0) return '';
@@ -92,12 +142,12 @@
         return data.map((d, i) => { const x = (i / (Math.max(1, data.length - 1))) * width; const y = d === 0 ? height : height - ((d - min) / range) * height; return `${i === 0 ? 'M' : 'L'} ${x},${y}`; }).join(' ');
     }
 
-    let hashratePath = $derived(buildSvgPath(hashHistory, 200, 240));
+    let hashratePath = $derived(buildSvgPath(displayHashHistory, 200, 240));
     let pricePath = $derived(buildSvgPath(kasHistory, 200, 240));
 
     let effortData = $derived.by(() => {
         let segments: { id: string, name: string, pct: number, offset: number, hex: string }[] = [];
-        let totalHash = displayedWorkers.filter(w => w.isOnline && w.assignedSiloId).reduce((acc, w) => acc + w.hashRate, 0);
+        let totalHash = displayHashrate;
         
         if (totalHash > 0) {
             let currentOffset = 0;
@@ -105,7 +155,6 @@
                 const siloHash = displayedWorkers.filter(w => w.assignedSiloId === silo.id && w.isOnline).reduce((acc, w) => acc + w.hashRate, 0);
                 if (siloHash > 0) {
                     const pct = (siloHash / totalHash) * 100;
-                    
                     const inPlant = silo.assignedPlantId !== null;
                     const classTheme = assetColors[silo.settlementConfig.targetAsset.assetClass as string] || { hex: '#a855f7', pastel: '#d8b4fe' };
                     
@@ -129,6 +178,25 @@
                 selectedSilosForSweep[s.id] = true;
             }
         });
+    });
+
+    async function fetchSyntheticLedger() {
+        if (!$isWalletConnected || !$walletAddress) return;
+        try {
+            const res = await fetch(`/api/user/ledger?wallet=${encodeURIComponent($walletAddress)}`);
+            if (res.ok) {
+                const data = await res.json();
+                syntheticBalances = data || {};
+            }
+        } catch (e) {
+            console.error("Operations Ledger Hydration Failed:", e);
+        }
+    }
+
+    $effect(() => {
+        if ($isWalletConnected && $walletAddress) {
+            fetchSyntheticLedger();
+        }
     });
 
     $effect(() => {
@@ -169,45 +237,123 @@
     let floatingTexts = $state<{ id: number, x: number, y: number, text1: string, text2: string }[]>([]);
     let floatId = 0;
 
+    async function executeAutomatedSettlement(siloId: string, amountKas: number, targetAsset: string, destAddress: string) {
+        const fid = floatId++;
+        floatingTexts = [...floatingTexts, { 
+            id: fid, x: window.innerWidth / 2, y: 150, 
+            text1: `⚡ THRESHOLD REACHED: SWEEPING ${amountKas.toFixed(4)} KAS`, 
+            text2: `ROUTING TO ${targetAsset}` 
+        }];
+        setTimeout(() => { floatingTexts = floatingTexts.filter(f => f.id !== fid); }, 4000);
+
+        let txUuid = 'SIM-' + Math.random().toString(36).substring(2,8).toUpperCase();
+
+        try {
+            const res = await fetch('/api/sor/swap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: get(walletAddress),
+                    payAsset: 'KAS',
+                    receiveAsset: targetAsset,
+                    amount: amountKas,
+                    slippageTolerance: 0.05
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                txUuid = data.transaction_uuid || txUuid;
+                await fetchSyntheticLedger();
+            } else {
+                console.warn(`[Chronos] Real UTXO execution skipped. Falling back to local simulation payload for demo.`);
+            }
+        } catch (e) {
+            console.error("[Chronos] SOR Execution Fault", e);
+        }
+
+        const tid = floatId++;
+        floatingTexts = [...floatingTexts, { 
+            id: tid, x: window.innerWidth / 2, y: 220, 
+            text1: `✅ ${targetAsset} SWAP SECURED`, 
+            text2: `TX UUID: ${txUuid}` 
+        }];
+        setTimeout(() => { floatingTexts = floatingTexts.filter(f => f.id !== tid); }, 5000);
+    }
+
     function processTelemetryData(data: any) {
         const isConnected = get(isWalletConnected);
-
         globalNetworkHashrate.set((data.pool?.totalHashrate || data.totalHashrate || 0) / 1e12);
         globalNodeStatus.set('online');
 
         if (!isConnected) return;
 
+        let shareDeltas: Record<string, number> = {};
+        const currentUserBase = (get(walletAddress) || '').toLowerCase().replace('kaspa:', '');
+
         workers.update(currentWorkers => {
             let updated = currentWorkers.map(w => {
                 if (w.type === 'physical') {
-                    const bw = (data.workers || []).find((b: any) => 
-                        b.fullIdentity === w.walletWorker || 
-                        b.fullIdentity?.toLowerCase() === w.walletWorker.toLowerCase() ||
-                        (b.name && w.name && b.name.toLowerCase() === w.name.toLowerCase())
-                    );
+                    const wBase = w.walletWorker.split('.')[0].replace('kaspa:', '').toLowerCase();
+                    
+                    const bw = (data.workers || []).find((b: any) => {
+                        const bBase = b.fullIdentity.split('.')[0].replace('kaspa:', '').toLowerCase();
+                        return b.fullIdentity?.toLowerCase() === w.walletWorker.toLowerCase() ||
+                               (b.name && w.name && b.name.toLowerCase() === w.name.toLowerCase() && 
+                               (wBase === bBase || wBase === 'pending'));
+                    });
                     
                     if (bw) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
+                        const newShares = bw.sharesContributed || bw.shares || 0;
+                        
+                        const prevShares = previousWorkerShares[w.id] || w.sharesContributed || 0;
+                        if (newShares > prevShares) {
+                            shareDeltas[w.id] = newShares - prevShares;
+                        }
+                        previousWorkerShares[w.id] = newShares;
+
                         return { 
                             ...w, 
                             hashRate: rawHash / 1e12,
-                            sharesContributed: bw.sharesContributed || bw.shares || 0,
+                            sharesContributed: newShares,
                             blocksFound: bw.blocksFound || bw.blocks || 0,
                             hardwareType: bw.hardwareType || w.hardwareType || 'IceRiver KS',
                             isOnline: true 
                         } as any; 
                     }
+                    
+                    // Since data.workers contains the ENTIRE stratum pool, if it's missing, it's truly offline.
                     return { ...w, hashRate: 0, isOnline: false };
                 }
                 return w; 
             });
 
             if (data.workers) {
+                const isAdminGlobal = isCorporateAdmin && get(adminGlobalView);
+
                 data.workers.forEach((bw: any) => {
-                    if (!updated.find(w => w.walletWorker.toLowerCase() === bw.fullIdentity.toLowerCase() || w.name.toLowerCase() === (bw.name || '').toLowerCase())) {
+                    const bBase = bw.fullIdentity.split('.')[0].replace('kaspa:', '').toLowerCase();
+
+                    // 🛡️ ISOLATION GUARD: Completely ignore other users' Stratum workers unless Dev Tool is ON
+                    // This stops the UI from pulling in ghost workers that cause the split-second duplication flash
+                    if (!isAdminGlobal && bBase !== currentUserBase) {
+                        return; 
+                    }
+
+                    if (!updated.find(w => {
+                        const wBase = w.walletWorker.split('.')[0].replace('kaspa:', '').toLowerCase();
+                        return w.walletWorker.toLowerCase() === bw.fullIdentity.toLowerCase() || 
+                               (w.name.toLowerCase() === (bw.name || '').toLowerCase() && (wBase === bBase || wBase === 'pending'));
+                    })) {
                         const rawHash = bw.trackingRate || bw.hashrate || bw.hashRate || 0;
+                        const newShares = bw.sharesContributed || bw.shares || 0;
+                        
+                        const newId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                        previousWorkerShares[newId] = newShares;
+                        
                         updated.push({
-                            id: Math.random().toString(36).substring(2, 8).toUpperCase(),
+                            id: newId,
                             type: 'physical',
                             name: bw.name || bw.fullIdentity.split('.')[1] || 'Worker',
                             stratumUrl: 'Multi-Tier Stratum Protocol',
@@ -215,7 +361,7 @@
                             hashRate: rawHash / 1e12,
                             isOnline: true,
                             assignedSiloId: null, 
-                            sharesContributed: bw.sharesContributed || bw.shares || 0,
+                            sharesContributed: newShares,
                             blocksFound: bw.blocksFound || bw.blocks || 0,
                             hardwareType: bw.hardwareType || 'IceRiver KS'
                         } as any);
@@ -223,14 +369,21 @@
                 });
             }
 
-            const nameGroups: Record<string, any[]> = {};
+            const identityGroups: Record<string, any[]> = {};
             updated.forEach(w => {
-                if (!nameGroups[w.name]) nameGroups[w.name] = [];
-                nameGroups[w.name].push(w);
+                let baseAddress = w.walletWorker.split('.')[0].replace('kaspa:', '').toLowerCase();
+                if (baseAddress === 'pending') {
+                    baseAddress = currentUserBase;
+                }
+                
+                const groupKey = `${baseAddress}_${w.name.toLowerCase()}`;
+                
+                if (!identityGroups[groupKey]) identityGroups[groupKey] = [];
+                identityGroups[groupKey].push(w);
             });
 
             let finalWorkers: any[] = [];
-            for (const [name, group] of Object.entries(nameGroups)) {
+            for (const [key, group] of Object.entries(identityGroups)) {
                 if (group.length > 1) {
                     const bestWorker = group.reduce((prev, current) => {
                         if (current.hashRate > prev.hashRate) return current;
@@ -245,10 +398,47 @@
             }
             return finalWorkers;
         });
+
+        if (Object.keys(shareDeltas).length > 0) {
+            let executionTriggers: any[] = [];
+
+            silos.update(currentSilos => {
+                return currentSilos.map(silo => {
+                    const siloWorkers = get(workers).filter(w => w.assignedSiloId === silo.id);
+                    let addedShares = 0;
+                    
+                    siloWorkers.forEach(w => {
+                        if (shareDeltas[w.id]) addedShares += shareDeltas[w.id];
+                    });
+
+                    if (addedShares > 0) {
+                        const kasReward = addedShares * 0.00001;
+                        let newPending = (silo.pendingKaspa || 0) + kasReward;
+
+                        if (silo.settlementConfig && silo.settlementConfig.autoPayout && silo.settlementConfig.mode === 'threshold') {
+                            if (newPending >= silo.settlementConfig.threshold) {
+                                executionTriggers.push({
+                                    siloId: silo.id,
+                                    targetAsset: silo.settlementConfig.targetAsset.ticker,
+                                    payoutAddress: silo.settlementConfig.payoutAddress,
+                                    amountKas: newPending
+                                });
+                                newPending = 0; 
+                            }
+                        }
+                        
+                        return { ...silo, pendingKaspa: newPending };
+                    }
+                    return silo;
+                });
+            });
+
+            executionTriggers.forEach(trigger => {
+                executeAutomatedSettlement(trigger.siloId, trigger.amountKas, trigger.targetAsset, trigger.payoutAddress);
+            });
+        }
     }
 
-    // ⚡ FIX: The Async Reconnection Engine
-    // Automatically re-establishes SSE the moment the wallet address hydrates from local storage
     $effect(() => {
         if (browser && $isWalletConnected && $walletAddress) {
             const connection = source(`/api/telemetry?address=${encodeURIComponent($walletAddress)}`);
@@ -277,9 +467,7 @@
     let unsubs: any[] = [];
 
     onMount(() => { 
-        hashHistory = Array(30).fill(get(globalNetworkHashrate));
         kasHistory = Array(30).fill(get(globalKasPrice));
-        unsubs.push(globalNetworkHashrate.subscribe(v => { hashHistory = [...hashHistory.slice(1), v]; }));
         unsubs.push(globalKasPrice.subscribe(v => { kasHistory = [...kasHistory.slice(1), v]; }));
 
         const capitalPoll = setInterval(() => {
@@ -298,6 +486,15 @@
             }
         }, 15000);
         unsubs.push(() => clearInterval(capitalPoll));
+    });
+
+    $effect(() => {
+        const timer = setInterval(() => {
+            if (browser && $isWalletConnected) {
+                displayHashHistory = [...displayHashHistory.slice(1), displayHashrate];
+            }
+        }, 1000);
+        return () => clearInterval(timer);
     });
 
     onDestroy(() => { 
@@ -324,19 +521,7 @@
         if (type === 'worker') {
             if (dropType === 'silo') { $workers = $workers.map(w => w.id === id ? { ...w, assignedSiloId: dropId } : w); } 
             else if (dropType === 'field') { $workers = $workers.map(w => w.id === id ? { ...w, assignedSiloId: null } : w); }
-            
-            if ($walletAddress) {
-                fetch(`/api/state`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        workers: $workers,
-                        silos: $silos,
-                        plants: $plants,
-                        systemMode: $systemMode
-                    })
-                }).catch(()=>{});
-            }
+            syncLocalState();
         } else if (type === 'silo') {
             if (dropType === 'plant') {
                 const plantSilos = $silos.filter(s => s.assignedPlantId === dropId);
@@ -354,19 +539,7 @@
                 $silos = $silos.map(s => s.id === id ? { ...s, assignedPlantId: null } : s);
                 if (oldPlantId) { $plants = $plants.map(p => p.id === oldPlantId ? { ...p, liquidityDeposit: { isActive: false, pairName: 'Awaiting Pairs', totalLiquidityUsd: 0 }, currentApr: 0 } : p); }
             }
-            
-            if ($walletAddress) {
-                fetch(`/api/state`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        workers: $workers,
-                        silos: $silos,
-                        plants: $plants,
-                        systemMode: $systemMode
-                    })
-                }).catch(()=>{});
-            }
+            syncLocalState();
         }
         handleDragEnd();
     }
@@ -386,14 +559,7 @@
             workers.update(wks => wks.map(w => w.id === workerId ? { 
                 ...w, name: newName, walletWorker: $walletAddress ? `kaspa:${$walletAddress.replace('kaspa:','')}.${newName}` : `kaspa:pending.${newName}`
             } : w));
-            
-            if ($walletAddress) {
-                fetch(`/api/state`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ workers: get(workers), silos: get(silos), plants: get(plants), systemMode: get(systemMode) })
-                }).catch(()=>{});
-            }
+            syncLocalState();
         }
         inlineRenameId = null;
     }
@@ -412,25 +578,18 @@
                 }
                 return w;
             }));
-
-            if ($walletAddress) {
-                fetch(`/api/state`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ workers: get(workers), silos: get(silos), plants: get(plants), systemMode: get(systemMode) })
-                }).catch(()=>{});
-            }
+            syncLocalState();
         }
         tokenModalWorker = null;
         trayTokenAmount = '';
     }
 
-    function addSilo() { const id = Math.random().toString(36).substring(2, 8).toUpperCase(); const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); $silos = [...$silos, { id, name: `Sector Alpha-${id.substring(0,2)}`, width: 4, assignedPlantId: null, pendingKaspa: 0, settlementConfig: { ...defaultSettlement, payoutAddress: $walletAddress || '', appointmentDate: tomorrow.toISOString().split('T')[0] } }]; }
-    function addPlant() { if ($silos.length < 2) return; const id = Math.random().toString(36).substring(2, 8).toUpperCase(); $plants = [...$plants, { id, name: `Synthesis Plant-${id.substring(0,2)}`, liquidityDeposit: { isActive: false, pairName: 'Awaiting Pairs', totalLiquidityUsd: 0 }, currentApr: 0, autoCompound: true }]; }
-    function deleteSilo(id: string) { if(confirm("Permanently destroy this Silo? Workers will return to the field.")) { $workers = $workers.map(w => w.assignedSiloId === id ? { ...w, assignedSiloId: null } : w); $silos = $silos.filter(s => s.id !== id); activeSiloMenu = null; } }
-    function deletePlant(id: string) { if(confirm("Dismantle this Plant? Sectors inside will safely return to standalone operation.")) { $silos = $silos.map(s => s.assignedPlantId === id ? { ...s, assignedPlantId: null } : s); $plants = $plants.filter(p => p.id !== id); activePlantMenu = null; } }
-    function toggleSiloWidth(id: string) { $silos = $silos.map(s => { if (s.id === id) return { ...s, width: s.width === 4 ? 6 : s.width === 6 ? 12 : 4 as SiloWidth }; return s; }); }
-    function renameSilo(id: string) { const siloIndex = $silos.findIndex(s => s.id === id); if (siloIndex !== -1) { const currentName = $silos[siloIndex].name; const newName = prompt("Enter new Sector name:", currentName); if (newName && newName.trim() !== "") { $silos = $silos.map(s => s.id === id ? { ...s, name: newName.trim() } : s); } } activeSiloMenu = null; }
+    function addSilo() { const id = Math.random().toString(36).substring(2, 8).toUpperCase(); const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); $silos = [...$silos, { id, name: `Sector Alpha-${id.substring(0,2)}`, width: 4, assignedPlantId: null, pendingKaspa: 0, settlementConfig: { ...defaultSettlement, payoutAddress: $walletAddress || '', appointmentDate: tomorrow.toISOString().split('T')[0] } }]; syncLocalState(); }
+    function addPlant() { if ($silos.length < 2) return; const id = Math.random().toString(36).substring(2, 8).toUpperCase(); $plants = [...$plants, { id, name: `Synthesis Plant-${id.substring(0,2)}`, liquidityDeposit: { isActive: false, pairName: 'Awaiting Pairs', totalLiquidityUsd: 0 }, currentApr: 0, autoCompound: true }]; syncLocalState(); }
+    function deleteSilo(id: string) { if(confirm("Permanently destroy this Silo? Workers will return to the field.")) { $workers = $workers.map(w => w.assignedSiloId === id ? { ...w, assignedSiloId: null } : w); $silos = $silos.filter(s => s.id !== id); activeSiloMenu = null; syncLocalState(); } }
+    function deletePlant(id: string) { if(confirm("Dismantle this Plant? Sectors inside will safely return to standalone operation.")) { $silos = $silos.map(s => s.assignedPlantId === id ? { ...s, assignedPlantId: null } : s); $plants = $plants.filter(p => p.id !== id); activePlantMenu = null; syncLocalState(); } }
+    function toggleSiloWidth(id: string) { $silos = $silos.map(s => { if (s.id === id) return { ...s, width: s.width === 4 ? 6 : s.width === 6 ? 12 : 4 as SiloWidth }; return s; }); syncLocalState(); }
+    function renameSilo(id: string) { const siloIndex = $silos.findIndex(s => s.id === id); if (siloIndex !== -1) { const currentName = $silos[siloIndex].name; const newName = prompt("Enter new Sector name:", currentName); if (newName && newName.trim() !== "") { $silos = $silos.map(s => s.id === id ? { ...s, name: newName.trim() } : s); syncLocalState(); } } activeSiloMenu = null; }
 
     function sweepSilos(siloIds: string[]) {
         let totalSwept = 0;
@@ -438,24 +597,17 @@
             return currentSilos.map(s => {
                 if (siloIds.includes(s.id) && s.pendingKaspa && s.pendingKaspa > 0) {
                     totalSwept += s.pendingKaspa;
+                    
+                    if (s.settlementConfig && s.settlementConfig.targetAsset) {
+                        executeAutomatedSettlement(s.id, s.pendingKaspa, s.settlementConfig.targetAsset.ticker, s.settlementConfig.payoutAddress);
+                    }
+                    
                     return { ...s, pendingKaspa: 0 };
                 }
                 return s;
             });
         });
-
-        if (totalSwept > 0 && get(isWalletConnected)) {
-            walletBalance.update(b => (parseFloat(b) + totalSwept).toString());
-            walletInventory.update(currentInv => {
-                let newInv = [...currentInv];
-                const kasItem = newInv.find(i => i.asset.ticker === 'KAS');
-                if (kasItem) {
-                    kasItem.balance += totalSwept;
-                    kasItem.usdValue = kasItem.balance * get(globalKasPrice);
-                }
-                return newInv;
-            });
-        }
+        syncLocalState();
     }
 
     function openSettlement(silo: Silo) { settlementModalSilo = silo; if (!silo.settlementConfig) silo.settlementConfig = { ...defaultSettlement, payoutAddress: $walletAddress || '' }; if (!silo.settlementConfig.targetAsset) silo.settlementConfig.targetAsset = tokenRegistry[0]; editSettlementParams = JSON.parse(JSON.stringify(silo.settlementConfig)); activeSiloMenu = null; isAssetPickerOpen = false; assetPickerStep = 'class'; selectedAssetClass = null; assetSearchQuery = ''; }
@@ -476,19 +628,7 @@
                     if (s.id === settlementModalSilo!.id) return { ...s, settlementConfig: editSettlementParams }; 
                     return s; 
                 }); 
-                
-                if ($walletAddress) {
-                    fetch(`/api/state`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            workers: $workers,
-                            silos: $silos,
-                            plants: $plants,
-                            systemMode: $systemMode
-                        })
-                    }).catch(()=>{});
-                }
+                syncLocalState();
             } catch (e) {
                 alert("Signature Request Rejected. Parameters not saved.");
                 return;
@@ -513,6 +653,7 @@
             capitalTokens: 0
         }; 
         $workers = [...$workers, newWorker]; 
+        syncLocalState();
     }
 
     function formatHardwareName(rawType: string | undefined): string {
@@ -527,6 +668,7 @@
     function deleteWorker(id: string) { 
         $workers = $workers.filter(w => w.id !== id); 
         closeAllMenus(); 
+        syncLocalState();
     }
 </script>
 
@@ -820,7 +962,7 @@
                         {#if !inPlant}
                             <button aria-label="Settlement Params" onclick={(e) => {e.stopPropagation(); openSettlement(silo);}} class="text-left px-3 py-2.5 text-[10px] font-bold text-amber-400 hover:bg-[#222] transition-colors cursor-pointer flex justify-between items-center">Settlement Params {#if !silo.settlementConfig?.autoPayout}<div class="w-1.5 h-1.5 rounded-full bg-teal-500" title="Treasury Hold"></div>{/if}</button>
                         {:else}
-                            <button aria-label="Eject from Plant" onclick={(e) => {e.stopPropagation(); $silos = $silos.map(s => s.id === silo.id ? { ...s, assignedPlantId: null } : s); $plants = $plants.map(p => p.id === silo.assignedPlantId ? { ...p, liquidityDeposit: { isActive: false, pairName: 'Awaiting Pairs', totalLiquidityUsd: 0 }, currentApr: 0 } : p); activeSiloMenu = null;}} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer">Eject from Plant</button>
+                            <button aria-label="Eject from Plant" onclick={(e) => {e.stopPropagation(); $silos = $silos.map(s => s.id === silo.id ? { ...s, assignedPlantId: null } : s); $plants = $plants.map(p => p.id === silo.assignedPlantId ? { ...p, liquidityDeposit: { isActive: false, pairName: 'Awaiting Pairs', totalLiquidityUsd: 0 }, currentApr: 0 } : p); activeSiloMenu = null; syncLocalState();}} class="text-left px-3 py-2.5 text-[10px] font-bold text-emerald-400 hover:bg-[#222] transition-colors cursor-pointer">Eject from Plant</button>
                         {/if}
                         <div class="h-px bg-neutral-800"></div><button aria-label="Dismantle" onclick={(e) => {e.stopPropagation(); deleteSilo(silo.id);}} class="text-left px-3 py-2.5 text-[10px] font-bold text-red-500 hover:bg-[#222] transition-colors cursor-pointer">Dismantle</button>
                     </div>
@@ -928,7 +1070,7 @@
                         <div class="flex justify-between items-start relative z-10 pointer-events-none">
                             <div class="flex flex-col">
                                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 flex items-center gap-1.5"><div class="w-1.5 h-1.5 rounded-full {$globalNodeStatus === 'online' ? 'bg-teal-500 animate-pulse' : 'bg-neutral-600'}"></div> Live Hash Power</span>
-                                <span class="text-2xl font-mono font-light text-white tracking-tight">{$globalNetworkHashrate.toFixed(2)} <span class="text-xs text-neutral-500 font-bold">TH/s</span></span>
+                                <span class="text-2xl font-mono font-light text-white tracking-tight">{displayHashrate.toFixed(2)} <span class="text-xs text-neutral-500 font-bold">TH/s</span></span>
                             </div>
                         </div>
                         <div class="absolute inset-0 pointer-events-none p-4 z-0">
@@ -1106,7 +1248,7 @@
                                 {/each}
                             </svg>
                             <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <span class="text-2xl font-mono font-light text-white leading-none">{$globalNetworkHashrate.toFixed(2)}</span>
+                                <span class="text-2xl font-mono font-light text-white leading-none">{displayHashrate.toFixed(2)}</span>
                                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-600 mt-1">TH/s</span>
                             </div>
                         </div>
@@ -1115,7 +1257,9 @@
                             <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 text-center mb-1">
                                 Total Treasury Value
                             </div>
-                            <div class="text-xl xl:text-2xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">${($walletInventory || []).reduce((acc: number, item: WalletInventoryItem) => acc + item.usdValue, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                            <div class="text-xl xl:text-2xl font-mono font-light text-teal-400 drop-shadow-[0_0_12px_rgba(20,184,166,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">
+                                ${totalTreasuryValueUsd.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            </div>
                         </div>
                         
                         <div class="w-full flex flex-col gap-2 pointer-events-auto">

@@ -1,13 +1,10 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const WebSocket = require('ws');
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
 
 export async function GET({ url, cookies }: RequestEvent) {
+    // 1. Session Validation
     const rawCookie = cookies.get('perennia_session');
     if (!rawCookie) {
         return json({ error: 'UNAUTHORIZED_DAG_ACCESS' }, { status: 401 });
@@ -17,69 +14,37 @@ export async function GET({ url, cookies }: RequestEvent) {
     const sessionCookie = decodeURIComponent(rawCookie);
     const requestedAddress = url.searchParams.get('address');
     
-    if (!requestedAddress) return json({ error: "Missing address parameter" }, { status: 400 });
+    if (!requestedAddress) {
+        return json({ error: "Missing address parameter" }, { status: 400 });
+    }
 
+    // 2. Authorization / Global Admin Override
     const isCorpAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
 
     if (!isCorpAdmin && requestedAddress.toLowerCase() !== sessionCookie.toLowerCase()) {
         return json({ error: 'FORBIDDEN_ADDRESS_QUERY' }, { status: 403 });
     }
 
-    const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
-
-    return new Promise((resolve) => {
-        let isResolved = false;
-        console.log(`\n⏳ UTXO Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
+    // 3. Stateless REST Fetch (Replaces WebSocket)
+    try {
+        console.log(`\n⏳ UTXO Engine: Fetching unspent mass for ${requestedAddress.substring(0, 15)}...`);
         
-        const ws = new WebSocket(`ws://${nodeIp}:18110`);
+        const response = await fetch(`https://api.kaspa.org/addresses/${requestedAddress}/utxos`);
         
-        const timeout = setTimeout(() => {
-            if (isResolved) return;
-            isResolved = true;
-            ws.terminate();
-            console.error("❌ [Perennia Proxy] UTXO Engine: wRPC connection timed out");
-            resolve(json({ error: "wRPC connection timed out" }, { status: 500 }));
-        }, 5000);
+        if (!response.ok) {
+            throw new Error(`Mainnet REST API rejected request: Status ${response.status}`);
+        }
 
-        ws.on('open', () => {
-            console.log(`[+] Socket OPENED. Fetching unspent mass for ${requestedAddress.substring(0, 15)}...`);
-            const payload = { id: 1, method: "getUtxosByAddresses", params: { addresses: [requestedAddress] } };
-            ws.send(JSON.stringify(payload));
-        });
+        const utxos = await response.json();
+        
+        console.log(`[+] Mapped ${utxos.length || 0} UTXOs via REST.`);
 
-        ws.on('message', (data: any) => {
-            if (isResolved) return;
-            isResolved = true; 
-            clearTimeout(timeout);
-            
-            try {
-                const response = JSON.parse(data.toString());
-                const entries = response.params?.entries || response.entries || [];
-                console.log(`[+] Mapped ${entries.length} UTXOs.`);
-                
-                ws.terminate();
-                resolve(json({ entries }, { status: 200 }));
-            } catch (e) {
-                console.error("❌ [Perennia Proxy] Failed to parse wRPC response");
-                ws.terminate();
-                resolve(json({ error: "Failed to parse wRPC response" }, { status: 500 }));
-            }
-        });
+        // Wrap it in the "entries" object so it perfectly matches 
+        // the schema expected by the sor.rs engine
+        return json({ entries: utxos }, { status: 200 });
 
-        ws.on('close', (code: number) => {
-            if (isResolved) return; 
-            isResolved = true;
-            clearTimeout(timeout);
-            console.error(`❌ [Perennia Proxy] Node abruptly dropped connection. Code: ${code}`);
-            resolve(json({ error: "Node connection rejected" }, { status: 500 }));
-        });
-
-        ws.on('error', (err: Error) => {
-            if (isResolved) return;
-            isResolved = true;
-            clearTimeout(timeout);
-            console.error("❌ [Perennia Proxy] Socket Error:", err.message);
-            resolve(json({ error: err.message }, { status: 500 }));
-        });
-    });
+    } catch (error: any) {
+        console.error("❌ [Perennia Proxy] UTXO Engine Fault:", error.message);
+        return json({ error: 'Failed to fetch UTXOs from Mainnet DAG', details: error.message }, { status: 500 });
+    }
 }

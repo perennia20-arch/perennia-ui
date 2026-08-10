@@ -7,6 +7,7 @@
     import RwaRow from '$lib/components/treasury/RwaRow.svelte';
 
     let estate = $state<any>(null);
+    let syntheticBalances = $state<Record<string, number>>({});
     let isLoading = $state(false);
     let isVaultDecrypted = $derived($isWalletConnected);
     let activeHoverSegment = $state<string | null>(null);
@@ -49,33 +50,27 @@
     let trxAddr = $derived($sovereignKeys?.tron?.address || estate?.assets?.find((a: any) => a.symbol === 'TRX')?.address || 'Awaiting Decryption');
     let zecAddr = $derived($sovereignKeys?.zcash?.address || estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.address || 'Awaiting Decryption');
 
-    // 11 L1 Assets
+    // ⚡ UNIFIED ASSET CALCULATION: Merges L1 On-Chain + Redis Synthetic Balances
     let assets = $derived.by(() => {
         const liveKasBalance = parseFloat($walletBalance) || 0;
-        const kasBal = estate?.assets?.find((a: any) => a.symbol === 'KAS')?.balance || liveKasBalance;
-        const btcBal = estate?.assets?.find((a: any) => a.symbol === 'BTC')?.balance || 0; 
-        const ethBal = estate?.assets?.find((a: any) => a.symbol === 'ETH')?.balance || 0; 
-        const solBal = estate?.assets?.find((a: any) => a.symbol === 'SOL')?.balance || 0; 
-        const dogeBal = estate?.assets?.find((a: any) => a.symbol === 'DOGE')?.balance || 0; 
-        const xrpBal = estate?.assets?.find((a: any) => a.symbol === 'XRP')?.balance || 0; 
-        const polBal = estate?.assets?.find((a: any) => a.symbol === 'POL')?.balance || 0; 
-        const avaxBal = estate?.assets?.find((a: any) => a.symbol === 'AVAX')?.balance || 0; 
-        const suiBal = estate?.assets?.find((a: any) => a.symbol === 'SUI')?.balance || 0; 
-        const trxBal = estate?.assets?.find((a: any) => a.symbol === 'TRX')?.balance || 0; 
-        const zecBal = estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.balance || 0; 
+        const getMergedBal = (symbol: string) => {
+            const l1Bal = estate?.assets?.find((a: any) => a.symbol === symbol)?.balance || (symbol === 'KAS' ? liveKasBalance : 0);
+            const synBal = syntheticBalances[symbol] || 0;
+            return l1Bal + synBal;
+        };
 
         return [
-            { symbol: 'KAS', icon: '/assets/tokens/kas.svg', name: 'Kaspa', badge: 'KAS [L1]', spotPrice: $globalKasPrice || 0.00, delta: $globalKasChange || 0, balance: kasBal, address: kasAddr, hex: '#18C6A5' },
-            { symbol: 'BTC', icon: '/assets/tokens/btc.svg', name: 'Bitcoin', badge: 'BTC [COLD]', spotPrice: btcPrice, delta: btcDelta, balance: btcBal, address: btcAddr, hex: '#F7931A' },
-            { symbol: 'ETH', icon: '/assets/tokens/eth.svg', name: 'Ethereum', badge: 'ETH [ERC20]', spotPrice: ethPrice, delta: ethDelta, balance: ethBal, address: ethAddr, hex: '#627EEA' },
-            { symbol: 'SOL', icon: '/assets/tokens/sol.svg', name: 'Solana', badge: 'SOL [NATIVE]', spotPrice: solPrice, delta: solDelta, balance: solBal, address: solAddr, hex: '#14F195' },
-            { symbol: 'DOGE', icon: 'https://cryptologos.cc/logos/dogecoin-doge-logo.svg?v=033', name: 'Dogecoin', badge: 'DOGE [L1]', spotPrice: dogePrice, delta: dogeDelta, balance: dogeBal, address: dogeAddr, hex: '#C2A633' },
-            { symbol: 'XRP', icon: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg?v=033', name: 'XRP Ledger', badge: 'XRP [NATIVE]', spotPrice: xrpPrice, delta: xrpDelta, balance: xrpBal, address: xrpAddr, hex: '#23292F' },
-            { symbol: 'POL', icon: 'https://cryptologos.cc/logos/polygon-matic-logo.svg?v=033', name: 'Polygon', badge: 'POL [EVM]', spotPrice: polPrice, delta: polDelta, balance: polBal, address: polAddr, hex: '#8247E5' },
-            { symbol: 'AVAX', icon: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg?v=033', name: 'Avalanche', badge: 'AVAX [C-CHAIN]', spotPrice: avaxPrice, delta: avaxDelta, balance: avaxBal, address: avaxAddr, hex: '#E84142' },
-            { symbol: 'SUI', icon: 'https://cryptologos.cc/logos/sui-sui-logo.svg?v=033', name: 'Sui Network', badge: 'SUI [MOVE]', spotPrice: suiPrice, delta: suiDelta, balance: suiBal, address: suiAddr, hex: '#4CA2FF' },
-            { symbol: 'TRX', icon: 'https://cryptologos.cc/logos/tron-trx-logo.svg?v=033', name: 'TRON', badge: 'TRX [TRC20]', spotPrice: trxPrice, delta: trxDelta, balance: trxBal, address: trxAddr, hex: '#FF0013' },
-            { symbol: 'ZEC', icon: 'https://cryptologos.cc/logos/zcash-zec-logo.svg?v=033', name: 'Zcash', badge: 'ZEC [PRIVACY]', spotPrice: zecPrice, delta: zecDelta, balance: zecBal, address: zecAddr, hex: '#F4B728' }
+            { symbol: 'KAS', icon: '/assets/tokens/kas.svg', name: 'Kaspa', badge: 'KAS [L1]', spotPrice: $globalKasPrice || 0.00, delta: $globalKasChange || 0, balance: getMergedBal('KAS'), address: kasAddr, hex: '#18C6A5' },
+            { symbol: 'BTC', icon: '/assets/tokens/btc.svg', name: 'Bitcoin', badge: 'BTC [COLD]', spotPrice: btcPrice, delta: btcDelta, balance: getMergedBal('BTC'), address: btcAddr, hex: '#F7931A' },
+            { symbol: 'ETH', icon: '/assets/tokens/eth.svg', name: 'Ethereum', badge: 'ETH [ERC20]', spotPrice: ethPrice, delta: ethDelta, balance: getMergedBal('ETH'), address: ethAddr, hex: '#627EEA' },
+            { symbol: 'SOL', icon: '/assets/tokens/sol.svg', name: 'Solana', badge: 'SOL [NATIVE]', spotPrice: solPrice, delta: solDelta, balance: getMergedBal('SOL'), address: solAddr, hex: '#14F195' },
+            { symbol: 'DOGE', icon: 'https://cryptologos.cc/logos/dogecoin-doge-logo.svg?v=033', name: 'Dogecoin', badge: 'DOGE [L1]', spotPrice: dogePrice, delta: dogeDelta, balance: getMergedBal('DOGE'), address: dogeAddr, hex: '#C2A633' },
+            { symbol: 'XRP', icon: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg?v=033', name: 'XRP Ledger', badge: 'XRP [NATIVE]', spotPrice: xrpPrice, delta: xrpDelta, balance: getMergedBal('XRP'), address: xrpAddr, hex: '#23292F' },
+            { symbol: 'POL', icon: 'https://cryptologos.cc/logos/polygon-matic-logo.svg?v=033', name: 'Polygon', badge: 'POL [EVM]', spotPrice: polPrice, delta: polDelta, balance: getMergedBal('POL'), address: polAddr, hex: '#8247E5' },
+            { symbol: 'AVAX', icon: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg?v=033', name: 'Avalanche', badge: 'AVAX [C-CHAIN]', spotPrice: avaxPrice, delta: avaxDelta, balance: getMergedBal('AVAX'), address: avaxAddr, hex: '#E84142' },
+            { symbol: 'SUI', icon: 'https://cryptologos.cc/logos/sui-sui-logo.svg?v=033', name: 'Sui Network', badge: 'SUI [MOVE]', spotPrice: suiPrice, delta: suiDelta, balance: getMergedBal('SUI'), address: suiAddr, hex: '#4CA2FF' },
+            { symbol: 'TRX', icon: 'https://cryptologos.cc/logos/tron-trx-logo.svg?v=033', name: 'TRON', badge: 'TRX [TRC20]', spotPrice: trxPrice, delta: trxDelta, balance: getMergedBal('TRX'), address: trxAddr, hex: '#FF0013' },
+            { symbol: 'ZEC', icon: 'https://cryptologos.cc/logos/zcash-zec-logo.svg?v=033', name: 'Zcash', badge: 'ZEC [PRIVACY]', spotPrice: zecPrice, delta: zecDelta, balance: getMergedBal('ZEC'), address: zecAddr, hex: '#F4B728' }
         ];
     });
 
@@ -135,7 +130,19 @@
         });
     });
 
-    // ⚡ ZERO-TRUST UPDATE: Remove `activeWalletType` restriction so everyone can hydrate the UI
+    async function fetchSyntheticLedger() {
+        if (!isVaultDecrypted || !$walletAddress) return;
+        try {
+            const res = await fetch(`/api/user/ledger?wallet=${encodeURIComponent($walletAddress)}`);
+            if (res.ok) {
+                const data = await res.json();
+                syntheticBalances = data || {};
+            }
+        } catch (e) {
+            console.error("Synthetic Ledger Fetch Error:", e);
+        }
+    }
+
     async function fetchTreasuryData() {
         if (!isVaultDecrypted) return;
         try {
@@ -291,15 +298,17 @@
         
         if (isVaultDecrypted) { 
             fetchTreasuryData(); 
+            fetchSyntheticLedger();
             fetchKrc20Ecosystem(); 
         }
 
         fetchInterval = setInterval(() => { 
             if (isVaultDecrypted) {
                 fetchTreasuryData(); 
+                fetchSyntheticLedger();
                 fetchKrc20Ecosystem(); 
             }
-        }, 15000);
+        }, 10000);
     });
 
     onDestroy(() => {

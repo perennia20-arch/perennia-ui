@@ -1,4 +1,5 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { redis } from '$lib/server/redis';
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
@@ -10,7 +11,6 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
             return json({ error: 'UNAUTHORIZED_ROUTING_ATTEMPT' }, { status: 401 });
         }
 
-        // ⚡ FIX: Decode cookie
         const sessionCookie = decodeURIComponent(rawCookie);
 
         const body = await request.json().catch(() => ({}));
@@ -52,6 +52,14 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
         }
 
         const rustData = await rustRes.json();
+
+        // ⚡ PERSIST SYNTHETIC BALANCE TO REDIS LEDGER
+        const cleanWallet = wallet.toLowerCase().replace('kaspa:', '').trim();
+        const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
+
+        if (rustData.estimatedOutput && rustData.estimatedOutput > 0) {
+            await redis.hincrbyfloat(userLedgerKey, receiveAsset, rustData.estimatedOutput);
+        }
 
         return json({
             unified_rate: rustData.unifiedRate,

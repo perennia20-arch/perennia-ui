@@ -7,14 +7,16 @@
     import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, plants, walletInventory, tokenRegistry, adminGlobalView } from '$lib/stores/app';        
     
     import { isWalletConnected, walletAddress, walletBalance, disconnectWallet, restoreSession, showWalletModal, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
+    import { showSettingsModal, uiBrightness } from '$lib/stores/settings';
+    
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
+    import SettingsModal from '$lib/components/SettingsModal.svelte';
 
     let { children } = $props();
 
     const tabs = ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS'];
     
-    // ⚡ FIX: Bulletproof case-insensitive check ensures the Sovereign Vault always gets admin rights
     let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
     
     let disabledTabs: string[] = $state([]); 
@@ -50,16 +52,48 @@
         }
     }
 
-    async function loadStateFromServer() {
+    async function loadStateFromServer(globalView = false) {
         if (!browser || !$walletAddress) return;
         try {
-            const res = await fetch(`${BACKEND_BASE}/api/state`);
+            const url = globalView ? `${BACKEND_BASE}/api/state?global=true` : `${BACKEND_BASE}/api/state`;
+            const res = await fetch(url);
             if (res.ok) {
                 const parsed = await res.json();
-                workers.set(parsed.workers || []);
+                let loadedWorkers = parsed.workers || [];
+
+                // 🧹 SCRUB GHOSTS: Prevent cross-contaminated saves from loading into private view
+                if (!globalView) {
+                    const currentUserBase = $walletAddress.toLowerCase().replace('kaspa:', '');
+                    loadedWorkers = loadedWorkers.filter((w: any) => {
+                        if (w.type === 'capital') return true;
+                        const wBase = (w.walletWorker || '').split('.')[0].replace('kaspa:', '').toLowerCase();
+                        return wBase === currentUserBase || wBase === 'pending';
+                    });
+                }
+
+                // 🛡️ DEDUPLICATE: Destroy historical duplicates BEFORE the UI renders (Stops the split-second flash)
+                const uniqueWorkers = [];
+                const seenGroups = new Set();
+
+                for (const w of loadedWorkers) {
+                    if (w.type === 'physical') {
+                        let baseAddress = (w.walletWorker || '').split('.')[0].replace('kaspa:', '').toLowerCase();
+                        if (baseAddress === 'pending') baseAddress = $walletAddress.toLowerCase().replace('kaspa:', '');
+                        const groupKey = `${baseAddress}_${(w.name || '').toLowerCase()}`;
+                        
+                        if (!seenGroups.has(groupKey)) {
+                            seenGroups.add(groupKey);
+                            uniqueWorkers.push(w);
+                        }
+                    } else {
+                        uniqueWorkers.push(w);
+                    }
+                }
+
+                workers.set(uniqueWorkers);
                 silos.set(parsed.silos || []);
                 if (parsed.plants) plants.set(parsed.plants);
-                if (parsed.systemMode) systemMode.set(parsed.systemMode);
+                if (parsed.systemMode && !globalView) systemMode.set(parsed.systemMode);
                 isServerReachable = true;
                 setTimeout(() => { isLoaded = true; }, 500);
             } else {
@@ -73,7 +107,7 @@
     }
 
     async function saveStateToServer() {
-        if (!browser || !$walletAddress || !isLoaded || !isServerReachable || isCorporateAdmin) return;
+        if (!browser || !$walletAddress || !isLoaded || !isServerReachable || (isCorporateAdmin && get(adminGlobalView))) return;
         try {
             const statePayload = {
                 workers: get(workers),
@@ -93,7 +127,7 @@
         if (browser) {
             if ($isWalletConnected && $walletAddress) {
                 isLoaded = false; 
-                loadStateFromServer();
+                loadStateFromServer(!!(isCorporateAdmin && $adminGlobalView));
                 syncKasWareState();
             } else if (!$isWalletConnected) {
                 isLoaded = false;
@@ -174,7 +208,8 @@
 {#if !$isWalletConnected && !hasEntered}
     <EntryView {enterNexus} />
 {:else}
-    <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}">
+    <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}"
+         style="filter: brightness({$uiBrightness});">
         
         <header class="h-16 border-b border-neutral-800/80 bg-transparent flex items-center justify-center z-50 shrink-0 w-full sticky top-0 backdrop-blur-xl">
             <div class="w-full max-w-[1600px] px-4 lg:px-10 flex justify-between items-center h-full">
@@ -189,6 +224,7 @@
                 </div>
 
                 <div class="flex items-center gap-3 md:gap-4">
+                    
                     {#if isCorporateAdmin}
                         <button aria-label="Toggle Global Operations" onclick={() => $adminGlobalView = !$adminGlobalView} 
                                 class="group relative w-12 h-6 bg-[#111] border { $adminGlobalView ? 'border-amber-500/50' : 'border-neutral-800'} rounded-full cursor-pointer transition-colors overflow-hidden hidden sm:block" title="Toggle Global Operations View">
@@ -201,6 +237,12 @@
                             class="group relative w-12 h-6 bg-[#111] border border-neutral-800 rounded-full cursor-pointer transition-colors overflow-hidden hidden sm:block" title="Toggle Overclocked Mode">
                         <div class="absolute inset-0 bg-[#18C6A5]/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                         <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-all duration-300 shadow-sm {$systemMode === 'overclocked' ? 'bg-[#18C6A5] left-[26px] shadow-[0_0_8px_rgba(24,198,165,0.8)]' : 'bg-neutral-600 left-1'}"></div>
+                    </button>
+
+                    <!-- SETTINGS MODAL TRIGGER -->
+                    <button aria-label="Settings" onclick={() => $showSettingsModal = true} 
+                            class="w-10 h-10 rounded-xl bg-transparent hover:bg-[#111] border border-transparent hover:border-neutral-800 text-neutral-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer hidden sm:flex" title="System Parameters">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543.826-3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     </button>
 
                     <div class="h-8 w-px bg-neutral-800 hidden sm:block"></div>
@@ -266,10 +308,11 @@
 {/if}
 
 <WalletModal />
+<SettingsModal />
 
 <style>
     .app-wrapper {
-        transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out;
+        transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out, filter 0.3s ease-out;
     }
     
     .app-wrapper.dormant {

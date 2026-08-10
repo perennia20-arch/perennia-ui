@@ -1,18 +1,47 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { redis } from '$lib/server/redis';
 
-export async function GET({ cookies }: RequestEvent) {
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+const DEV_ADMIN_BYPASS = false;
+
+export async function GET({ url, cookies }: RequestEvent) {
     const rawCookie = cookies.get('perennia_session');
     
     if (!rawCookie) {
         return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
     }
 
-    // ⚡ FIX: Decode and normalize state keys
     const sessionWallet = decodeURIComponent(rawCookie);
     const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
     const stateKey = `state:${cleanWallet}`;
+    
+    const isCorpAdmin = DEV_ADMIN_BYPASS || sessionWallet.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
+    const reqGlobal = url.searchParams.get('global') === 'true';
 
+    // ⚡ OVERRIDE: Fetch Global State if Admin Tool is Toggled On
+    if (isCorpAdmin && reqGlobal) {
+        try {
+            const keys = await redis.keys('state:*');
+            let allWorkers: any[] = [];
+            let allSilos: any[] = [];
+            let allPlants: any[] = [];
+            
+            for (const k of keys) {
+                const s = await redis.get(k);
+                if (s) {
+                    const parsed = JSON.parse(s);
+                    if (parsed.workers) allWorkers.push(...parsed.workers);
+                    if (parsed.silos) allSilos.push(...parsed.silos);
+                    if (parsed.plants) allPlants.push(...parsed.plants);
+                }
+            }
+            return json({ workers: allWorkers, silos: allSilos, plants: allPlants, systemMode: 'overclocked' }, { status: 200 });
+        } catch (e) {
+            console.error("Global State Fetch Fault:", e);
+        }
+    }
+
+    // Standard Local Fetch
     try {
         const rawState = await redis.get(stateKey);
         if (rawState) {
@@ -35,7 +64,6 @@ export async function POST({ request, cookies }: RequestEvent) {
     try {
         const payload = await request.json();
         
-        // ⚡ FIX: Decode and normalize state keys
         const sessionWallet = decodeURIComponent(rawCookie);
         const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
         const stateKey = `state:${cleanWallet}`;
