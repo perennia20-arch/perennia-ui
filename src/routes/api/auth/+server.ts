@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { redis } from '$lib/server/redis';
+import { dbPool } from '$lib/server/db';
+import { env } from '$env/dynamic/private';
 import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { ethers } from 'ethers';
@@ -11,7 +13,6 @@ const kaspaCore = require('@kaspa/core-lib');
 
 const KASPA_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
-// Zero-Dependency Native Base32 Kaspa Decoder for Absolute Sovereign Verification
 function decodeAddressToPubkey(address: string): Uint8Array {
     const parts = address.split(':');
     if (parts.length !== 2) throw new Error("ERR_INVALID_ADDRESS_FORMAT");
@@ -50,22 +51,58 @@ function hexToBytes(hex: string): Uint8Array {
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
     try {
-        const { address, signature, message, provider } = await request.json();
+        const payload = await request.json();
+        const { address, signature, message, provider, inviteCode } = payload;
 
         if (!address) {
             return json({ error: 'Address required' }, { status: 400 });
         }
 
         const cleanAddress = address.toLowerCase();
-
-        // ⚡ GLOBAL DEV BYPASS: Set to false in production!
-        const GLOBAL_DEV_BYPASS = true; 
         let isValid = false;
 
         // Observer Mode bypasses mathematical auth entirely
         if (provider !== 'observer') {
             if (!signature || !message) {
                 return json({ error: 'Missing cryptographic proof' }, { status: 400 });
+            }
+
+            // ⚡ ZERO-CHANGE LAUNCH ARCHITECTURE:
+            // Controlled purely via environment variable (`CLOSED_BETA_MODE=true`).
+            // When switching to Public Launch, set CLOSED_BETA_MODE=false in .env. Zero code changes required!
+            const isClosedBeta = env.CLOSED_BETA_MODE === 'true';
+
+            if (isClosedBeta) {
+                let client;
+                try {
+                    client = await dbPool.connect();
+
+                    const wlRes = await client.query('SELECT * FROM whitelisted_wallets WHERE wallet_address = $1', [cleanAddress]);
+                    let isWhitelisted = wlRes.rows.length > 0;
+
+                    if (!isWhitelisted) {
+                        if (!inviteCode) {
+                            return json({ error: 'Zero-Trust Protocol: Unrecognized Beta Identity. Invite code required.' }, { status: 403 });
+                        }
+
+                        const inviteRes = await client.query('SELECT * FROM invite_codes WHERE code = $1 AND is_used = false', [inviteCode.trim()]);
+                        if (inviteRes.rows.length === 0) {
+                            return json({ error: 'Zero-Trust Protocol: Invalid or burned invite code.' }, { status: 403 });
+                        }
+
+                        // Burn code and whitelist wallet
+                        await client.query('BEGIN');
+                        await client.query('UPDATE invite_codes SET is_used = true, used_by_wallet = $1 WHERE code = $2', [cleanAddress, inviteCode.trim()]);
+                        await client.query('INSERT INTO whitelisted_wallets (wallet_address) VALUES ($1) ON CONFLICT DO NOTHING', [cleanAddress]);
+                        await client.query('COMMIT');
+                    }
+                } catch (dbErr: any) {
+                    if (client) await client.query('ROLLBACK');
+                    console.error("Whitelist Database Fault:", dbErr);
+                    return json({ error: 'Internal Perimeter Fault' }, { status: 500 });
+                } finally {
+                    if (client) client.release();
+                }
             }
 
             // 1. Verify Challenge Exists & Matches
@@ -106,12 +143,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
                 console.error("Signature math failed:", cryptoErr);
             }
 
-            // ⚡ OVERRIDE
-            if (!isValid && GLOBAL_DEV_BYPASS) {
-                isValid = true;
-                console.warn(`⚠️ DEV BYPASS ACTIVATED: Signature verification overridden for testing wallet: ${cleanAddress}`);
-            }
-
             if (!isValid) {
                 return json({ error: 'Zero-Trust Protocol: Cryptographic signature mismatch.' }, { status: 401 });
             }
@@ -123,7 +154,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         // 4. Issue the strict HTTP-Only Zero-Trust Session
         cookies.set('perennia_session', address, {
             path: '/',
-            httpOnly: true, // Prevents XSS memory scraping
+            httpOnly: true, 
             sameSite: 'strict',
             secure: process.env.NODE_ENV === 'production',
             maxAge: 60 * 60 * 24 * 7 // 1 Week persistent base state

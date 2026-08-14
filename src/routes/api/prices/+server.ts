@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { redis } from '$lib/server/redis'; 
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async () => {
     try {
         // ⚡ Precision Oracle: O(1) in-memory read from Redis WAL directly (populated by Rust daemon)
         // Completely bypasses CoinGecko's rate limits and allows infinite frontend concurrency
@@ -20,13 +20,13 @@ export const GET: RequestHandler = async ({ url }) => {
             });
         }
         
-        // Strict fallback if the Rust daemon hasn't completed its first loop on boot
-        return json({
-            kaspa: { usd: 0.16, usd_24h_change: 0 },
-            bitcoin: { usd: 65000, usd_24h_change: 0 },
-            ethereum: { usd: 3500, usd_24h_change: 0 },
-            solana: { usd: 145, usd_24h_change: 0 }
-        });
+        // ⚡ ZERO MOCK ENFORCEMENT: If Redis is empty, the Oracle is literally offline.
+        // Returning a 503 prevents the frontend from rendering false portfolio values.
+        return json(
+            { error: "Oracle Sync Pending", message: "Rust Daemon has not published initial spot prices yet." }, 
+            { status: 503 }
+        );
+        
     } catch (e: any) {
         console.error("🚨 CRITICAL: Redis Oracle Read Failed -", e.message);
         return json({ error: "Oracle Cache Unreachable", details: e.message }, { status: 500 });

@@ -10,9 +10,9 @@ import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import createHash from 'create-hash';
 import bs58check from 'bs58check';
-
-// ⚡ Injecting the Omni-Chain Derivation Engine
 import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
+
+import { activeInviteCode } from '$lib/stores/app';
 
 // @ts-ignore
 import { executeSovereignTransaction, executeSovereignPSBT, txState } from './transaction.svelte.ts';
@@ -162,13 +162,20 @@ async function buildAndSecureVault(password: string, mnemonic: string, isImport 
 
         privateKeyHex = "0".repeat(64); // Scrub memory
 
+        const authBody: Record<string, any> = { address: kasAddress, signature, message, provider: 'sovereign' };
+        const invite = get(activeInviteCode);
+        if (invite) authBody.inviteCode = invite;
+
         const authRes = await fetch('/api/auth', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address: kasAddress, signature, message, provider: 'sovereign' })
+            body: JSON.stringify(authBody)
         });
 
-        if (!authRes.ok) throw new Error("Matrix Authentication Failed.");
+        if (!authRes.ok) {
+            const errData = await authRes.json();
+            throw new Error(errData.error || "Matrix Authentication Failed.");
+        }
 
         walletMessage.set('Encrypting Ephemeral Vault...');
         const encryptedVault = await encryptVault(password, mnemonic);
@@ -199,9 +206,9 @@ async function buildAndSecureVault(password: string, mnemonic: string, isImport 
             addresses: safeWallets
         };
 
-    } catch (e) {
+    } catch (e: any) {
         console.error("[Perennia Core] Matrix Forge Failed:", e);
-        walletMessage.set('Sovereign Generation Failed.');
+        walletMessage.set(e.message || 'Sovereign Generation Failed.');
         disconnectWallet();
         throw e;
     } finally {
@@ -255,13 +262,20 @@ export async function unlockSovereignVault(password: string) {
         privateKeyHex = "0".repeat(64);
 
         walletMessage.set('Verifying zero-trust session...');
+        const authBody: Record<string, any> = { address: kasAddress, signature, message, provider: 'sovereign' };
+        const invite = get(activeInviteCode);
+        if (invite) authBody.inviteCode = invite;
+
         const authRes = await fetch('/api/auth', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address: kasAddress, signature, message, provider: 'sovereign' })
+            body: JSON.stringify(authBody)
         });
 
-        if (!authRes.ok) throw new Error("Sovereign authentication rejected by backend.");
+        if (!authRes.ok) {
+            const errData = await authRes.json();
+            throw new Error(errData.error || "Sovereign authentication rejected by backend.");
+        }
 
         walletMessage.set('Hydrating Omni-Chain Balances...');
         
@@ -440,13 +454,25 @@ export async function connectKasware() {
                 const signature = typeof signatureObj === 'string' ? signatureObj : signatureObj.signature;
 
                 walletMessage.set('Verifying identity matrix...');
+                const authBody: Record<string, any> = { 
+                    address: formattedAddress, 
+                    signature, 
+                    message, 
+                    provider: 'kasware'
+                };
+                const invite = get(activeInviteCode);
+                if (invite) authBody.inviteCode = invite;
+
                 const authRes = await fetch('/api/auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address: formattedAddress, signature, message, provider: 'kasware' })
+                    body: JSON.stringify(authBody)
                 });
 
-                if (!authRes.ok) throw new Error("Backend verification rejected the signature.");
+                if (!authRes.ok) {
+                    const errData = await authRes.json();
+                    throw new Error(errData.error || "Backend verification rejected the signature.");
+                }
 
                 walletAddress.set(formattedAddress);
                 activeWalletType.set('kasware');
@@ -523,13 +549,25 @@ export async function connectWalletConnect() {
             }, "eip155:1");
 
             walletMessage.set('Verifying identity matrix...');
+            const authBody: Record<string, any> = { 
+                address, 
+                signature, 
+                message, 
+                provider: 'walletconnect'
+            };
+            const invite = get(activeInviteCode);
+            if (invite) authBody.inviteCode = invite;
+
             const authRes = await fetch('/api/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ address, signature, message, provider: 'walletconnect' })
+                body: JSON.stringify(authBody)
             });
 
-            if (!authRes.ok) throw new Error("Backend verification rejected the signature.");
+            if (!authRes.ok) {
+                const errData = await authRes.json();
+                throw new Error(errData.error || "Backend verification rejected the signature.");
+            }
 
             walletAddress.set(address);
             activeWalletType.set('walletconnect');
@@ -542,8 +580,8 @@ export async function connectWalletConnect() {
             isWalletConnected.set(true);
             showWalletModal.set(false);
         }
-    } catch (e) {
-        walletMessage.set('WalletConnect aborted.');
+    } catch (e: any) {
+        walletMessage.set(e.message || 'WalletConnect aborted.');
         disconnectWallet();
     } finally {
         isConnecting.set(false);
@@ -589,6 +627,7 @@ export function disconnectWallet() {
     isVaultUnlockPending.set(false);
     pendingTransactionDetails.set(null);
     txState.decryptedPrivateKeyHex = ""; 
+    activeInviteCode.set('');
     
     if (typeof window !== 'undefined') {
         sessionStorage.removeItem('perennia_active_wallet_type');

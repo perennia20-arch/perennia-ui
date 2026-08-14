@@ -14,7 +14,7 @@
 {#if $showSettingsModal}
     <div class="fixed inset-0 z-[9999] flex items-center justify-center p-4" transition:fade={{duration: 150}}>
         <!-- Backdrop -->
-        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/95 backdrop-blur-md border-none cursor-default" onclick={close}></button>
+        <button aria-label="Close Settings" class="absolute inset-0 w-full h-full bg-[#050505]/98 border-none cursor-default" onclick={close}></button>
         
         <!-- Modal Body -->
         <div class="relative z-10 w-full max-w-[500px] bg-[#0c0c0c] border border-neutral-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden" transition:slide={{duration: 200, axis: 'y'}}>

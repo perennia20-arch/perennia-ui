@@ -12,18 +12,36 @@
     let isVaultDecrypted = $derived($isWalletConnected);
     let activeHoverSegment = $state<string | null>(null);
 
-    // Trimmed to 5 Major Default Tokens Each
-    let selectedKasTokens = $state<string[]>(['NACHO', 'IGRA', 'ZEAL', 'KASPY', 'KANGO']);
-    let selectedBtcTokens = $state<string[]>(['ORDI', 'SATS', 'RATS', 'PUPS', 'DOG']);
-    let selectedEthTokens = $state<string[]>(['USDT', 'USDC', 'LINK', 'UNI', 'PEPE']);
-    let selectedSolTokens = $state<string[]>(['USDC', 'USDT', 'JUP', 'RAY', 'BONK']);
-    let selectedDogeTokens = $state<string[]>(['DRC20-DOGE', 'CHEEMS', 'BARK', 'WOW', 'FIRO']);
-    let selectedXrpTokens = $state<string[]>(['RLUSD', 'SOLO', 'CORE', 'MAG', 'CXRP']);
-    let selectedPolTokens = $state<string[]>(['QUICK', 'USDC.e', 'GHST', 'LINK', 'WBTC']);
-    let selectedAvaxTokens = $state<string[]>(['JOE', 'PNG', 'WAVAX', 'QI', 'COQ']);
-    let selectedSuiTokens = $state<string[]>(['CETUS', 'NAVX', 'SUI', 'SCA', 'DEEP']);
-    let selectedTrxTokens = $state<string[]>(['USDT-TRC20', 'BTT', 'WIN', 'SUN', 'JST']);
-    let selectedZecTokens = $state<string[]>(['ZEC-SHIELDED']);
+    // Primary Display Mode Toggle State: 'token' or 'usd'
+    let displayUnit = $state<'token' | 'usd'>('token');
+    
+    // User-Controlled Decimal Precision
+    let displayDecimals = $state(8);
+
+    // ⚡ ZERO MOCK DATA: All arrays default to empty.
+    let selectedKasTokens = $state<string[]>([]);
+    let selectedBtcTokens = $state<string[]>([]);
+    let selectedEthTokens = $state<string[]>([]);
+    let selectedSolTokens = $state<string[]>([]);
+    let selectedDogeTokens = $state<string[]>([]);
+    let selectedXrpTokens = $state<string[]>([]);
+    let selectedPolTokens = $state<string[]>([]);
+    let selectedAvaxTokens = $state<string[]>([]);
+    let selectedSuiTokens = $state<string[]>([]);
+    let selectedTrxTokens = $state<string[]>([]);
+    let selectedZecTokens = $state<string[]>([]);
+
+    let krc20Assets = $state<any[]>([]);
+    let brc20Assets = $state<any[]>([]);
+    let erc20Assets = $state<any[]>([]);
+    let splAssets = $state<any[]>([]);
+    let drc20Assets = $state<any[]>([]);
+    let xrpAssets = $state<any[]>([]);
+    let polAssets = $state<any[]>([]);
+    let avaxAssets = $state<any[]>([]);
+    let suiAssets = $state<any[]>([]);
+    let trxAssets = $state<any[]>([]);
+    let zecAssets = $state<any[]>([]);
 
     // Market Prices
     let btcPrice = $state(0.00); let btcDelta = $state(0);
@@ -50,7 +68,7 @@
     let trxAddr = $derived($sovereignKeys?.tron?.address || estate?.assets?.find((a: any) => a.symbol === 'TRX')?.address || 'Awaiting Decryption');
     let zecAddr = $derived($sovereignKeys?.zcash?.address || estate?.assets?.find((a: any) => a.symbol === 'ZEC')?.address || 'Awaiting Decryption');
 
-    // ⚡ UNIFIED ASSET CALCULATION: Merges L1 On-Chain + Redis Synthetic Balances
+    // UNIFIED ASSET CALCULATION: Merges L1 On-Chain + Redis Synthetic Balances
     let assets = $derived.by(() => {
         const liveKasBalance = parseFloat($walletBalance) || 0;
         const getMergedBal = (symbol: string) => {
@@ -74,24 +92,13 @@
         ];
     });
 
-    let krc20Assets = $state<any[]>([{ symbol: 'NACHO', name: 'Nacho the Kat', hex: '#FACC15', icon: '🐈', balance: 0, price: 0.00015, supply: 28700000000, minted: 28700000000, siloVolume: 0 }, { symbol: 'IGRA', name: 'Igra Token', hex: '#10B981', icon: '💎', balance: 0, price: 0.00085, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'ZEAL', name: 'Zeal', hex: '#3B82F6', icon: '⚡', balance: 0, price: 0.00041, supply: 340000000, minted: 340000000, siloVolume: 0 }, { symbol: 'KASPY', name: 'Kaspy', hex: '#10B981', icon: '🐱', balance: 0, price: 0.00005, supply: 287000000, minted: 287000000, siloVolume: 0 }, { symbol: 'KANGO', name: 'Kango', hex: '#F97316', icon: '🦘', balance: 0, price: 0.00008, supply: 2870000000, minted: 2870000000, siloVolume: 0 }]);
-    let brc20Assets = $state<any[]>([{ symbol: 'ORDI', name: 'Ordinal Token', hex: '#F7931A', icon: '🟧', balance: 0, price: 34.20, supply: 21000000, minted: 21000000, siloVolume: 0 }, { symbol: 'SATS', name: 'Satoshi BRC20', hex: '#EAB308', icon: '⚡', balance: 0, price: 0.00000028, supply: 2100000000000000, minted: 2100000000000000, siloVolume: 0 }, { symbol: 'RATS', name: 'Rats BRC20', hex: '#64748B', icon: '🐀', balance: 0, price: 0.000092, supply: 100000000000, minted: 100000000000, siloVolume: 0 }, { symbol: 'PUPS', name: 'Pups World Peace', hex: '#EC4899', icon: '🐶', balance: 0, price: 7.80, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'DOG', name: 'Dog Got Moon', hex: '#F59E0B', icon: '🐕', balance: 0, price: 0.0034, supply: 100000000000, minted: 100000000000, siloVolume: 0 }]);
-    let erc20Assets = $state<any[]>([{ symbol: 'USDT', name: 'Tether USD', hex: '#22C55E', icon: '💵', balance: 0, price: 1.00, supply: 118000000000, minted: 118000000000, siloVolume: 0 }, { symbol: 'USDC', name: 'USD Coin', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 34000000000, minted: 34000000000, siloVolume: 0 }, { symbol: 'LINK', name: 'Chainlink', hex: '#2563EB', icon: '⬡', balance: 0, price: 11.40, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'UNI', name: 'Uniswap Governance', hex: '#F43F5E', icon: '🦄', balance: 0, price: 6.20, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'PEPE', name: 'Pepe ERC20', hex: '#16A34A', icon: '🐸', balance: 0, price: 0.0000078, supply: 420690000000000, minted: 420690000000000, siloVolume: 0 }]);
-    let splAssets = $state<any[]>([{ symbol: 'USDC', name: 'Solana USDC', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 2800000000, minted: 2800000000, siloVolume: 0 }, { symbol: 'USDT', name: 'Solana USDT', hex: '#22C55E', icon: '💵', balance: 0, price: 1.00, supply: 1900000000, minted: 1900000000, siloVolume: 0 }, { symbol: 'JUP', name: 'Jupiter DEX', hex: '#10B981', icon: '🪐', balance: 0, price: 0.78, supply: 10000000000, minted: 10000000000, siloVolume: 0 }, { symbol: 'RAY', name: 'Raydium', hex: '#8B5CF6', icon: '⚡', balance: 0, price: 1.45, supply: 555000000, minted: 555000000, siloVolume: 0 }, { symbol: 'BONK', name: 'Bonk Dog', hex: '#F97316', icon: '🐕', balance: 0, price: 0.000018, supply: 92000000000000, minted: 92000000000000, siloVolume: 0 }]);
-    let drc20Assets = $state<any[]>([{ symbol: 'DRC20-DOGE', name: 'Dogecoin Ordinal', hex: '#C2A633', icon: '🐶', balance: 0, price: 0.05, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'CHEEMS', name: 'Cheems Doge', hex: '#EAB308', icon: '🐕', balance: 0, price: 0.01, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'BARK', name: 'Bark Token', hex: '#8B5CF6', icon: '🗣️', balance: 0, price: 0.002, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'WOW', name: 'Much Wow', hex: '#EC4899', icon: '🌟', balance: 0, price: 0.12, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'FIRO', name: 'Firo Doge', hex: '#06B6D4', icon: '🔥', balance: 0, price: 0.08, supply: 25000000, minted: 25000000, siloVolume: 0 }]);
-    let xrpAssets = $state<any[]>([{ symbol: 'RLUSD', name: 'Ripple USD', hex: '#23292F', icon: '💵', balance: 0, price: 1.00, supply: 1000000000, minted: 100000000, siloVolume: 0 }, { symbol: 'SOLO', name: 'Sologenic', hex: '#3B82F6', icon: '🌐', balance: 0, price: 0.12, supply: 400000000, minted: 400000000, siloVolume: 0 }, { symbol: 'CORE', name: 'Coreum', hex: '#EAB308', icon: '⚡', balance: 0, price: 0.25, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'MAG', name: 'Magnetic', hex: '#EF4444', icon: '🧲', balance: 0, price: 0.04, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'CXRP', name: 'Wrapped XRP', hex: '#A855F7', icon: '📦', balance: 0, price: 0.58, supply: 1000000, minted: 1000000, siloVolume: 0 }]);
-    let polAssets = $state<any[]>([{ symbol: 'QUICK', name: 'QuickSwap', hex: '#8247E5', icon: '⚡', balance: 0, price: 0.045, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'USDC.e', name: 'Bridged USDC', hex: '#3B82F6', icon: '🪙', balance: 0, price: 1.00, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'GHST', name: 'Aavegotchi', hex: '#EC4899', icon: '👻', balance: 0, price: 1.15, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'LINK', name: 'Chainlink (POL)', hex: '#2563EB', icon: '⬡', balance: 0, price: 11.40, supply: 100000000, minted: 100000000, siloVolume: 0 }, { symbol: 'WBTC', name: 'Wrapped BTC', hex: '#F59E0B', icon: '₿', balance: 0, price: 61200.00, supply: 10000, minted: 10000, siloVolume: 0 }]);
-    let avaxAssets = $state<any[]>([{ symbol: 'JOE', name: 'Trader Joe', hex: '#E84142', icon: '🔺', balance: 0, price: 0.32, supply: 500000000, minted: 500000000, siloVolume: 0 }, { symbol: 'PNG', name: 'Pangolin', hex: '#F97316', icon: '🐧', balance: 0, price: 0.22, supply: 538000000, minted: 538000000, siloVolume: 0 }, { symbol: 'WAVAX', name: 'Wrapped AVAX', hex: '#EF4444', icon: '❄️', balance: 0, price: 22.50, supply: 10000000, minted: 10000000, siloVolume: 0 }, { symbol: 'QI', name: 'BENQI', hex: '#10B981', icon: '🦅', balance: 0, price: 0.015, supply: 7200000000, minted: 7200000000, siloVolume: 0 }, { symbol: 'COQ', name: 'Coq Inu', hex: '#EAB308', icon: '🐔', balance: 0, price: 0.000002, supply: 69000000000000, minted: 69000000000000, siloVolume: 0 }]);
-    let suiAssets = $state<any[]>([{ symbol: 'CETUS', name: 'Cetus Protocol', hex: '#4CA2FF', icon: '🐋', balance: 0, price: 0.08, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'NAVX', name: 'NAVI Protocol', hex: '#3B82F6', icon: '🧭', balance: 0, price: 0.12, supply: 1000000000, minted: 1000000000, siloVolume: 0 }, { symbol: 'SUI', name: 'Staked SUI', hex: '#06B6D4', icon: '💧', balance: 0, price: 0.95, supply: 50000000, minted: 50000000, siloVolume: 0 }, { symbol: 'SCA', name: 'Scallop', hex: '#A855F7', icon: '🐚', balance: 0, price: 0.45, supply: 250000000, minted: 250000000, siloVolume: 0 }, { symbol: 'DEEP', name: 'DeepBook', hex: '#10B981', icon: '📚', balance: 0, price: 0.03, supply: 10000000000, minted: 10000000000, siloVolume: 0 }]);
-    let trxAssets = $state<any[]>([{ symbol: 'USDT-TRC20', name: 'Tron Tether', hex: '#FF0013', icon: '💵', balance: 0, price: 1.00, supply: 50000000000, minted: 50000000000, siloVolume: 0 }, { symbol: 'BTT', name: 'BitTorrent', hex: '#64748B', icon: '🌊', balance: 0, price: 0.000001, supply: 990000000000000, minted: 990000000000000, siloVolume: 0 }, { symbol: 'WIN', name: 'WINKLink', hex: '#F59E0B', icon: '🎲', balance: 0, price: 0.0001, supply: 999000000000, minted: 999000000000, siloVolume: 0 }, { symbol: 'SUN', name: 'SUN Token', hex: '#EAB308', icon: '☀️', balance: 0, price: 0.015, supply: 19900000000, minted: 19900000000, siloVolume: 0 }, { symbol: 'JST', name: 'JUST', hex: '#EF4444', icon: '⚖️', balance: 0, price: 0.03, supply: 9900000000, minted: 9900000000, siloVolume: 0 }]);
-    let zecAssets = $state<any[]>([{ symbol: 'ZEC-SHIELDED', name: 'Shielded Pool Note', hex: '#F4B728', icon: '🛡️', balance: 0, price: 31.20, supply: 21000000, minted: 21000000, siloVolume: 0 }]);
-
     onMount(() => {
         if (browser) {
             try {
                 const ls = localStorage;
-                if (ls.getItem('p_kas_t')) selectedKasTokens = JSON.parse(ls.getItem('p_kas_t')!);
-                if (ls.getItem('p_kas_a')) krc20Assets = JSON.parse(ls.getItem('p_kas_a')!);
+                // ⚡ Upgraded the storage key to `_v3` to autonomously nuke the user's old mock data
+                if (ls.getItem('p_kas_t_v3')) selectedKasTokens = JSON.parse(ls.getItem('p_kas_t_v3')!);
+                if (ls.getItem('p_kas_a_v3')) krc20Assets = JSON.parse(ls.getItem('p_kas_a_v3')!);
             } catch (e) { console.error("Failed to load persistence"); }
         }
     });
@@ -99,8 +106,8 @@
     $effect(() => {
         if (browser) {
             const ls = localStorage;
-            ls.setItem('p_kas_t', JSON.stringify(selectedKasTokens)); 
-            ls.setItem('p_kas_a', JSON.stringify(krc20Assets));
+            ls.setItem('p_kas_t_v3', JSON.stringify(selectedKasTokens)); 
+            ls.setItem('p_kas_a_v3', JSON.stringify(krc20Assets));
         }
     });
 
@@ -168,15 +175,22 @@
                 const data = await balanceRes.json();
                 if (data.result) {
                     data.result.forEach((item: any) => {
-                        userBalances[item.tick] = Number(item.balance) / 1e8;
-                        if (!krc20Assets.some(t => t.symbol === item.tick)) {
-                            let hash = 0; for (let i = 0; i < item.tick.length; i++) hash = item.tick.charCodeAt(i) + ((hash << 5) - hash);
-                            const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
-                            krc20Assets = [...krc20Assets, {
-                                symbol: item.tick, name: item.tick + ' Token', hex, icon: item.tick.charAt(0).toUpperCase(),
-                                balance: 0, price: 0, supply: 0, minted: 0, siloVolume: 0
-                            }];
-                            if (!selectedKasTokens.includes(item.tick)) selectedKasTokens = [...selectedKasTokens, item.tick];
+                        const bal = Number(item.balance) / 1e8;
+                        
+                        // ⚡ STRICT MOCK FILTER: Only auto-populate tokens if the user ACTUALLY holds a balance > 0.
+                        // This prevents the search feature from dumping empty tokens into the drawer.
+                        if (bal > 0) {
+                            userBalances[item.tick] = bal;
+                            if (!krc20Assets.some(t => t.symbol === item.tick)) {
+                                let hash = 0; for (let i = 0; i < item.tick.length; i++) hash = item.tick.charCodeAt(i) + ((hash << 5) - hash);
+                                const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
+                                krc20Assets = [...krc20Assets, {
+                                    symbol: item.tick, name: item.tick + ' Token', hex, 
+                                    imgUrl: `https://storage.googleapis.com/kasfyi/token-icons/${item.tick}.png`, // ⚡ Real Icons
+                                    balance: 0, price: 0, supply: 0, minted: 0, siloVolume: 0
+                                }];
+                                if (!selectedKasTokens.includes(item.tick)) selectedKasTokens = [...selectedKasTokens, item.tick];
+                            }
                         }
                     });
                 }
@@ -206,7 +220,10 @@
         const clean = ticker.toUpperCase().trim();
         let hash = 0; for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash);
         const hex = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
-        const tokenObj = { symbol: clean, name: `${clean} (${network} Token)`, hex, icon: clean.charAt(0).toUpperCase(), balance: 0, price: 1.00, supply: 1000000000, minted: 1000000000, siloVolume: 0 };
+        
+        // ⚡ Injects the official real token logo from the Kas.fyi cloud bucket
+        const imgUrl = `https://storage.googleapis.com/kasfyi/token-icons/${clean}.png`;
+        const tokenObj = { symbol: clean, name: `${clean} (${network} Token)`, hex, imgUrl, balance: 0, price: 1.00, supply: 1000000000, minted: 1000000000, siloVolume: 0 };
 
         if (network === 'KAS') {
             try {
@@ -321,7 +338,7 @@
 <div class="w-full h-full min-h-[100dvh] bg-[#050505] text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
     
     {#if !isVaultDecrypted}
-        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505] p-6 text-center">
+        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505]/98 p-6 text-center">
             <div class="w-24 h-24 border-2 border-neutral-800 flex items-center justify-center rounded-2xl mb-6 bg-[#0a0a0a] shadow-inner">
                 <svg class="w-10 h-10 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
             </div>
@@ -331,16 +348,49 @@
 
     <div class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-8 transition-opacity duration-500 {!isVaultDecrypted ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative">
         
-        <!-- HERO CARD (SONAR + ORBITAL RING) -->
-        <div class="bg-[#0a0a0a] border border-neutral-800/50 rounded-[32px] shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden mb-2 mt-4 group">
+        <!-- HERO CARD (SONAR + ORBITAL RING + DISPLAY UNIT & DECIMAL CONTROLS) -->
+        <div class="bg-[#0a0a0a] border border-[#18C6A5]/20 rounded-[32px] shadow-[0_0_40px_rgba(24,198,165,0.15)] relative overflow-hidden mb-2 mt-4 group">
             <div class="relative z-10 p-8 lg:p-10 flex flex-col md:flex-row items-center justify-between gap-10">
-                <div class="flex flex-col items-center md:items-start text-center md:text-left w-full md:w-auto">
-                    <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4 flex items-center gap-2">
-                        <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></div> Total Vault Portfolio Value
-                    </span>
-                    <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
-                        {totalVaultValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                    </span>
+                <div class="flex flex-col md:flex-row items-center justify-between w-full gap-6">
+                    <div class="flex flex-col items-center md:items-start text-center md:text-left w-full md:w-auto">
+                        <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4 flex items-center gap-2">
+                            <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></div> Total Vault Portfolio Value
+                        </span>
+                        <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+                            ${totalVaultValue.toLocaleString('en-US', { minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals })}
+                        </span>
+                    </div>
+
+                    <!-- Dynamic Controls -->
+                    <div class="flex items-center gap-3 self-center md:self-end">
+                        
+                        <!-- Decimal Precision Toggle -->
+                        <div class="flex items-center bg-[#111] border border-neutral-800 rounded-xl p-1 shrink-0">
+                            <button aria-label="Decrease Decimals" onclick={() => displayDecimals = Math.max(0, displayDecimals - 1)} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                            </button>
+                            <span class="text-[9px] font-bold uppercase tracking-widest text-[#18C6A5] px-2 tabular-nums select-none">{displayDecimals} DEC</span>
+                            <button aria-label="Increase Decimals" onclick={() => displayDecimals = Math.min(12, displayDecimals + 1)} class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </button>
+                        </div>
+
+                        <!-- Display Unit Toggle -->
+                        <div class="flex items-center bg-[#111] border border-neutral-800 rounded-xl p-1 shrink-0">
+                            <button 
+                                onclick={() => displayUnit = 'token'} 
+                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#18C6A5] text-black shadow-md' : 'text-neutral-500 hover:text-white'}"
+                            >
+                                Token
+                            </button>
+                            <button 
+                                onclick={() => displayUnit = 'usd'} 
+                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#18C6A5] text-black shadow-md' : 'text-neutral-500 hover:text-white'}"
+                            >
+                                USD
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="relative w-40 h-40 shrink-0">
@@ -363,24 +413,24 @@
 
         <!-- 11 NETWORKS RENDERED DYNAMICALLY VIA COMPONENT -->
         <div class="flex flex-col gap-4">
-            <NetworkRow asset={assets[0]} bind:subAssets={krc20Assets} bind:selectedTokens={selectedKasTokens} standardLabel="KRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[1]} bind:subAssets={brc20Assets} bind:selectedTokens={selectedBtcTokens} standardLabel="BRC-20 / Runes" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[2]} bind:subAssets={erc20Assets} bind:selectedTokens={selectedEthTokens} standardLabel="ERC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[3]} bind:subAssets={splAssets} bind:selectedTokens={selectedSolTokens} standardLabel="SPL Tokens" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[4]} bind:subAssets={drc20Assets} bind:selectedTokens={selectedDogeTokens} standardLabel="DRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[5]} bind:subAssets={xrpAssets} bind:selectedTokens={selectedXrpTokens} standardLabel="Trustlines" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[6]} bind:subAssets={polAssets} bind:selectedTokens={selectedPolTokens} standardLabel="Polygon EVM" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[7]} bind:subAssets={avaxAssets} bind:selectedTokens={selectedAvaxTokens} standardLabel="ARC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[8]} bind:subAssets={suiAssets} bind:selectedTokens={selectedSuiTokens} standardLabel="Move Tokens" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[9]} bind:subAssets={trxAssets} bind:selectedTokens={selectedTrxTokens} standardLabel="TRC-20" {searchGlobalNetwork} bind:activeHoverSegment />
-            <NetworkRow asset={assets[10]} bind:subAssets={zecAssets} bind:selectedTokens={selectedZecTokens} standardLabel="Shielded Notes" {searchGlobalNetwork} bind:activeHoverSegment />
+            <NetworkRow asset={assets[0]} bind:subAssets={krc20Assets} bind:selectedTokens={selectedKasTokens} standardLabel="KRC-20" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[1]} bind:subAssets={brc20Assets} bind:selectedTokens={selectedBtcTokens} standardLabel="BRC-20 / Runes" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[2]} bind:subAssets={erc20Assets} bind:selectedTokens={selectedEthTokens} standardLabel="ERC-20" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[3]} bind:subAssets={splAssets} bind:selectedTokens={selectedSolTokens} standardLabel="SPL Tokens" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[4]} bind:subAssets={drc20Assets} bind:selectedTokens={selectedDogeTokens} standardLabel="DRC-20" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[5]} bind:subAssets={xrpAssets} bind:selectedTokens={selectedXrpTokens} standardLabel="Trustlines" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[6]} bind:subAssets={polAssets} bind:selectedTokens={selectedPolTokens} standardLabel="Polygon EVM" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[7]} bind:subAssets={avaxAssets} bind:selectedTokens={selectedAvaxTokens} standardLabel="ARC-20" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[8]} bind:subAssets={suiAssets} bind:selectedTokens={selectedSuiTokens} standardLabel="Move Tokens" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[9]} bind:subAssets={trxAssets} bind:selectedTokens={selectedTrxTokens} standardLabel="TRC-20" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
+            <NetworkRow asset={assets[10]} bind:subAssets={zecAssets} bind:selectedTokens={selectedZecTokens} standardLabel="Shielded Notes" {searchGlobalNetwork} bind:activeHoverSegment {displayUnit} {displayDecimals} />
         </div>
 
         <!-- RWA ORACLE ROW SECTION -->
         <RwaRow />
 
         <!-- CHRONOS YIELD PROJECTION MATRIX -->
-        <div class="relative bg-[#0a0a0a] border border-neutral-800/80 rounded-[32px] p-6 md:p-10 shadow-[inset_0_0_80px_rgba(0,0,0,0.4)] overflow-hidden mt-4 transition-all duration-700 min-h-[400px]">
+        <div class="relative bg-[#0a0a0a] border border-teal-900/40 rounded-[32px] p-6 md:p-10 shadow-[0_0_40px_rgba(24,198,165,0.1),inset_0_0_80px_rgba(0,0,0,0.4)] overflow-hidden mt-4 transition-all duration-700 min-h-[400px]">
             <div class="flex flex-col gap-8 transition-all duration-500">
                 <div class="flex justify-between items-end border-b border-neutral-800/80 pb-4">
                     <div>
@@ -424,7 +474,7 @@
                         </div>
                     </div>
 
-                    <div class="lg:col-span-8 bg-[#0c0c0c] border border-neutral-800/50 rounded-2xl p-4 shadow-inner relative flex flex-col">
+                    <div class="lg:col-span-8 bg-[#0a0a0a] border border-neutral-800/50 rounded-2xl p-4 shadow-inner relative flex flex-col">
                         <div class="absolute top-4 right-4 z-10 flex flex-col items-end pointer-events-none">
                             <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-bold">36-Month Vault Projection</span>
                             <span class="text-lg font-mono font-black text-teal-500/80 drop-shadow-md">

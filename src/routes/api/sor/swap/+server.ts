@@ -1,9 +1,14 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { redis } from '$lib/server/redis';
+import { env } from '$env/dynamic/private';
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
+const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
 
+// ============================================================================
+// L1 DEX SWAP ROUTER: Physical UTXO -> Synthetic Asset
+// Requires User Signature (PSBT)
+// ============================================================================
 export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
     try {
         const rawCookie = cookies.get('perennia_session');
@@ -14,7 +19,7 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
         const sessionCookie = decodeURIComponent(rawCookie);
 
         const body = await request.json().catch(() => ({}));
-        const { wallet, payAsset, receiveAsset, amount, slippageTolerance } = body;
+        const { wallet, payAsset, receiveAsset, amount, slippageTolerance, systemMode } = body;
 
         if (!wallet || !payAsset || !receiveAsset || !amount) {
             return json({ error: 'Bad Request', message: 'Invalid payload.' }, { status: 400 });
@@ -40,10 +45,19 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
             scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
         }));
 
-        const rustRes = await fetch('http://127.0.0.1:8002/v1/sor/execute', {
+        // Fire to the Rust Engine for PSBT Construction and Waterfall Routing
+        const rustRes = await fetch(`http://${nodeIp}:8002/v1/sor/execute`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ wallet, payAsset, receiveAsset, amount, slippageTolerance: slippageTolerance || 0.05, utxos: formattedUtxos })
+            body: JSON.stringify({ 
+                wallet, 
+                payAsset, 
+                receiveAsset, 
+                amount, 
+                slippageTolerance: slippageTolerance || 0.05, 
+                utxos: formattedUtxos,
+                systemMode: systemMode || 'base'
+            })
         });
 
         if (!rustRes.ok) {
@@ -53,13 +67,9 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
 
         const rustData = await rustRes.json();
 
-        // ⚡ PERSIST SYNTHETIC BALANCE TO REDIS LEDGER
-        const cleanWallet = wallet.toLowerCase().replace('kaspa:', '').trim();
-        const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-
-        if (rustData.estimatedOutput && rustData.estimatedOutput > 0) {
-            await redis.hincrbyfloat(userLedgerKey, receiveAsset, rustData.estimatedOutput);
-        }
+        // ⚡ NOTE: We DO NOT increment the Redis synthetic balance here anymore.
+        // The balance will only increment once the transaction is broadcasted successfully
+        // via the /api/broadcast endpoint, ensuring absolute zero-trust ledger safety.
 
         return json({
             unified_rate: rustData.unifiedRate,
@@ -71,7 +81,7 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
         }, { status: 200 });
 
     } catch (error: any) {
-        console.error('SOR Assembly Fault:', error.message || error);
+        console.error('DEX Swap Assembly Fault:', error.message || error);
         return json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
     }
 };

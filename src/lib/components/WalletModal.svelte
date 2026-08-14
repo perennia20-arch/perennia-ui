@@ -212,7 +212,7 @@
 
 {#if $showWalletModal}
     <div 
-        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a]/95 p-4 font-mono"
+        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a]/98 p-4 font-mono"
         transition:fade={{ duration: 150 }}
         onclick={close}
         onkeydown={(e) => e.key === 'Escape' && close()}
@@ -252,7 +252,7 @@
                         
                         <!-- Morph Ball Visual -->
                         <div class="group relative flex items-center justify-center w-24 h-24 rounded-full mb-4 transition-all duration-700 pointer-events-none">
-                            <div class="absolute inset-0 rounded-full border-2 border-neutral-800 transition-all duration-700 {$isConnecting ? 'border-[#18C6A5] scale-110 blur-sm' : ''}"></div>
+                            <div class="absolute inset-0 rounded-full border-2 border-neutral-800 transition-all duration-700 {$isConnecting ? 'border-[#18C6A5] scale-110' : ''}"></div>
                             <div class="relative w-16 h-16 rounded-full flex items-center justify-center overflow-hidden transition-all duration-700 shadow-inner z-10 {$isConnecting ? 'bg-[#18C6A5] shadow-[0_0_30px_rgba(24,198,165,0.6)] animate-pulse' : 'bg-[#161616] border border-neutral-800'}">
                                {#if $isConnecting}
                                  <span class="text-black font-black tracking-widest text-[8px] z-20">SYNC</span>
@@ -273,7 +273,7 @@
                                     <span class="w-2 h-2 rounded-none bg-teal-500 shadow-[0_0_10px_#14b8a6] animate-pulse"></span>
                                 </button>
                             {:else}
-                                <!-- ⚡ NEW: Split "Create Vault" and "Import Vault" Buttons -->
+                                <!-- Split "Create Vault" and "Import Vault" Buttons -->
                                 <div class="flex gap-2">
                                     <button 
                                         onclick={() => viewState = 'create_pass'} 
@@ -325,7 +325,6 @@
                         </div>
                     </div>
 
-                <!-- ⚡ NEW IMPORT PIPELINE -->
                 {:else if viewState === 'import_seed'}
                     <form onsubmit={(e) => { e.preventDefault(); handleImport(); }} class="flex flex-col gap-4" in:fade={{ duration: 150 }}>
                         <p class="text-[10px] text-neutral-500 leading-relaxed uppercase tracking-widest font-bold">

@@ -8,7 +8,9 @@
         selectedTokens = $bindable(), 
         standardLabel, 
         searchGlobalNetwork,
-        activeHoverSegment = $bindable()
+        activeHoverSegment = $bindable(),
+        displayUnit = 'token',
+        displayDecimals = 8
     } = $props();
 
     let isMainOpen = $state(false);
@@ -82,18 +84,29 @@
         }
         isSearching = false;
     }
+
+    // ⚡ Clean Svelte Event Handler to replace the raw string that crashed the compiler
+    function handleTokenIconError(e: Event, symbol: string) {
+        const target = e.currentTarget as HTMLImageElement;
+        if (!target.dataset.triedJpg) {
+            target.dataset.triedJpg = 'true';
+            target.src = `https://storage.googleapis.com/kasfyi/token-icons/${symbol}.jpg`;
+        } else {
+            target.style.display = 'none';
+            if (target.nextElementSibling) {
+                (target.nextElementSibling as HTMLElement).style.display = 'inline';
+            }
+        }
+    }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div 
-    class="bg-[#0c0c0c] rounded-[24px] border {isMainOpen ? 'border-neutral-500 shadow-[0_0_20px_rgba(255,255,255,0.05)]' : 'border-neutral-800/80 shadow-xl'} transition-all duration-300 flex flex-col relative overflow-hidden"
+    class="bg-[#0c0c0c] rounded-[24px] border {isMainOpen ? 'border-neutral-500 shadow-[0_0_20px_rgba(255,255,255,0.05)]' : 'border-neutral-800/80 hover:border-neutral-600 hover:shadow-[0_0_20px_rgba(24,198,165,0.1)] shadow-xl'} transition-all duration-300 flex flex-col relative overflow-hidden"
     style={activeHoverSegment === asset.symbol ? `border-color: ${asset.hex}50; box-shadow: 0 0 30px ${asset.hex}15;` : ''}
     onmouseenter={() => activeHoverSegment = asset.symbol}
     onmouseleave={() => activeHoverSegment = null}
 >
     <!-- L1 MAIN ROW -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div onclick={() => isMainOpen = !isMainOpen} role="button" tabindex="0" class="w-full p-6 flex items-center justify-between cursor-pointer hover:bg-[#111] transition-colors focus:outline-none text-left border-none select-none relative z-10">
         <div class="flex items-center gap-5">
             <div class="w-12 h-12 rounded-xl border border-neutral-800 bg-[#050505] flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden">
@@ -110,14 +123,29 @@
                     <span class="text-[8px] font-medium uppercase tracking-widest bg-[#111] border border-neutral-800 text-neutral-400 px-2 py-0.5 rounded-md shadow-inner hidden xl:block">{asset.badge}</span>
                 </div>
                 <span class="text-[10px] font-medium text-neutral-500 tracking-widest">
-                    ${asset.spotPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} 
+                    ${asset.spotPrice.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} 
                     <span class="ml-2 {asset.delta >= 0 ? 'text-[#18C6A5]' : 'text-red-500'} drop-shadow-sm">{asset.delta >= 0 ? '▲' : '▼'} {Math.abs(asset.delta).toFixed(2)}%</span>
                 </span>
             </div>
         </div>
-        <div class="flex flex-col items-end gap-2.5">
-            <span class="text-xl md:text-2xl font-normal tabular-nums tracking-tight text-neutral-200 leading-none">{asset.balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6})}</span>
-            <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="px-3 py-1 rounded-lg bg-[#050505] border border-neutral-800 hover:border-neutral-500 text-[9px] font-medium uppercase tracking-widest text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer focus:outline-none shrink-0 shadow-sm">
+        
+        <div class="flex flex-col items-end gap-1">
+            {#if displayUnit === 'token'}
+                <span class="text-lg md:text-2xl font-normal tabular-nums tracking-tight text-neutral-200 leading-none">
+                    {asset.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} <span class="text-xs font-mono text-neutral-400">{asset.symbol}</span>
+                </span>
+                <span class="text-[10px] font-mono text-neutral-500 tracking-wider tabular-nums">
+                    ≈ ${(asset.balance * asset.spotPrice).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
+                </span>
+            {:else}
+                <span class="text-lg md:text-2xl font-normal tabular-nums tracking-tight text-[#18C6A5] leading-none">
+                    ${(asset.balance * asset.spotPrice).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
+                </span>
+                <span class="text-[10px] font-mono text-neutral-500 tracking-wider tabular-nums">
+                    ≈ {asset.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} {asset.symbol}
+                </span>
+            {/if}
+            <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="mt-1 px-3 py-1 rounded-lg bg-[#050505] border border-neutral-800 hover:border-neutral-500 text-[9px] font-medium uppercase tracking-widest text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer focus:outline-none shrink-0 shadow-sm">
                 {asset.address.includes('Awaiting') ? 'Locked' : 'Copy Root'}
             </button>
         </div>
@@ -144,7 +172,6 @@
                         </div>
                     </div>
 
-                    <!-- ⚡ SLEEK DARK QR PLACEHOLDER (NO MORE WHITE BOX) -->
                     <div class="w-[85px] h-[85px] bg-[#050505] border border-neutral-800 rounded-xl p-1 flex items-center justify-center shrink-0 shadow-md relative overflow-hidden">
                         {#if qrCodeUrl && !asset.address.includes('Awaiting')}
                             <img src={qrCodeUrl} alt="QR Code" class="w-full h-full rounded-lg bg-white p-1" style="image-rendering: pixelated;" />
@@ -207,11 +234,17 @@
 
                             {#each filteredSubAssets as token}
                                 <div class="bg-[#0c0c0c] border border-neutral-800 hover:border-neutral-700 rounded-xl overflow-hidden transition-all duration-300">
-                                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                                    <!-- svelte-ignore a11y_interactive_supports_focus -->
                                     <div class="flex items-center justify-between p-3.5 cursor-pointer select-none" onclick={() => isManaging ? toggleSelection(token.symbol) : expandedSubToken = expandedSubToken === token.symbol ? null : token.symbol} role="button" tabindex="0">
                                         <div class="flex items-center gap-4">
-                                            <div class="w-9 h-9 rounded-lg bg-[#050505] border border-neutral-800 flex items-center justify-center text-[16px] shadow-inner font-black font-sans" style="color: {token.hex}; box-shadow: inset 0 0 10px {token.hex}15;">{token.icon}</div>
+                                            <div class="w-9 h-9 rounded-lg bg-[#050505] border border-neutral-800 flex items-center justify-center text-[16px] shadow-inner font-black font-sans" style="color: {token.hex}; box-shadow: inset 0 0 10px {token.hex}15;">
+                                                {#if token.imgUrl}
+                                                    <img src={token.imgUrl} class="w-5 h-5 object-contain drop-shadow-md" alt={token.symbol} 
+                                                         onerror={(e) => handleTokenIconError(e, token.symbol)} />
+                                                    <span style="display:none;" class="text-xs font-black">{token.symbol[0]}</span>
+                                                {:else}
+                                                    <span class="text-xs font-black">{token.symbol[0]}</span>
+                                                {/if}
+                                            </div>
                                             <div class="flex flex-col">
                                                 <span class="text-xs font-bold tracking-wider text-white">{token.symbol}</span>
                                                 <span class="text-[9px] text-neutral-500 uppercase tracking-widest">{token.name}</span>
@@ -220,8 +253,21 @@
                                         
                                         <div class="flex items-center gap-5 pr-1">
                                             <div class="flex flex-col items-end">
-                                                <span class="text-xs font-mono font-bold text-white">{token.balance.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4})}</span>
-                                                <span class="text-[9px] font-mono text-neutral-500">${(token.balance * token.price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                                {#if displayUnit === 'token'}
+                                                    <span class="text-xs font-mono font-bold text-white tabular-nums">
+                                                        {token.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} <span class="text-[9px] text-neutral-500">{token.symbol}</span>
+                                                    </span>
+                                                    <span class="text-[9px] font-mono text-neutral-500 tabular-nums">
+                                                        ≈ ${(token.balance * token.price).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
+                                                    </span>
+                                                {:else}
+                                                    <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums">
+                                                        ${(token.balance * token.price).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
+                                                    </span>
+                                                    <span class="text-[9px] font-mono text-neutral-500 tabular-nums">
+                                                        ≈ {token.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} {token.symbol}
+                                                    </span>
+                                                {/if}
                                             </div>
                                             {#if isManaging}
                                                 <div class="w-8 h-4 rounded-full relative transition-colors {selectedTokens.includes(token.symbol) ? 'bg-neutral-600 border border-neutral-400' : 'bg-[#1a1a1a] border border-neutral-700'}">
@@ -256,7 +302,7 @@
                                                     <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Silo Telemetry</span>
                                                     <div class="flex justify-between items-center">
                                                         <span class="text-[10px] font-mono text-neutral-400">DEX Volume Accredited</span>
-                                                        <span class="text-[10px] font-mono font-medium" style="color: {asset.hex}">{token.siloVolume.toLocaleString(undefined, {maximumFractionDigits: 0})} {token.symbol}</span>
+                                                        <span class="text-[10px] font-mono font-medium" style="color: {asset.hex}">{token.siloVolume.toLocaleString(undefined, {maximumFractionDigits: 8})} {token.symbol}</span>
                                                     </div>
                                                 </div>
 

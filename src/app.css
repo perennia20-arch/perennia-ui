@@ -1,1 +1,21 @@
 @import "tailwindcss";
+
+/* ========================================================
+   PHASE 4: OVERCLOCK MODE (NON-DESTRUCTIVE)
+   ======================================================== */
+.theme-overclock {
+    background-color: #000000 !important;
+}
+
+.theme-overclock .app-wrapper .bg-\[\#0a0a0a\],
+.theme-overclock .app-wrapper .bg-\[\#0c0c0c\],
+.theme-overclock .app-wrapper .bg-\[\#111111\] {
+    background-color: #050505 !important;
+}
+
+.theme-overclock .app-wrapper .border-neutral-800,
+.theme-overclock .app-wrapper .border-neutral-800\/80,
+.theme-overclock .app-wrapper .border-neutral-800\/50,
+.theme-overclock .app-wrapper .border-neutral-700 {
+    border-color: #222222 !important;
+}

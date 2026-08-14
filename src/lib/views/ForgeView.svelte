@@ -1,5 +1,3 @@
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <script lang="ts">
     import { executeKrc20Forge } from '$lib/stores/wallet';
 
@@ -229,7 +227,6 @@
 
         <!-- WIZARD CONTAINER -->
         <div class="w-full max-w-5xl bg-[#050505] border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col flex-1 min-h-[500px] max-h-[750px]">
-            <div class="absolute top-0 right-0 w-96 h-96 bg-teal-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
             <!-- STEP 1: CLASSIFICATION (UNCATEGORIZED) -->
             {#if currentStep === 1}

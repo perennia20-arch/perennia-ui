@@ -1,7 +1,7 @@
-import pg from 'pg';
+import pkg from 'pg';
 import { env } from '$env/dynamic/private';
 
-const { Pool } = pg;
+const { Pool } = pkg; // ⚡ FIXED: Bypasses the Vite ESM destructuring crash
 const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
 
 // BARE-METAL POSTGRES CONNECTION

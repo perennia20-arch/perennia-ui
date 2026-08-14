@@ -1,9 +1,12 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
-import { redis } from '$lib/server/redis';
+import { dbPool } from '$lib/server/db';
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
 
+// ============================================================================
+// GLOBAL POSTGRES STATE SYNCHRONIZATION
+// ============================================================================
 export async function GET({ url, cookies }: RequestEvent) {
     const rawCookie = cookies.get('perennia_session');
     
@@ -13,65 +16,31 @@ export async function GET({ url, cookies }: RequestEvent) {
 
     const sessionWallet = decodeURIComponent(rawCookie);
     const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
-    const stateKey = `state:${cleanWallet}`;
-    
     const isCorpAdmin = DEV_ADMIN_BYPASS || sessionWallet.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
-    const reqGlobal = url.searchParams.get('global') === 'true';
+    const targetWalletParam = url.searchParams.get('target');
 
-    // ⚡ OVERRIDE: Fetch Global State if Admin Tool is Toggled On
-    if (isCorpAdmin && reqGlobal) {
-        try {
-            const keys = await redis.keys('state:*');
-            let allWorkers: any[] = [];
-            let allSilos: any[] = [];
-            let allPlants: any[] = [];
-            
-            for (const k of keys) {
-                const s = await redis.get(k);
-                if (s) {
-                    const parsed = JSON.parse(s);
-                    if (parsed.workers) allWorkers.push(...parsed.workers);
-                    if (parsed.silos) allSilos.push(...parsed.silos);
-                    if (parsed.plants) allPlants.push(...parsed.plants);
-                }
-            }
-            return json({ workers: allWorkers, silos: allSilos, plants: allPlants, systemMode: 'overclocked' }, { status: 200 });
-        } catch (e) {
-            console.error("Global State Fetch Fault:", e);
-        }
-    }
-
-    // Standard Local Fetch
+    let client;
     try {
-        const rawState = await redis.get(stateKey);
-        if (rawState) {
-            return json(JSON.parse(rawState), { status: 200 });
+        client = await dbPool.connect();
+
+        let queryWallet = cleanWallet;
+
+        // ⚡ TARGETED ADMIN OVERRIDE (Replaces Global Memory-Intensive View)
+        if (isCorpAdmin && targetWalletParam) {
+            queryWallet = targetWalletParam.toLowerCase().replace('kaspa:', '').trim();
+        }
+
+        const res = await client.query('SELECT layout_state FROM user_command_centers WHERE wallet_address = $1', [queryWallet]);
+        if (res.rows.length > 0) {
+            const state = res.rows[0].layout_state;
+            if (!state.systemMode) state.systemMode = 'base';
+            return json(state, { status: 200 });
         }
     } catch (e) {
         console.error("🔴 State Fetch Fault:", e);
+    } finally {
+        if (client) client.release();
     }
 
     return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
-}
-
-export async function POST({ request, cookies }: RequestEvent) {
-    const rawCookie = cookies.get('perennia_session');
-    
-    if (!rawCookie) {
-        return json({ error: 'UNAUTHORIZED_STATE_WRITE' }, { status: 401 });
-    }
-
-    try {
-        const payload = await request.json();
-        
-        const sessionWallet = decodeURIComponent(rawCookie);
-        const cleanWallet = sessionWallet.toLowerCase().replace('kaspa:', '').trim();
-        const stateKey = `state:${cleanWallet}`;
-
-        await redis.set(stateKey, JSON.stringify(payload));
-        return json({ success: true }, { status: 200 });
-    } catch (e) {
-        console.error("🔴 State Save Fault:", e);
-        return json({ error: 'Failed to persist state' }, { status: 500 });
-    }
 }

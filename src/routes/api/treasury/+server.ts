@@ -117,7 +117,7 @@ export const GET: RequestHandler = async ({ url }) => {
     const corporateEstate = {
         masterIdentity: "Perennia Sovereign Vault",
         timestamp: Date.now(),
-        networkBlocks: [], // Stubbed to prevent UI breaking from old PostgreSQL logic
+        networkBlocks: [], 
         assets: [
             {
                 symbol: 'KAS',

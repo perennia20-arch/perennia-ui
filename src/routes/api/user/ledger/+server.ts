@@ -20,7 +20,9 @@ export const GET = async ({ url, setHeaders }: RequestEvent) => {
     };
 
     try {
-        const key = `dev:sor:treasury:balances:${wallet}`;
+        // Strip kaspa: prefix to match yield_settle keying structure
+        const cleanWallet = wallet.toLowerCase().replace('kaspa:', '').trim();
+        const key = `dev:sor:treasury:balances:${cleanWallet}`;
         const rawData = await redis.hgetall(key);
 
         if (!rawData || Object.keys(rawData).length === 0) {

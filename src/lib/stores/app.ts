@@ -1,12 +1,17 @@
-import { writable, type Writable } from 'svelte/store';
+import { writable } from 'svelte/store';
 
 // ========================================================
 // 🧠 PERENNIA CENTRAL STATE STORE
 // ========================================================
 
-export type AssetClass = 'Crypto' | 'Real Estate' | 'Commodities' | 'Equities' | 'Energy';
 export type SystemMode = 'base' | 'overclocked';
 export type SiloWidth = 4 | 6 | 12;
+export type AssetClass = 'Native L1' | 'Stablecoin' | 'Tokenized Asset' | 'DeFi' | 'Ecosystem';
+
+export interface ThemeColors {
+    hex: string;
+    pastel: string;
+}
 
 export interface TokenAsset {
     ticker: string;
@@ -15,7 +20,7 @@ export interface TokenAsset {
     priceUsd: number;
     imgUrl?: string; 
     icon?: string;
-    type?: string;
+    theme: ThemeColors;
 }
 
 export interface SettlementConfig {
@@ -42,7 +47,7 @@ export interface Silo {
 
 export interface Worker {
     id: string;
-    type: 'physical' | 'capital';
+    type: 'physical';
     name: string;
     stratumUrl: string;
     walletWorker: string;
@@ -51,8 +56,6 @@ export interface Worker {
     assignedSiloId: string | null;
     ipAddress?: string;
     hardwareType?: string;
-    capitalTokens?: number; // ⚡ PER Flywheel: Infused Capital Amount
-    // Telemetry Fields for Chronos Engine:
     sharesContributed?: number;
     blocksFound?: number;
 }
@@ -64,6 +67,8 @@ export interface Plant {
         isActive: boolean;
         pairName: string;
         totalLiquidityUsd: number;
+        lockDays: number;
+        multiplier: number;
     };
     currentApr: number;
     autoCompound: boolean;
@@ -75,13 +80,17 @@ export interface WalletInventoryItem {
     usdValue: number;
 }
 
-// Global UI State
 export const hasEntered = writable<boolean>(false);
 export const activeTab = writable<string>('DEX');
 export const systemMode = writable<SystemMode>('base');
-export const adminGlobalView = writable<boolean>(false);
 
-// Global Oracle State
+// ⚡ ZERO-TRUST INVITE REGISTRY
+export const activeInviteCode = writable<string>('');
+
+// ⚡ TARGETED ADMIN IMPERSONATION
+export const adminModeActive = writable<boolean>(false);
+export const adminTargetWallet = writable<string>('');
+
 export const globalKasPrice = writable<number>(0.16);
 export const globalKasChange = writable<number>(0);
 export const globalNetworkHashrate = writable<number>(0);
@@ -94,24 +103,53 @@ export const globalStats = writable<any>({
     networkHealth: 100
 });
 
-// Token Registry (Phase 1 Assets)
-export const tokenRegistry: TokenAsset[] = [
-    { ticker: 'KAS', name: 'Kaspa Native', assetClass: 'Crypto', priceUsd: 0.16, imgUrl: 'https://cryptologos.cc/logos/kaspa-kas-logo.svg?v=032', type: 'Layer 1' },
-    { ticker: 'PER', name: 'Perennia Hash', assetClass: 'Energy', priceUsd: 1.00, icon: 'P', type: 'Infrastructure' },
-    { ticker: 'USDC', name: 'USD Coin', assetClass: 'Crypto', priceUsd: 1.00, imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', type: 'Stablecoin' },
-    { ticker: 'USDT', name: 'Tether USD', assetClass: 'Crypto', priceUsd: 1.00, imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', type: 'Stablecoin' },
-    { ticker: 'BTC', name: 'Bitcoin', assetClass: 'Crypto', priceUsd: 65200.00, imgUrl: 'https://cryptologos.cc/logos/bitcoin-btc-logo.svg?v=032', type: 'Crypto' },
-    { ticker: 'ETH', name: 'Ethereum', assetClass: 'Crypto', priceUsd: 3450.00, imgUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=032', type: 'Crypto' },
-    { ticker: 'SOL', name: 'Solana', assetClass: 'Crypto', priceUsd: 145.20, imgUrl: 'https://cryptologos.cc/logos/solana-sol-logo.svg?v=032', type: 'Crypto' },
-    { ticker: 'RE-IDX', name: 'Commercial R.E. Index', assetClass: 'Real Estate', priceUsd: 1250.00, icon: '🏢', type: 'Real World Asset' },
-    { ticker: 'GLDT', name: 'Vaulted Gold (1oz)', assetClass: 'Commodities', priceUsd: 2340.50, icon: '🪙', type: 'Commodity' },
-    { ticker: 'WTI-C', name: 'Crude Oil (1bbl)', assetClass: 'Commodities', priceUsd: 82.50, icon: '🛢', type: 'Commodity' },
-    { ticker: 'WATT', name: 'Solar Energy (1MWh)', assetClass: 'Energy', priceUsd: 45.00, icon: '☀️', type: 'Infrastructure' },
-    { ticker: 'TSLA.t', name: 'Tokenized Tesla', assetClass: 'Equities', priceUsd: 185.00, icon: 'T', type: 'Equity' }
+export const ClassThemes: Record<AssetClass, ThemeColors> = {
+    'Native L1': { hex: '#18C6A5', pastel: '#99f6e4' },        // Teal
+    'Stablecoin': { hex: '#3B82F6', pastel: '#bfdbfe' },       // Blue
+    'Tokenized Asset': { hex: '#F59E0B', pastel: '#fef08a' },  // Amber
+    'DeFi': { hex: '#A855F7', pastel: '#d8b4fe' },             // Purple
+    'Ecosystem': { hex: '#EC4899', pastel: '#fbcfe8' }         // Pink
+};
+
+export const coreTokenRegistry: TokenAsset[] = [
+    { ticker: 'KAS', name: 'Kaspa', assetClass: 'Native L1', priceUsd: 0.16, imgUrl: '/assets/tokens/kas.svg', theme: ClassThemes['Native L1'] },
+    { ticker: 'BTC', name: 'Bitcoin', assetClass: 'Native L1', priceUsd: 65000, imgUrl: '/assets/tokens/btc.svg', theme: { hex: '#F7931A', pastel: '#fcd34d' } },
+    { ticker: 'ETH', name: 'Ethereum', assetClass: 'Native L1', priceUsd: 3500, imgUrl: '/assets/tokens/eth.svg', theme: { hex: '#627EEA', pastel: '#c7d2fe' } },
+    { ticker: 'SOL', name: 'Solana', assetClass: 'Native L1', priceUsd: 150, imgUrl: '/assets/tokens/sol.svg', theme: { hex: '#14F195', pastel: '#a7f3d0' } },
+    { ticker: 'DOGE', name: 'Dogecoin', assetClass: 'Native L1', priceUsd: 0.10, imgUrl: 'https://cryptologos.cc/logos/dogecoin-doge-logo.svg?v=033', theme: { hex: '#C2A633', pastel: '#fde047' } },
+    { ticker: 'XRP', name: 'XRP Ledger', assetClass: 'Native L1', priceUsd: 0.58, imgUrl: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg?v=033', theme: { hex: '#23292F', pastel: '#94a3b8' } },
+    { ticker: 'POL', name: 'Polygon', assetClass: 'Native L1', priceUsd: 0.42, imgUrl: 'https://cryptologos.cc/logos/polygon-matic-logo.svg?v=033', theme: { hex: '#8247E5', pastel: '#d8b4fe' } },
+    { ticker: 'AVAX', name: 'Avalanche', assetClass: 'Native L1', priceUsd: 22.50, imgUrl: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg?v=033', theme: { hex: '#E84142', pastel: '#fca5a5' } },
+    { ticker: 'SUI', name: 'Sui Network', assetClass: 'Native L1', priceUsd: 0.95, imgUrl: 'https://cryptologos.cc/logos/sui-sui-logo.svg?v=033', theme: { hex: '#4CA2FF', pastel: '#bfdbfe' } },
+    { ticker: 'TRX', name: 'TRON', assetClass: 'Native L1', priceUsd: 0.15, imgUrl: 'https://cryptologos.cc/logos/tron-trx-logo.svg?v=033', theme: { hex: '#FF0013', pastel: '#fca5a5' } },
+    { ticker: 'ZEC', name: 'Zcash', assetClass: 'Native L1', priceUsd: 31.20, imgUrl: 'https://cryptologos.cc/logos/zcash-zec-logo.svg?v=033', theme: { hex: '#F4B728', pastel: '#fde047' } },
+    { ticker: 'USDC', name: 'USD Coin', assetClass: 'Stablecoin', priceUsd: 1.00, imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', theme: ClassThemes['Stablecoin'] },
+    { ticker: 'USDT', name: 'Tether USD', assetClass: 'Stablecoin', priceUsd: 1.00, imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', theme: ClassThemes['Stablecoin'] },
 ];
 
 export const workers = writable<Worker[]>([]);
 export const silos = writable<Silo[]>([]);
 export const plants = writable<Plant[]>([]);
 export const walletInventory = writable<WalletInventoryItem[]>([]);
-export const taxEvents = writable<any[]>([]); // ADDED BACK
+export const taxEvents = writable<any[]>([]);
+
+let actionQueue: Promise<any> = Promise.resolve();
+
+export async function dispatchStateAction(action: string, payload: any, targetWallet?: string) {
+    const execute = async () => {
+        try {
+            const res = await fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, payload, targetWallet })
+            });
+            return res.ok;
+        } catch (e) {
+            console.error("Matrix action dispatch failed:", e);
+            return false;
+        }
+    };
+    
+    actionQueue = actionQueue.then(execute).catch(execute);
+    return actionQueue;
+}
