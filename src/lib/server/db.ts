@@ -1,16 +1,15 @@
+// src/lib/server/db.ts
 import pkg from 'pg';
 import { env } from '$env/dynamic/private';
 
-const { Pool } = pkg; // ⚡ FIXED: Bypasses the Vite ESM destructuring crash
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+const { Pool } = pkg;
 
-// BARE-METAL POSTGRES CONNECTION
+// ⚡ INFRASTRUCTURE HARDENING: Environment-driven Postgres connection
+// Enables seamless routing to Managed HA Clusters (AWS RDS / Cloud SQL) while falling back to local.
+const connectionString = env.DATABASE_URL || `postgresql://postgres:password@${env.UBUNTU_NODE_IP || '192.168.0.12'}:5432/perennia`;
+
 export const dbPool = new Pool({
-    user: 'postgres',
-    host: nodeIp,
-    database: 'perennia',
-    password: 'password', // Adjust to match bare-metal prod configuration
-    port: 5432,
+    connectionString,
     max: 20, 
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 3000,

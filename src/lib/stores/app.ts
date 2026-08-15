@@ -5,8 +5,8 @@ import { writable } from 'svelte/store';
 // ========================================================
 
 export type SystemMode = 'base' | 'overclocked';
-export type SiloWidth = 4 | 6 | 12;
 export type AssetClass = 'Native L1' | 'Stablecoin' | 'Tokenized Asset' | 'DeFi' | 'Ecosystem';
+export type RouteMode = 'hold' | 'swap' | 'auto-lp';
 
 export interface ThemeColors {
     hex: string;
@@ -36,12 +36,11 @@ export interface SettlementConfig {
     appointmentTime: string;
 }
 
-export interface Silo {
+export interface Sector {
     id: string;
     name: string;
-    width: SiloWidth;
-    assignedPlantId: string | null;
-    pendingKaspa: number;
+    allocationPercentage: number; // 0-100
+    routeMode: RouteMode;
     settlementConfig: SettlementConfig;
 }
 
@@ -53,25 +52,10 @@ export interface Worker {
     walletWorker: string;
     hashRate: number;
     isOnline: boolean;
-    assignedSiloId: string | null;
     ipAddress?: string;
     hardwareType?: string;
     sharesContributed?: number;
     blocksFound?: number;
-}
-
-export interface Plant {
-    id: string;
-    name: string;
-    liquidityDeposit: {
-        isActive: boolean;
-        pairName: string;
-        totalLiquidityUsd: number;
-        lockDays: number;
-        multiplier: number;
-    };
-    currentApr: number;
-    autoCompound: boolean;
 }
 
 export interface WalletInventoryItem {
@@ -128,8 +112,7 @@ export const coreTokenRegistry: TokenAsset[] = [
 ];
 
 export const workers = writable<Worker[]>([]);
-export const silos = writable<Silo[]>([]);
-export const plants = writable<Plant[]>([]);
+export const sectors = writable<Sector[]>([]);
 export const walletInventory = writable<WalletInventoryItem[]>([]);
 export const taxEvents = writable<any[]>([]);
 
@@ -149,7 +132,7 @@ export async function dispatchStateAction(action: string, payload: any, targetWa
             return false;
         }
     };
-    
+
     actionQueue = actionQueue.then(execute).catch(execute);
     return actionQueue;
 }

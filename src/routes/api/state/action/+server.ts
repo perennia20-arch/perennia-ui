@@ -1,11 +1,12 @@
+// src/routes/api/state/action/+server.ts
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
 
-// ⚡ Point SvelteKit across the network to the Rust Daemon
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+// ⚡ INFRASTRUCTURE HARDENING
+const rustBackendUrl = env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '192.168.0.12'}:8002`;
 
 export async function POST({ request, cookies }: RequestEvent) {
     const rawCookie = cookies.get('perennia_session');
@@ -21,14 +22,11 @@ export async function POST({ request, cookies }: RequestEvent) {
 
         const isCorpAdmin = DEV_ADMIN_BYPASS || sessionWallet.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
 
-        // ⚡ GHOST FIX: If the Master Admin is interacting with a client's asset in Global View,
-        // force the API to target the client's command center instead of the Admin's.
         if (isCorpAdmin && payload.targetWallet) {
             cleanWallet = payload.targetWallet.toLowerCase().replace('kaspa:', '').trim();
         }
 
-        // Secure internal routing to the Rust Axum Endpoint on the headless node
-        const rustRes = await fetch(`http://${nodeIp}:8002/v1/state/action`, {
+        const rustRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -36,7 +34,6 @@ export async function POST({ request, cookies }: RequestEvent) {
                 action: payload.action,
                 payload: payload.payload
             }),
-            // ⚡ Guarantee the browser delivers the payload even if the user refreshes instantly
             keepalive: true
         });
 

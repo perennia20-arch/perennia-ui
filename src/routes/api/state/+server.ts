@@ -9,9 +9,9 @@ const DEV_ADMIN_BYPASS = false;
 // ============================================================================
 export async function GET({ url, cookies }: RequestEvent) {
     const rawCookie = cookies.get('perennia_session');
-    
+
     if (!rawCookie) {
-        return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
+        return json({ workers: [], sectors: [], systemMode: 'base' }, { status: 200 });
     }
 
     const sessionWallet = decodeURIComponent(rawCookie);
@@ -42,5 +42,5 @@ export async function GET({ url, cookies }: RequestEvent) {
         if (client) client.release();
     }
 
-    return json({ workers: [], silos: [], plants: [], systemMode: 'base' }, { status: 200 });
+    return json({ workers: [], sectors: [], systemMode: 'base' }, { status: 200 });
 }

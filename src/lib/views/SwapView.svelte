@@ -1,13 +1,13 @@
 <script lang="ts">
     import { isWalletConnected, walletBalance, showWalletModal, walletAddress, activeWalletType, pendingTransactionDetails, isVaultUnlockPending, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
-    import { globalKasPrice, walletInventory, systemMode, plants, dispatchStateAction } from '$lib/stores/app';
+    import { globalKasPrice, walletInventory, systemMode, sectors, dispatchStateAction } from '$lib/stores/app';
     import { fade, slide, fly } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
     import { source } from 'sveltekit-sse';
-    
+
     interface DexToken { ticker: string; name: string; priceUsd: number; hex: string; imgUrl?: string; icon?: string; type: string; }
-    
+
     const defaultTokens: DexToken[] = [
         { ticker: 'KAS', name: 'Kaspa Native', priceUsd: 0.16, hex: '#18C6A5', imgUrl: 'https://cryptologos.cc/logos/kaspa-kas-logo.svg?v=032', type: 'Layer 1' },
         { ticker: 'USDC', name: 'USD Coin', priceUsd: 1.00, hex: '#2775ca', imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', type: 'Stablecoin' },
@@ -40,7 +40,7 @@
     let lpAmountA = $state('');
     let lpAmountB = $state('');
     let isProvidingLiquidity = $state(false);
-    
+
     // ⚡ UNIFIED TYPE DEFINITION
     interface LpPosition {
         id: string;
@@ -54,14 +54,14 @@
     let userLpPositions = $state<LpPosition[]>([]);
     let loadedLpForWallet = $state<string | null>(null);
 
-    let plantLpPositions = $derived<LpPosition[]>($plants
-        .filter(p => p.liquidityDeposit.isActive && p.liquidityDeposit.totalLiquidityUsd > 0)
-        .map(p => ({
-            id: p.id,
-            pair: p.liquidityDeposit.pairName,
-            poolShare: 'Auto-Mined',
-            valueUsd: p.liquidityDeposit.totalLiquidityUsd,
-            isPlant: true
+    let sectorLpPositions = $derived<LpPosition[]>($sectors
+        .filter(s => s.routeMode === 'auto-lp')
+        .map(s => ({
+            id: s.id,
+            pair: 'KAS/USDC LP',
+            poolShare: 'Auto-Split',
+            valueUsd: syntheticBalances['KAS/USDC LP'] || 0,
+            isPlant: true 
         }))
     );
 
@@ -85,9 +85,9 @@
 
     // ⚡ TRIPLE-DERIVED LP POSITIONS
     let allLpPositions = $derived.by<LpPosition[]>(() => {
-        const combined: LpPosition[] = [...userLpPositions, ...plantLpPositions, ...redisLpPositions];
+        const combined: LpPosition[] = [...userLpPositions, ...sectorLpPositions, ...redisLpPositions];
         const uniqueMap = new Map<string, LpPosition>();
-        
+
         for (const pos of combined) {
             const key = pos.pair;
             if (!uniqueMap.has(key) || pos.valueUsd > (uniqueMap.get(key)?.valueUsd || 0)) {
@@ -163,7 +163,7 @@
     );
 
     let rawTerminalFeed = $state<string[]>([]);
-    
+
     $effect(() => {
         if ($systemMode === 'overclocked' && $isWalletConnected && $walletAddress) {
             const connection = source(`/api/telemetry?address=${encodeURIComponent($walletAddress)}`);
@@ -256,7 +256,7 @@
         fetchDexMarketData();
         fetchP2pOrders();
         fetchTreasuryLiquid();
-        
+
         fetchInterval = setInterval(() => {
             fetchDexMarketData();
             fetchTreasuryLiquid();
@@ -293,7 +293,7 @@
             } else {
                 localStorage.setItem(storageKey, JSON.stringify(userLpPositions));
             }
-            
+
             fetchSyntheticLedger();
         } else if (!$isWalletConnected) {
             userLpPositions = [];
@@ -313,10 +313,10 @@
         const isConnected = $isWalletConnected;
         const currentKasBal = parseFloat($walletBalance) || 0;
         const currentInv = $walletInventory;
-        
+
         for (const token of dexTokens) {
             const ticker = token.ticker;
-            
+
             if (!isConnected) {
                 balances[ticker] = '0.00000000';
                 continue;
@@ -337,7 +337,7 @@
             const unifiedBalance = Math.max(synVal, l1Val);
             balances[ticker] = unifiedBalance.toFixed(8);
         }
-        
+
         return balances;
     });
 
@@ -394,11 +394,11 @@
         const tempToken = payToken;
         payToken = receiveToken;
         receiveToken = tempToken;
-        
+
         const tempAmt = payAmount;
         payAmount = receiveAmount;
         receiveAmount = tempAmt;
-        
+
         swapError = null;
         swapSuccessId = null;
     }
@@ -432,7 +432,7 @@
 
     async function executeSwap() {
         if (!$walletAddress || !payAmount) return;
-        
+
         const amount = parseFloat(payAmount);
         if (isNaN(amount) || amount <= 0) return;
 
@@ -467,13 +467,13 @@
 
             if (activeWallet === 'kasware') {
                 const signedTx = await (window as any).kasware.signTransaction(data.psbt);
-                
+
                 const broadcastRes = await fetch('/api/broadcast', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(signedTx)
                 });
-                
+
                 const broadcastData = await broadcastRes.json();
                 if (!broadcastRes.ok) throw new Error(broadcastData.error || "Node rejected broadcast");
 
@@ -493,7 +493,7 @@
                     amountSompi: Math.floor(amount * 1e8),
                     psbtData: { psbt: data.psbt, formattedUtxos: data.formattedUtxos }
                 });
-                
+
                 isVaultUnlockPending.set(true);
                 return;
             } else {
@@ -509,12 +509,12 @@
 
     async function executeSupplyLiquidity() {
         if (!$walletAddress || !lpAmountA || !lpAmountB) return;
-        
+
         isProvidingLiquidity = true;
         try {
             const valA = parseFloat(lpAmountA);
             const valB = parseFloat(lpAmountB);
-            
+
             const res = await fetch('/api/sor/swap', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -533,7 +533,7 @@
                 const valueUsd = (valA * lpTokenA.priceUsd) + (valB * lpTokenB.priceUsd);
                 const currentDuration = lockOptions[lockDurationIndex];
                 const totalValue = valueUsd * currentDuration.multiplier;
-                
+
                 const newPos: LpPosition = {
                     id: Math.random().toString(36).substring(2, 8).toUpperCase(),
                     pair: pairName,
@@ -549,7 +549,7 @@
                 }
 
                 await dispatchStateAction('ADD_MANUAL_LP', { position: newPos }, $walletAddress);
-                
+
                 lpAmountA = '';
                 lpAmountB = '';
                 alert(`SUCCESS: Provisioned & Staked Liquidity to ${pairName} Pool for ${currentDuration.label}.`);
@@ -596,7 +596,7 @@
             $showWalletModal = true;
             return;
         }
-        
+
         isExecuting = true;
         swapError = null;
         swapSuccessId = null;
@@ -612,7 +612,7 @@
             const data = await res.json();
 
             swapSuccessId = data.transactionId;
-            
+
             await fetchP2pOrders();
             await fetchSyntheticLedger();
         } catch (e: any) {
@@ -646,7 +646,7 @@
 </script>
 
 <div class="w-full h-full min-h-[100dvh] bg-[#030303] text-white font-mono flex flex-col items-center justify-center p-4 lg:p-10 relative">
-    
+
     <div class="w-full flex flex-col items-center justify-center max-w-[550px]" style="transform: translateY(-100px);">
 
         <div class="w-full relative mb-8 z-50">
@@ -689,7 +689,7 @@
         </div>
 
         <div class="w-full bg-[#111111] border border-neutral-800 rounded-[32px] p-7 md:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative z-20 overflow-hidden animate-[fade-in-up_0.3s_ease-out]">
-            
+
             <div class="flex justify-between items-center mb-8 border-b border-neutral-800/80 pb-5 relative z-10">
                 <div class="flex items-center gap-6">
                     {#each ['Swap', 'Liquidity', 'P2P', 'Fiat'] as tab}
@@ -704,11 +704,11 @@
                         </button>
                     {/each}
                 </div>
-                
+
                 <div class="flex items-center gap-4">
                     <button aria-label="Settings" onclick={() => isSettingsOpen = true} class="text-neutral-500 hover:text-white transition-colors cursor-pointer hover:rotate-90 duration-300 p-1">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543.826-3.31-2.37-2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                         </svg>
                     </button>
@@ -730,7 +730,7 @@
                             {/each}
                         </div>
                     </div>
-                    
+
                     <div class="flex justify-between items-center gap-4">
                         <input type="number" bind:value={payAmount} disabled={isExecuting} placeholder="0.00" class="w-full bg-transparent text-4xl font-bold font-mono text-white outline-none placeholder-neutral-700 disabled:opacity-50" />
                         <button onclick={() => openTokenModal('pay')} disabled={isExecuting} class="shrink-0 flex items-center gap-2 bg-[#222] hover:bg-[#2a2a2a] border border-neutral-700 px-4 py-2.5 rounded-xl transition-colors cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
@@ -744,7 +744,7 @@
                             <svg class="w-4 h-4 text-neutral-500 group-hover:text-white transition-colors ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </button>
                     </div>
-                    
+
                     <div class="flex justify-between mt-4 px-1">
                         <span class="text-[11px] font-mono text-neutral-500">${payAmount ? (parseFloat(payAmount) * payToken.priceUsd).toFixed(6) : '0.000000'}</span>
                         <span class="text-[11px] font-mono text-neutral-500">Balance: {getTokenBalance(payToken.ticker)}</span>
@@ -763,7 +763,7 @@
                     <div class="flex justify-between items-center mb-4">
                         <span class="text-[11px] font-bold text-neutral-500 uppercase tracking-widest">You Receive (Est.)</span>
                     </div>
-                    
+
                     <div class="flex justify-between items-center gap-4">
                         <input type="number" bind:value={receiveAmount} oninput={handleReceiveInput} disabled={isExecuting} placeholder="0.00" class="w-full bg-transparent text-4xl font-bold font-mono text-white outline-none placeholder-neutral-700 disabled:opacity-50" />
                         <button onclick={() => openTokenModal('receive')} disabled={isExecuting} class="shrink-0 flex items-center gap-2 bg-[#222] hover:bg-[#2a2a2a] border border-neutral-700 px-4 py-2.5 rounded-xl transition-colors cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
@@ -777,7 +777,7 @@
                             <svg class="w-4 h-4 text-neutral-500 group-hover:text-white transition-colors ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </button>
                     </div>
-                    
+
                     <div class="flex justify-between mt-4 px-1">
                         <span class="text-[11px] font-mono text-neutral-500">${receiveAmount ? (parseFloat(receiveAmount) * receiveToken.priceUsd).toFixed(6) : '0.000000'}</span>
                         <span class="text-[11px] font-mono text-neutral-500">Balance: {getTokenBalance(receiveToken.ticker)}</span>
@@ -828,10 +828,10 @@
             <!-- SUB-VIEW 2: LIQUIDITY ENGINE               -->
             <!-- ========================================== -->
             <div class="{activeDexTab === 'Liquidity' ? 'flex' : 'hidden'} flex-col gap-4 relative z-10" transition:fade={{ duration: 150 }}>
-                
+
                 <div class="bg-[#1a1a1a] border border-neutral-800 rounded-3xl p-5">
                     <span class="text-[11px] font-bold text-neutral-400 uppercase tracking-widest block mb-4">Provide Pool Liquidity</span>
-                    
+
                     <div class="flex flex-col gap-2 mb-3 bg-[#111] p-4 rounded-2xl border border-neutral-800">
                         <div class="flex justify-between items-center">
                             <input type="number" bind:value={lpAmountA} oninput={handleLpInputA} placeholder="0.00" class="w-full bg-transparent text-2xl font-bold font-mono text-white outline-none placeholder-neutral-700" />
@@ -888,7 +888,7 @@
                 <!-- USER ACTIVE POSITIONS -->
                 <div class="bg-[#1a1a1a] border border-neutral-800 rounded-3xl p-5">
                     <span class="text-[11px] font-bold text-neutral-400 uppercase tracking-widest block mb-4">Your Staked Positions</span>
-                    
+
                     {#if allLpPositions.length === 0}
                         <p class="text-[11px] text-neutral-600 font-mono text-center py-5 uppercase">0 Active LP Tokens Found</p>
                     {:else}
@@ -897,8 +897,8 @@
                                 <div class="bg-[#111] border border-neutral-800 rounded-xl p-4 flex justify-between items-center shadow-inner">
                                     <div class="flex flex-col gap-0.5">
                                         <span class="text-sm font-bold text-[#18C6A5]">{pos.pair}</span>
-                                        <span class="text-[8px] uppercase tracking-widest {pos.isPlant ? 'text-purple-400' : pos.isSynthetic ? 'text-teal-400' : 'text-neutral-500'} font-bold">
-                                            {pos.isPlant ? '🌱 Plant Synthesized' : pos.isSynthetic ? '⚡ On-Chain Oracle Stream' : 'Manual Deposit'}
+                                        <span class="text-[8px] uppercase tracking-widest {pos.isPlant ? 'text-blue-400' : pos.isSynthetic ? 'text-teal-400' : 'text-neutral-500'} font-bold">
+                                            {pos.isPlant ? '💧 Sector Synthesized' : pos.isSynthetic ? '⚡ On-Chain Oracle Stream' : 'Manual Deposit'}
                                         </span>
                                     </div>
                                     <span class="text-sm font-mono text-white">${pos.valueUsd.toFixed(2)}</span>
@@ -913,7 +913,7 @@
             <!-- SUB-VIEW 3: P2P DESK                       -->
             <!-- ========================================== -->
             <div class="{activeDexTab === 'P2P' ? 'flex' : 'hidden'} flex-col gap-4 relative z-10" transition:fade={{ duration: 150 }}>
-                
+
                 {#if swapError}
                     <div class="w-full bg-red-950/20 border border-red-900/50 p-4 rounded-xl flex items-center justify-center gap-2 shadow-inner">
                         <span class="text-red-500 font-bold">⚠</span>
@@ -937,7 +937,7 @@
                                 + New Offer
                             </button>
                         </div>
-                        
+
                         <div class="flex flex-col gap-3 max-h-[350px] overflow-y-auto hide-scrollbar">
                             {#if p2pOrders.length === 0}
                                 <div class="flex flex-col items-center justify-center py-10">
@@ -1034,12 +1034,12 @@
                     </div>
                 {/if}
             </div>
-            
+
             <!-- ========================================== -->
             <!-- SUB-VIEW 4: SOVEREIGN OTC DESK (FIAT)      -->
             <!-- ========================================== -->
             <div class="{activeDexTab === 'Fiat' ? 'flex' : 'hidden'} flex-col relative z-10 w-full h-[550px] rounded-3xl border border-neutral-800/80 bg-[#0a0a0a] shadow-inner p-8" transition:fade={{ duration: 150 }}>
-                
+
                 {#if otcStep === 'quote'}
                     <div class="flex items-center justify-between border-b border-neutral-800 pb-4 mb-6">
                         <div class="flex flex-col">
@@ -1061,7 +1061,7 @@
                                     <span class="font-bold text-white text-sm tracking-wider leading-none">USD</span>
                                 </div>
                             </div>
-                            
+
                             {#if parseFloat(otcFiatAmount) > WIRE_FEE_USD}
                                 <div class="mt-4 pt-3 border-t border-neutral-800/50 flex flex-col gap-1.5 animate-[fade-in-up_0.2s_ease-out]">
                                     <div class="flex justify-between">
@@ -1155,7 +1155,7 @@
 
                         <div class="bg-blue-950/10 border border-blue-900/30 rounded-xl p-5 flex flex-col gap-3">
                             <span class="text-[10px] text-blue-400 uppercase tracking-widest font-bold mb-1">Transfer Instructions</span>
-                            
+
                             <div class="flex justify-between items-center">
                                 <span class="text-[10px] text-neutral-500 font-mono">Bank Name</span>
                                 <span class="text-[11px] font-bold text-white">Wyoming Trust & Custody</span>
@@ -1200,7 +1200,7 @@
                 </div>
                 <div class="p-6 flex flex-col gap-1.5 h-48 relative overflow-hidden bg-[#050505] font-mono text-teal-600/70 text-[10px] leading-tight">
                     <div class="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#050505] to-transparent z-10 pointer-events-none"></div>
-                    
+
                     {#if rawTerminalFeed.length === 0}
                         <div class="text-neutral-600 animate-pulse">WAITING FOR POOL SYNC...</div>
                     {:else}
@@ -1223,7 +1223,7 @@
         <button aria-label="Close Settings" class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => isSettingsOpen = false}></button>
         <div class="relative z-10 w-full max-w-[400px] bg-[#111111] border border-neutral-800 rounded-[32px] shadow-2xl flex flex-col p-8" transition:fly={{ y: 20, duration: 200 }}>
             <h3 class="text-white font-bold text-sm uppercase tracking-widest mb-5">Transaction Settings</h3>
-            
+
             <div class="flex flex-col gap-5 mb-8">
                 <div class="flex flex-col gap-2">
                     <label class="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Slippage Tolerance (%)</label>
@@ -1243,16 +1243,16 @@
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95" transition:fade={{ duration: 150 }}>
         <button aria-label="Close" class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => isTokenModalOpen = false}></button>
         <div class="relative z-10 w-full max-w-[450px] bg-[#111111] border border-neutral-800 rounded-[32px] shadow-2xl flex flex-col h-[650px] overflow-hidden" transition:fly={{ y: 20, duration: 200 }}>
-            
+
             <div class="p-6 border-b border-neutral-800/80 flex justify-between items-center shrink-0 bg-[#0a0a0a]">
                 <h3 class="text-white font-bold text-sm uppercase tracking-widest">Select Token</h3>
                 <button onclick={() => isTokenModalOpen = false} class="w-8 h-8 rounded-full bg-[#1a1a1a] flex items-center justify-center hover:bg-[#222] text-neutral-400 hover:text-white transition-colors cursor-pointer border border-neutral-800">✕</button>
             </div>
-            
+
             <div class="p-5 border-b border-neutral-800/60 shrink-0 bg-[#0c0c0c]">
                 <input type="text" bind:value={tokenSearchQuery} placeholder="Search name or paste ticker..." class="w-full bg-[#1a1a1a] border border-neutral-800 rounded-xl px-5 py-4 text-sm font-mono text-white outline-none focus:border-[#18C6A5] transition-colors shadow-inner" />
             </div>
-            
+
             <div class="flex-1 overflow-y-auto p-4 hide-scrollbar">
                 {#each filteredTokens as token}
                     <button onclick={() => selectToken(token)} class="w-full flex items-center justify-between p-4 hover:bg-[#1a1a1a] rounded-2xl cursor-pointer transition-colors group border border-transparent hover:border-neutral-800 my-1">
@@ -1295,7 +1295,7 @@
         border: 1px solid #222;
         box-shadow: inset 0 1px 4px rgba(0,0,0,0.8);
     }
-    
+
     .myst-slider-teal::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;

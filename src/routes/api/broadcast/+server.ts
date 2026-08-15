@@ -1,3 +1,4 @@
+// src/routes/api/broadcast/+server.ts
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { createRequire } from 'module';
 
@@ -5,7 +6,6 @@ const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
 export async function POST({ request, cookies }: RequestEvent) {
-    // ⚡ ZERO-TRUST: Ensure broadcast requests only originate from an authenticated session
     const sessionCookie = cookies.get('perennia_session');
     if (!sessionCookie) {
         return json({ error: 'UNAUTHORIZED_BROADCAST_ATTEMPT' }, { status: 401 });
@@ -23,13 +23,14 @@ export async function POST({ request, cookies }: RequestEvent) {
         return json({ error: 'MALFORMED_TRANSACTION_PAYLOAD' }, { status: 400 });
     }
 
-    const nodeIp = process.env.KASPA_NODE_IP || 'api.kaspa.org';
+    // ⚡ INFRASTRUCTURE HARDENING: Enable Load-Balanced Target for Production Environments
+    const wrpcUrl = process.env.KASPA_WRPC_URL || `ws://${process.env.KASPA_NODE_IP || 'api.kaspa.org'}:18110`;
 
     return new Promise((resolve) => {
-        let isResolved = false; // ⚡ Immutable state lock
-        console.log(`\n⏳ Chronos Engine: Opening raw CommonJS WebSocket to ws://${nodeIp}:18110...`);
+        let isResolved = false; 
+        console.log(`\n⏳ Chronos Engine: Opening raw CommonJS WebSocket to ${wrpcUrl}...`);
         
-        const ws = new WebSocket(`ws://${nodeIp}:18110`);
+        const ws = new WebSocket(wrpcUrl);
         
         const timeout = setTimeout(() => {
             if (isResolved) return;
@@ -47,7 +48,7 @@ export async function POST({ request, cookies }: RequestEvent) {
 
         ws.on('message', (data: any) => {
             if (isResolved) return;
-            isResolved = true; // Lock out the close/error handlers
+            isResolved = true; 
             clearTimeout(timeout);
             console.log(`[+] Reply RECEIVED.`);
             

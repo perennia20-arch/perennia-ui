@@ -4,11 +4,11 @@
     import { get } from 'svelte/store';
     import { browser } from '$app/environment';
     import { fade, slide } from 'svelte/transition';
-    import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, silos, plants, walletInventory, coreTokenRegistry, adminModeActive, adminTargetWallet } from '$lib/stores/app';        
-    
+    import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, sectors, walletInventory, coreTokenRegistry, adminModeActive, adminTargetWallet } from '$lib/stores/app';        
+
     import { isWalletConnected, walletAddress, walletBalance, disconnectWallet, restoreSession, showWalletModal, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
     import { showSettingsModal, uiBrightness } from '$lib/stores/settings';
-    
+
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
     import SettingsModal from '$lib/components/SettingsModal.svelte';
@@ -16,9 +16,9 @@
     let { children } = $props();
 
     const tabs = ['DEX', 'OPERATIONS', 'TREASURY', 'TAX FORTRESS'];
-    
+
     let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
-    
+
     let disabledTabs: string[] = $state([]); 
 
     let priceInterval: ReturnType<typeof setInterval>;
@@ -39,8 +39,7 @@
 
     function purgeApplicationState() {
         workers.set([]);
-        silos.set([]);
-        plants.set([]);
+        sectors.set([]);
         walletInventory.set([]);
     }
 
@@ -59,12 +58,11 @@
             const res = await fetch(url);
             if (res.ok) {
                 const parsed = await res.json();
-                
+
                 workers.set(parsed.workers || []);
-                silos.set(parsed.silos || []);
-                if (parsed.plants) plants.set(parsed.plants);
+                sectors.set(parsed.sectors || []);
                 if (parsed.systemMode) systemMode.set(parsed.systemMode);
-                
+
                 isServerReachable = true;
                 setTimeout(() => { isLoaded = true; }, 500);
             } else {
@@ -99,7 +97,7 @@
             walletInventory.update(currentInv => {
                 let newInv = [...currentInv];
                 const existingItem = newInv.find(i => i.asset.ticker === 'KAS'); 
-                
+
                 if (existingItem) {
                     existingItem.balance = numericBalance;
                     existingItem.usdValue = numericBalance * currentPrice;
@@ -160,7 +158,7 @@
     {:else}
         <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}"
              style="filter: brightness({$uiBrightness});">
-            
+
             <header class="h-20 lg:h-24 bg-black flex items-center justify-center z-50 shrink-0 w-full sticky top-0">
                 <div class="w-full max-w-[1600px] px-4 lg:px-10 flex justify-between items-center h-full">
                     <div class="flex items-center gap-3 md:gap-4 cursor-pointer" onclick={() => window.location.href = '/'}>
@@ -174,7 +172,7 @@
                     </div>
 
                     <div class="flex items-center gap-3 md:gap-4">
-                        
+
                         <button aria-label="Toggle Overclocked Mode" onclick={() => {
                                 $systemMode = $systemMode === 'base' ? 'overclocked' : 'base';
                                 import('$lib/stores/app').then(m => m.dispatchStateAction('SYSTEM_MODE', { mode: $systemMode }));
@@ -186,7 +184,7 @@
 
                         <button aria-label="Settings" onclick={() => $showSettingsModal = true} 
                                 class="w-10 h-10 rounded-xl bg-transparent hover:bg-[#111] border border-transparent hover:border-neutral-800 text-neutral-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer hidden sm:flex" title="System Parameters">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543.826-3.31-2.37-2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                         </button>
 
                         <div class="h-8 w-px bg-neutral-800 hidden sm:block"></div>
@@ -202,7 +200,7 @@
                                     <span class="{ $globalNodeStatus === 'online' ? 'text-[#18C6A5]' : $globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-500' } font-mono text-[10px] md:text-[11px] font-bold truncate max-w-[80px] md:max-w-none group-hover:text-white transition-colors">
                                         {$walletAddress?.substring(0,10)}...{$walletAddress?.substring($walletAddress.length-4)}
                                     </span>
-                                
+
                                     {#if showCopyToast}
                                         <div class="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-[#0a0a0a] border border-[#18C6A5]/50 rounded-md text-[#18C6A5] text-[9px] uppercase tracking-widest whitespace-nowrap">
                                             Copied
@@ -233,7 +231,7 @@
                     </div>
                 </div>
             </nav>
-            
+
             <main class="flex-1 overflow-y-auto relative pb-24 mt-4">
                 <div class="w-full h-full relative z-10">
                     {@render children()}
@@ -250,7 +248,7 @@
     .app-wrapper {
         transition: background-color 2.5s ease-in-out, box-shadow 2.5s ease-in-out, filter 0.3s ease-out;
     }
-    
+
     .app-wrapper.dormant {
         background-color: #000000;
     }

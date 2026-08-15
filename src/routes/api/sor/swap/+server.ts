@@ -1,14 +1,13 @@
+// src/routes/api/sor/swap/+server.ts
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
 
-// ============================================================================
-// L1 DEX SWAP ROUTER: Physical UTXO -> Synthetic Asset
-// Requires User Signature (PSBT)
-// ============================================================================
+// ⚡ INFRASTRUCTURE HARDENING
+const rustBackendUrl = env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '192.168.0.12'}:8002`;
+
 export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
     try {
         const rawCookie = cookies.get('perennia_session');
@@ -45,8 +44,7 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
             scriptPublicKey: u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ""
         }));
 
-        // Fire to the Rust Engine for PSBT Construction and Waterfall Routing
-        const rustRes = await fetch(`http://${nodeIp}:8002/v1/sor/execute`, {
+        const rustRes = await fetch(`${rustBackendUrl}/v1/sor/execute`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -66,10 +64,6 @@ export const POST = async ({ request, fetch, cookies, url }: RequestEvent) => {
         }
 
         const rustData = await rustRes.json();
-
-        // ⚡ NOTE: We DO NOT increment the Redis synthetic balance here anymore.
-        // The balance will only increment once the transaction is broadcasted successfully
-        // via the /api/broadcast endpoint, ensuring absolute zero-trust ledger safety.
 
         return json({
             unified_rate: rustData.unifiedRate,

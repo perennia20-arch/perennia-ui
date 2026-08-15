@@ -1,3 +1,4 @@
+// src/routes/api/webhooks/transak/+server.ts
 import { json, type RequestEvent } from '@sveltejs/kit';
 import crypto from 'crypto';
 import { Buffer } from 'buffer';
@@ -42,8 +43,11 @@ export const POST = async ({ request }: RequestEvent) => {
             .replace(/\//g, '_')
             .replace(/=+$/, '');
 
-        // Cryptographic execution lock
-        if (signatureB64 !== expectedSignature) {
+        // Cryptographic execution lock (Timing-Attack Protected)
+        const expectedBuffer = Buffer.from(expectedSignature);
+        const providedBuffer = Buffer.from(signatureB64);
+        
+        if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
             return json({ error: 'Cryptographic signature mismatch. Payload rejected.' }, { status: 401 });
         }
 

@@ -1,3 +1,5 @@
+// src/lib/stores/transaction.svelte.ts
+
 // ================================================================================
 // PERENNIA SOVEREIGN TRANSACTION ENGINE // ZERO-TRUST // PURE SILICON
 // ================================================================================
@@ -113,8 +115,10 @@ export async function executeSovereignPSBT(unsignedTx: any, utxoReferenceData: a
     txState.isBroadcasting = true;
     txState.error = "";
 
+    let privKeyBytes: Uint8Array = new Uint8Array(0);
+
     try {
-        const privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
+        privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
         const tx = JSON.parse(JSON.stringify(unsignedTx)); // Clone the incoming transaction
 
         // 1. BIP-143 Hash Cascades
@@ -184,6 +188,11 @@ export async function executeSovereignPSBT(unsignedTx: any, utxoReferenceData: a
             delete output._metadata;
         }
 
+        // Secure Memory Purge
+        privKeyBytes.fill(0);
+        txState.decryptedPrivateKeyHex = "0".repeat(64);
+        txState.decryptedPrivateKeyHex = "";
+
         // 3. Push finalized payload to Blind Proxy Node Mempool
         const broadcastRes = await fetch('/api/broadcast', {
             method: 'POST',
@@ -204,7 +213,9 @@ export async function executeSovereignPSBT(unsignedTx: any, utxoReferenceData: a
         txState.error = e.message;
         throw e;
     } finally {
+        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
         txState.isBroadcasting = false;
+        txState.decryptedPrivateKeyHex = "0".repeat(64);
         txState.decryptedPrivateKeyHex = "";
     }
 }
@@ -214,8 +225,10 @@ export async function executeSovereignTransaction(destinationAddress: string, am
     txState.isBroadcasting = true;
     txState.error = "";
 
+    let privKeyBytes: Uint8Array = new Uint8Array(0);
+
     try {
-        const privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
+        privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
         const myPubKeyBytes = schnorr.getPublicKey(privKeyBytes);
         const sourceScriptHex = `20${bytesToHex(myPubKeyBytes)}ac`;
 
@@ -355,6 +368,11 @@ export async function executeSovereignTransaction(destinationAddress: string, am
             input.signatureScript = `41${bytesToHex(signature)}01`;
         }
 
+        // Secure Memory Purge
+        privKeyBytes.fill(0);
+        txState.decryptedPrivateKeyHex = "0".repeat(64);
+        txState.decryptedPrivateKeyHex = "";
+
         const broadcastRes = await fetch('/api/broadcast', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -374,7 +392,9 @@ export async function executeSovereignTransaction(destinationAddress: string, am
         txState.error = e.message;
         throw e;
     } finally {
+        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
         txState.isBroadcasting = false;
         txState.decryptedPrivateKeyHex = "0".repeat(64);
+        txState.decryptedPrivateKeyHex = "";
     }
 }

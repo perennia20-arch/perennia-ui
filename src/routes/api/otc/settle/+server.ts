@@ -1,6 +1,8 @@
+// src/routes/api/otc/settle/+server.ts
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { dbPool } from '$lib/server/db';
 import { env } from '$env/dynamic/private';
+import crypto from 'crypto';
 
 // ============================================================================
 // SOVEREIGN OTC DESK SETTLEMENT HOOK
@@ -8,9 +10,14 @@ import { env } from '$env/dynamic/private';
 // Automatically dispenses crypto and stamps the 1099-DA compliance ledger.
 // ============================================================================
 export const POST = async ({ request }: RequestEvent) => {
-    // Zero-Trust Admin Authentication
-    const authHeader = request.headers.get('authorization');
-    if (authHeader !== `Bearer ${env.PERENNIA_ADMIN_KEY || 'perennia_test_key'}`) {
+    // Zero-Trust Admin Authentication (Timing-Attack Protected)
+    const expectedAuth = `Bearer ${env.PERENNIA_ADMIN_KEY || 'perennia_test_key'}`;
+    const providedAuth = request.headers.get('authorization') || '';
+    
+    const expectedBuffer = Buffer.from(expectedAuth);
+    const providedBuffer = Buffer.from(providedAuth);
+    
+    if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
          return json({ error: 'Unauthorized OTC execution' }, { status: 401 });
     }
 

@@ -1,10 +1,12 @@
+// src/routes/api/treasury/corporate/+server.ts
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { redis } from '$lib/server/redis'; 
 import { perenniaKMS } from '$lib/server/kms';
 import { env } from '$env/dynamic/private';
 
-const nodeIp = env.UBUNTU_NODE_IP || '192.168.0.12';
+// ⚡ INFRASTRUCTURE HARDENING
+const rustBackendUrl = env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '192.168.0.12'}:8002`;
 
 export const GET: RequestHandler = async ({ url }) => {
     let kasAddr = url.searchParams.get('kas');
@@ -22,8 +24,6 @@ export const GET: RequestHandler = async ({ url }) => {
     const corporateAddrs = await perenniaKMS.getCorporateAddresses();
     const isMasterAdmin = kasAddr && kasAddr.toLowerCase() === corporateAddrs.KAS.toLowerCase();
 
-    // ⚡ THE FIX: Explicit TypeScript Type Guards `(a): a is string` forces the compiler to 
-    // recognize that these arrays strictly contain strings, completely eliminating the "possibly null" errors.
     const btcTargets = Array.from(new Set([btcAddr, isMasterAdmin ? corporateAddrs.BTC : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
     const ethTargets = Array.from(new Set([ethAddr, isMasterAdmin ? corporateAddrs.ETH : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
     const solTargets = Array.from(new Set([solAddr, isMasterAdmin ? corporateAddrs.SOL : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
@@ -42,9 +42,6 @@ export const GET: RequestHandler = async ({ url }) => {
     let zecBalance = 0;
 
     try {
-        // ====================================================================
-        // 1. KASPA (Local Node Bridge -> Fallback to Official REST API)
-        // ====================================================================
         for (const targetKas of kasTargets) {
             const formattedKas = targetKas.startsWith('kaspa:') ? targetKas : `kaspa:${targetKas}`;
             const cacheKey = `treasury:balance:${formattedKas.toLowerCase()}`;
@@ -63,7 +60,7 @@ export const GET: RequestHandler = async ({ url }) => {
                 let fetched = false;
 
                 try {
-                    const localRes = await fetch(`http://${nodeIp}:8002/v1/balance?address=${formattedKas}`, {
+                    const localRes = await fetch(`${rustBackendUrl}/v1/balance?address=${formattedKas}`, {
                         signal: AbortSignal.timeout(2000)
                     });
                     if (localRes.ok) {
@@ -97,9 +94,6 @@ export const GET: RequestHandler = async ({ url }) => {
             kasBalance += localKasBal;
         }
 
-        // ====================================================================
-        // 2. BITCOIN (Mempool.space API)
-        // ====================================================================
         for (const targetBtc of btcTargets) {
             try {
                 const res = await fetch(`https://mempool.space/api/address/${targetBtc}`);
@@ -108,14 +102,9 @@ export const GET: RequestHandler = async ({ url }) => {
                     const sats = (data.chain_stats?.funded_txo_sum || 0) - (data.chain_stats?.spent_txo_sum || 0);
                     btcBalance += sats / 100_000_000;
                 }
-            } catch (e) {
-                console.error("BTC Scan Error:", e);
-            }
+            } catch (e) {}
         }
 
-        // ====================================================================
-        // 3. ETHEREUM (PublicNode RPC)
-        // ====================================================================
         for (const targetEth of ethTargets) {
             try {
                 const res = await fetch('https://ethereum-rpc.publicnode.com', {
@@ -130,14 +119,9 @@ export const GET: RequestHandler = async ({ url }) => {
                         ethBalance += Number(wei / 1000000000n) / 1000000000;
                     }
                 }
-            } catch (e) {
-                console.error("ETH Scan Error:", e);
-            }
+            } catch (e) {}
         }
 
-        // ====================================================================
-        // 4. SOLANA (Mainnet RPC)
-        // ====================================================================
         for (const targetSol of solTargets) {
             try {
                 const res = await fetch('https://api.mainnet-beta.solana.com', {
@@ -151,14 +135,9 @@ export const GET: RequestHandler = async ({ url }) => {
                         solBalance += data.result.value / 1e9;
                     }
                 }
-            } catch (e) {
-                console.error("SOL Scan Error:", e);
-            }
+            } catch (e) {}
         }
 
-        // ====================================================================
-        // 5. DOGECOIN (Blockcypher API)
-        // ====================================================================
         if (dogeAddr && !dogeAddr.includes('Awaiting')) {
             try {
                 const res = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${dogeAddr}/balance`);
@@ -169,9 +148,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ====================================================================
-        // 6. XRP LEDGER (Ripple Data API v2)
-        // ====================================================================
         if (xrpAddr && !xrpAddr.includes('Awaiting')) {
             try {
                 const res = await fetch(`https://data.ripple.com/v2/accounts/${xrpAddr}/balances`);
@@ -183,9 +159,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ====================================================================
-        // 7. POLYGON (EVM PublicNode RPC)
-        // ====================================================================
         if (polAddr && !polAddr.includes('Awaiting')) {
             try {
                 const res = await fetch('https://polygon-bor-rpc.publicnode.com', {
@@ -199,9 +172,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ====================================================================
-        // 8. AVALANCHE C-CHAIN (EVM PublicNode RPC)
-        // ====================================================================
         if (avaxAddr && !avaxAddr.includes('Awaiting')) {
             try {
                 const res = await fetch('https://avalanche-c-chain-rpc.publicnode.com', {
@@ -215,9 +185,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ====================================================================
-        // 9. SUI NETWORK (Sui Mainnet RPC)
-        // ====================================================================
         if (suiAddr && !suiAddr.includes('Awaiting')) {
             try {
                 const res = await fetch('https://fullnode.mainnet.sui.io', {
@@ -231,9 +198,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ====================================================================
-        // 10. TRON (TronGrid Public API)
-        // ====================================================================
         if (trxAddr && !trxAddr.includes('Awaiting')) {
             try {
                 const res = await fetch(`https://api.trongrid.io/v1/accounts/${trxAddr}`);
@@ -244,9 +208,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ====================================================================
-        // 11. ZCASH (Blockchair API)
-        // ====================================================================
         if (zecAddr && !zecAddr.includes('Awaiting')) {
             try {
                 const res = await fetch(`https://api.blockchair.com/zcash/dashboards/address/${zecAddr}`);
@@ -257,7 +218,6 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        // ⚡ Ensure synthesized fees are ONLY appended to the actual Master Admin session
         if (isMasterAdmin) {
             const assetSymbols = ['KAS', 'BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'POL', 'AVAX', 'SUI', 'TRX', 'ZEC'];
             const syntheticFees: Record<string, number> = {};
