@@ -2,9 +2,6 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { redis } from '$lib/server/redis'; 
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
-const DEV_ADMIN_BYPASS = false;
-
 export const GET: RequestHandler = async ({ cookies }) => {
     const rawCookie = cookies.get('perennia_session');
     
@@ -12,25 +9,21 @@ export const GET: RequestHandler = async ({ cookies }) => {
         return json({ error: 'UNAUTHORIZED_MATRIX_ACCESS' }, { status: 401 });
     }
 
-    // ⚡ FIX: Decode cookie
     const sessionCookie = decodeURIComponent(rawCookie);
-    const cleanSessionWallet = sessionCookie.toLowerCase().replace('kaspa:', '');
-    const isCorporateAdmin = DEV_ADMIN_BYPASS || sessionCookie.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase();
+    const cleanSessionWallet = sessionCookie.toLowerCase().replace(/kaspa:/i, '').trim();
 
     try {
-        const totalHashrateStr = await redis.get('pool:hashrate');
-        const totalHashrate = parseFloat(totalHashrateStr || "0");
-
         const workerKeys = await redis.smembers('pool:workers');
         const workers = [];
+        let isolatedHashrate = 0;
         
         for (const fullIdentity of workerKeys) {
             const nameParts = fullIdentity.split('.');
             const rawWalletAddress = nameParts[0];
-            const walletAddress = rawWalletAddress.toLowerCase().replace('kaspa:', '');
+            const cleanWorkerWallet = rawWalletAddress.toLowerCase().replace(/kaspa:/i, '').trim();
             const workerName = nameParts.length > 1 ? nameParts.slice(1).join('.') : fullIdentity;
 
-            if (!isCorporateAdmin && walletAddress !== cleanSessionWallet) {
+            if (cleanWorkerWallet !== cleanSessionWallet && !fullIdentity.toLowerCase().includes(cleanSessionWallet)) {
                 continue; 
             }
 
@@ -40,20 +33,23 @@ export const GET: RequestHandler = async ({ cookies }) => {
                 redis.get(`worker:${fullIdentity}:shares`)
             ]);
 
+            const rate = parseFloat(hashRateStr || "0");
+            isolatedHashrate += rate;
+
             workers.push({
                 name: workerName,
                 walletAddress: rawWalletAddress, 
                 fullIdentity: fullIdentity,
-                trackingRate: parseFloat(hashRateStr || "0"),
+                trackingRate: rate,
                 blocksFound: parseInt(blocksStr || "0", 10),
                 sharesContributed: parseInt(sharesStr || "0", 10)
             });
         }
 
-        return json({ status: "ONLINE", pool: { totalHashrate }, workers: workers });
+        return json({ status: "ONLINE", pool: { totalHashrate: isolatedHashrate }, workers: workers });
         
     } catch (error) {
-        console.error("🚨 Redis Telemetry Fetch Error:", error);
+        console.error("Redis Telemetry Fetch Error:", error);
         return json({ error: 'Failed to read node telemetry.', pool: { totalHashrate: 0 }, workers: [] }, { status: 500 });
     }
 };

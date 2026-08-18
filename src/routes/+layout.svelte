@@ -3,11 +3,11 @@
     import { onMount, onDestroy } from 'svelte';
     import { get } from 'svelte/store';
     import { browser } from '$app/environment';
-    import { fade, slide } from 'svelte/transition';
     import { activeTab, systemMode, globalKasPrice, globalKasChange, globalNetworkHashrate, globalNodeStatus, workers, sectors, walletInventory, coreTokenRegistry, adminModeActive, adminTargetWallet } from '$lib/stores/app';        
-
     import { isWalletConnected, walletAddress, walletBalance, disconnectWallet, restoreSession, showWalletModal, DEV_ADMIN_BYPASS, MASTER_ADMIN_ADDRESS } from '$lib/stores/wallet';
-    import { showSettingsModal, uiBrightness } from '$lib/stores/settings';
+    
+    import { userWalletStore } from '$lib/stores/userWalletStore.svelte';
+    import { settingsStore } from '$lib/stores/settings.svelte';
 
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
@@ -18,8 +18,6 @@
     const tabs = ['DEX', 'OPERATIONS', 'TREASURY', 'TAX FORTRESS'];
 
     let isCorporateAdmin = $derived(DEV_ADMIN_BYPASS || ($walletAddress && $walletAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase()));
-
-    let disabledTabs: string[] = $state([]); 
 
     let priceInterval: ReturnType<typeof setInterval>;
     const BACKEND_BASE = '';
@@ -58,12 +56,16 @@
             const res = await fetch(url);
             if (res.ok) {
                 const parsed = await res.json();
-
                 workers.set(parsed.workers || []);
                 sectors.set(parsed.sectors || []);
                 if (parsed.systemMode) systemMode.set(parsed.systemMode);
 
                 isServerReachable = true;
+                setTimeout(() => { isLoaded = true; }, 500);
+            } else if (res.status === 503 || res.status === 500) {
+                // ⚡ FIX: Protect local state when server is unreachable. Do NOT purge.
+                console.warn("Backend unavailable, preserving local state.");
+                isServerReachable = false;
                 setTimeout(() => { isLoaded = true; }, 500);
             } else {
                 purgeApplicationState();
@@ -76,12 +78,19 @@
     }
 
     $effect(() => {
+        const _theme = settingsStore.theme;
+        const _intensity = settingsStore.bgIntensity;
+        settingsStore.applyTheme();
+    });
+
+    $effect(() => {
         if (browser) {
             if ($isWalletConnected && $walletAddress) {
                 isLoaded = false; 
                 const target = (isCorporateAdmin && $adminModeActive && $adminTargetWallet) ? $adminTargetWallet : null;
                 loadStateFromServer(target);
                 syncKasWareState();
+                userWalletStore.updateAsset('KAS', { address: $walletAddress });
             } else if (!$isWalletConnected) {
                 isLoaded = false;
                 purgeApplicationState();
@@ -93,6 +102,12 @@
         if (browser && $isWalletConnected) {
             const numericBalance = parseFloat($walletBalance) || 0;
             const currentPrice = $globalKasPrice || 0;
+
+            userWalletStore.updateAsset('KAS', { 
+                availableBalance: numericBalance,
+                totalBalance: numericBalance,
+                spotPrice: currentPrice 
+            });
 
             walletInventory.update(currentInv => {
                 let newInv = [...currentInv];
@@ -135,7 +150,11 @@
                 const data = await res.json();
                 if (data?.kaspa) { 
                     globalKasPrice.set(data.kaspa.usd); 
-                    globalKasChange.set(data.kaspa.usd_24h_change || 0); 
+                    globalKasChange.set(data.kaspa.usd_24h_change || 0);
+                    userWalletStore.updateAsset('KAS', { 
+                        spotPrice: data.kaspa.usd,
+                        delta: data.kaspa.usd_24h_change || 0 
+                    });
                 }
             }
         } catch(e) {}
@@ -144,6 +163,7 @@
     onMount(() => {
         restoreSession();
         fetchPriceData();
+        settingsStore.applyTheme();
         priceInterval = setInterval(fetchPriceData, 15000); 
     });
 
@@ -152,17 +172,17 @@
     });
 </script>
 
-<div class="theme-wrapper transition-colors duration-500 bg-black min-h-[100dvh]" class:theme-overclock={$systemMode === 'overclocked'}>
+<div class="theme-wrapper transition-colors duration-500 min-h-[100dvh] bg-app" class:theme-overclock={$systemMode === 'overclocked'}>
     {#if !hasEntered}
         <EntryView {enterNexus} />
     {:else}
-        <div class="app-wrapper min-h-[100dvh] w-full text-white flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}"
-             style="filter: brightness({$uiBrightness});">
+        <div class="app-wrapper min-h-[100dvh] w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden animate-[fade-in_1s_ease-out] {appAwakened ? 'glow-active' : 'dormant'}"
+             style="filter: brightness({settingsStore.uiBrightness});">
 
-            <header class="h-20 lg:h-24 bg-black flex items-center justify-center z-50 shrink-0 w-full sticky top-0">
+            <header class="h-20 lg:h-24 bg-app flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-neutral-800/60 transition-colors">
                 <div class="w-full max-w-[1600px] px-4 lg:px-10 flex justify-between items-center h-full">
                     <div class="flex items-center gap-3 md:gap-4 cursor-pointer" onclick={() => window.location.href = '/'}>
-                        <div class="w-8 h-8 md:w-10 md:h-10 bg-[#111] rounded-xl flex items-center justify-center shrink-0">
+                        <div class="w-8 h-8 md:w-10 md:h-10 bg-[#111] rounded-xl flex items-center justify-center shrink-0 border border-neutral-800">
                             <span class="font-black text-emerald-400 text-lg md:text-xl">P</span>
                         </div>
                         <div class="flex items-center gap-2 hidden sm:flex h-full">
@@ -172,7 +192,6 @@
                     </div>
 
                     <div class="flex items-center gap-3 md:gap-4">
-
                         <button aria-label="Toggle Overclocked Mode" onclick={() => {
                                 $systemMode = $systemMode === 'base' ? 'overclocked' : 'base';
                                 import('$lib/stores/app').then(m => m.dispatchStateAction('SYSTEM_MODE', { mode: $systemMode }));
@@ -182,9 +201,9 @@
                             <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-all duration-300 { $systemMode === 'overclocked' ? 'bg-[#18C6A5] left-[26px]' : 'bg-neutral-600 left-1'}"></div>
                         </button>
 
-                        <button aria-label="Settings" onclick={() => $showSettingsModal = true} 
+                        <button aria-label="Settings" onclick={() => settingsStore.showSettingsModal = true} 
                                 class="w-10 h-10 rounded-xl bg-transparent hover:bg-[#111] border border-transparent hover:border-neutral-800 text-neutral-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer hidden sm:flex" title="System Parameters">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94-1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                         </button>
 
                         <div class="h-8 w-px bg-neutral-800 hidden sm:block"></div>
@@ -216,7 +235,7 @@
                 </div>
             </header>
 
-            <nav class="h-14 bg-black flex justify-center w-full z-40 shrink-0 hide-scrollbar">
+            <nav class="h-14 bg-app flex justify-center w-full z-40 shrink-0 hide-scrollbar border-b border-neutral-800/40 transition-colors">
                 <div class="w-full max-w-[1600px] px-4 lg:px-10 flex items-center justify-start overflow-x-auto h-full hide-scrollbar">
                     <div class="flex gap-6 sm:gap-10 h-full min-w-max items-center">
                         {#each tabs as tab}

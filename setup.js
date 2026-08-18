@@ -125,6 +125,18 @@ ON CONFLICT DO NOTHING;
 INSERT INTO invite_codes (code) 
 VALUES ('JOSH-BETA-2026') 
 ON CONFLICT DO NOTHING;
+
+-- 8. GHOST RECOVERY PROTOCOL
+-- Identifies active wallets that have generated yield/tax events but suffered from the layout_state wipe bug,
+-- and automatically restores their command center matrix.
+INSERT INTO user_command_centers (wallet_address, layout_state)
+SELECT DISTINCT REPLACE(wallet_address, 'kaspa:', ''), 
+       '{"workers":[],"sectors":[{"id":"RSTR-1","name":"Restored Silo","allocationPercentage":100,"routeMode":"hold","settlementConfig":{"mode":"stream","autoPayout":true,"targetAsset":{"name":"Kaspa","theme":{"hex":"#18C6A5","pastel":"#99f6e4"},"icon":"/assets/tokens/kas.svg","imgUrl":"/assets/tokens/kas.svg","ticker":"KAS","priceUsd":0.16,"assetClass":"Native L1"},"streamMode":"realtime","streamUnit":"hours","streamValue":1,"appointmentDate":"","appointmentTime":"17:00","payoutAddress":"","threshold":10},"pendingKaspa":0,"width":12}],"manualLps":[],"systemMode":"overclocked"}'::jsonb
+FROM tax_ledger_events
+WHERE REPLACE(wallet_address, 'kaspa:', '') NOT IN (
+    SELECT wallet_address FROM user_command_centers WHERE layout_state->>'sectors' != '[]'
+)
+ON CONFLICT (wallet_address) DO UPDATE SET layout_state = EXCLUDED.layout_state;
 `;
 
 async function igniteMatrix() {
@@ -134,6 +146,7 @@ async function igniteMatrix() {
         
         console.log("✅ SUCCESS: Matrix Ignited & Perimeter Whitelist Armed!");
         console.log("🎟️ Generated Invite Code: JOSH-BETA-2026");
+        console.log("👻 Ghost Recovery Protocol executed - Wiped wallets restored.");
     } catch (err) {
         console.error("❌ FAILED to build tables:", err.message);
     } finally {

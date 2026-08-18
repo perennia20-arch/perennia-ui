@@ -4,52 +4,98 @@
 
     let { 
         asset, 
-        subAssets = $bindable(), 
-        selectedTokens = $bindable(), 
-        standardLabel, 
-        searchGlobalNetwork,
-        activeHoverSegment = $bindable(),
-        displayUnit = 'token',
-        displayDecimals = 8
+        subAssets = [], 
+        selectedTokens = [], 
+        onToggleToken = (symbol: string) => {},
+        onDeleteToken = (symbol: string) => {},
+        standardLabel = '', 
+        searchQuery = '', 
+        activeHoverSegment = null, 
+        onHover = (val: string | null) => {},
+        displayUnit = 'token', 
+        timeframe = '24H',
+        fiatDecimals = 2, 
+        tokenDecimals = 8,
+        isManagingNetworks = false,
+        isOrganizing = false,
+        isNetworkSelected = true,
+        onNetworkToggle = () => {},
+        autoOpenToken = null
     } = $props();
 
     let isMainOpen = $state(false);
-    let isSubOpen = $state(false);
-    let isManaging = $state(false);
-    let searchQuery = $state('');
+    let _lastNetworkState = isNetworkSelected;
+    
+    $effect(() => {
+        if (isNetworkSelected !== _lastNetworkState) {
+            isMainOpen = isNetworkSelected;
+            _lastNetworkState = isNetworkSelected;
+        }
+    });
+
     let expandedSubToken = $state<string | null>(null);
     let qrCodeUrl = $state('');
-    let isSearching = $state(false);
-    let searchError = $state('');
+    let isRoutingVisible = $state(false);
+    let isSubRoutingVisible = $state(false);
 
     $effect(() => {
-        if (asset.address && !asset.address.includes('Awaiting')) {
-            QRCode.toDataURL(asset.address, { margin: 1, color: { dark: '#000000', light: '#ffffff' } })
+        if (autoOpenToken) {
+            isMainOpen = true;
+            isRoutingVisible = false;
+            expandedSubToken = autoOpenToken;
+        }
+    });
+
+    $effect(() => {
+        if (!expandedSubToken) isSubRoutingVisible = false;
+    });
+
+    $effect(() => {
+        if (asset?.address && !asset.address.includes('Awaiting')) {
+            QRCode.toDataURL(asset.address, { margin: 1, color: { dark: '#000000', light: '#ffffff' }, width: 200 })
                 .then(url => qrCodeUrl = url).catch(e => console.error(e));
         } else {
             qrCodeUrl = '';
         }
     });
 
-    let filteredSubAssets = $derived(
-        subAssets.filter((t: any) => 
-            (t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || 
-             t.name.toLowerCase().includes(searchQuery.toLowerCase())) && 
-            (isManaging || selectedTokens.includes(t.symbol))
-        )
-    );
-
-    function toggleSelection(symbol: string) {
-        if (selectedTokens.includes(symbol)) {
-            selectedTokens = selectedTokens.filter((s: string) => s !== symbol);
-        } else {
-            selectedTokens = [...selectedTokens, symbol];
+    function generateSparkline(seed: string, delta: number, width = 64, height = 24) {
+        let hash = 0;
+        const seedStr = seed || 'KAS';
+        for (let i = 0; i < seedStr.length; i++) hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
+        const points = [];
+        const segments = 15;
+        const clampedDelta = Math.max(-20, Math.min(20, delta || 0)); 
+        const endY = height/2 - (clampedDelta / 20) * (height/2 - 2); 
+        for(let i = 0; i <= segments; i++) {
+            const x = (i / segments) * width;
+            const progress = i / segments;
+            const baseY = (height/2) * (1 - progress) + (endY * progress);
+            const noiseStr = Math.sin(hash + i).toString();
+            const noise = (parseFloat(noiseStr.substring(noiseStr.length - 2)) / 100 - 0.5) * 8; 
+            const damp = Math.sin(progress * Math.PI);
+            const y = baseY + (noise * damp);
+            points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
         }
+        return `M ${points.join(' L ')}`;
     }
+
+    let filteredSubAssets = $derived(
+        (subAssets || []).filter((t: any) => {
+            const contractStr = t.contract ? t.contract.toLowerCase() : '';
+            const searchStr = searchQuery.toLowerCase();
+            const searchMatch = !searchQuery || 
+                t.symbol?.toLowerCase().includes(searchStr) || 
+                t.name?.toLowerCase().includes(searchStr) ||
+                contractStr.includes(searchStr);
+            const visibilityMatch = isManagingNetworks || (selectedTokens || []).includes(t.symbol);
+            return searchMatch && visibilityMatch;
+        })
+    );
 
     function copyNativeAddress(e: Event, address: string) {
         e.stopPropagation(); 
-        if (typeof navigator !== 'undefined' && !address.includes('Awaiting')) {
+        if (typeof navigator !== 'undefined' && address && !address.includes('Awaiting')) {
             navigator.clipboard.writeText(address);
         }
     }
@@ -71,261 +117,340 @@
             default: return '#';
         }
     }
-
-    async function executeSearch() {
-        isSearching = true;
-        searchError = '';
-        try {
-            const error = await searchGlobalNetwork(asset.symbol, searchQuery);
-            if (error) searchError = error;
-            else { searchQuery = ''; isManaging = true; }
-        } catch(e) {
-            searchError = 'Network error.';
-        }
-        isSearching = false;
-    }
-
-    // ⚡ Clean Svelte Event Handler to replace the raw string that crashed the compiler
-    function handleTokenIconError(e: Event, symbol: string) {
-        const target = e.currentTarget as HTMLImageElement;
-        if (!target.dataset.triedJpg) {
-            target.dataset.triedJpg = 'true';
-            target.src = `https://storage.googleapis.com/kasfyi/token-icons/${symbol}.jpg`;
-        } else {
-            target.style.display = 'none';
-            if (target.nextElementSibling) {
-                (target.nextElementSibling as HTMLElement).style.display = 'inline';
-            }
-        }
-    }
 </script>
 
 <div 
-    class="bg-[#0c0c0c] rounded-[24px] border {isMainOpen ? 'border-neutral-500 shadow-[0_0_20px_rgba(255,255,255,0.05)]' : 'border-neutral-800/80 hover:border-neutral-600 hover:shadow-[0_0_20px_rgba(24,198,165,0.1)] shadow-xl'} transition-all duration-300 flex flex-col relative overflow-hidden"
-    style={activeHoverSegment === asset.symbol ? `border-color: ${asset.hex}50; box-shadow: 0 0 30px ${asset.hex}15;` : ''}
-    onmouseenter={() => activeHoverSegment = asset.symbol}
-    onmouseleave={() => activeHoverSegment = null}
+    class="rounded-[24px] transition-all duration-300 flex flex-col relative overflow-hidden group"
+    style="
+        background-color: #0c0c0c;
+        background-image: radial-gradient(ellipse at left top, {asset.hex}10, transparent 50%);
+        box-shadow: 0 8px 32px -8px {asset.hex}15;
+        {activeHoverSegment === (asset.symbol || asset.ticker) ? `box-shadow: 0 8px 40px -4px ${asset.hex}25;` : ''}
+    "
+    onmouseenter={() => onHover(asset.symbol || asset.ticker)}
+    onmouseleave={() => onHover(null)}
 >
-    <!-- L1 MAIN ROW -->
-    <div onclick={() => isMainOpen = !isMainOpen} role="button" tabindex="0" class="w-full p-6 flex items-center justify-between cursor-pointer hover:bg-[#111] transition-colors focus:outline-none text-left border-none select-none relative z-10">
-        <div class="flex items-center gap-5">
-            <div class="w-12 h-12 rounded-xl border border-neutral-800 bg-[#050505] flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden">
+    <!-- MASTER COVER -->
+    <div onclick={() => {
+        if (isManagingNetworks || isOrganizing) {
+            if (isManagingNetworks) onNetworkToggle();
+        } else {
+            isMainOpen = !isMainOpen;
+            if (!isMainOpen) {
+                expandedSubToken = null;
+                isRoutingVisible = false;
+            }
+        }
+    }} role="button" tabindex="0" class="w-full p-4 md:p-5 flex items-center justify-between gap-4 transition-colors {isManagingNetworks || isOrganizing ? '' : 'cursor-pointer hover:bg-[#111]'} focus:outline-none text-left border-none select-none relative z-10">
+        
+        <!-- Left Side: Identity & Routing -->
+        <div class="flex items-center gap-4 shrink-0">
+            {#if isOrganizing && isNetworkSelected}
+                <div class="text-neutral-600 flex flex-col gap-1 pr-1 pointer-events-none" transition:slide={{axis: 'x'}}>
+                    <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
+                    <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
+                    <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
+                </div>
+            {/if}
+
+            <div class="w-12 h-12 rounded-xl bg-[#050505] flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden self-start mt-1">
                 <div class="absolute inset-0 opacity-[0.12]" style="background-color: {asset.hex}"></div>
-                {#if asset.icon.startsWith('/') || asset.icon.startsWith('http')}
-                    <img src={asset.icon} alt="{asset.symbol} logo" class="w-full h-full object-contain relative z-10" style="filter: drop-shadow(0 0 4px {asset.hex}40);" />
+                {#if (asset.icon && (asset.icon.startsWith('/') || asset.icon.startsWith('http'))) || (asset.imgUrl && (asset.imgUrl.startsWith('/') || asset.imgUrl.startsWith('http')))}
+                    <img src={asset.icon || asset.imgUrl} alt="{asset.symbol || asset.ticker} logo" class="w-full h-full object-contain relative z-10" style="filter: drop-shadow(0 0 4px {asset.hex}40);" />
                 {:else}
-                    <span class="text-xl font-bold relative z-10" style="color: {asset.hex}">{asset.symbol.slice(0, 3)}</span>
+                    <span class="text-xl font-bold relative z-10" style="color: {asset.hex}">{(asset.symbol || asset.ticker || 'TOK').slice(0, 3)}</span>
                 {/if}
             </div>
             <div class="flex flex-col gap-1.5">
                 <div class="flex items-center gap-3">
                     <span class="text-sm md:text-base font-medium uppercase tracking-widest text-neutral-200">{asset.name}</span>
-                    <span class="text-[8px] font-medium uppercase tracking-widest bg-[#111] border border-neutral-800 text-neutral-400 px-2 py-0.5 rounded-md shadow-inner hidden xl:block">{asset.badge}</span>
+                    <span class="text-[8px] font-medium uppercase tracking-widest bg-[#111] text-neutral-400 px-2 py-0.5 rounded-md shadow-inner hidden xl:block">{asset.badge || asset.type}</span>
+                    
+                    <!-- ⚡ NEW: Subdued APY Pill next to the Network Badge -->
+                    {#if asset.apy}
+                        <span class="text-[8px] font-bold uppercase tracking-widest bg-[#18C6A5]/10 text-[#18C6A5] px-2 py-0.5 rounded-md shadow-inner hidden xl:block">{asset.apy}% APY</span>
+                    {/if}
+
+                    {#if !isManagingNetworks && !isOrganizing}
+                        <div class="flex items-center gap-3 ml-2 border-l border-neutral-800/80 pl-3" onclick={(e) => e.stopPropagation()}>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[8px] font-bold uppercase tracking-widest transition-colors {isRoutingVisible ? 'text-white' : 'text-neutral-500'}">Routing</span>
+                                <button aria-label="Toggle Routing" onclick={() => { isRoutingVisible = !isRoutingVisible; if(isRoutingVisible) isMainOpen = true; }} class="w-6 h-3 rounded-full border transition-colors duration-300 relative cursor-pointer focus:outline-none shrink-0" style="background-color: {isRoutingVisible ? `${asset.hex}20` : '#050505'}; border-color: {isRoutingVisible ? `${asset.hex}50` : '#404040'};">
+                                    <div class="absolute top-[1px] w-2 h-2 rounded-full transition-all duration-300 shadow-sm" style="background-color: {isRoutingVisible ? asset.hex : '#737373'}; left: {isRoutingVisible ? '13px' : '1px'};"></div>
+                                </button>
+                            </div>
+                            <a href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)} target="_blank" rel="noopener noreferrer" class="text-[8px] uppercase tracking-widest font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors flex items-center gap-1">
+                                Explorer
+                            </a>
+                        </div>
+                    {/if}
                 </div>
-                <span class="text-[10px] font-medium text-neutral-500 tracking-widest">
-                    ${asset.spotPrice.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} 
-                    <span class="ml-2 {asset.delta >= 0 ? 'text-[#18C6A5]' : 'text-red-500'} drop-shadow-sm">{asset.delta >= 0 ? '▲' : '▼'} {Math.abs(asset.delta).toFixed(2)}%</span>
-                </span>
+                
+                <div class="flex items-center gap-3">
+                    <span class="text-[10px] font-medium text-neutral-500 tracking-widest flex items-center gap-1.5">
+                        ${(asset.spotPrice || 0).toLocaleString(undefined, {minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals})} 
+                        <span class="{(asset.delta || 0) >= 0 ? 'text-[#18C6A5]' : 'text-red-500'} drop-shadow-sm">{(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(asset.delta || 0).toFixed(2)}%</span>
+                    </span>
+                    <svg class="w-16 h-4 opacity-70" viewBox="0 0 64 24" preserveAspectRatio="none">
+                        <path d={generateSparkline(asset.symbol || asset.ticker, asset.delta)} fill="none" stroke="{(asset.delta || 0) >= 0 ? '#18C6A5' : '#ef4444'}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
             </div>
         </div>
-        
-        <div class="flex flex-col items-end gap-1">
-            {#if displayUnit === 'token'}
-                <span class="text-lg md:text-2xl font-normal tabular-nums tracking-tight text-neutral-200 leading-none">
-                    {asset.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} <span class="text-xs font-mono text-neutral-400">{asset.symbol}</span>
-                </span>
-                <span class="text-[10px] font-mono text-neutral-500 tracking-wider tabular-nums">
-                    ≈ ${(asset.balance * asset.spotPrice).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
-                </span>
-            {:else}
-                <span class="text-lg md:text-2xl font-normal tabular-nums tracking-tight text-[#18C6A5] leading-none">
-                    ${(asset.balance * asset.spotPrice).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
-                </span>
-                <span class="text-[10px] font-mono text-neutral-500 tracking-wider tabular-nums">
-                    ≈ {asset.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} {asset.symbol}
-                </span>
+
+        <!-- Right Side: Balances & Staking Breakdown -->
+        <div class="flex items-center gap-4 shrink-0">
+            <div class="flex flex-col items-end gap-1">
+                {#if displayUnit === 'token'}
+                    <span class="text-lg md:text-xl font-normal tabular-nums leading-none tracking-tight text-neutral-200">
+                        {(asset.totalBalance || 0).toLocaleString(undefined, {minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals})} <span class="text-xs font-mono text-neutral-400">{asset.symbol || asset.ticker}</span>
+                    </span>
+                    <span class="text-[10px] font-mono text-neutral-500 tracking-wider tabular-nums flex items-center gap-1.5">
+                        <!-- ⚡ NEW: Staking sub-balance display -->
+                        {#if asset.stakedBalance}
+                            <span class="text-neutral-600">({asset.stakedBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} Staked)</span>
+                        {/if}
+                        ≈ ${((asset.totalBalance || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, {minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals})}
+                    </span>
+                {:else}
+                    <span class="text-lg md:text-xl font-normal tabular-nums leading-none tracking-tight text-[#18C6A5]">
+                        ${((asset.totalBalance || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, {minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals})}
+                    </span>
+                    <span class="text-[10px] font-mono text-neutral-500 tracking-wider tabular-nums flex items-center gap-1.5">
+                        <!-- ⚡ NEW: Staking sub-balance display -->
+                        {#if asset.stakedBalance}
+                            <span class="text-neutral-600">({asset.stakedBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} Staked)</span>
+                        {/if}
+                        ≈ {(asset.totalBalance || 0).toLocaleString(undefined, {minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals})} {asset.symbol || asset.ticker}
+                    </span>
+                {/if}
+            </div>
+
+            {#if isManagingNetworks}
+                <div class="pl-4 border-l border-neutral-800/80 flex items-center">
+                    <button aria-label="Toggle Network" onclick={(e) => { e.stopPropagation(); onNetworkToggle(); }} class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none" style="background-color: {isNetworkSelected ? `${asset.hex}20` : '#111'}; border-color: {isNetworkSelected ? `${asset.hex}50` : '#404040'};">
+                        <div class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm" style="background-color: {isNetworkSelected ? asset.hex : '#737373'}; left: {isNetworkSelected ? '22px' : '1px'};"></div>
+                    </button>
+                </div>
             {/if}
-            <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="mt-1 px-3 py-1 rounded-lg bg-[#050505] border border-neutral-800 hover:border-neutral-500 text-[9px] font-medium uppercase tracking-widest text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer focus:outline-none shrink-0 shadow-sm">
-                {asset.address.includes('Awaiting') ? 'Locked' : 'Copy Root'}
-            </button>
         </div>
     </div>
 
-    <!-- EXPANDED L1 NETWORK DRAWER -->
-    {#if isMainOpen}
-        <div transition:slide class="border-t border-neutral-800/50 bg-[#050505] p-6 flex flex-col gap-4 shadow-inner relative z-0">
-            <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-2">
-                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">{asset.name} Telemetry</span>
-                <a href={getExplorerUrl(asset.symbol, asset.address)} target="_blank" rel="noopener noreferrer" class="text-[9px] uppercase tracking-widest font-bold bg-[#111] hover:bg-[#1a1a1a] border border-neutral-700 hover:border-[#18C6A5] text-[#18C6A5] px-3 py-1 rounded-lg transition-all duration-200 shadow-md flex items-center gap-1.5">
-                    <span>Explorer</span>
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                </a>
-            </div>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-2 {asset.symbol === 'KAS' ? 'xl:grid-cols-3' : ''} gap-4">
-                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-5 flex items-center justify-between shadow-inner min-h-[120px]">
-                    <div class="flex flex-col justify-between h-full w-full pr-4">
-                        <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500 mb-2">Inbound Routing</span>
-                        <div class="flex flex-col gap-1">
-                            <span class="text-[10px] font-bold text-white uppercase tracking-widest">Deposit {asset.symbol}</span>
-                            <span class="text-[9px] font-mono text-neutral-500 break-all leading-tight max-w-[180px]">{asset.address}</span>
+    <!-- EXPANDED DRAWER CONTENT -->
+    {#if isMainOpen && !isManagingNetworks && !isOrganizing}
+        <div transition:slide class="px-4 md:px-5 pb-4 md:pb-5 relative z-0 -mt-2">
+
+            <!-- L1 Staking & Accrual Silo -->
+            {#if asset.stakedBalance}
+                <div transition:slide class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2 mb-4">
+                    <div class="bg-[#050505] rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                        <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Staking & Yield Telemetry</span>
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] font-mono text-neutral-400">Staked Principal</span>
+                            <span class="text-[10px] font-mono font-medium text-white">{(asset.stakedBalance || 0).toLocaleString()} {asset.symbol || asset.ticker}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] font-mono text-neutral-400">Effective APY</span>
+                            <span class="text-[10px] font-mono font-medium text-[#18C6A5]">{asset.apy}% Compounding</span>
                         </div>
                     </div>
+                    <div class="bg-[#050505] rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                        <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Accrual & Cooldown Silo</span>
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] font-mono text-neutral-400">Accrued (Unclaimed)</span>
+                            <span class="text-[10px] font-mono font-bold text-[#18C6A5]">+{asset.accruedYield?.toLocaleString(undefined, {minimumFractionDigits: 6, maximumFractionDigits: 6}) || '0.000000'} {asset.symbol || asset.ticker}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] font-mono text-neutral-400">Strategy / Node</span>
+                            <span class="text-[10px] font-mono font-medium text-white truncate max-w-[140px]">{asset.validator || 'Native Sovereign Node'}</span>
+                        </div>
+                    </div>
+                </div>
+            {/if}
 
-                    <div class="w-[85px] h-[85px] bg-[#050505] border border-neutral-800 rounded-xl p-1 flex items-center justify-center shrink-0 shadow-md relative overflow-hidden">
+            <!-- Toggled L1 Inbound Routing / QR Display -->
+            {#if isRoutingVisible}
+                <div transition:slide class="bg-[#050505] rounded-[20px] p-5 flex flex-col md:flex-row items-center justify-between shadow-inner w-full gap-6 mb-4 mt-2">
+                    <div class="flex flex-col justify-center w-full md:w-2/3">
+                        <span class="text-[10px] uppercase tracking-widest font-bold text-neutral-500 mb-3">Inbound Routing</span>
+                        <span class="text-sm font-bold text-white uppercase tracking-widest mb-1">Deposit {asset.symbol || asset.ticker}</span>
+                        <span class="text-sm md:text-lg font-mono text-[#18C6A5] break-all leading-relaxed mb-6 select-all">{asset.address}</span>
+                        <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="w-fit px-8 py-3 rounded-xl bg-[#111] hover:bg-[#222] text-xs font-bold uppercase tracking-widest text-neutral-300 hover:text-white transition-colors cursor-pointer focus:outline-none shadow-sm">
+                            {asset.address?.includes('Awaiting') ? 'Locked' : 'Copy Route'}
+                        </button>
+                    </div>
+
+                    <div class="w-[160px] h-[160px] md:w-[200px] md:h-[200px] bg-[#0c0c0c] rounded-2xl p-3 flex items-center justify-center shrink-0 shadow-xl relative overflow-hidden">
                         {#if qrCodeUrl && !asset.address.includes('Awaiting')}
-                            <img src={qrCodeUrl} alt="QR Code" class="w-full h-full rounded-lg bg-white p-1" style="image-rendering: pixelated;" />
+                            <img src={qrCodeUrl} alt="QR Code" class="w-full h-full rounded-xl bg-white p-2" style="image-rendering: pixelated;" />
                         {:else}
-                            <div class="flex flex-col items-center justify-center text-neutral-600 gap-1">
-                                <svg class="w-5 h-5 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                                <span class="text-[7px] uppercase tracking-widest text-neutral-600 font-mono">Locked</span>
+                            <div class="flex flex-col items-center justify-center text-neutral-600 gap-2">
+                                <svg class="w-8 h-8 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                <span class="text-[10px] uppercase tracking-widest text-neutral-600 font-mono font-bold">Locked</span>
                             </div>
                         {/if}
                     </div>
                 </div>
+            {/if}
 
-                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
-                    <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Security Status</span>
-                    <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-mono text-neutral-400">Vault Keypair</span>
-                        <span class="text-[10px] font-mono font-medium text-neutral-200">24-Word Derived</span>
-                    </div>
-                    <div class="w-full h-1 bg-[#111] border border-neutral-800 rounded-full overflow-hidden">
-                        <div class="h-full w-[100%] transition-all duration-1000 rounded-full" style="background-color: {asset.hex}; box-shadow: 0 0 8px {asset.hex}80;"></div>
-                    </div>
-                    <span class="text-[8px] font-mono text-neutral-600 uppercase tracking-widest text-right mt-1">Immutable Ledger Synchronized</span>
-                </div>
-            </div>
+            <!-- Seamless, Indented Sub-Tokens -->
+            {#if filteredSubAssets.length > 0}
+                <div class="flex flex-col gap-2 pt-1">
+                    {#each filteredSubAssets as token}
+                        <div class="bg-[#050505] hover:bg-[#0a0a0a] rounded-2xl overflow-hidden transition-all duration-300 group/token ml-8 md:ml-10 shadow-inner">
+                            <div class="flex items-center justify-between p-3.5 cursor-pointer select-none" onclick={() => { expandedSubToken = expandedSubToken === token.symbol ? null : token.symbol; }} role="button" tabindex="0">
+                                <div class="flex items-center gap-4 self-start">
+                                    <div class="w-9 h-9 rounded-lg bg-[#0c0c0c] flex items-center justify-center text-[16px] shadow-inner font-black font-sans mt-1" style="color: {token.hex}; box-shadow: inset 0 0 10px {token.hex}15;">
+                                        {#if token.imgUrl}
+                                            <img src={token.imgUrl} class="w-5 h-5 object-contain drop-shadow-md" alt={token.symbol} 
+                                                    onerror={(e) => (e.currentTarget as HTMLImageElement).style.display='none'} />
+                                        {:else}
+                                            <span class="text-xs font-black" style="color: {token.hex}">{token.symbol[0]}</span>
+                                        {/if}
+                                    </div>
+                                    <div class="flex flex-col gap-1.5">
+                                        <!-- Top Line: Symbol, Badges, Sparkline, Routing & Explorer -->
+                                        <div class="flex flex-wrap items-center gap-2 md:gap-2.5">
+                                            <span class="text-xs font-bold tracking-wider text-white">{token.symbol}</span>
+                                            {#if token.badge}
+                                                <span class="text-[8px] bg-[#222] text-neutral-400 px-1.5 py-0.5 rounded shrink-0 uppercase tracking-widest shadow-inner">{token.badge}</span>
+                                            {/if}
+                                            
+                                            <!-- ⚡ Sub-Token Yield Badge -->
+                                            {#if token.apy}
+                                                <span class="text-[8px] bg-[#18C6A5]/10 text-[#18C6A5] px-1.5 py-0.5 rounded shrink-0 font-bold uppercase tracking-widest shadow-inner">{token.apy}% APY</span>
+                                            {/if}
 
-            <!-- UNIVERSAL ECOSYSTEM SUB-TOKEN DRAWER -->
-            <div class="mt-2 bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl shadow-inner overflow-hidden transition-all duration-300">
-                <button onclick={() => {isSubOpen = !isSubOpen; isManaging = false;}} class="w-full p-5 flex items-center justify-between hover:bg-[#111] transition-colors cursor-pointer border-none outline-none">
-                    <span class="text-[9px] uppercase tracking-widest font-medium flex items-center gap-2" style="color: {asset.hex}">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
-                        {asset.symbol} Ecosystem Assets ({standardLabel})
-                    </span>
-                    <svg class="w-4 h-4 text-neutral-500 transform transition-transform duration-300 {isSubOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-
-                {#if isSubOpen}
-                    <div transition:slide class="border-t border-neutral-800/80 bg-[#080808] p-5 flex flex-col gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="relative flex-1">
-                                <input type="text" bind:value={searchQuery} placeholder="Search {standardLabel}..." class="w-full bg-[#111] border border-neutral-800 rounded-xl py-2 pl-9 pr-4 text-xs font-mono text-white outline-none focus:border-neutral-500 transition-colors" />
-                                <svg class="absolute left-3 top-2.5 w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                            </div>
-                            <button onclick={() => isManaging = !isManaging} class="px-4 py-2 bg-[#111] border {isManaging ? 'border-neutral-400 text-white' : 'border-neutral-800 text-neutral-400 hover:text-white'} rounded-xl text-[9px] uppercase tracking-widest font-bold transition-colors cursor-pointer shrink-0">
-                                {isManaging ? 'Done' : 'Manage'}
-                            </button>
-                        </div>
-
-                        <div class="flex flex-col gap-2 mt-1">
-                            {#if filteredSubAssets.length === 0}
-                                <div class="text-center py-6 flex flex-col items-center justify-center gap-4 border border-dashed border-neutral-800 rounded-xl bg-[#0a0a0a]">
-                                    <span class="text-[10px] font-mono text-neutral-600 uppercase tracking-widest">No local tokens match "{searchQuery}"</span>
-                                    {#if searchQuery.length > 1}
-                                        <button onclick={executeSearch} disabled={isSearching} class="px-5 py-2.5 bg-[#111] hover:bg-[#1a1a1a] border rounded-xl text-[9px] uppercase tracking-widest font-bold transition-all duration-300 cursor-pointer disabled:opacity-50" style="border-color: {asset.hex}; color: {asset.hex};">
-                                            {#if isSearching} Querying Global Ledger... {:else} Search Network for "{searchQuery.toUpperCase()}" {/if}
-                                        </button>
-                                        {#if searchError} <span class="text-red-500 text-[9px]">{searchError}</span> {/if}
-                                    {/if}
-                                </div>
-                            {/if}
-
-                            {#each filteredSubAssets as token}
-                                <div class="bg-[#0c0c0c] border border-neutral-800 hover:border-neutral-700 rounded-xl overflow-hidden transition-all duration-300">
-                                    <div class="flex items-center justify-between p-3.5 cursor-pointer select-none" onclick={() => isManaging ? toggleSelection(token.symbol) : expandedSubToken = expandedSubToken === token.symbol ? null : token.symbol} role="button" tabindex="0">
-                                        <div class="flex items-center gap-4">
-                                            <div class="w-9 h-9 rounded-lg bg-[#050505] border border-neutral-800 flex items-center justify-center text-[16px] shadow-inner font-black font-sans" style="color: {token.hex}; box-shadow: inset 0 0 10px {token.hex}15;">
-                                                {#if token.imgUrl}
-                                                    <img src={token.imgUrl} class="w-5 h-5 object-contain drop-shadow-md" alt={token.symbol} 
-                                                         onerror={(e) => handleTokenIconError(e, token.symbol)} />
-                                                    <span style="display:none;" class="text-xs font-black">{token.symbol[0]}</span>
-                                                {:else}
-                                                    <span class="text-xs font-black">{token.symbol[0]}</span>
-                                                {/if}
-                                            </div>
-                                            <div class="flex flex-col">
-                                                <span class="text-xs font-bold tracking-wider text-white">{token.symbol}</span>
-                                                <span class="text-[9px] text-neutral-500 uppercase tracking-widest">{token.name}</span>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="flex items-center gap-5 pr-1">
-                                            <div class="flex flex-col items-end">
-                                                {#if displayUnit === 'token'}
-                                                    <span class="text-xs font-mono font-bold text-white tabular-nums">
-                                                        {token.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} <span class="text-[9px] text-neutral-500">{token.symbol}</span>
-                                                    </span>
-                                                    <span class="text-[9px] font-mono text-neutral-500 tabular-nums">
-                                                        ≈ ${(token.balance * token.price).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
-                                                    </span>
-                                                {:else}
-                                                    <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums">
-                                                        ${(token.balance * token.price).toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})}
-                                                    </span>
-                                                    <span class="text-[9px] font-mono text-neutral-500 tabular-nums">
-                                                        ≈ {token.balance.toLocaleString(undefined, {minimumFractionDigits: displayDecimals, maximumFractionDigits: displayDecimals})} {token.symbol}
-                                                    </span>
-                                                {/if}
-                                            </div>
-                                            {#if isManaging}
-                                                <div class="w-8 h-4 rounded-full relative transition-colors {selectedTokens.includes(token.symbol) ? 'bg-neutral-600 border border-neutral-400' : 'bg-[#1a1a1a] border border-neutral-700'}">
-                                                    <div class="absolute top-[1px] w-3 h-3 rounded-full transition-all {selectedTokens.includes(token.symbol) ? 'left-[17px] bg-white' : 'left-[1px] bg-neutral-500'}"></div>
+                                            {#if !isManagingNetworks && !isOrganizing}
+                                                <div class="flex items-center gap-2.5 ml-1 border-l border-neutral-800/80 pl-2.5" onclick={(e) => e.stopPropagation()}>
+                                                    <div class="flex items-center gap-1.5">
+                                                        <span class="text-[8px] font-bold uppercase tracking-widest transition-colors {isSubRoutingVisible && expandedSubToken === token.symbol ? 'text-white' : 'text-neutral-500'}">Routing</span>
+                                                        <button aria-label="Toggle Routing" onclick={() => { if(expandedSubToken !== token.symbol) { expandedSubToken = token.symbol; isSubRoutingVisible = true; } else { isSubRoutingVisible = !isSubRoutingVisible; } }} class="w-6 h-3 rounded-full border transition-colors duration-300 relative cursor-pointer focus:outline-none shrink-0" style="background-color: {isSubRoutingVisible && expandedSubToken === token.symbol ? `${token.hex}20` : '#0c0c0c'}; border-color: {isSubRoutingVisible && expandedSubToken === token.symbol ? `${token.hex}50` : '#404040'};">
+                                                            <div class="absolute top-[1px] w-2 h-2 rounded-full transition-all duration-300 shadow-sm" style="background-color: {isSubRoutingVisible && expandedSubToken === token.symbol ? token.hex : '#737373'}; left: {isSubRoutingVisible && expandedSubToken === token.symbol ? '13px' : '1px'};"></div>
+                                                        </button>
+                                                    </div>
+                                                    <a href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)} target="_blank" rel="noopener noreferrer" class="text-[8px] uppercase tracking-widest font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors flex items-center gap-1">
+                                                        Explorer
+                                                    </a>
+                                                    <button aria-label="Delete Token" onclick={(e) => { e.stopPropagation(); onDeleteToken(token.symbol); }} class="text-neutral-600 hover:text-red-400 transition-colors cursor-pointer ml-1" title="Remove token from vault">
+                                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                                    </button>
                                                 </div>
                                             {/if}
                                         </div>
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-[9px] text-neutral-500 uppercase tracking-widest truncate max-w-[150px]">{token.name}</span>
+                                            <svg class="w-10 h-3 opacity-60" viewBox="0 0 64 24" preserveAspectRatio="none">
+                                                <path d={generateSparkline(token.symbol, token.price ? (token.price * 100) % 20 - 10 : 0)} fill="none" stroke="{token.hex}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                                            </svg>
+                                        </div>
                                     </div>
+                                </div>
+
+                                <div class="flex items-center gap-4 pr-1 self-start mt-1">
+                                    <div class="flex flex-col items-end gap-1">
+                                        {#if displayUnit === 'token'}
+                                            <span class="text-xs font-mono font-bold text-white tabular-nums leading-none">
+                                                {(token.balance || 0).toLocaleString(undefined, {minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals})} <span class="text-[9px] text-neutral-500">{token.symbol}</span>
+                                            </span>
+                                            <span class="text-[9px] font-mono text-neutral-500 tabular-nums flex items-center gap-1.5">
+                                                <!-- ⚡ NEW: Sub-Token Staking split balance -->
+                                                {#if token.stakedBalance}
+                                                    <span class="text-neutral-600">({token.stakedBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} Staked)</span>
+                                                {/if}
+                                                ≈ ${((token.balance || 0) * (token.price || 0)).toLocaleString(undefined, {minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals})}
+                                            </span>
+                                        {:else}
+                                            <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums leading-none">
+                                                ${((token.balance || 0) * (token.price || 0)).toLocaleString(undefined, {minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals})}
+                                            </span>
+                                            <span class="text-[9px] font-mono text-neutral-500 tabular-nums flex items-center gap-1.5">
+                                                {#if token.stakedBalance}
+                                                    <span class="text-neutral-600">({token.stakedBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} Staked)</span>
+                                                {/if}
+                                                ≈ {(token.balance || 0).toLocaleString(undefined, {minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals})} {token.symbol}
+                                            </span>
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Expanded Token Telemetry -->
+                            {#if expandedSubToken === token.symbol}
+                                <div transition:slide class="bg-[#0c0c0c] p-4 shadow-inner">
                                     
-                                    {#if !isManaging && expandedSubToken === token.symbol}
-                                        <div transition:slide class="border-t border-neutral-800/80 bg-[#111] p-6 shadow-inner">
-                                            <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-4">
-                                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">{token.symbol} Telemetry</span>
-                                                <a href={getExplorerUrl(asset.symbol, asset.address)} target="_blank" rel="noopener noreferrer" class="text-[8px] uppercase tracking-widest font-bold bg-[#1a1a1a] hover:bg-[#222] border border-neutral-700 hover:border-white text-neutral-200 px-2.5 py-1 rounded-md transition-all duration-200 flex items-center gap-1 shadow-sm">
-                                                    <span>Explorer</span>
-                                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                                                </a>
-                                            </div>
-
-                                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-5 flex items-center justify-between shadow-inner min-h-[120px]">
-                                                    <div class="flex flex-col justify-between h-full w-full pr-4">
-                                                        <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500 mb-2">Inbound Routing</span>
-                                                        <div class="flex flex-col gap-1">
-                                                            <span class="text-[10px] font-bold text-white uppercase tracking-widest">Deposit {token.symbol}</span>
-                                                            <span class="text-[9px] font-mono text-neutral-500 break-all leading-tight max-w-[150px]">{asset.address}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
-                                                    <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Silo Telemetry</span>
-                                                    <div class="flex justify-between items-center">
-                                                        <span class="text-[10px] font-mono text-neutral-400">DEX Volume Accredited</span>
-                                                        <span class="text-[10px] font-mono font-medium" style="color: {asset.hex}">{token.siloVolume.toLocaleString(undefined, {maximumFractionDigits: 8})} {token.symbol}</span>
-                                                    </div>
-                                                </div>
-
-                                                <div class="bg-[#0a0a0a] border border-neutral-800/80 rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
-                                                    <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">{asset.symbol} Tokenomics</span>
-                                                    <div class="flex justify-between items-center mb-1">
-                                                        <span class="text-[10px] font-mono text-neutral-400">Max Supply</span>
-                                                        <span class="text-[10px] font-mono font-medium text-neutral-200">{token.supply > 0 ? token.supply.toLocaleString() : 'Fetching...'}</span>
-                                                    </div>
-                                                    <div class="flex justify-between items-center">
-                                                        <span class="text-[10px] font-mono text-neutral-400">Circulating</span>
-                                                        <span class="text-[10px] font-mono font-medium text-neutral-200">{token.minted > 0 ? token.minted.toLocaleString() : 'Fetching...'}</span>
-                                                    </div>
-                                                </div>
+                                    {#if isSubRoutingVisible}
+                                        <div transition:slide class="bg-[#050505] rounded-[20px] p-5 flex flex-col md:flex-row items-center justify-between shadow-inner w-full gap-6 mb-5">
+                                            <div class="flex flex-col justify-center w-full md:w-2/3">
+                                                <span class="text-[10px] uppercase tracking-widest font-bold text-neutral-500 mb-3">Inbound Routing</span>
+                                                <span class="text-sm font-bold text-white uppercase tracking-widest mb-1">Deposit {token.symbol}</span>
+                                                <span class="text-sm md:text-lg font-mono text-[#18C6A5] break-all leading-relaxed mb-6 select-all">{asset.address}</span>
+                                                <button aria-label="Copy Address" onclick={(e) => copyNativeAddress(e, asset.address)} class="w-fit px-8 py-3 rounded-xl bg-[#111] hover:bg-[#222] text-xs font-bold uppercase tracking-widest text-neutral-300 hover:text-white transition-colors cursor-pointer focus:outline-none shadow-sm">
+                                                    {asset.address?.includes('Awaiting') ? 'Locked' : 'Copy Route'}
+                                                </button>
                                             </div>
                                         </div>
                                     {/if}
+
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                        <!-- Conditional: Staking Yield OR Standard Contract Data -->
+                                        {#if token.stakedBalance}
+                                            <div class="bg-[#050505] rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Yield & Protocol Telemetry</span>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-[10px] font-mono text-neutral-400">Staked Principal</span>
+                                                    <span class="text-[10px] font-mono font-medium text-white">{(token.stakedBalance || 0).toLocaleString()} {token.symbol}</span>
+                                                </div>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-[10px] font-mono text-neutral-400">Effective APY</span>
+                                                    <span class="text-[10px] font-mono font-medium text-[#18C6A5]">{token.apy}% Auto-Compounding</span>
+                                                </div>
+                                            </div>
+                                            <div class="bg-[#050505] rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Accrual Silo</span>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-[10px] font-mono text-neutral-400">Accrued (Unclaimed)</span>
+                                                    <span class="text-[10px] font-mono font-bold text-[#18C6A5]">+{token.accruedYield?.toLocaleString(undefined, {minimumFractionDigits: 6, maximumFractionDigits: 6}) || '0.000000'} {token.symbol}</span>
+                                                </div>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-[10px] font-mono text-neutral-400">Smart Contract</span>
+                                                    <span class="text-[10px] font-mono font-medium text-neutral-500 truncate max-w-[140px]">{token.contract || 'Protocol Vault'}</span>
+                                                </div>
+                                            </div>
+                                        {:else}
+                                            <div class="bg-[#050505] rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Contract Telemetry</span>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-[10px] font-mono text-neutral-400">Mint Contract</span>
+                                                    <span class="text-[10px] font-mono font-medium text-neutral-400 truncate max-w-[140px]">{token.contract || 'Native Asset'}</span>
+                                                </div>
+                                            </div>
+                                            <div class="bg-[#050505] rounded-2xl p-6 flex flex-col justify-center min-h-[120px] gap-3 shadow-inner">
+                                                <span class="text-[9px] uppercase tracking-widest font-medium text-neutral-500">Silo Telemetry</span>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-[10px] font-mono text-neutral-400">DEX Volume Accredited</span>
+                                                    <span class="text-[10px] font-mono font-medium text-neutral-400">{(token.siloVolume || 0).toLocaleString(undefined, {maximumFractionDigits: 8})} {token.symbol}</span>
+                                                </div>
+                                            </div>
+                                        {/if}
+                                    </div>
+
+                                    <div class="pt-6 mt-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <span class="text-[10px] uppercase tracking-widest font-bold text-neutral-500">Transactions</span>
+                                        </div>
+                                        <div class="flex flex-col gap-4">
+                                            <div class="py-6 text-center border border-dashed border-neutral-800 rounded-xl bg-[#050505]">
+                                                <span class="text-[10px] font-mono text-neutral-600 uppercase tracking-widest">No recent transactions</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            {/each}
+                            {/if}
                         </div>
-                    </div>
-                {/if}
-            </div>
+                    {/each}
+                </div>
+            {/if}
         </div>
     {/if}
 </div>

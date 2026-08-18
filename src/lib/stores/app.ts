@@ -1,4 +1,6 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
+import { browser } from '$app/environment';
+import { walletAddress } from '$lib/stores/wallet';
 
 // ========================================================
 // 🧠 PERENNIA CENTRAL STATE STORE
@@ -135,4 +137,71 @@ export async function dispatchStateAction(action: string, payload: any, targetWa
 
     actionQueue = actionQueue.then(execute).catch(execute);
     return actionQueue;
+}
+
+// ========================================================
+// 🔐 MULTI-TENANT STORAGE ISOLATION 
+// ========================================================
+
+export function getScopedKey(baseKey: string, wallet: string | null): string {
+    if (!wallet) return `${baseKey}_unauthed`;
+    const cleanWallet = wallet.replace('kaspa:', '').toLowerCase().trim();
+    return `${baseKey}_${cleanWallet}`;
+}
+
+function loadScopedState<T>(baseKey: string, fallback: T): T {
+    if (!browser) return fallback;
+    const activeWallet = get(walletAddress);
+    if (!activeWallet) return fallback;
+    
+    try {
+        const raw = localStorage.getItem(getScopedKey(baseKey, activeWallet));
+        return raw ? JSON.parse(raw) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function saveScopedState<T>(baseKey: string, data: T) {
+    if (!browser) return;
+    const activeWallet = get(walletAddress);
+    if (!activeWallet) return;
+    try {
+        localStorage.setItem(getScopedKey(baseKey, activeWallet), JSON.stringify(data));
+    } catch (e) {
+        console.error(`Failed to save scoped state for ${baseKey}:`, e);
+    }
+}
+
+// Rehydrate and synchronize stores on wallet changes
+if (browser) {
+    walletAddress.subscribe((addr) => {
+        if (addr) {
+            sectors.set(loadScopedState<Sector[]>('perennia_sectors', []));
+            workers.set(loadScopedState<Worker[]>('perennia_workers', []));
+        } else {
+            sectors.set([]);
+            workers.set([]);
+        }
+    });
+
+    sectors.subscribe((val) => saveScopedState('perennia_sectors', val));
+    workers.subscribe((val) => saveScopedState('perennia_workers', val));
+
+    // Multi-tab storage listener with strict origin and wallet matching
+    window.addEventListener('storage', (e) => {
+        const currentWallet = get(walletAddress);
+        if (!currentWallet || !e.key) return;
+
+        if (e.key === getScopedKey('perennia_sectors', currentWallet)) {
+            try {
+                sectors.set(e.newValue ? JSON.parse(e.newValue) : []);
+            } catch {}
+        }
+        if (e.key === getScopedKey('perennia_workers', currentWallet)) {
+            try {
+                workers.set(e.newValue ? JSON.parse(e.newValue) : []);
+            } catch {}
+        }
+    });
 }
