@@ -135,10 +135,25 @@
 
 <style>
     .custom-slider {
-        -webkit-appearance: none; appearance: none; background: #1a1a1a; height: 6px; border-radius: 3px; outline: none; border: 1px solid #222;
+        -webkit-appearance: none; 
+        appearance: none; 
+        background: #1a1a1a; 
+        height: 6px; 
+        border-radius: 3px; 
+        outline: none; 
+        border: 1px solid #222;
     }
     .custom-slider::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #111; cursor: pointer; border: 2px solid #18C6A5; box-shadow: 0 0 10px rgba(24, 198, 165, 0.4); transition: transform 0.1s, background 0.1s;
+        -webkit-appearance: none; 
+        appearance: none; 
+        width: 18px; 
+        height: 18px; 
+        border-radius: 50%; 
+        background: #111; 
+        cursor: pointer; 
+        border: 2px solid #18C6A5; 
+        box-shadow: 0 0 10px rgba(24, 198, 165, 0.4); 
+        transition: transform 0.1s, background 0.1s;
     }
     .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); background: #18C6A5; }
     .hide-scrollbar::-webkit-scrollbar { display: none; }

@@ -1,20 +1,17 @@
 <script lang="ts">
-    import { isWalletConnected, showWalletModal, walletAddress, activeWalletType, pendingTransactionDetails, isVaultUnlockPending } from '$lib/stores/wallet';
-    import { systemMode } from '$lib/stores/app';
     import { fade, slide, fly } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
     import { source } from 'sveltekit-sse';
     
-    // THE FIX: Dropped the .ts extension
-    import { userWalletStore, type WalletAsset } from '$lib/stores/userWalletStore.svelte';
+    import { ui } from '$lib/stores/ui.svelte';
+    import { identity } from '$lib/stores/identity.svelte';
+    import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
 
-    let fetchInterval: ReturnType<typeof setInterval>;
-    let ledgerInterval: ReturnType<typeof setInterval>;
     let p2pInterval: ReturnType<typeof setInterval>;
+    let treasuryInterval: ReturnType<typeof setInterval>;
 
-    let syntheticBalances = $state<Record<string, number>>({});
     let isExecuting = $state(false);
     let swapError = $state<string | null>(null);
     let swapSuccessId = $state<string | null>(null);
@@ -31,28 +28,16 @@
     let p2pSellTicker = $state('KAS');
     let p2pBuyTicker = $state('USDT');
 
-    let payToken = $derived(userWalletStore.getAsset(payTicker)); 
-    let receiveToken = $derived(userWalletStore.getAsset(receiveTicker)); 
-    let lpTokenA = $derived(userWalletStore.getAsset(lpTickerA));
-    let lpTokenB = $derived(userWalletStore.getAsset(lpTickerB));
-    let p2pSellToken = $derived(userWalletStore.getAsset(p2pSellTicker));
-    let p2pBuyToken = $derived(userWalletStore.getAsset(p2pBuyTicker));
+    let payToken = $derived(treasury.getAsset(payTicker)); 
+    let receiveToken = $derived(treasury.getAsset(receiveTicker)); 
+    let lpTokenA = $derived(treasury.getAsset(lpTickerA));
+    let lpTokenB = $derived(treasury.getAsset(lpTickerB));
+    let p2pSellToken = $derived(treasury.getAsset(p2pSellTicker));
+    let p2pBuyToken = $derived(treasury.getAsset(p2pBuyTicker));
 
     let lpAmountA = $state('');
     let lpAmountB = $state('');
     let isProvidingLiquidity = $state(false);
-
-    interface LpPosition {
-        id: string;
-        pair: string;
-        poolShare: string;
-        valueUsd: number;
-        isPlant?: boolean;
-        isSynthetic?: boolean;
-    }
-
-    let userLpPositions = $state<LpPosition[]>([]);
-    let loadedLpForWallet = $state<string | null>(null);
 
     let lockDurationIndex = $state(0);
     const lockOptions = [
@@ -100,27 +85,26 @@
 
     let globalSearchQuery = $state('');
     let isTokenModalOpen = $state(false);
-    let isSettingsOpen = $state(false);
     let activeSelection = $state<'pay' | 'receive' | 'lpA' | 'lpB' | 'p2pSell' | 'p2pBuy' | null>(null);
     let tokenSearchQuery = $state('');
     let slippageTolerance = $state('0.5');
 
-    let filteredTokens = $derived(userWalletStore.assets.filter(t => 
+    let filteredTokens = $derived(treasury.registry.filter(t => 
         t.ticker.toLowerCase().includes(tokenSearchQuery.toLowerCase()) || 
         t.name.toLowerCase().includes(tokenSearchQuery.toLowerCase())
     ));
 
     let globalSearchResults = $derived(
         globalSearchQuery 
-            ? userWalletStore.assets.filter(t => t.ticker.toLowerCase().includes(globalSearchQuery.toLowerCase()) || t.name.toLowerCase().includes(globalSearchQuery.toLowerCase()))
+            ? treasury.registry.filter(t => t.ticker.toLowerCase().includes(globalSearchQuery.toLowerCase()) || t.name.toLowerCase().includes(globalSearchQuery.toLowerCase()))
             : []
     );
 
     let rawTerminalFeed = $state<string[]>([]);
 
     $effect(() => {
-        if ($systemMode === 'overclocked' && $isWalletConnected && $walletAddress) {
-            const connection = source(`/api/telemetry?address=${encodeURIComponent($walletAddress)}`);
+        if (ui.systemMode === 'overclocked' && identity.isWalletConnected && identity.activeAddress) {
+            const connection = source(`/api/telemetry?address=${encodeURIComponent(identity.activeAddress)}`);
             const unsubscribe = connection.select('message').subscribe((rawData) => {
                 if (!rawData) return;
                 try {
@@ -138,41 +122,14 @@
         }
     });
 
-    async function fetchDexMarketData() {
-        try {
-            const res = await fetch('/api/prices?ids=kaspa,bitcoin,ethereum,solana,dogecoin,ripple&include_24hr_change=false');
-            if (res.ok) {
-                const data = await res.json();
-                if (data.kaspa) userWalletStore.updateAsset('KAS', { spotPrice: data.kaspa.usd });
-                if (data.bitcoin) userWalletStore.updateAsset('BTC', { spotPrice: data.bitcoin.usd });
-                if (data.ethereum) userWalletStore.updateAsset('ETH', { spotPrice: data.ethereum.usd });
-                if (data.solana) userWalletStore.updateAsset('SOL', { spotPrice: data.solana.usd });
-                if (data.dogecoin) userWalletStore.updateAsset('DOGE', { spotPrice: data.dogecoin.usd });
-                if (data.ripple) userWalletStore.updateAsset('XRP', { spotPrice: data.ripple.usd });
-            }
-        } catch(e) {}
-    }
-
-    async function fetchSyntheticLedger() {
-        if (!$isWalletConnected || !$walletAddress) return;
-        try {
-            const res = await fetch(`/api/user/ledger?wallet=${encodeURIComponent($walletAddress)}`);
-            if (res.ok) {
-                const data = await res.json();
-                syntheticBalances = data || {};
-            }
-        } catch (e) {}
-    }
-
     async function fetchP2pOrders() {
         try {
             const res = await fetch('/api/p2p');
-            if (res.ok) {
-                p2pOrders = await res.json();
-            }
+            if (res.ok) p2pOrders = await res.json();
         } catch (e) {}
     }
 
+    // Fetches the corporate float for OTC desk capacity limits
     async function fetchTreasuryLiquid() {
         try {
             const res = await fetch(`/api/treasury/corporate?kas=kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579`);
@@ -187,22 +144,15 @@
     }
 
     onMount(() => {
-        fetchDexMarketData();
         fetchP2pOrders();
         fetchTreasuryLiquid();
-
-        fetchInterval = setInterval(() => {
-            fetchDexMarketData();
-            fetchTreasuryLiquid();
-        }, 15000); 
-        ledgerInterval = setInterval(fetchSyntheticLedger, 10000); 
         p2pInterval = setInterval(fetchP2pOrders, 5000);
+        treasuryInterval = setInterval(fetchTreasuryLiquid, 15000);
     });
 
     onDestroy(() => {
-        if (fetchInterval) clearInterval(fetchInterval);
-        if (ledgerInterval) clearInterval(ledgerInterval);
         if (p2pInterval) clearInterval(p2pInterval);
+        if (treasuryInterval) clearInterval(treasuryInterval);
     });
 
     $effect(() => {
@@ -265,7 +215,7 @@
         isTokenModalOpen = true;
     }
 
-    function selectToken(token: WalletAsset) {
+    function selectToken(token: UnifiedAsset) {
         if (activeSelection === 'pay') {
             if (receiveTicker === token.ticker) flipTokens();
             else payTicker = token.ticker;
@@ -287,7 +237,7 @@
     }
 
     async function executeSwap() {
-        if (!$walletAddress || !payAmount) return;
+        if (!identity.activeAddress || !payAmount) return;
 
         const amount = parseFloat(payAmount);
         if (isNaN(amount) || amount <= 0) return;
@@ -301,12 +251,12 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    wallet: $walletAddress,
+                    wallet: identity.activeAddress,
                     payAsset: payToken.ticker,
                     receiveAsset: receiveToken.ticker,
                     amount,
                     slippageTolerance: parseFloat(slippageTolerance) || 0.5,
-                    systemMode: $systemMode
+                    systemMode: ui.systemMode
                 })
             });
 
@@ -319,9 +269,8 @@
             }
 
             let finalTxId;
-            const activeWallet = $activeWalletType; 
 
-            if (activeWallet === 'kasware') {
+            if (identity.activeWalletType === 'kasware') {
                 const signedTx = await (window as any).kasware.signTransaction(data.psbt);
 
                 const broadcastRes = await fetch('/api/broadcast', {
@@ -337,20 +286,19 @@
                 swapSuccessId = finalTxId;
                 payAmount = '';
                 receiveAmount = '';
-                await fetchSyntheticLedger();
                 isExecuting = false;
 
-            } else if (activeWallet === 'sovereign') {
-                pendingTransactionDetails.set({
+            } else if (identity.activeWalletType === 'sovereign') {
+                identity.pendingTransactionDetails = {
                     payAsset: payToken.ticker,
                     receiveAsset: receiveToken.ticker,
                     payAmount: payAmount,
                     destinationAddress: 'DEX Smart Router',
                     amountSompi: Math.floor(amount * 1e8),
                     psbtData: { psbt: data.psbt, formattedUtxos: data.formattedUtxos }
-                });
+                };
 
-                isVaultUnlockPending.set(true);
+                identity.isVaultUnlockPending = true;
                 return;
             } else {
                 throw new Error("Unsupported wallet bridge.");
@@ -363,7 +311,7 @@
     }
 
     async function executeSupplyLiquidity() {
-        if (!$walletAddress || !lpAmountA || !lpAmountB) return;
+        if (!identity.activeAddress || !lpAmountA || !lpAmountB) return;
 
         isProvidingLiquidity = true;
         try {
@@ -374,12 +322,12 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    wallet: $walletAddress,
+                    wallet: identity.activeAddress,
                     payAsset: lpTokenA.ticker,
                     receiveAsset: lpTokenB.ticker,
                     amount: valA,
                     slippageTolerance: parseFloat(slippageTolerance) || 0.5,
-                    systemMode: $systemMode
+                    systemMode: ui.systemMode
                 })
             });
 
@@ -429,8 +377,8 @@
     }
 
     async function fillP2pOrder(order: any) {
-        if (!$walletAddress) {
-            $showWalletModal = true;
+        if (!identity.activeAddress) {
+            ui.showWalletModal = true;
             return;
         }
 
@@ -449,9 +397,7 @@
             const data = await res.json();
 
             swapSuccessId = data.transactionId;
-
             await fetchP2pOrders();
-            await fetchSyntheticLedger();
         } catch (e: any) {
             swapError = e.message || 'P2P Execution Failed';
         } finally {
@@ -460,25 +406,16 @@
     }
 
     function requestOtcQuote() {
-        if (!$walletAddress || !otcFiatAmount || parseFloat(otcFiatAmount) <= WIRE_FEE_USD || isCapacityExceeded) return;
+        if (!identity.activeAddress || !otcFiatAmount || parseFloat(otcFiatAmount) <= WIRE_FEE_USD || isCapacityExceeded) return;
         otcStep = 'wire';
     }
 
     $effect(() => {
-        import('$lib/stores/transaction.svelte').then(({ txState }) => {
-            if (txState.lastTxId && isExecuting) {
-                swapSuccessId = txState.lastTxId;
-                payAmount = '';
-                receiveAmount = '';
-                fetchSyntheticLedger();
-                isExecuting = false;
-                txState.lastTxId = "";
-            } else if (txState.error && isExecuting) {
-                swapError = txState.error;
-                isExecuting = false;
-                txState.error = "";
-            }
-        });
+        if (!identity.isVaultUnlockPending && isExecuting) {
+            isExecuting = false;
+            payAmount = '';
+            receiveAmount = '';
+        }
     });
 </script>
 
@@ -509,7 +446,7 @@
                         <button onclick={() => { receiveTicker = token.ticker; activeDexTab = 'Swap'; globalSearchQuery = ''; }} class="w-full flex items-center justify-between p-4 hover:bg-[#161616] border-b border-neutral-800/50 transition-colors text-left cursor-pointer group">
                             <div class="flex items-center gap-3">
                                 <div class="w-9 h-9 rounded-full flex items-center justify-center font-black text-[11px] shadow-inner bg-[#111] border border-neutral-800 overflow-hidden" style="color: {token.hex};">
-                                    {#if token.imgUrl} <img src={token.imgUrl} alt={token.ticker} class="w-5 h-5 object-contain" /> {:else} {token.ticker[0]} {/if}
+                                    {#if token.icon} <img src={token.icon} alt={token.ticker} class="w-5 h-5 object-contain" /> {:else} {token.ticker[0]} {/if}
                                 </div>
                                 <div class="flex flex-col">
                                     <span class="text-white font-bold text-sm tracking-wider">{token.ticker}</span>
@@ -526,7 +463,7 @@
             {/if}
         </div>
 
-        <!-- Master Card with Permanent Glow & Anchored Fixed Layout -->
+        <!-- Master Card -->
         <div class="w-full bg-[#111111] border border-neutral-800 rounded-[32px] p-7 md:p-8 shadow-[0_0_40px_rgba(24,198,165,0.15)] relative z-20 overflow-hidden animate-[fade-in-up_0.3s_ease-out] flex flex-col min-h-[680px]">
 
             <div class="flex justify-between items-center mb-8 border-b border-neutral-800/80 pb-5 relative z-10 shrink-0">
@@ -560,7 +497,7 @@
                         <input type="number" bind:value={payAmount} disabled={isExecuting} placeholder="0.00" class="w-full bg-transparent text-4xl font-bold font-mono text-white outline-none placeholder-neutral-700 disabled:opacity-50" />
                         <button onclick={() => openTokenModal('pay')} disabled={isExecuting} class="shrink-0 flex items-center gap-2 bg-[#222] hover:bg-[#2a2a2a] border border-neutral-700 px-4 py-2.5 rounded-xl transition-colors cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                             <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px] shadow-inner overflow-hidden" style="background-color: {payToken.hex}20; border: 1px solid {payToken.hex}50; color: {payToken.hex};">
-                                {#if payToken.imgUrl} <img src={payToken.imgUrl} alt={payToken.ticker} class="w-5 h-5 object-contain drop-shadow-md" /> {:else} {payToken.ticker[0]} {/if}
+                                {#if payToken.icon} <img src={payToken.icon} alt={payToken.ticker} class="w-5 h-5 object-contain drop-shadow-md" /> {:else} {payToken.ticker[0]} {/if}
                             </div>
                             <div class="flex flex-col items-start gap-0.5 ml-1">
                                 <span class="font-bold text-white text-sm tracking-wider leading-none">{payToken.ticker}</span>
@@ -593,7 +530,7 @@
                         <input type="number" bind:value={receiveAmount} oninput={handleReceiveInput} disabled={isExecuting} placeholder="0.00" class="w-full bg-transparent text-4xl font-bold font-mono text-white outline-none placeholder-neutral-700 disabled:opacity-50" />
                         <button onclick={() => openTokenModal('receive')} disabled={isExecuting} class="shrink-0 flex items-center gap-2 bg-[#222] hover:bg-[#2a2a2a] border border-neutral-700 px-4 py-2.5 rounded-xl transition-colors cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                             <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px] shadow-inner overflow-hidden" style="background-color: {receiveToken.hex}20; border: 1px solid {receiveToken.hex}50; color: {receiveToken.hex};">
-                                {#if receiveToken.imgUrl} <img src={receiveToken.imgUrl} alt={receiveToken.ticker} class="w-5 h-5 object-contain drop-shadow-md" /> {:else} {receiveToken.ticker[0]} {/if}
+                                {#if receiveToken.icon} <img src={receiveToken.icon} alt={receiveToken.ticker} class="w-5 h-5 object-contain drop-shadow-md" /> {:else} {receiveToken.ticker[0]} {/if}
                             </div>
                             <div class="flex flex-col items-start gap-0.5 ml-1">
                                 <span class="font-bold text-white text-sm tracking-wider leading-none">{receiveToken.ticker}</span>
@@ -624,8 +561,8 @@
                         </div>
                     {/if}
 
-                    {#if !$isWalletConnected}
-                        <button onclick={() => $showWalletModal = true} class="w-full py-4.5 rounded-xl bg-[#18C6A5] hover:bg-[#15a88c] text-black text-sm font-black uppercase tracking-widest transition-all cursor-pointer shadow-[0_0_20px_rgba(24,198,165,0.3)]">
+                    {#if !identity.isWalletConnected}
+                        <button onclick={() => ui.showWalletModal = true} class="w-full py-4.5 rounded-xl bg-[#18C6A5] hover:bg-[#15a88c] text-black text-sm font-black uppercase tracking-widest transition-all cursor-pointer shadow-[0_0_20px_rgba(24,198,165,0.3)]">
                             Connect Wallet
                         </button>
                     {:else if !payAmount || parseFloat(payAmount) <= 0}
@@ -681,7 +618,7 @@
                             <span class="text-[11px] font-bold text-neutral-400 uppercase tracking-widest">Stake Duration</span>
                             <span class="text-[11px] font-black text-[#18C6A5] uppercase tracking-widest">{lockOptions[lockDurationIndex].label}</span>
                         </div>
-                        <input type="range" min="0" max="3" step="1" bind:value={lockDurationIndex} class="myst-slider-teal w-full" />
+                        <input type="range" min="0" max="3" step="1" bind:value={lockDurationIndex} class="custom-slider w-full" />
                         <div class="flex justify-between mt-4 text-[10px] font-bold uppercase tracking-widest text-neutral-500">
                             <span>Flex</span>
                             <span>30D</span>
@@ -692,7 +629,7 @@
 
                     <button 
                         onclick={executeSupplyLiquidity}
-                        disabled={!$isWalletConnected || !lpAmountA || isProvidingLiquidity}
+                        disabled={!identity.isWalletConnected || !lpAmountA || isProvidingLiquidity}
                         class="w-full mt-5 py-4.5 rounded-xl bg-[#18C6A5] hover:bg-[#15a88c] text-black text-sm font-black uppercase tracking-widest transition-all cursor-pointer shadow-[0_0_25px_rgba(24,198,165,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isProvidingLiquidity ? 'Provisioning...' : `Supply & Stake ${lockOptions[lockDurationIndex].label}`}
@@ -735,7 +672,7 @@
     </div>
 </div>
 
-<!-- Token Modal Logic (Utilizes userWalletStore.assets) -->
+<!-- Token Modal Logic -->
 {#if isTokenModalOpen}
     <div class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#050505]/95" transition:fade={{ duration: 150 }}>
         <button aria-label="Close" class="absolute inset-0 w-full h-full cursor-default border-none bg-transparent" onclick={() => isTokenModalOpen = false}></button>
@@ -747,7 +684,7 @@
                         <button aria-label="Select Asset" onclick={() => selectToken(token)} class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#1a1a1a] transition-colors cursor-pointer group border border-transparent hover:border-neutral-800">
                             <div class="flex items-center gap-3 pointer-events-none">
                                 <div class="w-8 h-8 rounded-full bg-[#0c0c0c] border border-neutral-800 flex items-center justify-center text-[10px] font-black overflow-hidden" style="color: {token.hex};">
-                                    {#if token.imgUrl} <img src={token.imgUrl} class="w-4 h-4 object-contain" alt="logo" /> {:else} {token.ticker[0]} {/if}
+                                    {#if token.icon} <img src={token.icon} class="w-4 h-4 object-contain" alt="logo" /> {:else} {token.ticker[0]} {/if}
                                 </div>
                                 <div class="flex flex-col items-start"><span class="text-xs font-bold text-white tracking-widest">{token.ticker}</span></div>
                             </div>
@@ -762,3 +699,37 @@
         </div>
     </div>
 {/if}
+
+<style>
+    @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
+    @keyframes fade-in-up { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+    
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Custom Sliders */
+    .custom-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        background: #1a1a1a;
+        height: 6px;
+        border-radius: 3px;
+        outline: none;
+        border: 1px solid #222;
+    }
+    
+    .custom-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        cursor: pointer;
+        border: 2px solid #14b8a6;
+        box-shadow: 0 0 10px rgba(20, 184, 166, 0.4);
+        transition: transform 0.1s;
+    }
+
+    .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.1); }
+</style>

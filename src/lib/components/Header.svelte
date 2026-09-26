@@ -1,14 +1,13 @@
 <script lang="ts">
-    import { walletState, getIsCorporateAdmin } from '$lib/stores/kaspaStore.svelte';
-    import { adminModeActive, adminTargetWallet } from '$lib/stores/app';
+    import { ui } from '$lib/stores/ui.svelte';
+    import { identity } from '$lib/stores/identity.svelte';
     
     let showToast = $state(false);
-    let isCorpAdmin = $derived(getIsCorporateAdmin());
 
     function copyAddress() {
-        if (!walletState.address) return;
+        if (!identity.activeAddress) return;
         
-        navigator.clipboard.writeText(walletState.address);
+        navigator.clipboard.writeText(identity.activeAddress);
         showToast = true;
         
         setTimeout(() => {
@@ -20,7 +19,7 @@
 <header class="w-full h-24 px-8 flex justify-between items-center bg-transparent z-50">
     <!-- Left: Brand -->
     <div class="flex items-center gap-4">
-        <div class="w-10 h-10 rounded-xl bg-[#111] flex items-center justify-center">
+        <div class="w-10 h-10 rounded-xl bg-[#111] flex items-center justify-center border border-neutral-800">
             <span class="text-emerald-400 font-black text-xl">P</span>
         </div>
         <span class="text-white font-mono font-bold tracking-widest uppercase">Perennia <span class="text-neutral-600 text-xs">v0.7.7</span></span>
@@ -29,18 +28,18 @@
     <!-- Right: Admin Panel & Wallet Pill -->
     <div class="flex items-center gap-6">
         
-        {#if isCorpAdmin}
+        {#if identity.isCorporateAdmin}
             <div class="flex items-center gap-2">
                 <button
-                    onclick={() => $adminModeActive = !$adminModeActive}
-                    class="px-4 py-2 rounded-xl border text-[10px] font-mono font-bold uppercase tracking-widest transition-colors shadow-none {$adminModeActive ? 'bg-[#050505] text-amber-500 border-amber-500' : 'bg-[#111] text-neutral-500 border-neutral-800 hover:border-neutral-600'}"
+                    onclick={() => ui.adminModeActive = !ui.adminModeActive}
+                    class="px-4 py-2 rounded-xl border text-[10px] font-mono font-bold uppercase tracking-widest transition-colors shadow-none {ui.adminModeActive ? 'bg-[#050505] text-amber-500 border-amber-500' : 'bg-[#111] text-neutral-500 border-neutral-800 hover:border-neutral-600'}"
                 >
                     SYSADMIN
                 </button>
-                {#if $adminModeActive}
+                {#if ui.adminModeActive}
                     <input
                         type="text"
-                        bind:value={$adminTargetWallet}
+                        bind:value={ui.adminTargetWallet}
                         placeholder="kaspa:impersonate_wallet..."
                         class="w-64 bg-[#050505] border border-amber-500 text-amber-500 font-mono text-[10px] px-4 py-2 outline-none focus:border-amber-400 placeholder-amber-900/50 rounded-xl shadow-none"
                     />
@@ -54,8 +53,8 @@
                 class="px-5 py-2.5 rounded-xl bg-[#111111] border border-[#00ffcc]/20 text-emerald-400 font-mono text-sm hover:bg-[#1a1a1a] transition-colors duration-300 flex items-center gap-2"
             >
                 <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
-                {#if walletState.address}
-                    {walletState.address.slice(0, 12)}...{walletState.address.slice(-4)}
+                {#if identity.activeAddress}
+                    {identity.activeAddress.slice(0, 12)}...{identity.activeAddress.slice(-4)}
                 {:else}
                     CONNECT WALLET
                 {/if}

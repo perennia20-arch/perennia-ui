@@ -1,3 +1,4 @@
+// src/routes/api/sor/yield_settle/+server.ts
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
@@ -8,6 +9,18 @@ import crypto from 'crypto';
 // No User Signature Required - Executed internally by the Chronos Daemon
 // ============================================================================
 export const POST = async ({ request }: RequestEvent) => {
+    // ⚡ ZERO-TRUST AUTHORIZATION FIX
+    // Prevents public API callers from triggering unauthorized yield settlement and fiat off-ramping
+    const expectedAuth = `Bearer ${env.PERENNIA_ADMIN_KEY || 'perennia_test_key'}`;
+    const providedAuth = request.headers.get('authorization') || '';
+    
+    const expectedBuffer = Buffer.from(expectedAuth);
+    const providedBuffer = Buffer.from(providedAuth);
+    
+    if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
+         return json({ error: 'Unauthorized Settlement Execution' }, { status: 401 });
+    }
+
     try {
         const body = await request.json().catch(() => ({}));
         const { wallet, amountKas, targetAsset } = body;
@@ -23,7 +36,6 @@ export const POST = async ({ request }: RequestEvent) => {
         const kasSpotStr = await redis.get('oracle:spot:KAS_USDC');
         const targetSpotStr = await redis.get(`oracle:spot:${targetAsset}_USDC`);
 
-        // ⚡ STRICT MOCK ELIMINATION: Fail the transaction if live pricing is unavailable.
         if (!kasSpotStr) {
             throw new Error("L1 Spot Oracle Feed Unavailable for KAS. Yield settlement aborted.");
         }
@@ -31,7 +43,6 @@ export const POST = async ({ request }: RequestEvent) => {
         const kasPrice = parseFloat(kasSpotStr);
         let targetPrice = 1.0;
 
-        // Ensure target is either a fiat peg or has a valid oracle response
         if (targetAsset !== 'USDC' && targetAsset !== 'USDT' && targetAsset !== 'USD') {
             if (!targetSpotStr) {
                 throw new Error(`L1 Spot Oracle Feed Unavailable for ${targetAsset}. Yield settlement aborted.`);
@@ -50,7 +61,6 @@ export const POST = async ({ request }: RequestEvent) => {
 
         // 4. Determine Routing Destination: Synthetic Ledger or Fiat Off-Ramp API
         if (targetAsset === 'USD') {
-            // ⚡ FIAT OFF-RAMP: Direct API routing via Circle Payouts API to linked KYC Bank Account
             const payoutPayload = {
                 idempotencyKey: crypto.randomUUID(),
                 source: { type: 'wallet', id: 'master_treasury_id' },
@@ -74,7 +84,6 @@ export const POST = async ({ request }: RequestEvent) => {
             
             console.log(`⚡ [Fiat Off-Ramp] Swept ${amountKas} KAS for ${cleanWallet}. Settled ${finalSettledAmount.toFixed(2)} USD via Circle API. Fee: ${treasuryFeeCaptured.toFixed(2)} USD`);
         } else {
-            // Instantly increment the user's chosen target asset on the Redis Synthetic Ledger
             await redis.hincrbyfloat(userLedgerKey, targetAsset, finalSettledAmount);
             console.log(`⚡ [Yield Settle] Swept ${amountKas} KAS for ${cleanWallet}. Settled ${finalSettledAmount.toFixed(6)} ${targetAsset}. Fee: ${treasuryFeeCaptured.toFixed(6)} ${targetAsset}`);
         }

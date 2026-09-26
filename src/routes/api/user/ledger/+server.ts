@@ -34,7 +34,9 @@ export const GET = async ({ url, setHeaders }: RequestEvent) => {
         for (const [asset, value] of Object.entries(rawData)) {
             const parsed = parseFloat(value);
             if (!isNaN(parsed)) {
-                balances[asset] = parsed;
+                // ⚡ THE FIX: Map "Unassigned KAS" to "KAS" so the frontend wallet store can merge the synthetic yield
+                const mappedAsset = asset === 'Unassigned KAS' ? 'KAS' : asset;
+                balances[mappedAsset] = (balances[mappedAsset] || 0) + parsed;
             }
         }
 

@@ -1,8 +1,9 @@
 <script lang="ts">
-    import { isWalletConnected, walletAddress } from '$lib/stores/wallet';
-    import { systemMode, taxEvents } from '$lib/stores/app';
     import { fade, fly } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
+    import { ui } from '$lib/stores/ui.svelte';
+    import { identity } from '$lib/stores/identity.svelte';
+    import { operations } from '$lib/stores/operations.svelte';
 
     let kycStatus = $state<'unverified' | 'pending' | 'verified'>('unverified');
     let showKycDrawer = $state(false);
@@ -20,17 +21,17 @@
         address: ''
     });
 
-    let totalGross = $derived($taxEvents.filter(e => e.type === 'Stream').reduce((sum, e) => sum + e.usdValueAtTime, 0));
-    let estCostBasis = $derived($taxEvents.filter(e => e.type === 'Fiat On-Ramp').reduce((sum, e) => sum + e.usdValueAtTime, 0));
+    let totalGross = $derived(ui.taxEvents.filter(e => e.type === 'Epoch Reward').reduce((sum, e) => sum + e.usdValueAtTime, 0));
+    let estCostBasis = $derived(ui.taxEvents.filter(e => e.type === 'Fiat On-Ramp').reduce((sum, e) => sum + e.usdValueAtTime, 0));
     let netGain = $derived(Math.max(0, totalGross - estCostBasis));
     let estLiability = $derived(netGain * 0.15);
 
     async function fetchLedgerEvents() {
-        if (!$isWalletConnected) return;
+        if (!identity.isWalletConnected) return;
         try {
             const res = await fetch('/api/user/tax-events');
             if (res.ok) {
-                $taxEvents = await res.json();
+                ui.taxEvents = await res.json();
             }
         } catch (e) {
             console.error("Failed to fetch tax events", e);
@@ -38,7 +39,7 @@
     }
 
     async function syncEscrowState() {
-        if (!$isWalletConnected) return;
+        if (!identity.isWalletConnected) return;
         try {
             const res = await fetch('/api/state');
             if (res.ok) {
@@ -65,13 +66,13 @@
     });
 
     function exportCSV() { 
-        if ($taxEvents.length === 0) {
+        if (ui.taxEvents.length === 0) {
             alert("No taxable events to export.");
             return;
         }
 
         const headers = "Timestamp,Type,Asset,Amount,USD_Value,TxHash\n";
-        const rows = $taxEvents.map(e => `${e.timestamp},${e.type},${e.asset.ticker},${e.amount},${e.usdValueAtTime},${e.txHash}`).join("\n");
+        const rows = ui.taxEvents.map(e => `${e.timestamp},${e.type},${e.asset.ticker},${e.amount},${e.usdValueAtTime},${e.txHash}`).join("\n");
         const blob = new Blob([headers + rows], { type: 'text/csv' });
         
         const url = window.URL.createObjectURL(blob);
@@ -96,7 +97,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    walletAddress: $walletAddress,
+                    walletAddress: identity.activeAddress,
                     taxYear: new Date().getFullYear()
                 })
             });
@@ -141,7 +142,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    walletAddress: $walletAddress,
+                    walletAddress: identity.activeAddress,
                     legalName: kycForm.legalName,
                     entityType: kycForm.entityType,
                     tin: kycForm.tin,
@@ -169,7 +170,7 @@
     async function acceptEscrowTerms() {
         isEscrowActive = true;
         showEscrowLegal = false;
-        import('$lib/stores/app').then(m => m.dispatchStateAction('UPDATE_TAX_FORTRESS', { escrowActive: true }));
+        await operations.dispatchStateAction('UPDATE_TAX_FORTRESS', { escrowActive: true });
     }
 
     function triggerEscrowToggle() {
@@ -180,36 +181,10 @@
         }
     }
 
-    $effect(() => {
-        if ($systemMode === 'overclocked' && !isEscrowActive) {
-            isEscrowActive = true;
-            import('$lib/stores/app').then(m => m.dispatchStateAction('UPDATE_TAX_FORTRESS', { escrowActive: true }));
-        }
-    });
-
 </script>
 
 <div class="w-full h-full p-4 md:p-8 overflow-y-auto hide-scrollbar relative bg-[#030303]">
-    
-    {#if $systemMode === 'base'}
-        <div class="absolute inset-0 flex flex-col items-center justify-center bg-[#050505] z-50 p-6 text-center animate-[fade-in-up_0.3s_ease-out]">
-            <div class="w-24 h-24 rounded-full border border-neutral-800 flex items-center justify-center mb-6 bg-[#0a0a0a] shadow-inner">
-                <svg class="w-10 h-10 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-            </div>
-            <h2 class="text-3xl font-black uppercase tracking-[0.2em] text-white mb-4">Ledger Analysis Locked</h2>
-            <p class="text-sm font-mono text-neutral-500 uppercase tracking-widest max-w-lg leading-relaxed mb-10">
-                High-frequency transaction indexing and Tax Escrow deployment require <span class="text-[#18C6A5] font-bold">Overclocked Mode</span> to access.
-            </p>
-            <button onclick={() => {
-                    $systemMode = 'overclocked';
-                    import('$lib/stores/app').then(m => m.dispatchStateAction('SYSTEM_MODE', { mode: 'overclocked' }));
-                }} class="px-8 py-4 bg-[#18C6A5]/10 hover:bg-[#18C6A5]/20 border border-[#18C6A5]/30 text-[#18C6A5] text-xs font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-[0_0_20px_rgba(24,198,165,0.1)]">
-                Engage Overclock Mode
-            </button>
-        </div>
-    {/if}
-
-    <div class="max-w-[2000px] mx-auto pb-24 relative z-10 flex flex-col gap-6 opacity-100 transition-opacity duration-500 {$systemMode === 'base' ? 'opacity-0 pointer-events-none hidden' : 'animate-[fade-in-up_0.6s_ease-out]'}">
+    <div class="max-w-[2000px] mx-auto pb-24 relative z-10 flex flex-col gap-6 opacity-100 animate-[fade-in-up_0.6s_ease-out]">
         
         <!-- HEADER -->
         <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-2 border-b border-neutral-800/80 pb-6">
@@ -256,14 +231,13 @@
                 <div class="text-2xl font-mono font-light text-blue-400 tracking-tight">${estCostBasis.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
             </div>
             
-            <!-- LIABILITY EST -->
             <div class="bg-[#0c0c0c] border border-neutral-800 rounded-2xl p-5 shadow-inner">
                 <h3 class="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-1">Est. Tax Liability (15%)</h3>
                 <div class="text-2xl font-mono font-light text-amber-400 tracking-tight">${estLiability.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
             </div>
 
-            <!-- THE ESCROW AUTOPILOT WITH FORCED BRUTALISM -->
-            <div class="bg-[#111111] border {isEscrowActive ? 'border-[#18C6A5]' : 'border-neutral-700'} rounded-2xl p-5 shadow-2xl relative overflow-hidden transition-colors duration-500 {$systemMode === 'overclocked' ? 'border-[#18C6A5] !bg-[#050505]' : ''}">
+            <!-- THE ESCROW AUTOPILOT -->
+            <div class="bg-[#111111] border {isEscrowActive ? 'border-[#18C6A5]' : 'border-neutral-700'} rounded-2xl p-5 shadow-2xl relative overflow-hidden transition-colors duration-500">
                 {#if isEscrowActive}
                     <div class="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(24,198,165,0.03)_50%,transparent_75%,transparent_100%)] bg-[length:10px_10px] animate-[slide_1s_linear_infinite]"></div>
                 {/if}
@@ -272,13 +246,13 @@
                         <h3 class="text-[10px] font-bold uppercase tracking-widest {isEscrowActive ? 'text-[#18C6A5]' : 'text-neutral-500'} mb-1 transition-colors">Tax Escrow Auto-LP</h3>
                         <div class="text-2xl font-mono font-light {isEscrowActive ? 'text-white' : 'text-neutral-500'} tracking-tight transition-colors">${isEscrowActive ? estLiability.toLocaleString(undefined, {minimumFractionDigits: 2}) : '0.00'}</div>
                     </div>
-                    <button aria-label="Toggle Escrow" onclick={triggerEscrowToggle} disabled={$systemMode === 'overclocked'} class="w-10 h-5 rounded-full border transition-colors duration-300 relative {isEscrowActive ? 'bg-[#18C6A5]/20 border-[#18C6A5]/50' : 'bg-[#050505] border-neutral-700'} cursor-pointer focus:outline-none shrink-0 disabled:cursor-not-allowed">
+                    <button aria-label="Toggle Escrow" onclick={triggerEscrowToggle} class="w-10 h-5 rounded-full border transition-colors duration-300 relative {isEscrowActive ? 'bg-[#18C6A5]/20 border-[#18C6A5]/50' : 'bg-[#050505] border-neutral-700'} cursor-pointer focus:outline-none shrink-0">
                         <div class="absolute top-[1px] w-4 h-4 rounded-full transition-all duration-300 shadow-sm {isEscrowActive ? 'bg-[#18C6A5] left-[22px]' : 'bg-neutral-500 left-[1px]'}"></div>
                     </button>
                 </div>
                 <div class="relative z-10 mt-2">
                     <span class="text-[8px] font-mono uppercase tracking-widest {isEscrowActive ? 'text-neutral-400' : 'text-neutral-600'}">
-                        {$systemMode === 'overclocked' ? 'OVERCLOCK OVERRIDE: ESCROW MANDATORY' : (isEscrowActive ? 'Yielding until April 15th Unfreeze' : 'Dormant')}
+                        {isEscrowActive ? 'Yielding until April 15th Unfreeze' : 'Dormant'}
                     </span>
                 </div>
             </div>
@@ -289,16 +263,12 @@
             <div class="bg-[#050505] border-b border-neutral-800 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div class="flex items-center gap-4">
                     <span class="text-sm font-bold uppercase tracking-widest text-neutral-300">Execution History</span>
-                    {#if $isWalletConnected}
+                    {#if identity.isWalletConnected}
                         <div class="flex items-center gap-2 bg-[#111] border border-neutral-800 px-2 py-1 rounded">
                             <div class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] animate-pulse"></div>
                             <span class="text-[9px] font-mono text-neutral-400 uppercase tracking-widest">Listening</span>
                         </div>
                     {/if}
-                </div>
-                <div class="flex items-center gap-2">
-                    <label for="hashSearch" class="sr-only">Filter Tx Hash</label>
-                    <input id="hashSearch" type="text" placeholder="Search Tx Hash..." class="bg-[#111] border border-neutral-800 rounded-lg px-4 py-2 text-[11px] font-mono text-white outline-none w-full sm:w-64 focus:border-[#18C6A5]/50 transition-colors" />
                 </div>
             </div>
 
@@ -315,17 +285,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {#if !$isWalletConnected || $taxEvents.length === 0}
+                        {#if !identity.isWalletConnected || ui.taxEvents.length === 0}
                             <tr>
                                 <td colspan="6" class="py-24 text-center bg-[#0c0c0c]">
                                     <div class="flex flex-col items-center justify-center gap-3">
-                                        <svg class="w-10 h-10 text-neutral-800" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                                        <svg class="w-10 h-10 text-neutral-800" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2-2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
                                         <p class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest font-bold">0 Events Indexed</p>
                                     </div>
                                 </td>
                             </tr>
                         {:else}
-                            {#each $taxEvents as event}
+                            {#each ui.taxEvents as event}
                                 <tr class="border-b border-neutral-800/50 hover:bg-[#111] transition-colors group">
                                     <td class="py-4 px-6 font-mono text-[10px] text-neutral-500">{event.timestamp}</td>
                                     <td class="py-4 px-6">
@@ -357,9 +327,6 @@
     </div>
 </div>
 
-<!-- ========================================== -->
-<!-- LEGAL COMPLIANCE MODAL (TAX ESCROW)        -->
-<!-- ========================================== -->
 {#if showEscrowLegal}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/98" transition:fade={{ duration: 200 }}>
         <div class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => showEscrowLegal = false}></div>
@@ -400,9 +367,6 @@
     </div>
 {/if}
 
-<!-- ========================================== -->
-<!-- 1099-DA KYC MATCHING PROTOCOL MODAL        -->
-<!-- ========================================== -->
 {#if showKycDrawer}
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/98" transition:fade={{ duration: 200 }}>
         <div class="absolute inset-0 w-full h-full cursor-default border-none" onclick={() => showKycDrawer = false}></div>

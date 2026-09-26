@@ -1,14 +1,12 @@
 <script lang="ts">
-    import { executeKrc20Forge } from '$lib/stores/wallet';
+    import { identity } from '$lib/stores/identity.svelte';
 
-    // --- WIZARD STATE ---
     let currentStep = $state(1);
     let isForging = $state(false);
     let forgeSuccess = $state(false);
     let forgeError = $state('');
     let confirmedTxId = $state('');
 
-    // --- STEP 1: CLASSIFICATION (UNCATEGORIZED) ---
     let assetName = $state('');
     let assetClass = $state(''); 
     
@@ -27,7 +25,6 @@
         { id: 'services', name: 'Service Vouchers', icon: '🎟️', desc: 'Local Services, Redeemable Time' }
     ];
 
-    // --- STEP 2: DYNAMIC METADATA ---
     let metadata = $state<Record<string, string>>({});
     
     const dynamicFields = $derived.by(() => {
@@ -176,6 +173,17 @@
     // --- NAVIGATION ---
     function nextStep() { if (currentStep < 4) currentStep++; }
     function prevStep() { if (currentStep > 1) currentStep--; }
+
+    async function executeKrc20Forge(ticker: string, maxSupply: number, mintLimit: number) {
+        if (identity.activeWalletType === 'kasware') {
+            const deployJson = JSON.stringify({
+                p: "krc-20", op: "deploy", tick: ticker.toUpperCase(), max: maxSupply.toString(), lim: mintLimit.toString()
+            });
+            const txId = await (window as any).kasware.inscribe(deployJson);
+            return { success: true, txId: txId };
+        } 
+        throw new Error("Unsupported forge path. Only Kasware handles KRC-20 issuance currently.");
+    }
 
     async function executeForge() {
         isForging = true;
@@ -453,6 +461,7 @@
     /* Custom Sliders */
     .custom-slider {
         -webkit-appearance: none;
+        appearance: none;
         background: #1a1a1a;
         height: 6px;
         border-radius: 3px;
@@ -462,6 +471,7 @@
     
     .custom-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
+        appearance: none;
         width: 20px;
         height: 20px;
         border-radius: 50%;

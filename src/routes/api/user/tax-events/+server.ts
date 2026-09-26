@@ -32,9 +32,9 @@ export const GET = async ({ cookies }: RequestEvent) => {
             else if (row.asset_ticker === 'SOL') color = '#14F195';
             else if (row.asset_ticker === 'USDC' || row.asset_ticker === 'USDT') color = '#3B82F6';
             
-            // Format Event Type for the UI
+            // Format Event Type for the UI - Updated to Epoch Reward
             let displayType = row.event_type;
-            if (row.event_type === 'YIELD') displayType = 'Stream';
+            if (row.event_type === 'YIELD') displayType = 'Epoch Reward';
             else if (row.event_type === 'FIAT_ONRAMP') displayType = 'Fiat On-Ramp';
             
             return {

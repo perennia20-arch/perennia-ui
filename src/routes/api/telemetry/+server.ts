@@ -1,9 +1,9 @@
+// src/routes/api/telemetry/+server.ts
 import { produce } from 'sveltekit-sse';
 import { redis } from '$lib/server/redis';
 import type { RequestEvent } from '@sveltejs/kit';
 
 export function GET({ cookies, url }: RequestEvent) {
-    // ⚡ THE FIX: Prioritize the explicit active wallet from the frontend to prevent stale cookie mismatches
     const rawSession = url.searchParams.get('address') || cookies.get('perennia_session');
 
     return produce(async function start({ emit }) {
@@ -25,21 +25,27 @@ export function GET({ cookies, url }: RequestEvent) {
 
         subscriber.on('message', (channel, message) => {
             if (channel === 'telemetry:updates') {
-                let partitionedMessage = message;
-                
                 try {
                     const parsed = JSON.parse(message);
+
+                    // ⚡ YIELD UPDATE HANDLER: Stream real-time sector ticker counts to UI
+                    if (parsed.yield_update) {
+                        const payloadWalletClean = (parsed.wallet || '').toLowerCase().replace(/kaspa:/i, '').trim();
+                        if (payloadWalletClean === cleanSessionWallet) {
+                            emit('message', message);
+                        }
+                        return;
+                    }
 
                     if (parsed.layout_state_update) {
                         const payloadWalletClean = (parsed.wallet || '').toLowerCase().replace(/kaspa:/i, '').trim();
                         if (payloadWalletClean === cleanSessionWallet) {
-                            const { error } = emit('message', message);
-                            if (error) { subscriber.unsubscribe(); subscriber.quit(); }
+                            emit('message', message);
                         }
                         return;
                     }
                     
-                    // Strict Universal Partitioning: Isolate all hardware to the session wallet
+                    // Partition worker hardware hashrates strictly to the session wallet
                     if (parsed.workers && Array.isArray(parsed.workers)) {
                         let isolatedHashrate = 0;
                         
@@ -60,15 +66,10 @@ export function GET({ cookies, url }: RequestEvent) {
                             parsed.totalHashrate = isolatedHashrate;
                         }
                     }
-                    partitionedMessage = JSON.stringify(parsed);
-                } catch (e) {
-                    console.warn("Failed to parse/partition telemetry payload.");
-                }
 
-                const { error } = emit('message', partitionedMessage);
-                if (error) {
-                    subscriber.unsubscribe();
-                    subscriber.quit();
+                    emit('message', JSON.stringify(parsed));
+                } catch (e) {
+                    console.warn("Failed to partition telemetry payload.");
                 }
             }
         });

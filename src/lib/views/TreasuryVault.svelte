@@ -1,17 +1,16 @@
 <script lang="ts">
     import { onMount, onDestroy, untrack } from 'svelte';
     import { slide } from 'svelte/transition';
-    import { globalKasPrice, globalKasChange } from '$lib/stores/app';
-    import { isWalletConnected, walletAddress, walletBalance, sovereignKeys } from '$lib/stores/wallet';
     import { browser } from '$app/environment';
 
-    import { userWalletStore } from '$lib/stores/userWalletStore.svelte';
+    import { ui } from '$lib/stores/ui.svelte';
+    import { identity } from '$lib/stores/identity.svelte';
+    import { operations } from '$lib/stores/operations.svelte';
+    import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
 
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
 
-    let isLoading = $state(false);
-    let isVaultDecrypted = $derived($isWalletConnected);
     let activeHoverSegment = $state<string | null>(null);
     let displayUnit = $state<'token' | 'usd'>('token');
     let timeframe = $state<'1H' | '24H' | '7D' | '30D' | '1Y' | 'ALL'>('24H');
@@ -25,18 +24,17 @@
     let networkSearchQuery = $state('');
     let isGlobalSearching = $state(false);
     let globalSearchError = $state('');
-
     let searchResults = $state<any[]>([]);
 
     let targetAutoOpenNetwork = $state<string | null>(null);
     let targetAutoOpenToken = $state<string | null>(null);
 
-    let activeNetworks = $state<string[]>(['BTC', 'ETH', 'ARB', 'SOL']);
-
+    // ⚡ THE FIX: Wiped the default array to [] for a true zero-state baseline
+    let activeNetworks = $state<string[]>([]);
+    
     let userCustomTokens = $state<Record<string, any[]>>({
         KAS: [], BTC: [], ETH: [], ARB: [], BASE: [], SOL: [], DOGE: [], XRP: [], POL: [], AVAX: [], SUI: [], TRX: [], ZEC: []
     });
-
     let selectedTokensMap = $state<Record<string, string[]>>({
         KAS: [], BTC: [], ETH: [], ARB: [], BASE: [], SOL: [], DOGE: [], XRP: [], POL: [], AVAX: [], SUI: [], TRX: [], ZEC: []
     });
@@ -59,10 +57,58 @@
         { ticker: 'ZEC', standard: 'Shielded Assets' }
     ];
 
+    let autoActiveNetworks = $derived.by(() => {
+        const nets = new Set<string>(activeNetworks);
+        treasury.visibleAssets.forEach(asset => {
+            if (asset.network && asset.network !== 'KAS') {
+                nets.add(asset.network);
+            }
+        });
+        return Array.from(nets);
+    });
+
+    // ⚡ THE FIX: Autonomously maps targeted tokens so the UI can auto-expand their parent network
+    let targetedSubAssetsMap = $derived.by(() => {
+        const map: Record<string, string> = {};
+        for (const asset of treasury.visibleAssets) {
+            if (asset.network && asset.network !== asset.ticker && operations.targetedAssets.includes(asset.ticker)) {
+                map[asset.network] = asset.ticker;
+            }
+        }
+        return map;
+    });
+
+    function getDynamicSubAssets(networkTicker: string) {
+        const manualTokens = userCustomTokens[networkTicker] || [];
+        const autoTokens = treasury.visibleAssets.filter(a => a.network === networkTicker && a.ticker !== networkTicker);
+        
+        const map = new Map();
+        manualTokens.forEach(t => map.set(t.symbol, t));
+        autoTokens.forEach(t => {
+            map.set(t.ticker, {
+                symbol: t.ticker,
+                name: t.name,
+                hex: t.theme?.hex || '#ffffff',
+                imgUrl: t.imgUrl,
+                balance: t.availableBalance, 
+                stakedBalance: t.stakedBalance,
+                price: t.spotPrice,
+                contract: t.contract,
+                badge: t.assetClass
+            });
+        });
+        return Array.from(map.values());
+    }
+
+    function getDynamicSelectedTokens(networkTicker: string) {
+        const manual = selectedTokensMap[networkTicker] || [];
+        const autoTokens = treasury.visibleAssets.filter(a => a.network === networkTicker && a.ticker !== networkTicker).map(a => a.ticker);
+        return Array.from(new Set([...manual, ...autoTokens]));
+    }
+
     let visibleSecondaryNetworks = $derived.by(() => {
         let visible: any[] = [];
-        
-        activeNetworks.forEach(ticker => {
+        autoActiveNetworks.forEach(ticker => {
             if (ticker === 'KAS') return; 
             const net = secondaryNetworks.find(n => n.ticker === ticker);
             if (net) visible.push(net);
@@ -70,7 +116,7 @@
 
         if (isManagingNetworks || networkSearchQuery) {
             secondaryNetworks.forEach(net => {
-                if (net.ticker !== 'KAS' && !activeNetworks.includes(net.ticker)) {
+                if (net.ticker !== 'KAS' && !autoActiveNetworks.includes(net.ticker)) {
                     visible.push(net);
                 }
             });
@@ -80,14 +126,15 @@
         if (!query) return visible;
 
         return visible.filter(n => {
-            if (n.ticker === 'KAS') return false; 
-            const asset = userWalletStore.getAsset(n.ticker);
-            return n.ticker.toLowerCase().includes(query) ||
-                (asset && asset.name.toLowerCase().includes(query)) ||
-                n.standard.toLowerCase().includes(query) ||
-                (userCustomTokens[n.ticker] || []).some((t: any) => 
-                    t.symbol.toLowerCase().includes(query) || 
-                    t.name.toLowerCase().includes(query)
+            if (!n || n.ticker === 'KAS') return false; 
+            const asset = treasury.getAsset(n.ticker);
+            const dynamicSubs = getDynamicSubAssets(n.ticker);
+            return n.ticker?.toLowerCase().includes(query) ||
+                (asset?.name?.toLowerCase().includes(query)) ||
+                (n.standard?.toLowerCase().includes(query)) ||
+                dynamicSubs.some((t: any) => 
+                    t?.symbol?.toLowerCase().includes(query) || 
+                    t?.name?.toLowerCase().includes(query)
                 );
         });
     });
@@ -181,73 +228,40 @@
     }
 
     $effect(() => {
-        if ($sovereignKeys) {
+        if (identity.sovereignKeys) {
             untrack(() => {
-                if ($sovereignKeys.kaspa?.address) userWalletStore.updateAsset('KAS', { address: $sovereignKeys.kaspa.address });
-                if ($sovereignKeys.bitcoin?.address) userWalletStore.updateAsset('BTC', { address: $sovereignKeys.bitcoin.address });
-                if ($sovereignKeys.ethereum?.address) userWalletStore.updateAsset('ETH', { address: $sovereignKeys.ethereum.address });
-                if ($sovereignKeys.solana?.address) userWalletStore.updateAsset('SOL', { address: $sovereignKeys.solana.address });
-                if ($sovereignKeys.doge?.address) userWalletStore.updateAsset('DOGE', { address: $sovereignKeys.doge.address });
-                if ($sovereignKeys.xrp?.address) userWalletStore.updateAsset('XRP', { address: $sovereignKeys.xrp.address });
-                if ($sovereignKeys.polygon?.address) userWalletStore.updateAsset('POL', { address: $sovereignKeys.polygon.address });
-                if ($sovereignKeys.avalanche?.address) userWalletStore.updateAsset('AVAX', { address: $sovereignKeys.avalanche.address });
-                if ($sovereignKeys.sui?.address) userWalletStore.updateAsset('SUI', { address: $sovereignKeys.sui.address });
-                if ($sovereignKeys.tron?.address) userWalletStore.updateAsset('TRX', { address: $sovereignKeys.tron.address });
-                if ($sovereignKeys.zcash?.address) userWalletStore.updateAsset('ZEC', { address: $sovereignKeys.zcash.address });
-                if ($sovereignKeys.ethereum?.address) {
-                    userWalletStore.updateAsset('ARB', { address: $sovereignKeys.ethereum.address });
-                    userWalletStore.updateAsset('BASE', { address: $sovereignKeys.ethereum.address });
+                if (identity.sovereignKeys.kaspa?.address) treasury.updateAsset('KAS', { address: identity.sovereignKeys.kaspa.address });
+                if (identity.sovereignKeys.bitcoin?.address) treasury.updateAsset('BTC', { address: identity.sovereignKeys.bitcoin.address });
+                if (identity.sovereignKeys.ethereum?.address) treasury.updateAsset('ETH', { address: identity.sovereignKeys.ethereum.address });
+                if (identity.sovereignKeys.solana?.address) treasury.updateAsset('SOL', { address: identity.sovereignKeys.solana.address });
+                if (identity.sovereignKeys.doge?.address) treasury.updateAsset('DOGE', { address: identity.sovereignKeys.doge.address });
+                if (identity.sovereignKeys.xrp?.address) treasury.updateAsset('XRP', { address: identity.sovereignKeys.xrp.address });
+                if (identity.sovereignKeys.polygon?.address) treasury.updateAsset('POL', { address: identity.sovereignKeys.polygon.address });
+                if (identity.sovereignKeys.avalanche?.address) treasury.updateAsset('AVAX', { address: identity.sovereignKeys.avalanche.address });
+                if (identity.sovereignKeys.sui?.address) treasury.updateAsset('SUI', { address: identity.sovereignKeys.sui.address });
+                if (identity.sovereignKeys.tron?.address) treasury.updateAsset('TRX', { address: identity.sovereignKeys.tron.address });
+                if (identity.sovereignKeys.zcash?.address) treasury.updateAsset('ZEC', { address: identity.sovereignKeys.zcash.address });
+                if (identity.sovereignKeys.ethereum?.address) {
+                    treasury.updateAsset('ARB', { address: identity.sovereignKeys.ethereum.address });
+                    treasury.updateAsset('BASE', { address: identity.sovereignKeys.ethereum.address });
                 }
             });
         }
     });
 
-    interface KnownToken {
-        tickers: string[]; name: string; hex: string; imgUrl: string; price: number; symbol?: string; contract?: string; network: string; badge?: string;
-    }
-
-    const knownTokens: KnownToken[] = [
+    const knownTokens = [
         { tickers: ['PAXG', 'GOLD', 'PAX GOLD'], name: 'PAX Gold', symbol: 'PAXG', hex: '#E5A93C', imgUrl: 'https://cryptologos.cc/logos/pax-gold-paxg-logo.svg?v=033', price: 2412.50, network: 'ETH', badge: 'COMMODITY' },
         { tickers: ['XAUT', 'GOLD', 'TETHER GOLD'], name: 'Tether Gold', symbol: 'XAUT', hex: '#E5A93C', imgUrl: 'https://cryptologos.cc/logos/tether-gold-xaut-logo.svg?v=033', price: 2412.50, network: 'ETH', badge: 'COMMODITY' },
-        { tickers: ['DAAPL', 'AAPL', 'APPLE'], name: 'Dinari Apple', symbol: 'dAAPL', hex: '#A2AAAD', imgUrl: '', price: 215.50, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DTSLA', 'TSLA', 'TESLA'], name: 'Dinari Tesla', symbol: 'dTSLA', hex: '#E82127', imgUrl: '', price: 210.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DNVDA', 'NVDA', 'NVIDIA'], name: 'Dinari NVIDIA', symbol: 'dNVDA', hex: '#76B900', imgUrl: '', price: 125.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DMETA', 'META', 'META PLATFORMS', 'FACEBOOK'], name: 'Dinari Meta Platforms', symbol: 'dMETA', hex: '#0668E1', imgUrl: '', price: 510.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DMSFT', 'MSFT', 'MICROSOFT'], name: 'Dinari Microsoft', symbol: 'dMSFT', hex: '#00A4EF', imgUrl: '', price: 420.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DAMZN', 'AMZN', 'AMAZON'], name: 'Dinari Amazon', symbol: 'dAMZN', hex: '#FF9900', imgUrl: '', price: 180.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DGOOGL', 'GOOGL', 'GOOGLE', 'ALPHABET'], name: 'Dinari Alphabet', symbol: 'dGOOGL', hex: '#4285F4', imgUrl: '', price: 175.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['DCOIN', 'COIN', 'COINBASE'], name: 'Dinari Coinbase', symbol: 'dCOIN', hex: '#0052FF', imgUrl: '', price: 240.00, network: 'ARB', badge: 'EQUITY' },
-        { tickers: ['BMETA', 'META', 'META PLATFORMS'], name: 'Backed Meta Platforms', symbol: 'bMETA', hex: '#0668E1', imgUrl: '', price: 510.00, network: 'ETH', badge: 'EQUITY' },
-        { tickers: ['BNVDA'], name: 'Backed NVIDIA', symbol: 'bNVDA', hex: '#76B900', imgUrl: '', price: 125.00, network: 'ETH', badge: 'EQUITY' },
-        { tickers: ['BAAPL'], name: 'Backed Apple', symbol: 'bAAPL', hex: '#A2AAAD', imgUrl: '', price: 215.50, network: 'ETH', badge: 'EQUITY' },
         { tickers: ['USDC', 'USD COIN'], name: 'USD Coin', hex: '#2775CA', imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', price: 1.00, network: 'ETH', contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
-        { tickers: ['USDC', 'USD COIN'], name: 'USD Coin', hex: '#2775CA', imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', price: 1.00, network: 'SOL', contract: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
-        { tickers: ['USDC', 'USD COIN'], name: 'USD Coin', hex: '#2775CA', imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', price: 1.00, network: 'POL', contract: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' },
-        { tickers: ['USDC', 'USD COIN'], name: 'USD Coin', hex: '#2775CA', imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', price: 1.00, network: 'AVAX', contract: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E' },
-        { tickers: ['USDT', 'TETHER'], name: 'Tether USD', hex: '#26A17B', imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', price: 1.00, network: 'ETH', contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
-        { tickers: ['USDT', 'TETHER'], name: 'Tether USD', hex: '#26A17B', imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', price: 1.00, network: 'SOL', contract: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' },
-        { tickers: ['USDT', 'TETHER'], name: 'Tether USD', hex: '#26A17B', imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', price: 1.00, network: 'POL', contract: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F' },
-        { tickers: ['USDT', 'TETHER'], name: 'Tether USD', hex: '#26A17B', imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', price: 1.00, network: 'TRX', contract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' },
-        { tickers: ['TAI', 'TARS AI', 'TARS'], name: 'TARS AI', symbol: 'TAI', hex: '#00FFA3', imgUrl: 'https://cryptologos.cc/logos/tars-protocol-tai-logo.svg', price: 0.0065, contract: 'Hax9LTgsQkze1YFychnBLtFH8gYbQKtKfWKKg2SP6gdD', network: 'SOL' },
-        { tickers: ['WBTC', 'WRAPPED BITCOIN'], name: 'Wrapped Bitcoin', hex: '#F7931A', imgUrl: 'https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.svg?v=033', price: 65000, network: 'ETH', contract: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' },
-        { tickers: ['DAI'], name: 'Dai Stablecoin', hex: '#F5AC37', imgUrl: 'https://cryptologos.cc/logos/multi-collateral-dai-dai-logo.svg?v=033', price: 1.00, network: 'ETH', contract: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
-        { tickers: ['LINK', 'CHAINLINK'], name: 'Chainlink', hex: '#375BD2', imgUrl: 'https://cryptologos.cc/logos/chainlink-link-logo.svg?v=033', price: 14.50, network: 'ETH', contract: '0x514910771AF9Ca656af840dff83E8264EcF986CA' },
-        { tickers: ['UNI', 'UNISWAP'], name: 'Uniswap', hex: '#FF007A', imgUrl: 'https://cryptologos.cc/logos/uniswap-uni-logo.svg?v=033', price: 7.20, network: 'ETH', contract: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984' },
-        { tickers: ['JUP', 'JUPITER'], name: 'Jupiter', hex: '#14F195', imgUrl: 'https://cryptologos.cc/logos/jupiter-ag-jup-logo.svg?v=033', price: 0.85, network: 'SOL', contract: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN' },
-        { tickers: ['BONK'], name: 'Bonk', hex: '#F8A838', imgUrl: 'https://cryptologos.cc/logos/bonk1-bonk-logo.svg?v=033', price: 0.00002, network: 'SOL', contract: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' },
-        { tickers: ['WIF', 'DOGWIFHAT'], name: 'dogwifhat', hex: '#A86F44', imgUrl: 'https://cryptologos.cc/logos/dogwifhat-wif-logo.svg?v=033', price: 2.10, network: 'SOL', contract: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm' }
+        { tickers: ['USDT', 'TETHER'], name: 'Tether USD', hex: '#26A17B', imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', price: 1.00, network: 'ETH', contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7' }
     ];
-
-    let searchTimeout: ReturnType<typeof setTimeout>;
 
     function handleLiveSearch() {
         const query = networkSearchQuery.trim().toUpperCase();
-        
         if (!query) {
             searchResults = [];
             globalSearchError = '';
             isGlobalSearching = false;
-            clearTimeout(searchTimeout);
             return;
         }
 
@@ -265,109 +279,111 @@
                 hex: match.hex,
                 imgUrl: match.imgUrl,
                 price: match.price || 0,
-                contract: match.contract || query,
+                contract: (match as any).contract || query,
                 network: match.network,
                 badge: match.badge
             });
         });
         
         searchResults = [...localResults];
+    }
 
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(async () => {
-            if (query.length < 2) return;
+    async function executeGlobalMasterSearch() {
+        const query = networkSearchQuery.trim().toUpperCase();
+        if (query.length < 2) return;
+        
+        isGlobalSearching = true;
+        globalSearchError = '';
+        
+        try {
+            let externalResults: any[] = [];
             
-            isGlobalSearching = true;
-            globalSearchError = '';
-            
-            try {
-                let externalResults: any[] = [];
-                
-                const dsRes = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${query}`);
-                if (dsRes.ok) {
-                    const dsData = await dsRes.json();
-                    if (dsData.pairs && dsData.pairs.length > 0) {
-                        let exactPairs = dsData.pairs.filter((p: any) => p.baseToken.symbol.toUpperCase() === query || p.baseToken.name.toUpperCase().includes(query));
-                        if (exactPairs.length === 0) exactPairs = dsData.pairs;
-                        let liquidPairs = exactPairs.filter((p: any) => parseFloat(p.liquidity?.usd || 0) > 1000);
-                        
-                        let bestPairPerChain: Record<string, any> = {};
-                        liquidPairs.forEach((pair: any) => {
-                            const chain = pair.chainId;
-                            if (!bestPairPerChain[chain] || parseFloat(pair.liquidity.usd) > parseFloat(bestPairPerChain[chain].liquidity.usd)) {
-                                bestPairPerChain[chain] = pair;
-                            }
-                        });
-
-                        for (const [chain, pair] of Object.entries(bestPairPerChain)) {
-                            let targetNetwork = '';
-                            switch(chain) {
-                                case 'ethereum': targetNetwork = 'ETH'; break;
-                                case 'solana': targetNetwork = 'SOL'; break;
-                                case 'polygon': targetNetwork = 'POL'; break;
-                                case 'avalanche': targetNetwork = 'AVAX'; break;
-                                case 'arbitrum': targetNetwork = 'ARB'; break;
-                                case 'base': targetNetwork = 'BASE'; break;
-                                case 'sui': targetNetwork = 'SUI'; break;
-                                case 'bsc': targetNetwork = 'BSC'; break;
-                            }
-
-                            if (targetNetwork) {
-                                const isDup = localResults.some(r => r.symbol === pair.baseToken.symbol.toUpperCase() && r.network === targetNetwork);
-                                if (!isDup) {
-                                    externalResults.push({
-                                        symbol: pair.baseToken.symbol.toUpperCase(),
-                                        name: pair.baseToken.name,
-                                        hex: '#18C6A5', 
-                                        imgUrl: pair.info?.imageUrl || `https://cryptologos.cc/logos/${pair.baseToken.symbol.toLowerCase()}-${pair.baseToken.symbol.toLowerCase()}-logo.svg`,
-                                        price: parseFloat(pair.priceUsd || '0'),
-                                        contract: pair.baseToken.address,
-                                        network: targetNetwork
-                                    });
-                                }
-                            }
+            const dsRes = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${query}`);
+            if (dsRes.ok) {
+                const dsData = await dsRes.json();
+                if (dsData.pairs && dsData.pairs.length > 0) {
+                    let exactPairs = dsData.pairs.filter((p: any) => p.baseToken.symbol.toUpperCase() === query || p.baseToken.name.toUpperCase().includes(query));
+                    if (exactPairs.length === 0) exactPairs = dsData.pairs;
+                    let liquidPairs = exactPairs.filter((p: any) => parseFloat(p.liquidity?.usd || 0) > 1000);
+                    
+                    let bestPairPerChain: Record<string, any> = {};
+                    liquidPairs.forEach((pair: any) => {
+                        const chain = pair.chainId;
+                        if (!bestPairPerChain[chain] || parseFloat(pair.liquidity.usd) > parseFloat(bestPairPerChain[chain].liquidity.usd)) {
+                            bestPairPerChain[chain] = pair;
                         }
-                    }
-                }
+                    });
 
-                try {
-                    const kasRes = await fetch(`https://api.kasplex.org/v1/krc20/token/${query}`);
-                    if (kasRes.ok) {
-                        const kasData = await kasRes.json();
-                        if (kasData.result && kasData.result.length > 0) {
-                            const isDup = localResults.some(r => r.symbol === query && r.network === 'KAS');
+                    for (const [chain, pair] of Object.entries(bestPairPerChain)) {
+                        let targetNetwork = '';
+                        switch(chain) {
+                            case 'ethereum': targetNetwork = 'ETH'; break;
+                            case 'solana': targetNetwork = 'SOL'; break;
+                            case 'polygon': targetNetwork = 'POL'; break;
+                            case 'avalanche': targetNetwork = 'AVAX'; break;
+                            case 'arbitrum': targetNetwork = 'ARB'; break;
+                            case 'base': targetNetwork = 'BASE'; break;
+                            case 'sui': targetNetwork = 'SUI'; break;
+                            case 'bsc': targetNetwork = 'BSC'; break;
+                        }
+
+                        if (targetNetwork) {
+                            const isDup = searchResults.some(r => r.symbol === pair.baseToken.symbol.toUpperCase() && r.network === targetNetwork);
                             if (!isDup) {
                                 externalResults.push({
-                                    symbol: query,
-                                    name: `${query} (KRC-20)`,
-                                    hex: '#18C6A5',
-                                    imgUrl: `https://storage.googleapis.com/kasfyi/token-icons/${query.toLowerCase()}.png`,
-                                    price: 0,
-                                    contract: query,
-                                    network: 'KAS'
+                                    symbol: pair.baseToken.symbol.toUpperCase(),
+                                    name: pair.baseToken.name,
+                                    hex: '#18C6A5', 
+                                    imgUrl: pair.info?.imageUrl || `https://cryptologos.cc/logos/${pair.baseToken.symbol.toLowerCase()}-${pair.baseToken.symbol.toLowerCase()}-logo.svg`,
+                                    price: parseFloat(pair.priceUsd || '0'),
+                                    contract: pair.baseToken.address,
+                                    network: targetNetwork
                                 });
                             }
                         }
                     }
-                } catch(e) {}
-
-                if (networkSearchQuery.trim().toUpperCase() === query) {
-                    searchResults = [...localResults, ...externalResults];
                 }
-
-            } catch(e) {
-                globalSearchError = 'Global on-chain indexer unreachable.';
             }
-            isGlobalSearching = false;
-        }, 400); 
+
+            try {
+                const kasRes = await fetch(`https://api.kasplex.org/v1/krc20/token/${query}`);
+                if (kasRes.ok) {
+                    const kasData = await kasRes.json();
+                    if (kasData.result && kasData.result.length > 0) {
+                        const isDup = searchResults.some(r => r.symbol === query && r.network === 'KAS');
+                        if (!isDup) {
+                            externalResults.push({
+                                symbol: query,
+                                name: `${query} (KRC-20)`,
+                                hex: '#18C6A5',
+                                imgUrl: `https://storage.googleapis.com/kasfyi/token-icons/${query.toLowerCase()}.png`,
+                                price: 0,
+                                contract: query,
+                                network: 'KAS'
+                            });
+                        }
+                    }
+                }
+            } catch(e) {}
+
+            if (externalResults.length > 0) {
+                searchResults = [...searchResults, ...externalResults];
+            } else {
+                globalSearchError = `No verified liquidity found for "${query}".`;
+            }
+
+        } catch(e) {
+            globalSearchError = 'Global on-chain indexer unreachable.';
+        }
+        isGlobalSearching = false;
     }
 
     $effect(() => {
-        if (browser && $walletAddress && hasLoadedLocalState) {
+        if (browser && identity.activeAddress && hasLoadedLocalState) {
             const stateToSave = { activeNetworks, userCustomTokens, selectedTokensMap };
             const stateString = JSON.stringify(stateToSave);
             
-            localStorage.setItem(`p_custom_tokens_${$walletAddress}`, stateString);
+            localStorage.setItem(`p_custom_tokens_${identity.activeAddress}`, stateString);
 
             clearTimeout(serverSyncTimeout);
             serverSyncTimeout = setTimeout(async () => {
@@ -376,7 +392,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
-                            walletAddress: $walletAddress, 
+                            walletAddress: identity.activeAddress, 
                             preferences: stateToSave 
                         })
                     });
@@ -388,9 +404,9 @@
     });
 
     async function loadTreasuryState() {
-        if (!browser || !$walletAddress) return;
+        if (!browser || !identity.activeAddress) return;
         
-        const localSaved = localStorage.getItem(`p_custom_tokens_${$walletAddress}`);
+        const localSaved = localStorage.getItem(`p_custom_tokens_${identity.activeAddress}`);
         if (localSaved) {
             try {
                 const data = JSON.parse(localSaved);
@@ -403,7 +419,7 @@
         }
         
         try {
-            const res = await fetch(`/api/treasury/preferences?wallet=${$walletAddress}`);
+            const res = await fetch(`/api/treasury/preferences?wallet=${identity.activeAddress}`);
             if (res.ok) {
                 const { preferences: remoteData } = await res.json();
                 if (remoteData) {
@@ -413,7 +429,7 @@
                     if (remoteData.userCustomTokens) userCustomTokens = remoteData.userCustomTokens;
                     if (remoteData.selectedTokensMap) selectedTokensMap = remoteData.selectedTokensMap;
                     
-                    localStorage.setItem(`p_custom_tokens_${$walletAddress}`, JSON.stringify(remoteData));
+                    localStorage.setItem(`p_custom_tokens_${identity.activeAddress}`, JSON.stringify(remoteData));
                 }
             }
         } catch(e) {}
@@ -422,17 +438,16 @@
     }
 
     $effect(() => {
-        if (isVaultDecrypted && !hasLoadedLocalState) {
+        if (identity.isWalletConnected && !hasLoadedLocalState) {
             untrack(() => loadTreasuryState());
         }
     });
 
     let ringSegments = $derived.by(() => {
         let cumulativePercent = 0;
-        const activeAssets = userWalletStore.assets.filter(a => a.totalBalance > 0 && a.spotPrice > 0);
-        const vaultValue = activeAssets.reduce((sum, a) => sum + (a.totalBalance * a.spotPrice), 0);
+        const vaultValue = treasury.totalVaultValue;
 
-        return activeAssets.map((asset) => {
+        return treasury.visibleAssets.map((asset) => {
             let usdValue = asset.totalBalance * asset.spotPrice;
             const percent = vaultValue > 0 ? (usdValue / vaultValue) * 100 : 0;
             const offset = -cumulativePercent;
@@ -441,33 +456,61 @@
         });
     });
 
-    async function fetchExternalPrices() { /*...*/ }
-    async function fetchTreasuryData() { /*...*/ }
-    async function fetchSyntheticLedger() { /*...*/ }
+    async function fetchSyntheticLedger() {
+        if (!identity.isWalletConnected || !identity.activeAddress) return;
+        try {
+            const res = await fetch(`/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`);
+            if (res.ok) {
+                const ledgerBalances = await res.json();
+                for (const [ticker, amount] of Object.entries(ledgerBalances)) {
+                    treasury.updateAsset(ticker.toUpperCase(), { synthetic: Number(amount) || 0 });
+                }
+            }
+        } catch (e) {}
+    }
+
+    async function fetchOmniChainInventory() {
+        if (!identity.isWalletConnected || !identity.activeAddress) return;
+        try {
+            const params = new URLSearchParams({
+                kas: identity.sovereignKeys?.kaspa?.address || identity.activeAddress,
+                btc: identity.sovereignKeys?.bitcoin?.address || '',
+                eth: identity.sovereignKeys?.ethereum?.address || '',
+                sol: identity.sovereignKeys?.solana?.address || ''
+            });
+
+            const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
+            if (res.ok) {
+                const estate = await res.json();
+                estate.assets.forEach((onChainAsset: any) => {
+                    if (onChainAsset.balance !== undefined && onChainAsset.address && !onChainAsset.address.includes('Awaiting')) {
+                        treasury.updateAsset(onChainAsset.symbol.toUpperCase(), { onChain: onChainAsset.balance });
+                    }
+                });
+            }
+        } catch (e) {}
+    }
 
     let fetchInterval: ReturnType<typeof setInterval>;
-    let priceInterval: ReturnType<typeof setInterval>;
+    let omniChainInterval: ReturnType<typeof setInterval>;
 
     onMount(() => {
-        fetchExternalPrices();
-        priceInterval = setInterval(fetchExternalPrices, 15000);
-
-        if (isVaultDecrypted) { 
-            fetchTreasuryData(); 
+        if (identity.isWalletConnected) { 
+            fetchOmniChainInventory(); 
             fetchSyntheticLedger();
         }
 
         fetchInterval = setInterval(() => { 
-            if (isVaultDecrypted) {
-                fetchTreasuryData(); 
+            if (identity.isWalletConnected) {
+                fetchOmniChainInventory(); 
                 fetchSyntheticLedger();
             }
         }, 10000);
 
         if (browser) {
             window.addEventListener('storage', (e) => {
-                if (e.key === `p_custom_tokens_${$walletAddress}`) {
-                    const saved = localStorage.getItem(`p_custom_tokens_${$walletAddress}`);
+                if (e.key === `p_custom_tokens_${identity.activeAddress}`) {
+                    const saved = localStorage.getItem(`p_custom_tokens_${identity.activeAddress}`);
                     if (saved) {
                         try {
                             const data = JSON.parse(saved);
@@ -481,22 +524,24 @@
                 }
             });
         }
+
+        omniChainInterval = setInterval(fetchOmniChainInventory, 15000);
     });
 
     onDestroy(() => {
         if (fetchInterval) clearInterval(fetchInterval);
-        if (priceInterval) clearInterval(priceInterval);
+        if (omniChainInterval) clearInterval(omniChainInterval);
     });
 </script>
 
 <div class="w-full h-full min-h-[100dvh] bg-app text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
-    {#if !isVaultDecrypted}
+    {#if !identity.isWalletConnected}
         <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505]/98 p-6 text-center">
             <h2 class="text-2xl md:text-4xl font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4">TREASURY LOCKED</h2>
         </div>
     {/if}
 
-    <div class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-8 transition-opacity duration-500 {!isVaultDecrypted ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative">
+    <div class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-8 transition-opacity duration-500 {!identity.isWalletConnected ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative">
 
         <div class="bg-[#0a0a0a] border border-[#18C6A5]/20 rounded-[32px] shadow-[0_0_40px_rgba(24,198,165,0.15)] relative overflow-hidden group">
             <div class="relative z-10 p-8 lg:p-10 flex flex-col md:flex-row items-center justify-between gap-10">
@@ -506,7 +551,7 @@
                             <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></div> Total Vault Portfolio Value
                         </span>
                         <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                            ${userWalletStore.totalVaultValue.toLocaleString('en-US', { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}
+                            ${treasury.totalVaultValue.toLocaleString('en-US', { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}
                         </span>
                     </div>
                 </div>
@@ -529,7 +574,7 @@
                 <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
                     <circle cx="18" cy="18" r="15.915" fill="none" stroke="#222" stroke-width="2.5"></circle>
                     {#each ringSegments as segment}
-                        <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.hex} stroke-width={activeHoverSegment === (segment.symbol || segment.ticker) ? "4" : "2.5"} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
+                        <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.theme.hex} stroke-width={activeHoverSegment === segment.ticker ? "4" : "2.5"} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
                     {/each}
                 </svg>
             </div>
@@ -568,7 +613,7 @@
                         <input 
                             type="text" 
                             bind:value={networkSearchQuery} 
-                            oninput={(e) => { 
+                            oninput={() => { 
                                 if(networkSearchQuery.trim().length > 0) isAllNetworksDrawerOpen = true;
                                 handleLiveSearch();
                             }}
@@ -655,9 +700,9 @@
                         {/if}
 
                         <NetworkRow 
-                            asset={userWalletStore.getAsset('KAS')} 
-                            subAssets={userCustomTokens['KAS']} 
-                            selectedTokens={selectedTokensMap['KAS']} 
+                            asset={treasury.getAsset('KAS') as any} 
+                            subAssets={getDynamicSubAssets('KAS')} 
+                            selectedTokens={getDynamicSelectedTokens('KAS')} 
                             onToggleToken={(s: string) => toggleTokenSelection('KAS', s)}
                             onDeleteToken={(s: string) => deleteTokenFromNetwork('KAS', s)}
                             standardLabel="KRC-20" 
@@ -671,22 +716,22 @@
                             {isManagingNetworks}
                             {isOrganizing}
                             isNetworkSelected={true}
-                            autoOpenToken={targetAutoOpenNetwork === 'KAS' ? targetAutoOpenToken : null}
+                            autoOpenToken={targetAutoOpenNetwork === 'KAS' ? targetAutoOpenToken : targetedSubAssetsMap['KAS'] || null}
                         />
 
                         {#each visibleSecondaryNetworks as net (net.ticker)}
                             <div 
-                                draggable={isOrganizing && activeNetworks.includes(net.ticker)}
+                                draggable={isOrganizing && autoActiveNetworks.includes(net.ticker)}
                                 ondragstart={(e) => handleDragStart(e, net.ticker)}
                                 ondragover={(e) => handleDragOver(e, net.ticker)}
                                 ondrop={handleDrop}
                                 ondragend={() => draggedNetwork = null}
-                                class="transition-all duration-300 {draggedNetwork === net.ticker ? 'opacity-40 scale-[0.98]' : 'opacity-100'} {isOrganizing && activeNetworks.includes(net.ticker) ? 'cursor-grab active:cursor-grabbing' : ''}"
+                                class="transition-all duration-300 {draggedNetwork === net.ticker ? 'opacity-40 scale-[0.98]' : 'opacity-100'} {isOrganizing && autoActiveNetworks.includes(net.ticker) ? 'cursor-grab active:cursor-grabbing' : ''}"
                             >
                                 <NetworkRow 
-                                    asset={userWalletStore.getAsset(net.ticker)} 
-                                    subAssets={userCustomTokens[net.ticker]} 
-                                    selectedTokens={selectedTokensMap[net.ticker]} 
+                                    asset={treasury.getAsset(net.ticker) as any} 
+                                    subAssets={getDynamicSubAssets(net.ticker)} 
+                                    selectedTokens={getDynamicSelectedTokens(net.ticker)} 
                                     onToggleToken={(s: string) => toggleTokenSelection(net.ticker, s)}
                                     onDeleteToken={(s: string) => deleteTokenFromNetwork(net.ticker, s)}
                                     standardLabel={net.standard} 
@@ -699,9 +744,9 @@
                                     tokenDecimals={settingsStore.tokenDecimals} 
                                     {isManagingNetworks}
                                     {isOrganizing}
-                                    isNetworkSelected={activeNetworks.includes(net.ticker)}
+                                    isNetworkSelected={autoActiveNetworks.includes(net.ticker)}
                                     onNetworkToggle={() => toggleNetworkVisibility(net.ticker)}
-                                    autoOpenToken={targetAutoOpenNetwork === net.ticker ? targetAutoOpenToken : null}
+                                    autoOpenToken={targetAutoOpenNetwork === net.ticker ? targetAutoOpenToken : targetedSubAssetsMap[net.ticker] || null}
                                 />
                             </div>
                         {/each}

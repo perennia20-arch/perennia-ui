@@ -1,27 +1,23 @@
 <script lang="ts">
-    import type { PageData } from './$types';
-    import { activeTab } from '$lib/stores/app';
+    import { ui } from '$lib/stores/ui.svelte';
 
     import SwapView from '$lib/views/SwapView.svelte';
     import OperationsView from '$lib/views/OperationsView.svelte';
     import ForgeView from '$lib/views/ForgeView.svelte';
     import TaxFortressView from '$lib/views/TaxFortressView.svelte';
     import TreasuryVault from '$lib/views/TreasuryVault.svelte';
-
-    let { data }: { data: PageData } = $props();
 </script>
 
 <!-- Master SPA Router based on Top Navigation Selection -->
-{#if $activeTab === 'DEX'}
+{#if ui.activeTab === 'DEX'}
     <SwapView />
-{:else if $activeTab === 'OPERATIONS'}
+{:else if ui.activeTab === 'OPERATIONS'}
     <OperationsView />
-{:else if $activeTab === 'FORGE'}
+{:else if ui.activeTab === 'FORGE'}
     <ForgeView />
-{:else if $activeTab === 'TREASURY'}
-    <!-- UNIVERSAL ACCESS GRANTED -->
+{:else if ui.activeTab === 'TREASURY'}
     <TreasuryVault />
-{:else if $activeTab === 'TAX FORTRESS'}
+{:else if ui.activeTab === 'TAX FORTRESS'}
     <TaxFortressView />
 {:else}
     <OperationsView />

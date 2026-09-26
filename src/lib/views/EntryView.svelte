@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { activeInviteCode } from '$lib/stores/app';
-    import { showWalletModal } from '$lib/stores/wallet';
+    import { ui } from '$lib/stores/ui.svelte';
+    import { identity } from '$lib/stores/identity.svelte';
 
     let { enterNexus } = $props<{ enterNexus: () => void }>();
 
@@ -11,6 +11,7 @@
     async function validateAndEnter() {
         if (!inviteInput.trim()) {
             enterNexus();
+            ui.showWalletModal = true; // ⚡ THE FIX: Force the modal open if skipping invite
             return;
         }
         
@@ -25,9 +26,9 @@
             });
 
             if (res.ok) {
-                $activeInviteCode = inviteInput.trim();
+                identity.activeInviteCode = inviteInput.trim();
                 enterNexus();
-                $showWalletModal = true;
+                ui.showWalletModal = true;
             } else {
                 const data = await res.json().catch(() => ({}));
                 verifyError = data.error || 'INVALID PROTOCOL CODE';
@@ -40,25 +41,22 @@
     }
 
     function directEnter() {
-        $activeInviteCode = '';
+        identity.activeInviteCode = '';
         enterNexus();
-        $showWalletModal = true;
+        ui.showWalletModal = true;
     }
 </script>
 
 <div class="w-full min-h-[100dvh] bg-[#000000] flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out]">
     
-    <!-- Title with Step 1 Subliminal Creep -->
     <h1 class="subliminal-text text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-4 text-center">
         Welcome to Perennia
     </h1>
     
-    <!-- Subtitle -->
     <p class="text-teal-500/80 tracking-[0.4em] uppercase text-[10px] md:text-xs mb-12 text-center drop-shadow-[0_0_10px_rgba(20,184,166,0.5)]">
         Tokenize Anything. Liquidate Everything.
     </p>
 
-    <!-- Entry Control Module -->
     <div class="flex flex-col items-center gap-4 z-10 max-w-sm w-full px-6">
         <input 
             type="text" 
@@ -94,7 +92,6 @@
         </button>
     </div>
 
-    <!-- Guest Mode Helper Text -->
     <div class="absolute bottom-10 opacity-50 flex flex-col items-center gap-2 pointer-events-none">
         <p class="text-neutral-600 text-[9px] uppercase tracking-widest font-mono">
             Sovereign Matrix Subsystem
@@ -115,11 +112,7 @@
     }
 
     @keyframes subliminal-creep {
-        0% {
-            transform: scale(1);
-        }
-        100% {
-            transform: scale(1.15);
-        }
+        0% { transform: scale(1); }
+        100% { transform: scale(1.15); }
     }
 </style>

@@ -5,14 +5,13 @@ import { redis } from '$lib/server/redis';
 import { perenniaKMS } from '$lib/server/kms';
 import { env } from '$env/dynamic/private';
 
-// ⚡ INFRASTRUCTURE HARDENING
 const rustBackendUrl = env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '192.168.0.12'}:8002`;
 
 export const GET: RequestHandler = async ({ url }) => {
-    let kasAddr = url.searchParams.get('kas');
-    let btcAddr = url.searchParams.get('btc');
-    let ethAddr = url.searchParams.get('eth');
-    let solAddr = url.searchParams.get('sol');
+    const kasAddr = url.searchParams.get('kas');
+    const btcAddr = url.searchParams.get('btc');
+    const ethAddr = url.searchParams.get('eth');
+    const solAddr = url.searchParams.get('sol');
     const dogeAddr = url.searchParams.get('doge');
     const xrpAddr = url.searchParams.get('xrp');
     const polAddr = url.searchParams.get('pol');
@@ -21,13 +20,14 @@ export const GET: RequestHandler = async ({ url }) => {
     const trxAddr = url.searchParams.get('trx');
     const zecAddr = url.searchParams.get('zec');
 
+    const isCorporateView = url.searchParams.get('corporate') === 'true';
     const corporateAddrs = await perenniaKMS.getCorporateAddresses();
-    const isMasterAdmin = kasAddr && kasAddr.toLowerCase() === corporateAddrs.KAS.toLowerCase();
 
-    const btcTargets = Array.from(new Set([btcAddr, isMasterAdmin ? corporateAddrs.BTC : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
-    const ethTargets = Array.from(new Set([ethAddr, isMasterAdmin ? corporateAddrs.ETH : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
-    const solTargets = Array.from(new Set([solAddr, isMasterAdmin ? corporateAddrs.SOL : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
-    const kasTargets = Array.from(new Set([kasAddr, isMasterAdmin ? corporateAddrs.KAS : null].filter((a): a is string => typeof a === 'string' && !a.includes('Awaiting'))));
+    // Only inject corporate pool fallback addresses if explicitly viewing corporate reserves
+    const btcTargets = Array.from(new Set([btcAddr, isCorporateView ? corporateAddrs.BTC : null].filter((a): a is string => typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting'))));
+    const ethTargets = Array.from(new Set([ethAddr, isCorporateView ? corporateAddrs.ETH : null].filter((a): a is string => typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting'))));
+    const solTargets = Array.from(new Set([solAddr, isCorporateView ? corporateAddrs.SOL : null].filter((a): a is string => typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting'))));
+    const kasTargets = Array.from(new Set([kasAddr, isCorporateView ? corporateAddrs.KAS : null].filter((a): a is string => typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting'))));
 
     let kasBalance = 0;
     let btcBalance = 0;
@@ -218,7 +218,7 @@ export const GET: RequestHandler = async ({ url }) => {
             } catch (e) {}
         }
 
-        if (isMasterAdmin) {
+        if (isCorporateView) {
             const assetSymbols = ['KAS', 'BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'POL', 'AVAX', 'SUI', 'TRX', 'ZEC'];
             const syntheticFees: Record<string, number> = {};
             
@@ -250,10 +250,10 @@ export const GET: RequestHandler = async ({ url }) => {
 
     return json({
         assets: [
-            { symbol: 'KAS', address: kasAddr || (isMasterAdmin ? corporateAddrs.KAS : 'Awaiting Decryption'), balance: kasBalance },
-            { symbol: 'BTC', address: btcAddr || (isMasterAdmin ? corporateAddrs.BTC : 'Awaiting Decryption'), balance: btcBalance },
-            { symbol: 'ETH', address: ethAddr || (isMasterAdmin ? corporateAddrs.ETH : 'Awaiting Decryption'), balance: ethBalance },
-            { symbol: 'SOL', address: solAddr || (isMasterAdmin ? corporateAddrs.SOL : 'Awaiting Decryption'), balance: solBalance },
+            { symbol: 'KAS', address: kasAddr || 'Awaiting Decryption', balance: kasBalance },
+            { symbol: 'BTC', address: btcAddr || 'Awaiting Decryption', balance: btcBalance },
+            { symbol: 'ETH', address: ethAddr || 'Awaiting Decryption', balance: ethBalance },
+            { symbol: 'SOL', address: solAddr || 'Awaiting Decryption', balance: solBalance },
             { symbol: 'DOGE', address: dogeAddr, balance: dogeBalance },
             { symbol: 'XRP', address: xrpAddr, balance: xrpBalance },
             { symbol: 'POL', address: polAddr, balance: polBalance },
