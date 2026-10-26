@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "name": "Node-01",
+    "address": "kaspa:qp068cpq27w8naqk8q94r7gnlgna7v5085er8hr42g7q6qt0pv6859fk076tf",
+    "seed": "record shock giant subject apart final soul two spot pattern rack swarm describe vintage load wealth square cousin gorilla spatial voice defy mimic butter",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qp068cpq27w8naqk8q94r7gnlgna7v5085er8hr42g7q6qt0pv6859fk076tf\"},\"bitcoin\":{\"address\":\"15PpiybXKZEhMPjmNKkKZ3bnnC85cG3dCt\"},\"ethereum\":{\"address\":\"0xA9266EFBFbD9375F21C899D14e2609052dDCcAFA\"},\"solana\":{\"address\":\"2e4EvWYHKTFgvrfgr3yrPS1JbVeraoPvwBywq2EFq78a\"},\"doge\":{\"address\":\"DMFhYhNoVM4yojXWTGK7nnigthH3DnHhM7\"},\"xrp\":{\"address\":\"rsoBz5sf7XQfAfHZcVBX5frQHme6v1xYix\"},\"polygon\":{\"address\":\"0xA9266EFBFbD9375F21C899D14e2609052dDCcAFA\"},\"avalanche\":{\"address\":\"0xA9266EFBFbD9375F21C899D14e2609052dDCcAFA\"},\"sui\":{\"address\":\"0x6aaa34213eeb4de67495098c7baf38f80b8b7595\"},\"tron\":{\"address\":\"TLZeUtp5DGCTAdxrhoopBj8YsxmtVejNsP\"},\"zcash\":{\"address\":\"t1W6yiH4jSTTKN8TptAqBQE9t7fVrDMWvZb\"}},\"vault\":\"4hHma8ziTUL/odD790P6ojeGaWU1HOn4LU1W0vwjFMf8wQoxxjiijd0trrjqED2D+v4TBe/stwQu8osu/xmdofyq4tmFBNGXzl2qfC9drdoISqTkVhHwla2hLh0tx8w6vQJ2ve4Rg4HW2CgAqXzvdY0GqKREEPGjD8bosSOy2pOzLXcV5Gi49cRKfMQTmYw47944Xn9XGqnnAsk7tM1AU0X/GwxQYlAsg3EshYDvq5gjeRRXgXkBJvqN8kwnaTQv64ohdHeI\"}",
+    "persona": "MINER",
+    "targetAsset": "BTC"
+  },
+  {
+    "id": 2,
+    "name": "Node-02",
+    "address": "kaspa:qq93jqztwyrwqfr8nfveskw5ezpf5hfmaeckpr72d90a7qsy26whszsxr4lj7",
+    "seed": "mimic novel clinic survey change upper use average boring swing music flee size icon cheese crucial vicious enroll submit scorpion dawn cube wisdom crash",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qq93jqztwyrwqfr8nfveskw5ezpf5hfmaeckpr72d90a7qsy26whszsxr4lj7\"},\"bitcoin\":{\"address\":\"1JeMdCPh2m2jBnSUYH296AjtX4Wx6tFyed\"},\"ethereum\":{\"address\":\"0xDB6C9496bDC518595913b4c01E2d7f44627d8f4A\"},\"solana\":{\"address\":\"9Bze93Zk5uE68ziaDE35BuN8Kb1By1a5jyegpzRT7K3H\"},\"doge\":{\"address\":\"DLDYdhAXMRTBoQ2MENZ5fNyXwQ28tciVCj\"},\"xrp\":{\"address\":\"rJv5tNCkKKtuGACfJ8HruAP9PDFuY9WqpE\"},\"polygon\":{\"address\":\"0xDB6C9496bDC518595913b4c01E2d7f44627d8f4A\"},\"avalanche\":{\"address\":\"0xDB6C9496bDC518595913b4c01E2d7f44627d8f4A\"},\"sui\":{\"address\":\"0xd551db3b33608496339c1412e1d82392c588155f\"},\"tron\":{\"address\":\"THXHUEkHXfuKfVGbbLSzzopdLT4T4D6FCH\"},\"zcash\":{\"address\":\"t1eAoGJmvsD7SyTJqCXR43r5XpmDc5zHwgV\"}},\"vault\":\"5JF2dDLROft2jYOvd6f8Gttt+5V7FxDNZZrN3WMK8arRma/rmjA/aPlTepp+7sR7ZxXo54wEACHh+vBuMYaPC7wCspd+gpgREpIc5lqn0XA3QtO/qCO1FJZDluRDGJ+3lerE1uwuO6gvgqJj50Cd/Dy1SLUWTv+UQFSVGHJEewI5dOle6RGNUvxzgfj/4+/MOkzY5OyU7BdMt2kykm6R7zff1dfinUxJma7F+2X8ILAT80jQql5rgdsuFstwHMiuCHC4tl0=\"}",
+    "persona": "LP_FARMER",
+    "targetAsset": "ETH"
+  },
+  {
+    "id": 3,
+    "name": "Node-03",
+    "address": "kaspa:qpf0as6lsljr8zekfwtdx7qsvd5tvwv67augpvvdudwkgk4vc53vspc6s7pr0",
+    "seed": "prosper between rotate sleep host mammal drill brick produce figure spring inherit output honey arch bubble motion canal wheel wing antique only pet guide",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qpf0as6lsljr8zekfwtdx7qsvd5tvwv67augpvvdudwkgk4vc53vspc6s7pr0\"},\"bitcoin\":{\"address\":\"1HAqJq3mfYszfRwEJGju3XmCs5pwLELbkb\"},\"ethereum\":{\"address\":\"0x60D79Ca77D52c82A47c723f4078E280D3A2571dE\"},\"solana\":{\"address\":\"DnuhHBh3PcNmYhrRVX4Wg19cvGFQsBJ5rZAceX7UHSCj\"},\"doge\":{\"address\":\"D9xKksSUBWDjRkCddgHqUGT1aNzdAAaZYJ\"},\"xrp\":{\"address\":\"rnM9n89sYCcZrxzZFJCn7UekspzsqWQiJA\"},\"polygon\":{\"address\":\"0x60D79Ca77D52c82A47c723f4078E280D3A2571dE\"},\"avalanche\":{\"address\":\"0x60D79Ca77D52c82A47c723f4078E280D3A2571dE\"},\"sui\":{\"address\":\"0xfe687efdae9384f588d3380cb876f2a1450f1b51\"},\"tron\":{\"address\":\"TE6c6W9fEX5u36xCvW2fZYMM7ugLxf6H4w\"},\"zcash\":{\"address\":\"t1RFELrUYy7xYfwsweRibeQJZGsKqeraddQ\"}},\"vault\":\"oQI5DG+dnOsTl9wWdGr1QaMCOGQfGmuOAb0U3GSl5W0mQOxdsW1VBPzi/QH8tuY15vwr0ZjKesBc+9gBTMWCCvgaiQmifnu4LS5c7acKCDvX23wNo3tRGRetcTWYy9t+xh0MVYF2W/hFevXlH/kPNPDzu4Lu36dZFtGUI8rVdrya9daLXEt/RZ4kJWb4/04GHP32CMDrP+1Y9ljXB6ea/fmQFhpLDsaaj2fbnJdGlwZJs0Az/ouKra/LVOporH2+WKF6nv7P\"}",
+    "persona": "SPOT_TRADER",
+    "targetAsset": "SOL"
+  },
+  {
+    "id": 4,
+    "name": "Node-04",
+    "address": "kaspa:qqyh638gsxjnc5fa7sgamcap48q63l2vpht2t7etxtz44mmvnsqqjw8f2u8gy",
+    "seed": "area arrange ocean funny spell chronic credit rotate impulse acoustic faith banana hen letter priority sword dust melt donkey donate mango tonight also ethics",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qqyh638gsxjnc5fa7sgamcap48q63l2vpht2t7etxtz44mmvnsqqjw8f2u8gy\"},\"bitcoin\":{\"address\":\"1EFB1Yt7UFuxBbwS1NzSwU8kUfZEToJ3Zq\"},\"ethereum\":{\"address\":\"0x6770506EaF5f0fE72752A125d1044eBE00CE9cCB\"},\"solana\":{\"address\":\"FrLgpq4uME5jYVTFq779yCtfthKpWeZFfnRqsWPpg7oN\"},\"doge\":{\"address\":\"DSxG46ERN4iy2T6zTxEB4fp99PXQmn8oWG\"},\"xrp\":{\"address\":\"rfLmStQKpyRtkygCPWyCnpVh4sLfqYbRJd\"},\"polygon\":{\"address\":\"0x6770506EaF5f0fE72752A125d1044eBE00CE9cCB\"},\"avalanche\":{\"address\":\"0x6770506EaF5f0fE72752A125d1044eBE00CE9cCB\"},\"sui\":{\"address\":\"0x9eeaead8d9f9528abac70368091d6a068b255dee\"},\"tron\":{\"address\":\"TP8bRneHAxfJXcjhgrHX8vbNFMBzoA5fD8\"},\"zcash\":{\"address\":\"t1goCfpWeiYviZWKn4qJpWvn5i6eZbjfDEQ\"}},\"vault\":\"oLBobhajazTdbkSZST9yZ3kzFQQd8Qc+rJ3STkxGRRdId1E9K/AqZ5zJnLDYFBTq49YOzAjcJVZSa0AhbwDHJZBXCHuOwQYCDodQuArg68ohD5INmfxdRLHEjcobegj1Qrtf3Fw+TCk9TO5QRfOf+Rk849Je04EGPgJDzaDG+3ev8Z/AYqjZgiJI/EOC2wJ1qg/Q+q3SSp8ENLvm9AUF8BdMguJ287q1N/fGbvY5/z89kxR3Fy2Q/LScvkxegz8pnkJEHpH7aXnMkQ==\"}",
+    "persona": "P2P_TRADER",
+    "targetAsset": "USDC"
+  },
+  {
+    "id": 5,
+    "name": "Node-05",
+    "address": "kaspa:qzehdp340980cuj02y70sd5ytlepm3ccafawr99s9d3a3kuuve6sul8c3pqge",
+    "seed": "custom giraffe attend pig ranch festival canvas confirm conduct disorder achieve sea expose enforce draw pilot unit outside margin robot explain program fit walnut",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qzehdp340980cuj02y70sd5ytlepm3ccafawr99s9d3a3kuuve6sul8c3pqge\"},\"bitcoin\":{\"address\":\"1FZa1EiD96LW3rzbQ644qmscGAvzZzzbQs\"},\"ethereum\":{\"address\":\"0x7860Fd01C299e43aC48bCfE38f3c79C71E96C8dA\"},\"solana\":{\"address\":\"GFzhDmVQ656AJUUHoSEtcrJWWgA8nkpZxq4iTz8H63Fm\"},\"doge\":{\"address\":\"D96kTboRPdFQK84L1G9JfSDcJJDM2aBZVw\"},\"xrp\":{\"address\":\"rEnNZMv6ysRJWR8AdX4YbFpgBUmqQV899Q\"},\"polygon\":{\"address\":\"0x7860Fd01C299e43aC48bCfE38f3c79C71E96C8dA\"},\"avalanche\":{\"address\":\"0x7860Fd01C299e43aC48bCfE38f3c79C71E96C8dA\"},\"sui\":{\"address\":\"0xbe23d83035c429f761cb3b42ecdc45671a69846a\"},\"tron\":{\"address\":\"TS87B8wBCy3WdnxZvz7LRnZrcSEAwyUpGH\"},\"zcash\":{\"address\":\"t1USRbeGX5svc44bLZK7Da8xnrJS7tQKJNi\"}},\"vault\":\"dKftOngkEoSUwgV55yHHcEMKHTilbaKhDpLEVsFytPeeAwgOaOU8Rv1U4cIYg2gA6c6cvjIQK8p5AdJaLD+/MzLiz7XiZF8xJf9eukXBB77KwZhOSgsGtvYcOdqDabYv9mpePO/SQlGkukEI+PSU92dBwn2mQIJ+ZmEeBTX2mtrrywWg1MtbrQzU78YxTBblc7v4eV46t/U+ktp3f9fRcrSiZ5kgtBg7zqfnr0CLpocjHOR1pCenIrYqlSc/NH+WzsONRCvCblCzICrrP+uo\"}",
+    "persona": "MINER",
+    "targetAsset": "BTC"
+  },
+  {
+    "id": 6,
+    "name": "Node-06",
+    "address": "kaspa:qpn5dq7thuj9dk7p8vdklltdgltf0zlvaunujssnujvzk5rh4tsw29z2e3czv",
+    "seed": "settle skirt depend head sketch quote nature smile human match dream junior chair rural regret gospel program half topic quick wood usage sudden slush",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qpn5dq7thuj9dk7p8vdklltdgltf0zlvaunujssnujvzk5rh4tsw29z2e3czv\"},\"bitcoin\":{\"address\":\"1KNzYP9gc3B1y6qyC3Zd9acVTU6ENG5qPS\"},\"ethereum\":{\"address\":\"0x14DDcc1D7CBCedeB4751FB4F745A84ee462BA021\"},\"solana\":{\"address\":\"22N7kkQUrxSc5b89yTWXeoU346woB9b3SX34qaqkpvBP\"},\"doge\":{\"address\":\"DS89heEEUSJ4DodwZtLVR62iCqnSMdpC24\"},\"xrp\":{\"address\":\"rahL1rEZfN1uinDM6vxoQ8mEKciSxX6ooY\"},\"polygon\":{\"address\":\"0x14DDcc1D7CBCedeB4751FB4F745A84ee462BA021\"},\"avalanche\":{\"address\":\"0x14DDcc1D7CBCedeB4751FB4F745A84ee462BA021\"},\"sui\":{\"address\":\"0x7a407909a8c3a232e9f61198d38cc7c4968b39f9\"},\"tron\":{\"address\":\"TJqvsPBRrntyhGHRWgdP9Gq9UJ5vNikrQG\"},\"zcash\":{\"address\":\"t1dfLEAjGrE8hW9Upp8ZzvXqs5eBTou7sVL\"}},\"vault\":\"sR5SQyacy+8bQUrgopWM/vCy96Fep2XUOox0dok6RHvzEVxG6tokH+NMeoJTApwtQr7gzRRVCYG1tGR92OP2XrCTqq2tPxWlRRICY2/6LwOF4zaQrDbzID2A4m3WulzpqTEWUmoj0eOWYIeRDE2EVltVsYZiRzJAgMVgSNLVARG+LMIkxkuOW9addiSsJDG+e8ffgvy/XrcdAOhvriNn9e00LLy/0RT7sBScXJX++b3nRgKaG7f4ETDrsKxcnjxCko4=\"}",
+    "persona": "LP_FARMER",
+    "targetAsset": "ETH"
+  },
+  {
+    "id": 7,
+    "name": "Node-07",
+    "address": "kaspa:qqs5ng5fgx8htk7ja8xwyd294uhgjszfr6xnr5qej47x7yp3athcw995xn75u",
+    "seed": "embody adult address deputy jacket embrace forget dwarf correct shoe match acid critic caught invest axis glue biology airport major squirrel rose wall loud",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qqs5ng5fgx8htk7ja8xwyd294uhgjszfr6xnr5qej47x7yp3athcw995xn75u\"},\"bitcoin\":{\"address\":\"1CRFjYiGNuCoZi227pEahqoVqrTth4AaRA\"},\"ethereum\":{\"address\":\"0x4257b17F70713e054A7c55288c8bC23D3463D6c5\"},\"solana\":{\"address\":\"Bb9PjsupyoX2bHZYo4qYg62JAQ3TtB341SdLoe6Gxpwa\"},\"doge\":{\"address\":\"DQNLQM4YMAtbmHoXXLUZmhueGkEXzKedYP\"},\"xrp\":{\"address\":\"rD2NFC2MeckTtvV44rDLMkxcqGwukCyWjh\"},\"polygon\":{\"address\":\"0x4257b17F70713e054A7c55288c8bC23D3463D6c5\"},\"avalanche\":{\"address\":\"0x4257b17F70713e054A7c55288c8bC23D3463D6c5\"},\"sui\":{\"address\":\"0xb51733240af4ba461f390a4c60985f54651794a8\"},\"tron\":{\"address\":\"TJ6FFz1P3pqeoXYez7JjPxSPeGEvTLHXiP\"},\"zcash\":{\"address\":\"t1L2FwbLjoXYNzbUbe4LZ4qUBKqrXbiSVN5\"}},\"vault\":\"1L1dXo0OWvNbtr/JBO9qDaes0/aMcnz21HzTv9Zl6vhs3QD9YYGsVyON+F7mV1SwnEjl4pQ7Y0x5mqvzDgm0C0QL4kflAAEIEAS9akXMaRrBkY8qRFIktSV/uElLVnjwPIMiXb5piEWBld9NG50a89+TT1A7S00DndAIDYj5loc3Bm6WupwmJd3M3gaSrVAHYj903WzdCecR9VtE4rGbs0u2DpfFmKLS5xbBIG3jMWn4dojfSPys1qXim8PTTcGXOeRdAZsOdc4=\"}",
+    "persona": "SPOT_TRADER",
+    "targetAsset": "SOL"
+  },
+  {
+    "id": 8,
+    "name": "Node-08",
+    "address": "kaspa:qqp03snljy3rsuuu3pn90hnx20yxrthm5ed24w5ckmuh36dul3jd6gu2nuz4a",
+    "seed": "fiber avoid erosion arrive dune asthma bench woman estate rent legend disorder merit pilot elevator village assault region scare water elevator tired giraffe output",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qqp03snljy3rsuuu3pn90hnx20yxrthm5ed24w5ckmuh36dul3jd6gu2nuz4a\"},\"bitcoin\":{\"address\":\"1LChzN3dYEP6rxRZsmnvVq26y9aQX7Xt1b\"},\"ethereum\":{\"address\":\"0x5CCD20414f8ddfb972E2d9b7265fc4e6B7b3D9E9\"},\"solana\":{\"address\":\"AosNHL4oySCdKZN89gqzsMuNbGXv3VUaAq8LvwqazG6v\"},\"doge\":{\"address\":\"D7xRPK5ksgLPA5tQPKmGtsmWekDazdrpxq\"},\"xrp\":{\"address\":\"rNTK3abi9LGwcBuie5G1wkvnzevVk4teVH\"},\"polygon\":{\"address\":\"0x5CCD20414f8ddfb972E2d9b7265fc4e6B7b3D9E9\"},\"avalanche\":{\"address\":\"0x5CCD20414f8ddfb972E2d9b7265fc4e6B7b3D9E9\"},\"sui\":{\"address\":\"0x3455ee172911e01e5e04c2f159adc72483a69d5b\"},\"tron\":{\"address\":\"TP97XMcr8UNgL1eL8wvFon3Lik96pwZDmh\"},\"zcash\":{\"address\":\"t1Jn9KEewng8Av1PegurPjK4V3FKuf1U96p\"}},\"vault\":\"O2/9f2SsIiCymc5NBKmu3HCgbfa+ULKFdCTzLa62zXxpSG85dZL6PWDIxm838Ad34jhp1uCUZARS+BmMHhMmQhGyTBBvou6DCn1gBZV0LuYAGtNXoyFFckJHEYJqtwUOK4lNNq7zWZOgzVg7Yq2QOjwLtFgaoibshnmCEP0R4iFw8xji0ek0YqCefnXOl0leL/jjP4sQrtqzJaXNDdqe+uRNoiuD39c85QNyaMgNDTyK4ek2EDbg6tY+l2DsQ07HP+M279nRwv1RO0pIXZqB8Q==\"}",
+    "persona": "P2P_TRADER",
+    "targetAsset": "USDC"
+  },
+  {
+    "id": 9,
+    "name": "Node-09",
+    "address": "kaspa:qqzqfja04eq5dlnyv9crzstrhkgrq2yp6rj4gp5kxp2rg4ue9xhpswn7kvmnj",
+    "seed": "custom ready rally puppy sugar wet sting receive practice improve room solve knife brave smooth shiver tilt traffic wine candy able destroy course shove",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qqzqfja04eq5dlnyv9crzstrhkgrq2yp6rj4gp5kxp2rg4ue9xhpswn7kvmnj\"},\"bitcoin\":{\"address\":\"1KVXJfWBRMaxCb4NkqrB3o1uhDVMdEW8oU\"},\"ethereum\":{\"address\":\"0xD36209ed34C14D350fD71F67831363994D98c25b\"},\"solana\":{\"address\":\"5oFu5QieMAND9T2rCtnkir8HngGKtGDsp1UrotCHxQWN\"},\"doge\":{\"address\":\"D7gZfvXgX1kkwWPUqLXhzHWcqa5KSTbw8P\"},\"xrp\":{\"address\":\"r61WmL7u1WYNV6oWkAKytjfjxzJRhfrZx\"},\"polygon\":{\"address\":\"0xD36209ed34C14D350fD71F67831363994D98c25b\"},\"avalanche\":{\"address\":\"0xD36209ed34C14D350fD71F67831363994D98c25b\"},\"sui\":{\"address\":\"0x3b62f81e0dd4d633b0a2fbb06be40a274d4372a6\"},\"tron\":{\"address\":\"TEKytR1dtsdXGosNEDP1nG1ejjc6KRQ6qZ\"},\"zcash\":{\"address\":\"t1g2uj7StwLcod32rnZVQPERbjKbtwpB8BM\"}},\"vault\":\"a+lxN9yqDQid6h3glICvHAN7TWEQ/qnOwFOloqSp5BWRzBdTiaTGwEhCDa+8j6njSr5K3ybDJnJUmc0FdFY3PERGgcbhCpjYhoOtL9gp0IFP8oYBvbS9v10BpSptQi+NnZYjGGisxLXfb2Orxz8fV0OH/kvDrV7ZCVQatASoEbefiOeq62EjZE1GKrmuuql2CUU/uxWD4BJYf/rDttVZfsHDb6iq9adJPzpLPLq41AC9m7J0i6Y9UB5H4RhjkkcklhLCgA==\"}",
+    "persona": "MINER",
+    "targetAsset": "BTC"
+  },
+  {
+    "id": 10,
+    "name": "Node-10",
+    "address": "kaspa:qqydfwss0dd6u6vu5fpp20xvppvadd4cnrs9fsz3x978xd8pmpyts7k934xv6",
+    "seed": "slender fetch hope fade coffee nephew black design audit car unveil genius flag elder echo release practice monitor lake cash mimic visual nasty unit",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qqydfwss0dd6u6vu5fpp20xvppvadd4cnrs9fsz3x978xd8pmpyts7k934xv6\"},\"bitcoin\":{\"address\":\"142FzwAA8foWLmAjzJwhyx5pkQSSccVwrV\"},\"ethereum\":{\"address\":\"0x861FA46020670EA658d8e6C41a952c33e7640cfb\"},\"solana\":{\"address\":\"9cFsxR7ER2RoqEs2jsxwAHJzAXPuEgAZnJmSP1AaZMpW\"},\"doge\":{\"address\":\"DKJTAjaj4gbS1ng6ubJxEi6SgbFNN8snpZ\"},\"xrp\":{\"address\":\"rDiZwm6RWkQQnyWBRvhGvH6SssysSSttCL\"},\"polygon\":{\"address\":\"0x861FA46020670EA658d8e6C41a952c33e7640cfb\"},\"avalanche\":{\"address\":\"0x861FA46020670EA658d8e6C41a952c33e7640cfb\"},\"sui\":{\"address\":\"0xd76f2b04d0f0c7380fa98ccea7f94048be872a8e\"},\"tron\":{\"address\":\"TJ7gRbPhf4NkktPUUXGwydgWULLzGZWqY3\"},\"zcash\":{\"address\":\"t1gxuc7AiWoRQuens7nRTaR2unNwMVct9xe\"}},\"vault\":\"SU5jhDd9srlCKF9BFLyGIUb3cs+N0X4p6U4psQPdpP/2dLaMh6vmletOdy432jUvb+zoj2iqDVGOsKCWcxQeKV2N5ZjYJXCClYsGJPYfD9BErZkY1Elqxe+ywZDAHb8HLNHLC8UkvFk6fhtND5LkVy8Ngx6lDY68DxA/7W4fNSiZvuSgapNjJE0p+EHB8xIf93USBbeg2+4QbfBb5FJhFF7Cmcqe+/5y6kYkC9pR5Pb1/+VWoWQFg8BkxXgAEzGoag==\"}",
+    "persona": "LP_FARMER",
+    "targetAsset": "ETH"
+  },
+  {
+    "id": 11,
+    "name": "Node-11",
+    "address": "kaspa:qrghjqefkd6vx4th8ng8xddte7ggf4mtcd7v6wntte3j6k9tvu6cjdqefw2w2",
+    "seed": "royal mansion drama daughter ritual shallow news interest antique bachelor arch appear come spider only borrow odor fuel soap swarm van cereal general bulb",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qrghjqefkd6vx4th8ng8xddte7ggf4mtcd7v6wntte3j6k9tvu6cjdqefw2w2\"},\"bitcoin\":{\"address\":\"19VryVkQ6QeW9xGTimXDYi3aE3jqpwKFBK\"},\"ethereum\":{\"address\":\"0x6EFD8cf566968dB5A5621A47FA4302c833f8bE22\"},\"solana\":{\"address\":\"DSLny7nGCF3vsNGDcRy5Z7DRSrJs847niXntCGTzB4Bj\"},\"doge\":{\"address\":\"DHKsgyXrKQRc8UYxAshaJFPPw5Eve7hxZn\"},\"xrp\":{\"address\":\"rhFu5YjPgqEiAUAH9SPVqXx8pB8cSuXzjG\"},\"polygon\":{\"address\":\"0x6EFD8cf566968dB5A5621A47FA4302c833f8bE22\"},\"avalanche\":{\"address\":\"0x6EFD8cf566968dB5A5621A47FA4302c833f8bE22\"},\"sui\":{\"address\":\"0xe2742d4741ddc1b4f30f5d28055ac75d84b76c4e\"},\"tron\":{\"address\":\"TMqLCP9u7g374qRvRsc4RMJqdQkzthhbEp\"},\"zcash\":{\"address\":\"t1MVGgxUWyE8yJ6SaaweXoQHXYRkGhJ6xRH\"}},\"vault\":\"Yzsak7HMm5acl8MKaBnv6VvOSXqN+6y6mBIBc11jPM4De5mE6tbXI+9A7N0UgbmZRw4+8WyrxOUtk5+7GcEL1hPtPbSikYfz2DZvUMdxrIAfuRo23o3qYxW/wD75zZnTbhl9u8G3EEbE2DuGmQ+wNJ/1cpglCPjMLY7/BtDG0jaHQNPHoYFo9yok8q/bzGUkPF5cEpeRQwgkbgJRh1URYxePq/ZkbMjvP0fd4cRHWXPXw4mb1sWv8yQhDOGQUq0M7QMLyPzk2g==\"}",
+    "persona": "SPOT_TRADER",
+    "targetAsset": "SOL"
+  },
+  {
+    "id": 12,
+    "name": "Node-12",
+    "address": "kaspa:qpwvfuqsd3cl7elq7mvrkeenmnze3xv2e3g6w5dlj96rwzkwxqdts3v070uxp",
+    "seed": "vault uniform group raw wash fury dumb excuse shrimp reject jar bounce round what keep spell bacon drip sibling display exile person inquiry property",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qpwvfuqsd3cl7elq7mvrkeenmnze3xv2e3g6w5dlj96rwzkwxqdts3v070uxp\"},\"bitcoin\":{\"address\":\"1DnKJRQq852wQiT86bidPMeA6eiMUtkMVM\"},\"ethereum\":{\"address\":\"0x0876b980CD865A0565422a0EBae3cCDadC17b250\"},\"solana\":{\"address\":\"99ejx8fdWRGPH2n258ARB1gLFPNQvcAB5fVeKVXRLT7M\"},\"doge\":{\"address\":\"DGtwWNgbCK3zqUzfD8zd6u3EHQdL6G6A9M\"},\"xrp\":{\"address\":\"rBgaLiycG36yaVAgUmuQqNtuJkFWgoUyTL\"},\"polygon\":{\"address\":\"0x0876b980CD865A0565422a0EBae3cCDadC17b250\"},\"avalanche\":{\"address\":\"0x0876b980CD865A0565422a0EBae3cCDadC17b250\"},\"sui\":{\"address\":\"0x5657a2f816c03f6f487b5535ac251d4196cc8e44\"},\"tron\":{\"address\":\"TSxdDnYVZXLagfFu3cmR4EaoVDyi34sU8Y\"},\"zcash\":{\"address\":\"t1gNf9yy34x8rKJbC9J76oNB7RMU16vzJ5D\"}},\"vault\":\"yHaIBtnKC8AzNj/wiFaBXZFCVvXTvkrtgHYg6oz3H6z3O0pSpKPdygbuDuCy3WM/1Sy8+Nam1VrOTB9IExRGQlWXTY05mWAUPcx7PFlm2u1jFjoLLy/x6N4aoBv93sewJ1PRbZEIAVYE1EZjkOfp6x7mMYtk/XgN8WMyRw1FzbIIlbEpcX0y60n/BGNURqzB8PMMo7Zyn8q7/jWwqsmRyiO1TSdTCSYCB7gD0uBtLWV+BlUz1QUnNqUEzeWp5fS3Ug==\"}",
+    "persona": "P2P_TRADER",
+    "targetAsset": "USDC"
+  },
+  {
+    "id": 13,
+    "name": "Node-13",
+    "address": "kaspa:qrj5l99tv3xkqh9lwf9hzs0vldt9da3jl820gqjjmt4w0yl6hk5ggg9mevhrf",
+    "seed": "tunnel mutual split awake photo file silent ivory bamboo measure coach destroy sunset magnet lounge control lamp stay below supply repeat proud cluster funny",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qrj5l99tv3xkqh9lwf9hzs0vldt9da3jl820gqjjmt4w0yl6hk5ggg9mevhrf\"},\"bitcoin\":{\"address\":\"1FpmQx7vC7oWTXq1xEYDe211ZHZLMVViyG\"},\"ethereum\":{\"address\":\"0x5232f319f11d6F640A4885c2e7AdCE6034B27e1F\"},\"solana\":{\"address\":\"9xxns5cEzoayModnd3p3Hzhh6LY1iyQM1TC1ZPCop1pq\"},\"doge\":{\"address\":\"DEFwKh1mqZF5yRmBWPWGKqchSZRtahGsdE\"},\"xrp\":{\"address\":\"rUaYkSHxFTgsndVhHPouM2rHtpo26XaL9p\"},\"polygon\":{\"address\":\"0x5232f319f11d6F640A4885c2e7AdCE6034B27e1F\"},\"avalanche\":{\"address\":\"0x5232f319f11d6F640A4885c2e7AdCE6034B27e1F\"},\"sui\":{\"address\":\"0x5737f4829c28f5668b2eda48d2febcca608a564d\"},\"tron\":{\"address\":\"TWg4yiuqPUTGDrja7whCjHPTkFi7wLs9DS\"},\"zcash\":{\"address\":\"t1M2nxpVMpQwxbRuRuPmT9jtiAEmmKMWi8L\"}},\"vault\":\"rREiRq1cN15PwECLy/ysu1y9lBG1ex6N+lb16ZcDJEgBn0NIwIfNBit7154ohqZAy6m5BlAs+FlEKlkshaeCbrigx+awc0W2PIijznDIv6u4yFPEVrQxpNwbL6AOu8rr6Qt+EUgKUuELnQpXmvW0UmURY56kN/DkvOJtnnehnSYi2QYLwcDtHUzjQdHBlOa0LhASeUZsvdv5F5s10d06pRrPjdjyBLktVbzd8faZ+9wjP0+m6F+H9TvyCj0CtWAPWdH075rAEZzU\"}",
+    "persona": "MINER",
+    "targetAsset": "BTC"
+  },
+  {
+    "id": 14,
+    "name": "Node-14",
+    "address": "kaspa:qzuvhua4z5e6ygf89dx4advt6ez2fy6a8mqyxuskx64yarza2k6asdcc7jh76",
+    "seed": "now prize arm school novel exile journey title tent liberty whisper shadow village lawsuit basket student antenna protect length tank erupt flavor drift call",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qzuvhua4z5e6ygf89dx4advt6ez2fy6a8mqyxuskx64yarza2k6asdcc7jh76\"},\"bitcoin\":{\"address\":\"12iAzrBuQBxcZwSEwm6WsKfSbfdKG52rRq\"},\"ethereum\":{\"address\":\"0x4Ccf626360a849a3Bd48038cB314046C3A3e026E\"},\"solana\":{\"address\":\"248AzVySDWeNf1TpTtYCCreuruJb5g5uPEVSSrYZv8Ri\"},\"doge\":{\"address\":\"D7APNSK7N5QyxFZnrv2sd8ZU2zYRMjRdXo\"},\"xrp\":{\"address\":\"rGZ8DKCMXuzYXAxKF8rYLGAiRfmohWWumu\"},\"polygon\":{\"address\":\"0x4Ccf626360a849a3Bd48038cB314046C3A3e026E\"},\"avalanche\":{\"address\":\"0x4Ccf626360a849a3Bd48038cB314046C3A3e026E\"},\"sui\":{\"address\":\"0xdd5feb30748d992576c708b5aeac3833e6babeee\"},\"tron\":{\"address\":\"TN5p9AmM7kVhnANuoEA3D8XMWD9JFuU8Gi\"},\"zcash\":{\"address\":\"t1QEHa71qx42LFntfkoWGpVPCj4qYU77ShY\"}},\"vault\":\"n3tqLbzo9FjNllJ2VMSFD3lJPy5m1rDMF5x9Vir3Cgg9piWKoE/bkRApMjwyP47p3/iltwzLq6bgtPLtnpvk/rzaPjQXht0wChXz/QzYYDwiNBzl9fEw2+2HS3kq1VAXpW4dap9ozd7xCJDWpkENu7IzOWWjG77Gk1yvMIniJsQyDVHO3DUkFfYMhpvSHvi183v7tJdlMuYAmyh7yNfUXwQNDvddx5BJUYyC7KPK+4lE40e3BK4VLvENucOf3sC2AoQEjbTKDCKR\"}",
+    "persona": "LP_FARMER",
+    "targetAsset": "ETH"
+  },
+  {
+    "id": 15,
+    "name": "Node-15",
+    "address": "kaspa:qplmacmymll5zfqju5a2zlvjhq4zyqgjmytmul6nnaz2l646edwvwc7nnljn7",
+    "seed": "elder element true bulb charge dream inhale pulse wife snap senior space design jewel stone guide usual melt indicate assist what daring network sock",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qplmacmymll5zfqju5a2zlvjhq4zyqgjmytmul6nnaz2l646edwvwc7nnljn7\"},\"bitcoin\":{\"address\":\"1M3UBjZshUt4eoLJFzkja9bWLN9HHGG334\"},\"ethereum\":{\"address\":\"0x8173dacbAe1D9577FF822AAB6611064281Fa1B50\"},\"solana\":{\"address\":\"ARJ7SQaxPSqfUr4xmTFGBu1j1AC7gecq7NzJQcArQmiB\"},\"doge\":{\"address\":\"DRtZTN315jfpagCVo73FT1WheFKZuEFYWg\"},\"xrp\":{\"address\":\"rfR9CJmQm2SZ1GnsDursWffesoyLVvQ83S\"},\"polygon\":{\"address\":\"0x8173dacbAe1D9577FF822AAB6611064281Fa1B50\"},\"avalanche\":{\"address\":\"0x8173dacbAe1D9577FF822AAB6611064281Fa1B50\"},\"sui\":{\"address\":\"0x6f6ed5f3235eef05f4a402166d28759e252cc5fc\"},\"tron\":{\"address\":\"TYHxxSYVBYhGqxm1nZhC8BoyteMB1djU4o\"},\"zcash\":{\"address\":\"t1c4MRUQtBX3AgznNvKypPnicK9cmoSorPc\"}},\"vault\":\"mbyq4CmiXc9DbGLaEQSS9kcl10+FK4g8jZjtr979T2bsmXTrAbrHi+naoUIxXwRKvbbm5/WyV/fjISAtz5lT/tn4szOWpQRflje9m85j8Nm09EMekhgaLhRRO1PlSwpPcirPZBpxOSVOmC9A0pLJ2dA/xwyiepxmCri4DAXQMM5CxzvGETPY+eCgrk4yjTGw9XZGc8J5v/ZTm27+13y3hHQJN3u5MW2OAEgRsdWwPP6YMSUiOpg+KTlOvdF886s2rw==\"}",
+    "persona": "SPOT_TRADER",
+    "targetAsset": "SOL"
+  },
+  {
+    "id": 16,
+    "name": "Node-16",
+    "address": "kaspa:qzfvn4ky383wju7np8ag2pfjrqnfyqjpr75uw8zn3kxtzsrfsxdl52tcmq85f",
+    "seed": "camp mosquito volcano young novel again eager slush travel eye skirt drop endless gather trumpet tattoo ribbon inform sport canvas gas captain ecology clump",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qzfvn4ky383wju7np8ag2pfjrqnfyqjpr75uw8zn3kxtzsrfsxdl52tcmq85f\"},\"bitcoin\":{\"address\":\"1Jw63YAEjQkyjNwmyiTaDGhZ5iX8p4uMJa\"},\"ethereum\":{\"address\":\"0x164145a22A0122EdEEc091A18bbaB8d118b858A0\"},\"solana\":{\"address\":\"Dzh4XyeTZRbZ9k2E3Mji4MkmdmePLcDAPFuPGDYrtZfG\"},\"doge\":{\"address\":\"DTtpfCT7m7kG8GXHtTkeTnZFRym585vF42\"},\"xrp\":{\"address\":\"r9HxZ8tTkmHQpEiUKJbKwAUfn7zoNRr5Yj\"},\"polygon\":{\"address\":\"0x164145a22A0122EdEEc091A18bbaB8d118b858A0\"},\"avalanche\":{\"address\":\"0x164145a22A0122EdEEc091A18bbaB8d118b858A0\"},\"sui\":{\"address\":\"0xadada58c803e1970c7f4a61c8f27ca43a5e530cd\"},\"tron\":{\"address\":\"TH3fesEv7JQ3ALFErfL9GqpetzvUzDxBAj\"},\"zcash\":{\"address\":\"t1csgZHhLPbazEnd3QNp7UzqFWMZPJKQYSD\"}},\"vault\":\"g05aiUZssq4UeNxzdkI/4ifuAJDM9/VfGtYzsIQkjeLpnQzMksW0rDxkKrQ83Z4rVMWBNye7IN9sw6+1phEHGDauXYzdJ0awhV4MF5vcVaw0LiWknAKBAsYtjjux85RI4GORLzJ813tw5F4Ppl42LBD8gNB/iAm3vr2WcFJeN8CKlm29I8zIDCHbOaMc9jLSeSjrlPDlYwR6AqJsDg8X4Jllvhx9DCbePjflaTisR8t5Ae3ZHIKQ+0xkPahb08KbW4orc+3r6d0=\"}",
+    "persona": "P2P_TRADER",
+    "targetAsset": "USDC"
+  },
+  {
+    "id": 17,
+    "name": "Node-17",
+    "address": "kaspa:qzz5239scl62v0zak3jdk2ssy40dfqqy0004r9r727gww26wwklnu9qnrk9vk",
+    "seed": "emerge asset cube accuse enable grape gold concert famous crime seminar cloth nut powder jungle foil always rug hurdle brown baby cancel table romance",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qzz5239scl62v0zak3jdk2ssy40dfqqy0004r9r727gww26wwklnu9qnrk9vk\"},\"bitcoin\":{\"address\":\"16XMF3wpvXiivzU8D33sMqGBBf3cjSR4bg\"},\"ethereum\":{\"address\":\"0xC0A6962a2e7bbEF5b73e2D10BDFa8A37d4A47341\"},\"solana\":{\"address\":\"DtokLz1Wit2VYQXGWBAn4uaQ95MSnStto6sR5vQVahJj\"},\"doge\":{\"address\":\"DShyPEwyvgWqVmUtozd3N1vqqFqvXJiyvh\"},\"xrp\":{\"address\":\"rQKot6X6cc4KLcXPuuohhyLVFLcZ8vMaSh\"},\"polygon\":{\"address\":\"0xC0A6962a2e7bbEF5b73e2D10BDFa8A37d4A47341\"},\"avalanche\":{\"address\":\"0xC0A6962a2e7bbEF5b73e2D10BDFa8A37d4A47341\"},\"sui\":{\"address\":\"0x40a6363cd840a53e982f4266ae1c91f1242207f7\"},\"tron\":{\"address\":\"TYzm3zgZaPNxMmaCvMMtJUe2adjKNST7r8\"},\"zcash\":{\"address\":\"t1VbZH8DzDdEngkj4jbanzogmzDyYkWQrNM\"}},\"vault\":\"XCc0VAzMsOcXoh/gBDp++/GpD0TGBs1+yGwH0sR/a4AT4yes8pv+/Sz+7YyXXf+eO0HLlEiabg3eytRRi0vVXEfEcm9LwaiNsxdqMOlnWTsWn6mCvp20ksI+JR3A0EwkVyj7IngfSpXFof7uN2pxLIO8ui+7hEstzWCqzLqbs0FSRgwZU8hI4L1pYrsP8g0TcyBgl5juraNVTjQ0Gue+g5GcwnI03ffvfASn3WyfIvM8YKQ17KCGatdUg9VOen8jF6Q=\"}",
+    "persona": "MINER",
+    "targetAsset": "BTC"
+  },
+  {
+    "id": 18,
+    "name": "Node-18",
+    "address": "kaspa:qpnhffgzzkff30a3fp4ed32zmhpaqpewkx263hxyax9vw5ldrrhfk24q9c5hr",
+    "seed": "sadness album worth chapter castle myself alter stomach gadget bid zero quit case surge tape outdoor sense helmet chicken fox screen hungry end jeans",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qpnhffgzzkff30a3fp4ed32zmhpaqpewkx263hxyax9vw5ldrrhfk24q9c5hr\"},\"bitcoin\":{\"address\":\"191ZyRznYMLXp8aU9YvuXfQPUNj2An26Cq\"},\"ethereum\":{\"address\":\"0x35270F9066D140cc8326Fc7A5225f47C992776A7\"},\"solana\":{\"address\":\"B2cd8qmnutoj3kdNcR65wPzjjEQyUVcKU1CT934ceesn\"},\"doge\":{\"address\":\"DAMrfXrMqN1TcfoC6BpwKpyJgQUiVFyjcT\"},\"xrp\":{\"address\":\"rsukCQRiVDHWvBXvGBDvxUbDHNnJgBUTPY\"},\"polygon\":{\"address\":\"0x35270F9066D140cc8326Fc7A5225f47C992776A7\"},\"avalanche\":{\"address\":\"0x35270F9066D140cc8326Fc7A5225f47C992776A7\"},\"sui\":{\"address\":\"0x43099fb2f8c74bc6d7daad32b50825209513d2a6\"},\"tron\":{\"address\":\"TNeNKe57yAxPHMvkzsZDmthuDnurWqVM5Q\"},\"zcash\":{\"address\":\"t1ZhZbRUYxfBYFshPvLXoApbx3JaF8dZmfb\"}},\"vault\":\"09UPw4BP21H6rE8Zx9yabArgFaJSKwcmH9cHzx+Ky5d/DCRE24awn5vO3mU7XHjht1/Lz+R2TXuF7QLNRg4x+TM2y72g9gS722yKIxy7o6uJbnXIDzh/hzDPhd/vOQTDHBpysKMstlY3UkUO2XOwREjDTU3x1fG5bhr0emHo2uynjh8D9C7x0IZZbWfKBR6jVJLzyEJW/p5NhIUVq1CsZADS0/HqO75vYbJ8p1TT3tkM5gX441Q92eRiY4+aO2I2VA==\"}",
+    "persona": "LP_FARMER",
+    "targetAsset": "ETH"
+  },
+  {
+    "id": 19,
+    "name": "Node-19",
+    "address": "kaspa:qrvg0dhewqfu859wufa66sftm9r9wrzpcuvtalyvksqn0s4atg7kqrffrw29z",
+    "seed": "spare garbage ostrich orbit dish raise patient forum change language still snack dash job goat wisdom envelope sketch title usage current elder aisle loop",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qrvg0dhewqfu859wufa66sftm9r9wrzpcuvtalyvksqn0s4atg7kqrffrw29z\"},\"bitcoin\":{\"address\":\"1Pnwcv8r3BucUyDbjZYyQTzBE7nygssGTU\"},\"ethereum\":{\"address\":\"0xd7eDb52301Ef0136825FCfE053458E7E4471fD78\"},\"solana\":{\"address\":\"GxBVrBdtr9CRYNWfCii6k3Ro5KtWXSMw4pzqWbqAQPr5\"},\"doge\":{\"address\":\"D76T3b6Kc4aTp8G9eEdeHqapZsWRh3oxEX\"},\"xrp\":{\"address\":\"rahEtYHGEm7YwJiwsefG6RTaJnAWeecRzh\"},\"polygon\":{\"address\":\"0xd7eDb52301Ef0136825FCfE053458E7E4471fD78\"},\"avalanche\":{\"address\":\"0xd7eDb52301Ef0136825FCfE053458E7E4471fD78\"},\"sui\":{\"address\":\"0x580343f6a1ed33f70b071c820e76525a3f86f421\"},\"tron\":{\"address\":\"TGQWqxhK4fiHjrwpZdoF9T8Dr6xX1TYaej\"},\"zcash\":{\"address\":\"t1ZsPYpMqCMsTknKACAFG8xK9m2XFkdkzcM\"}},\"vault\":\"u+0mKybdnOCevgrZu5ijXcV5IbvJZTvTgdhT1JAFOwl4J3oQMhHn/8XysVoGViG3Ok69mIGwQ8jc2Ie0th7Swa2ZfOGo5SmUCgu3YA/OlTulAoRsYYLmI5EtvIi8lqA3SAW9HCb1lYrqhutPZa5ztLF/cuKjI5vyTnxp4XQOV52NtS2V4/mZ3BM6ydMgUBd/C817G43QTvrqyRqJamMMZ+AFSsyfszuVUp0//PdUP1pi5vNlU5ImdWiJEC9nBaJpmJb690In\"}",
+    "persona": "SPOT_TRADER",
+    "targetAsset": "SOL"
+  },
+  {
+    "id": 20,
+    "name": "Node-20",
+    "address": "kaspa:qrj88w3ptdpwng5pqa5ue9at0mfmgqtjfmfjnak7e5ggtshzd0dtuqr24q4j6",
+    "seed": "inflict warm pledge series hawk breeze main quantum size alley shrug audit skull return hawk true act rare wire awesome share orange dolphin valve",
+    "sovereignPayload": "{\"wallets\":{\"kaspa\":{\"address\":\"kaspa:qrj88w3ptdpwng5pqa5ue9at0mfmgqtjfmfjnak7e5ggtshzd0dtuqr24q4j6\"},\"bitcoin\":{\"address\":\"13neoe7XmhJRMbVx1tGUNismW9MM6H9rje\"},\"ethereum\":{\"address\":\"0x4590f517E2B657F0d9813d840CfB30790Ba56E11\"},\"solana\":{\"address\":\"76MSifsM8r8njF2cnqf9BDnHQiSc5D79mHa93AiiPxzd\"},\"doge\":{\"address\":\"D5KTFryJHSqhjrn5tgqRbBxLpjmkeQ6Z8v\"},\"xrp\":{\"address\":\"r3D7yHWLfgB7S9aSs1Kvqm88xQrufqDumN\"},\"polygon\":{\"address\":\"0x4590f517E2B657F0d9813d840CfB30790Ba56E11\"},\"avalanche\":{\"address\":\"0x4590f517E2B657F0d9813d840CfB30790Ba56E11\"},\"sui\":{\"address\":\"0xf1e45feb5b9cc0636810c27ad8a8fa4400242002\"},\"tron\":{\"address\":\"TEtPfzkGdXn9Vqx34Tq3w2cYzVjehgU1Gq\"},\"zcash\":{\"address\":\"t1UUNC92TWTv25HgLcEE1PVTtC59NQfMy2q\"}},\"vault\":\"RcLxTsPt9rlUZxzl36+PzswLyKbAUJ0b0AiLCWqOqHY5zmjrC4ZITsho8p08aK3K1GK/AadBF2TVEPHss8yjAnC4HsQmUU5DD8ug0sEylp95W1olI39BKY+3CYRgOYvFGUXo4MMfBQugFwIJcHlLyoPr3BIv5rPMD+b4wOlCsmKZ4C9IbXWzyksCpkLRIRdprTqjYaQW9FgYie2SU4YE+8O8LlHs9WLGe9G7hbCFPNxXgNvp6sxvJHCLrKSmBw==\"}",
+    "persona": "P2P_TRADER",
+    "targetAsset": "USDC"
+  }
+]

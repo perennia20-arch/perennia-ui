@@ -1,158 +1,364 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
+import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { dbPool } from '$lib/server/db';
 import { env } from '$env/dynamic/private';
-import Stripe from 'stripe';
+import { redis } from '$lib/server/redis';
 
-// Ensure Stripe is initialized securely
-const stripe = new Stripe(env.STRIPE_SECRET_KEY || '', {
-    apiVersion: '2023-10-16' as any,
-});
+function getEncryptionKeyStrict(): Buffer {
+    const isProd = process.env.NODE_ENV === 'production';
+    const configured = (env.KYC_MASTER_KEY || '').trim();
+    if (isProd && !configured) {
+        throw new Error(
+            'CRITICAL_SECURITY_LOCKDOWN: KYC_MASTER_KEY environment variable is required in production.'
+        );
+    }
+    const rawKeyString = configured || 'perennia_sovereign_rail_cipher_key';
+    return Buffer.from(rawKeyString).length === 32
+        ? Buffer.from(rawKeyString)
+        : crypto.createHash('sha256').update(String(rawKeyString)).digest();
+}
 
-const rawKeyString = env.KYC_MASTER_KEY || '12345678901234567890123456789012';
-const ENCRYPTION_KEY = Buffer.from(rawKeyString).length === 32 ? Buffer.from(rawKeyString) : crypto.createHash('sha256').update(String(rawKeyString)).digest();
+function normalizeKaspaWallet(raw: string): { clean: string; prefixed: string } {
+    const clean = String(raw || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^kaspa:/i, '')
+        .trim();
+    return {
+        clean,
+        prefixed: `kaspa:${clean}`
+    };
+}
 
-// POST: Initiates or Completes the KYC Pipeline
-export const POST: RequestHandler = async ({ request, url }) => {
+async function ensureZeroPiiSchemaAndPurgeLegacy() {
+    const client = await dbPool.connect();
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS entity_kyc (
+                wallet_address VARCHAR(255) PRIMARY KEY,
+                legal_name VARCHAR(255) NOT NULL DEFAULT 'ZERO_PII_SOVEREIGN',
+                entity_type VARCHAR(64) NOT NULL DEFAULT 'LLC',
+                tax_id_hash TEXT NOT NULL DEFAULT 'ZERO_PII_LOCAL_ONLY',
+                bank_data_hash TEXT,
+                business_address TEXT NOT NULL DEFAULT 'ZERO_PII_LOCAL_ONLY',
+                country_code VARCHAR(16) NOT NULL DEFAULT 'US',
+                state_region VARCHAR(64) NOT NULL DEFAULT 'TX',
+                filing_status VARCHAR(64) NOT NULL DEFAULT 'SINGLE',
+                effective_tax_rate DOUBLE PRECISION NOT NULL DEFAULT 15.0,
+                verification_status VARCHAR(40) DEFAULT 'verified',
+                verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255) NOT NULL DEFAULT 'ZERO_PII_SOVEREIGN';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS entity_type VARCHAR(64) NOT NULL DEFAULT 'LLC';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS tax_id_hash TEXT NOT NULL DEFAULT 'ZERO_PII_LOCAL_ONLY';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS bank_data_hash TEXT;
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS business_address TEXT NOT NULL DEFAULT 'ZERO_PII_LOCAL_ONLY';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS country_code VARCHAR(16) NOT NULL DEFAULT 'US';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS state_region VARCHAR(64) NOT NULL DEFAULT 'TX';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS filing_status VARCHAR(64) NOT NULL DEFAULT 'SINGLE';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS effective_tax_rate DOUBLE PRECISION NOT NULL DEFAULT 15.0;
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS verification_status VARCHAR(40) DEFAULT 'verified';
+        `);
+        await client.query(`
+            ALTER TABLE entity_kyc ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+        `);
+        await client.query(`
+            UPDATE entity_kyc
+            SET legal_name = 'ZERO_PII_SOVEREIGN',
+                tax_id_hash = 'ZERO_PII_LOCAL_ONLY',
+                business_address = 'ZERO_PII_LOCAL_ONLY'
+            WHERE legal_name != 'ZERO_PII_SOVEREIGN'
+               OR tax_id_hash != 'ZERO_PII_LOCAL_ONLY'
+               OR business_address != 'ZERO_PII_LOCAL_ONLY';
+        `);
+    } finally {
+        client.release();
+    }
+}
+
+export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) => {
     let client;
     try {
-        const payload = await request.json();
-        const { walletAddress, entityType, tin, address, verificationSessionId } = payload;
-
-        if (!walletAddress) {
-            return json({ error: 'Missing mandatory compliance fields.' }, { status: 400 });
+        const encryptionKey = getEncryptionKeyStrict();
+        const authHeader = request.headers.get('authorization');
+        let sessionWallet = '';
+        if (env.PERENNIA_ADMIN_KEY && authHeader === `Bearer ${env.PERENNIA_ADMIN_KEY}`) {
+            sessionWallet = 'kaspa:admin_override';
+        } else {
+            const sessionId = cookies.get('perennia_session');
+            if (!sessionId) return json({ error: 'UNAUTHORIZED' }, { status: 401 });
+            const rawAddress = await redis.get(`session:${sessionId}`);
+            if (!rawAddress) return json({ error: 'SESSION_EXPIRED' }, { status: 401 });
+            sessionWallet = rawAddress.toLowerCase().trim();
         }
-
-        const formattedWallet = walletAddress.toLowerCase().startsWith('kaspa:') ? walletAddress.toLowerCase() : `kaspa:${walletAddress.toLowerCase()}`;
-
-        // ====================================================================
-        // PHASE 1: STRIPE IDENTITY VERIFICATION INITIALIZATION
-        // ====================================================================
-        if (!verificationSessionId && !tin) {
-            // Generate a Stripe Identity session for the user to upload their Govt ID
-            const verificationSession = await stripe.identity.verificationSessions.create({
-                type: 'document',
-                metadata: {
-                    wallet_address: formattedWallet,
-                    entity_type: entityType || 'Individual'
-                }
-            });
-
-            return json({ 
-                success: true, 
-                requiresAction: true,
-                clientSecret: verificationSession.client_secret,
-                sessionId: verificationSession.id
-            });
+        const payload = await request.json().catch(() => ({}));
+        const rawWallet = payload.walletAddress || sessionWallet;
+        if (!rawWallet) {
+            return json({ error: 'Missing walletAddress.' }, { status: 400 });
         }
-
-        // ====================================================================
-        // PHASE 2: COMPLIANCE FINALIZATION & AES-256-GCM WAL ENCRYPTION
-        // ====================================================================
-        if (!verificationSessionId || !tin || !entityType || !address) {
-            return json({ error: 'Missing completion data payload.' }, { status: 400 });
+        const { clean: cleanWallet, prefixed: formattedWallet } =
+            normalizeKaspaWallet(rawWallet);
+        if (sessionWallet !== 'kaspa:admin_override') {
+            const { clean: cleanSession } = normalizeKaspaWallet(sessionWallet);
+            if (cleanSession !== cleanWallet) {
+                return json({ error: 'FORBIDDEN_IDENTITY_MUTATION' }, { status: 403 });
+            }
         }
-
-        // 1. Verify the Stripe Identity session actually succeeded
-        const session = await stripe.identity.verificationSessions.retrieve(verificationSessionId);
-        
-        if (session.status !== 'verified') {
-            return json({ error: 'Identity verification not successfully completed with provider.' }, { status: 403 });
-        }
-
-        // 2. Extract the mathematically verified Legal Name directly from the Govt ID
-        // This prevents the user from typing a fake name in the UI.
-        let legalName = 'Verified Entity';
-        if (session.verified_outputs && session.verified_outputs.first_name && session.verified_outputs.last_name) {
-            legalName = `${session.verified_outputs.first_name} ${session.verified_outputs.last_name}`;
-        }
-
-        // 3. Encrypt the highly sensitive TIN/SSN via AES-256-GCM before database insertion
-        const iv = crypto.randomBytes(12);
-        const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
-        
-        let encryptedTin = cipher.update(tin, 'utf8', 'hex');
-        encryptedTin += cipher.final('hex');
-        const authTag = cipher.getAuthTag().toString('hex');
-        
-        const secureTinPayload = `${iv.toString('hex')}:${authTag}:${encryptedTin}`;
-
-        client = await dbPool.connect();
-
-        // 4. Lock the Verified Entity into the Postgres Master WAL
-        await client.query(
-            `INSERT INTO entity_kyc 
-            (wallet_address, legal_name, entity_type, tax_id_hash, business_address, verification_status, verified_at)
-            VALUES ($1, $2, $3, $4, $5, 'verified', CURRENT_TIMESTAMP)
-            ON CONFLICT (wallet_address) DO UPDATE SET
-            legal_name = EXCLUDED.legal_name,
-            entity_type = EXCLUDED.entity_type,
-            tax_id_hash = EXCLUDED.tax_id_hash,
-            business_address = EXCLUDED.business_address,
-            verification_status = 'verified',
-            verified_at = CURRENT_TIMESTAMP`,
-            [formattedWallet, legalName, entityType, secureTinPayload, address]
+        const countryCode = String(payload.countryCode || 'US')
+            .trim()
+            .toUpperCase()
+            .slice(0, 8);
+        const stateRegion = String(payload.stateRegion || 'TX')
+            .trim()
+            .toUpperCase()
+            .slice(0, 32);
+        const entityType = String(payload.entityType || 'LLC')
+            .trim()
+            .toUpperCase()
+            .slice(0, 32);
+        const filingStatus = String(payload.filingStatus || 'SINGLE')
+            .trim()
+            .toUpperCase()
+            .slice(0, 32);
+        const rawRate = Number(
+            payload.effectiveTaxRate ?? payload.withholdingRate ?? 15.0
         );
-
-        return json({ success: true, message: 'Entity verified and cryptographically secured.' });
-
+        const effectiveTaxRate = Number(
+            Math.max(0.0, Math.min(50.0, isNaN(rawRate) ? 15.0 : rawRate)).toFixed(2)
+        );
+        await ensureZeroPiiSchemaAndPurgeLegacy();
+        let secureBankPayload: string | null = null;
+        let bankLast4: string | null = null;
+        const cleanRouting = payload.routingNumber
+            ? String(payload.routingNumber).replace(/\D/g, '').trim()
+            : '';
+        const cleanAccount = payload.accountNumber
+            ? String(payload.accountNumber).replace(/\D/g, '').trim()
+            : '';
+        const bankLabel = String(
+            payload.bankLabel || 'Primary Operating Account'
+        ).trim();
+        if (cleanRouting.length === 9 && cleanAccount.length >= 4) {
+            bankLast4 = cleanAccount.slice(-4);
+            const bankJson = JSON.stringify({
+                routing: cleanRouting,
+                account: cleanAccount,
+                routingNumber: cleanRouting,
+                accountNumber: cleanAccount,
+                bankLabel,
+                accountType: 'CHECKING',
+                payoutMethod: 'ACH'
+            });
+            const iv = crypto.randomBytes(12);
+            const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
+            const encryptedBank =
+                cipher.update(bankJson, 'utf8', 'hex') + cipher.final('hex');
+            const authTag = cipher.getAuthTag().toString('hex');
+            secureBankPayload = `${iv.toString('hex')}:${authTag}:${encryptedBank}`;
+        }
+        client = await dbPool.connect();
+        await client.query(
+            `INSERT INTO entity_kyc
+             (wallet_address, legal_name, entity_type, tax_id_hash, bank_data_hash, business_address, country_code, state_region, filing_status, effective_tax_rate, verification_status, verified_at)
+             VALUES ($1, 'ZERO_PII_SOVEREIGN', $2, 'ZERO_PII_LOCAL_ONLY', $3, 'ZERO_PII_LOCAL_ONLY', $4, $5, $6, $7, 'verified', CURRENT_TIMESTAMP)
+             ON CONFLICT (wallet_address) DO UPDATE SET
+                legal_name = 'ZERO_PII_SOVEREIGN',
+                entity_type = EXCLUDED.entity_type,
+                tax_id_hash = 'ZERO_PII_LOCAL_ONLY',
+                bank_data_hash = COALESCE(EXCLUDED.bank_data_hash, entity_kyc.bank_data_hash),
+                business_address = 'ZERO_PII_LOCAL_ONLY',
+                country_code = EXCLUDED.country_code,
+                state_region = EXCLUDED.state_region,
+                filing_status = EXCLUDED.filing_status,
+                effective_tax_rate = EXCLUDED.effective_tax_rate,
+                verification_status = 'verified',
+                verified_at = CURRENT_TIMESTAMP`,
+            [
+                formattedWallet,
+                entityType,
+                secureBankPayload,
+                countryCode,
+                stateRegion,
+                filingStatus,
+                effectiveTaxRate
+            ]
+        );
+        if (secureBankPayload && bankLast4) {
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS fiat_bank_rails (
+                    wallet_address VARCHAR(255) PRIMARY KEY,
+                    bank_label VARCHAR(128) NOT NULL DEFAULT 'Primary Operating Account',
+                    account_type VARCHAR(32) NOT NULL DEFAULT 'CHECKING',
+                    payout_method VARCHAR(20) NOT NULL DEFAULT 'ACH',
+                    bank_last4 VARCHAR(10) NOT NULL,
+                    encrypted_rail_payload TEXT NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+            await client.query(
+                `INSERT INTO fiat_bank_rails
+                 (wallet_address, bank_label, account_type, payout_method, bank_last4, encrypted_rail_payload, updated_at)
+                 VALUES ($1, $2, 'CHECKING', 'ACH', $3, $4, CURRENT_TIMESTAMP)
+                 ON CONFLICT (wallet_address) DO UPDATE SET
+                    bank_label = EXCLUDED.bank_label,
+                    bank_last4 = EXCLUDED.bank_last4,
+                    encrypted_rail_payload = EXCLUDED.encrypted_rail_payload,
+                    updated_at = CURRENT_TIMESTAMP`,
+                [formattedWallet, bankLabel, bankLast4, secureBankPayload]
+            );
+            await redis
+                .set(
+                    `perennia:fiat:bank_rail:${cleanWallet}`,
+                    secureBankPayload,
+                    'EX',
+                    60 * 60 * 24 * 30
+                )
+                .catch(() => {});
+        }
+        return json({
+            success: true,
+            zeroPiiEnforced: true,
+            status: 'verified',
+            jurisdiction: {
+                countryCode,
+                stateRegion,
+                jurisdictionCode: `${countryCode}-${stateRegion}`,
+                entityType,
+                filingStatus,
+                effectiveTaxRate
+            },
+            bankAccountLast4: bankLast4,
+            message:
+                'Zero-PII jurisdiction telemetry synchronized. Personal identity remains 100% local in your browser.'
+        });
     } catch (error: any) {
-        console.error("KYC Matrix Fault:", error);
-        return json({ error: 'COMPLIANCE_FAULT', message: error.message }, { status: 500 });
+        console.error('Zero-PII Jurisdiction Telemetry Fault:', error);
+        return json(
+            { error: 'COMPILATION_FAULT', message: error.message },
+            { status: 500 }
+        );
     } finally {
         if (client) client.release();
     }
 };
 
-// GET: Decrypts and retrieves the active user's KYC profile
-export const GET: RequestHandler = async ({ cookies }) => {
-    const rawCookie = cookies.get('perennia_session');
-    
-    if (!rawCookie) {
-        return json({ error: 'Unauthorized matrix access' }, { status: 401 });
-    }
-
-    const decodedCookie = decodeURIComponent(rawCookie).toLowerCase().trim();
-    const sessionWallet = decodedCookie.startsWith('kaspa:') ? decodedCookie : `kaspa:${decodedCookie}`;
-
+export const GET: RequestHandler = async ({ cookies, request, url }: RequestEvent) => {
     let client;
-    
     try {
-        client = await dbPool.connect();
-        
-        const res = await client.query(`SELECT * FROM entity_kyc WHERE wallet_address = $1`, [sessionWallet]);
-        
-        if (res.rows.length === 0) {
-            return json({ status: 'unverified' });
+        getEncryptionKeyStrict();
+        const authHeader = request.headers.get('authorization');
+        let targetWallet = '';
+        if (env.PERENNIA_ADMIN_KEY && authHeader === `Bearer ${env.PERENNIA_ADMIN_KEY}`) {
+            targetWallet = url.searchParams.get('wallet') || '';
+            if (!targetWallet)
+                return json(
+                    { error: 'Missing wallet parameter for admin query' },
+                    { status: 400 }
+                );
+        } else {
+            const sessionId = cookies.get('perennia_session');
+            if (!sessionId)
+                return json({ error: 'Unauthorized matrix access' }, { status: 401 });
+            const rawAddress = await redis.get(`session:${sessionId}`);
+            if (!rawAddress) return json({ error: 'SESSION_EXPIRED' }, { status: 401 });
+            targetWallet = rawAddress;
         }
-        
-        const record = res.rows[0];
-        
-        // Decrypt the TIN for the UI masking
-        const [ivHex, authTagHex, encryptedHex] = record.tax_id_hash.split(':');
-        
-        const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
-        decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-        
-        let decryptedTin = decipher.update(encryptedHex, 'hex', 'utf8');
-        decryptedTin += decipher.final('utf8');
-        
-        return json({ 
-            status: record.verification_status,
+        const { clean: cleanWallet, prefixed: sessionWallet } =
+            normalizeKaspaWallet(targetWallet);
+        await ensureZeroPiiSchemaAndPurgeLegacy();
+        client = await dbPool.connect();
+        const [kycRes, railRes] = await Promise.all([
+            client.query(
+                `SELECT entity_type, country_code, state_region, filing_status, effective_tax_rate, verification_status, verified_at
+                 FROM entity_kyc
+                 WHERE wallet_address = $1 OR wallet_address = $2
+                 LIMIT 1`,
+                [sessionWallet, cleanWallet]
+            ),
+            client
+                .query(
+                    `SELECT bank_label, bank_last4, payout_method, account_type
+                     FROM fiat_bank_rails
+                     WHERE wallet_address = $1 OR wallet_address = $2
+                     ORDER BY updated_at DESC
+                     LIMIT 1`,
+                    [sessionWallet, cleanWallet]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+        ]);
+        const bankLast4 =
+            railRes.rows.length > 0
+                ? String(railRes.rows[0].bank_last4 || 'UNLNK')
+                : 'UNLNK';
+        const bankLabel =
+            railRes.rows.length > 0
+                ? String(railRes.rows[0].bank_label || 'Primary Operating Account')
+                : 'Primary Operating Account';
+        if (kycRes.rows.length === 0) {
+            return json({
+                status: 'unverified',
+                zeroPiiEnforced: true,
+                bankAccountLast4: bankLast4 !== 'UNLNK' ? bankLast4 : null
+            });
+        }
+        const record = kycRes.rows[0];
+        const countryCode = String(record.country_code || 'US').toUpperCase();
+        const stateRegion = String(record.state_region || 'TX').toUpperCase();
+        const entityType = String(record.entity_type || 'LLC').toUpperCase();
+        const filingStatus = String(record.filing_status || 'SINGLE').toUpperCase();
+        const effectiveTaxRate = Number(record.effective_tax_rate ?? 15.0);
+        return json({
+            status: record.verification_status || 'verified',
+            zeroPiiEnforced: true,
+            jurisdiction: {
+                countryCode,
+                stateRegion,
+                jurisdictionCode: `${countryCode}-${stateRegion}`,
+                entityType,
+                filingStatus,
+                effectiveTaxRate
+            },
             entity: {
-                legalName: record.legal_name,
-                entityType: record.entity_type,
-                tinLast4: decryptedTin.slice(-4),
-                address: record.business_address,
+                legalName: 'Local Browser Vault (Zero-PII)',
+                entityType,
+                countryCode,
+                stateRegion,
+                filingStatus,
+                effectiveTaxRate,
+                tinLast4: 'LOCAL',
+                bankAccountLast4: bankLast4,
+                bankLabel,
+                address: `${countryCode}-${stateRegion} Jurisdiction`,
                 verifiedAt: record.verified_at
             }
         });
-        
     } catch (error: any) {
-        console.error("KYC Decryption Verification Fault:", error);
-        return json({ error: 'DECRYPTION_FAULT', message: error.message }, { status: 500 });
+        console.error('Zero-PII Jurisdiction Read Fault:', error);
+        return json(
+            { error: 'TELEMETRY_READ_FAULT', message: error.message },
+            { status: 500 }
+        );
     } finally {
         if (client) client.release();
     }

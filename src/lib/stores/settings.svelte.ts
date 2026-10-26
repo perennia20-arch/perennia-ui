@@ -2,9 +2,8 @@ import { browser } from '$app/environment';
 
 class SettingsStore {
     showSettingsModal = $state(false);
-    uiBrightness = $state(1.0);
     theme = $state<'dark' | 'light'>('dark');
-    bgIntensity = $state(0); // 0% (stark) to 100% (soft/shaded)
+    bgIntensity = $state(0);
     fiatDecimals = $state(2);
     tokenDecimals = $state(8);
 
@@ -14,12 +13,13 @@ class SettingsStore {
             if (stored) {
                 try {
                     const parsed = JSON.parse(stored);
-                    if (parsed.uiBrightness !== undefined) this.uiBrightness = parsed.uiBrightness;
                     if (parsed.theme) this.theme = parsed.theme;
                     if (parsed.bgIntensity !== undefined) this.bgIntensity = parsed.bgIntensity;
                     if (parsed.fiatDecimals !== undefined) this.fiatDecimals = parsed.fiatDecimals;
                     if (parsed.tokenDecimals !== undefined) this.tokenDecimals = parsed.tokenDecimals;
-                } catch (e) {}
+                } catch {
+                    // Ignore malformed settings payload
+                }
             }
             this.applyTheme();
         }
@@ -27,13 +27,15 @@ class SettingsStore {
 
     save() {
         if (browser) {
-            localStorage.setItem('perennia_ui_settings', JSON.stringify({
-                uiBrightness: this.uiBrightness,
-                theme: this.theme,
-                bgIntensity: this.bgIntensity,
-                fiatDecimals: this.fiatDecimals,
-                tokenDecimals: this.tokenDecimals
-            }));
+            localStorage.setItem(
+                'perennia_ui_settings',
+                JSON.stringify({
+                    theme: this.theme,
+                    bgIntensity: this.bgIntensity,
+                    fiatDecimals: this.fiatDecimals,
+                    tokenDecimals: this.tokenDecimals
+                })
+            );
             this.applyTheme();
         }
     }
@@ -42,25 +44,26 @@ class SettingsStore {
         if (!browser) return;
         const doc = document.documentElement;
         const body = document.body;
+        const ratio = Math.max(0, Math.min(100, this.bgIntensity)) / 100;
 
         if (this.theme === 'dark') {
             doc.classList.remove('theme-light');
             doc.classList.add('theme-dark');
-            
-            // Intensity 0 = Deep Space (#000000) -> Intensity 100 = Subtle Blue/Black (#1c1c24)
-            const r = Math.round((this.bgIntensity / 100) * 15);
-            const g = Math.round((this.bgIntensity / 100) * 15);
-            const b = Math.round((this.bgIntensity / 100) * 18);
+            // Locked calibrated dark mode base (#06080b -> subtle charcoal #0e1218)
+            const r = Math.round(6 + ratio * 8);
+            const g = Math.round(8 + ratio * 10);
+            const b = Math.round(11 + ratio * 13);
             const bgApp = `rgb(${r}, ${g}, ${b})`;
             doc.style.setProperty('--bg-app', bgApp);
             body.style.backgroundColor = bgApp;
         } else {
             doc.classList.remove('theme-dark');
             doc.classList.add('theme-light');
-            
-            // Intensity 0 = Stark Bright White (#ffffff) -> Intensity 100 = Soft Zinc-50 (#f8fafc)
-            const val = Math.round(255 - (this.bgIntensity / 100) * 7);
-            const bgApp = `rgb(${val}, ${val}, ${val})`;
+            // Warm Eggshell (#F6F3E9 / 246, 243, 233) -> Rich Warm Vanilla (#EAE4D3 / 234, 228, 211)
+            const r = Math.round(246 - ratio * 12);
+            const g = Math.round(243 - ratio * 15);
+            const b = Math.round(233 - ratio * 22);
+            const bgApp = `rgb(${r}, ${g}, ${b})`;
             doc.style.setProperty('--bg-app', bgApp);
             body.style.backgroundColor = bgApp;
         }

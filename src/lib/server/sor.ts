@@ -1,4 +1,5 @@
 // src/lib/server/sor.ts
+
 import { env } from '$env/dynamic/private';
 
 export interface SwapPayload {
@@ -24,15 +25,20 @@ export interface SorExecutionPlan {
     psbt?: any;
 }
 
-// ⚡ INFRASTRUCTURE HARDENING
-const rustBackendUrl = env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '192.168.0.12'}:8002`;
-
 export class SmartOrderRouter {
-    public async calculateSplitFill(req: SwapPayload, wallet: string = "kaspa:qpd3r7z43r1x0pn3y26k2yp4r7z43r1x0pn3y26k2yp4r7z0q5qqp2", utxos?: any[], systemMode: string = "base"): Promise<SorExecutionPlan> {
+    public async calculateSplitFill(req: SwapPayload, wallet: string, utxos?: any[], systemMode: string = "base"): Promise<SorExecutionPlan> {
+        
+        if (!env.RUST_BACKEND_URL) {
+            throw new Error("CRITICAL: RUST_BACKEND_URL is missing. L1 Routing Unavailable.");
+        }
+
         try {
-            const res = await fetch(`${rustBackendUrl}/v1/sor/execute`, {
+            const res = await fetch(`${env.RUST_BACKEND_URL}/v1/sor/execute`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || ''}`
+                },
                 body: JSON.stringify({
                     wallet,
                     payAsset: req.payAsset,

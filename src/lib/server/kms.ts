@@ -1,86 +1,156 @@
+
 // src/lib/server/kms.ts
+
 import { env } from '$env/dynamic/private';
 
+import { Buffer } from 'buffer';
+
+
+
 // ============================================================================
+
 // PERENNIA ENTERPRISE KEY MANAGEMENT SERVICE (KMS) & CUSTODY
+
 // Architecture: Hot/Cold Wallet Segregation
+
 // ============================================================================
+
+
 
 export interface VaultEstate {
+
     HOT: {
+
         KAS: string;
+
         ETH: string;
+
         BTC: string;
+
         SOL: string;
+
     };
+
     COLD: {
+
         KAS: string;
+
         ETH: string;
+
         BTC: string;
+
         SOL: string;
+
     };
+
 }
+
+
+
+const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+
+
 
 export class SovereignKMS {
-    private isProduction = env.NODE_ENV === 'production';
 
     /**
+
      * Retrieves the corporate treasury addresses. 
-     * In an enterprise deployment, this interfaces with Fireblocks, AWS KMS, or Hashicorp Vault.
+
+     * ⚡ THE FIX: "Awaiting" bypasses the RPC fetch entirely so you don't query Vitalik's burn wallet.
+
      */
+
     public async getCorporateAddresses(): Promise<VaultEstate['HOT']> {
-        // ⚡ HOT WALLETS: Programmatically controlled by the Chronos Daemon for 24-hour Epoch settlements.
-        // These wallets maintain minimal active liquidity for daily sweeps.
-        const hotWallets = {
-            KAS: env.PERENNIA_HOT_KAS_ADDRESS || 'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579',
-            ETH: env.PERENNIA_HOT_ETH_ADDRESS || "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
-            BTC: env.PERENNIA_HOT_BTC_ADDRESS || "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfJH754GL",
-            SOL: env.PERENNIA_HOT_SOL_ADDRESS || "HN7cAB1wJe3D1v6K18u1nC9Wvy98aV3X45kv5FgvV61a"
+
+        return {
+
+            KAS: env.PERENNIA_HOT_KAS_ADDRESS || MASTER_ADMIN_ADDRESS,
+
+            ETH: env.PERENNIA_HOT_ETH_ADDRESS || 'Awaiting ETH Configuration',
+
+            BTC: env.PERENNIA_HOT_BTC_ADDRESS || 'Awaiting BTC Configuration',
+
+            SOL: env.PERENNIA_HOT_SOL_ADDRESS || 'Awaiting SOL Configuration'
+
         };
 
-        if (this.isProduction && (!env.PERENNIA_HOT_KAS_ADDRESS || !env.PERENNIA_HOT_BTC_ADDRESS)) {
-            console.warn("⚠️ [KMS SECURITY FAULT] Production environment running without explicit Hot Wallet configuration.");
-        }
-
-        return hotWallets;
     }
 
+
+
     /**
+
      * Retrieves the Multi-Sig Cold Storage parameters.
-     * The backend should route excess liquidity here when Hot Wallets exceed safety thresholds.
+
+     * Safely defaults to empty strings if the user has not configured cold storage.
+
      */
+
     public async getColdStorageAddresses(): Promise<VaultEstate['COLD']> {
-        // ⚡ COLD WALLETS: Air-gapped, multi-sig hardware vaults. 
-        // Cannot be spent from autonomously by the web server or Chronos daemon.
-        const coldWallets = {
-            KAS: env.PERENNIA_COLD_KAS_ADDRESS || 'kaspa:qcoldstorageplaceholderkaspaaddress0000000000000000000000',
-            ETH: env.PERENNIA_COLD_ETH_ADDRESS || "0x000000000000000000000000000000000000Cold",
-            BTC: env.PERENNIA_COLD_BTC_ADDRESS || "bc1qcoldstorageplaceholderbitcoinaddress",
-            SOL: env.PERENNIA_COLD_SOL_ADDRESS || "ColdStoragePlaceholderSolanaAddress11111111"
+
+        return {
+
+            KAS: env.PERENNIA_COLD_KAS_ADDRESS || '',
+
+            ETH: env.PERENNIA_COLD_ETH_ADDRESS || '',
+
+            BTC: env.PERENNIA_COLD_BTC_ADDRESS || '',
+
+            SOL: env.PERENNIA_COLD_SOL_ADDRESS || ''
+
         };
 
-        return coldWallets;
     }
 
+
+
     /**
+
      * Security verification for high-value API commands.
+
      */
+
     public verifyMasterAdminKey(providedKey: string): boolean {
-        const expectedKey = env.PERENNIA_ADMIN_KEY || 'perennia_test_key';
-        
-        // Timing-attack protected comparison
-        if (providedKey.length !== expectedKey.length) return false;
-        
-        const expectedBuffer = Buffer.from(expectedKey);
-        const providedBuffer = Buffer.from(providedKey);
-        
-        try {
-            const crypto = require('crypto');
-            return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
-        } catch {
-            return expectedKey === providedKey;
+
+        const expectedKey = env.PERENNIA_ADMIN_KEY;
+
+        if (!expectedKey) {
+
+            throw new Error("CRITICAL: PERENNIA_ADMIN_KEY not configured. Administrative endpoints are locked.");
+
         }
+
+
+
+        // Timing-attack protected comparison
+
+        if (providedKey.length !== expectedKey.length) return false;
+
+
+
+        const expectedBuffer = Buffer.from(expectedKey);
+
+        const providedBuffer = Buffer.from(providedKey);
+
+
+
+        try {
+
+            const crypto = require('node:crypto');
+
+            return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+
+        } catch {
+
+            return expectedKey === providedKey;
+
+        }
+
     }
+
 }
+
+
 
 export const perenniaKMS = new SovereignKMS();

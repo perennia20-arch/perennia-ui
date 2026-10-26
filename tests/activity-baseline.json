@@ -1,0 +1,313 @@
+{
+  "timestamp": 1792622893078,
+  "isoTime": "2026-10-21T22:48:13.078Z",
+  "oracles": {
+    "kasUsd": 0.03881,
+    "btcUsd": 84477.39,
+    "ethUsd": 2484.8100000000004,
+    "solUsd": 107.435,
+    "epochTelemetry": {
+      "anchorLabel": "22:00 UTC (00:00 JST / 16:00 CT)",
+      "anchorUtcHour": 22,
+      "buckets": {
+        "BTC": {
+          "asset": "BTC",
+          "effectiveSpreadFloorPct": 25,
+          "lastClearType": "NONE",
+          "lastClearedAt": 0,
+          "lpAvailableKasCapacity": 0,
+          "lpCoveragePct": 0,
+          "minProfitableKas": 8589.145003864984,
+          "minProfitableUsd": 333.3447176,
+          "participantCount": 1,
+          "pendingKas": 0.0630790768015922,
+          "pendingUsd": 0.002448098970669793,
+          "railCostUsd": 2.5,
+          "status": "ROLLED_OVER",
+          "weightPct": 0.0007344046092271999
+        },
+        "ETH": {
+          "asset": "ETH",
+          "effectiveSpreadFloorPct": 1.5,
+          "lastClearType": "NONE",
+          "lastClearedAt": 0,
+          "lpAvailableKasCapacity": 0,
+          "lpCoveragePct": 0,
+          "minProfitableKas": 5153.604335652324,
+          "minProfitableUsd": 200.01138426666668,
+          "participantCount": 0,
+          "pendingKas": 0,
+          "pendingUsd": 0,
+          "railCostUsd": 1.5,
+          "status": "IDLE",
+          "weightPct": 0
+        },
+        "SOL": {
+          "asset": "SOL",
+          "effectiveSpreadFloorPct": 1.5,
+          "lastClearType": "NONE",
+          "lastClearedAt": 0,
+          "lpAvailableKasCapacity": 0,
+          "lpCoveragePct": 0,
+          "minProfitableKas": 859.1785003864984,
+          "minProfitableUsd": 33.3447176,
+          "participantCount": 0,
+          "pendingKas": 0,
+          "pendingUsd": 0,
+          "railCostUsd": 0.25,
+          "status": "IDLE",
+          "weightPct": 0
+        },
+        "USDC": {
+          "asset": "USDC",
+          "effectiveSpreadFloorPct": 8.141085695877358,
+          "lastClearType": "NONE",
+          "lastClearedAt": 0,
+          "lpAvailableKasCapacity": 2.6681783045606804,
+          "lpCoveragePct": 100,
+          "minProfitableKas": 1718.0636674396635,
+          "minProfitableUsd": 66.67805093333334,
+          "participantCount": 1,
+          "pendingKas": 0.1596265158417756,
+          "pendingUsd": 0.00619510507981931,
+          "railCostUsd": 0.5,
+          "status": "ROLLED_OVER",
+          "weightPct": 0.009291071039274014
+        }
+      },
+      "currentEpochBellTs": 1792620000,
+      "nextEpochBellTs": 1792706400,
+      "secondsRemaining": 83512,
+      "updatedAt": 1792622888,
+      "volatilitySweepThresholdPct": 450
+    }
+  },
+  "simMetrics": {
+    "virtualHour": 1,
+    "epochDay": 1,
+    "uiLogins": 0,
+    "uiLogouts": 0,
+    "sectorConfigs": 2,
+    "multiAssetRecycles": 0,
+    "epochBellsCompleted": 0,
+    "epochSilosSettled": 0,
+    "epochMasterBatches": 0,
+    "epochFeeCapturedUsd": 0,
+    "epochGasSavedUsd": 0,
+    "pendingSiloCount": 0,
+    "pendingSiloKas": 0
+  },
+  "balances": {
+    "treasuryKas": 715.11629417,
+    "totalFleetKas": 61.26095288999999,
+    "combinedWorkingPoolKas": 776.37724706,
+    "primaryUserKas": 0,
+    "fundedBotCount": 20,
+    "totalBots": 20,
+    "fleetRows": [
+      {
+        "name": "Node-01",
+        "persona": "MINER",
+        "address": "kaspa:qp068cpq27w8naqk8q94r7gnlgna7v5085er8hr42g7q6qt0pv6859fk076tf",
+        "balanceKas": 4.3676545
+      },
+      {
+        "name": "Node-02",
+        "persona": "LP_FARMER",
+        "address": "kaspa:qq93jqztwyrwqfr8nfveskw5ezpf5hfmaeckpr72d90a7qsy26whszsxr4lj7",
+        "balanceKas": 4.9898082
+      },
+      {
+        "name": "Node-03",
+        "persona": "SPOT_TRADER",
+        "address": "kaspa:qpf0as6lsljr8zekfwtdx7qsvd5tvwv67augpvvdudwkgk4vc53vspc6s7pr0",
+        "balanceKas": 5.4471452
+      },
+      {
+        "name": "Node-04",
+        "persona": "P2P_TRADER",
+        "address": "kaspa:qqyh638gsxjnc5fa7sgamcap48q63l2vpht2t7etxtz44mmvnsqqjw8f2u8gy",
+        "balanceKas": 2.901845
+      },
+      {
+        "name": "Node-05",
+        "persona": "MINER",
+        "address": "kaspa:qzehdp340980cuj02y70sd5ytlepm3ccafawr99s9d3a3kuuve6sul8c3pqge",
+        "balanceKas": 2.249371
+      },
+      {
+        "name": "Node-06",
+        "persona": "LP_FARMER",
+        "address": "kaspa:qpn5dq7thuj9dk7p8vdklltdgltf0zlvaunujssnujvzk5rh4tsw29z2e3czv",
+        "balanceKas": 3.176281
+      },
+      {
+        "name": "Node-07",
+        "persona": "SPOT_TRADER",
+        "address": "kaspa:qqs5ng5fgx8htk7ja8xwyd294uhgjszfr6xnr5qej47x7yp3athcw995xn75u",
+        "balanceKas": 2.707
+      },
+      {
+        "name": "Node-08",
+        "persona": "P2P_TRADER",
+        "address": "kaspa:qqp03snljy3rsuuu3pn90hnx20yxrthm5ed24w5ckmuh36dul3jd6gu2nuz4a",
+        "balanceKas": 2.245647
+      },
+      {
+        "name": "Node-09",
+        "persona": "MINER",
+        "address": "kaspa:qqzqfja04eq5dlnyv9crzstrhkgrq2yp6rj4gp5kxp2rg4ue9xhpswn7kvmnj",
+        "balanceKas": 3.0407
+      },
+      {
+        "name": "Node-10",
+        "persona": "LP_FARMER",
+        "address": "kaspa:qqydfwss0dd6u6vu5fpp20xvppvadd4cnrs9fsz3x978xd8pmpyts7k934xv6",
+        "balanceKas": 2.509695
+      },
+      {
+        "name": "Node-11",
+        "persona": "SPOT_TRADER",
+        "address": "kaspa:qrghjqefkd6vx4th8ng8xddte7ggf4mtcd7v6wntte3j6k9tvu6cjdqefw2w2",
+        "balanceKas": 2.7879
+      },
+      {
+        "name": "Node-12",
+        "persona": "P2P_TRADER",
+        "address": "kaspa:qpwvfuqsd3cl7elq7mvrkeenmnze3xv2e3g6w5dlj96rwzkwxqdts3v070uxp",
+        "balanceKas": 2.50321699
+      },
+      {
+        "name": "Node-13",
+        "persona": "MINER",
+        "address": "kaspa:qrj5l99tv3xkqh9lwf9hzs0vldt9da3jl820gqjjmt4w0yl6hk5ggg9mevhrf",
+        "balanceKas": 2.6256
+      },
+      {
+        "name": "Node-14",
+        "persona": "LP_FARMER",
+        "address": "kaspa:qzuvhua4z5e6ygf89dx4advt6ez2fy6a8mqyxuskx64yarza2k6asdcc7jh76",
+        "balanceKas": 3.277387
+      },
+      {
+        "name": "Node-15",
+        "persona": "SPOT_TRADER",
+        "address": "kaspa:qplmacmymll5zfqju5a2zlvjhq4zyqgjmytmul6nnaz2l646edwvwc7nnljn7",
+        "balanceKas": 3.447145
+      },
+      {
+        "name": "Node-16",
+        "persona": "P2P_TRADER",
+        "address": "kaspa:qzfvn4ky383wju7np8ag2pfjrqnfyqjpr75uw8zn3kxtzsrfsxdl52tcmq85f",
+        "balanceKas": 2.896862
+      },
+      {
+        "name": "Node-17",
+        "persona": "MINER",
+        "address": "kaspa:qzz5239scl62v0zak3jdk2ssy40dfqqy0004r9r727gww26wwklnu9qnrk9vk",
+        "balanceKas": 2.41695
+      },
+      {
+        "name": "Node-18",
+        "persona": "LP_FARMER",
+        "address": "kaspa:qpnhffgzzkff30a3fp4ed32zmhpaqpewkx263hxyax9vw5ldrrhfk24q9c5hr",
+        "balanceKas": 2.47
+      },
+      {
+        "name": "Node-19",
+        "persona": "SPOT_TRADER",
+        "address": "kaspa:qrvg0dhewqfu859wufa66sftm9r9wrzpcuvtalyvksqn0s4atg7kqrffrw29z",
+        "balanceKas": 2.707943
+      },
+      {
+        "name": "Node-20",
+        "persona": "P2P_TRADER",
+        "address": "kaspa:qrj88w3ptdpwng5pqa5ue9at0mfmgqtjfmfjnak7e5ggtshzd0dtuqr24q4j6",
+        "balanceKas": 2.492802
+      }
+    ],
+    "multiAsset": {
+      "treasuryBtc": 0.00003076,
+      "botHeldBtc": 0,
+      "totalBtc": 0.00003076,
+      "treasuryEth": 0.00104505,
+      "botHeldEth": 0,
+      "totalEth": 0.00104505,
+      "treasurySol": 0.02615246,
+      "botHeldSol": 0,
+      "totalSol": 0.02615246,
+      "botHeldUsdc": 77.30378889531048
+    }
+  },
+  "dex": {
+    "totalSwaps": 107,
+    "totalSwapVolumeUsd": 17.01469795378144,
+    "netProfitUsd": 0.05182141508765922
+  },
+  "lp": {
+    "activePositions": 4,
+    "stakedKas": 2.6561369999999997,
+    "stakedUsdc": 0.103552,
+    "yieldEvents": 46,
+    "totalLpFeesUsd": 0.18824767813702495
+  },
+  "p2p": {
+    "totalContracts": 5,
+    "openContracts": 5,
+    "filledContracts": 0,
+    "openKasCommitted": 2.7320800000000003,
+    "filledKasVolume": 0
+  },
+  "l1": {
+    "totalRecordedL1Tx": 22,
+    "breakdown": [
+      {
+        "action_type": "SOVEREIGN_TRANSFER",
+        "tx_count": 20,
+        "total_kas": 29.051784969999996
+      },
+      {
+        "action_type": "SYNTHETIC_KAS_WITHDRAWAL",
+        "tx_count": 2,
+        "total_kas": 1.409507
+      }
+    ],
+    "recentTxs": [
+      {
+        "tx_id": "fc6528676816995478e55efb8ba357a484b82ac9447bf935118919394a156916",
+        "action_type": "SOVEREIGN_TRANSFER",
+        "amount_kas": 0.7,
+        "wallet_address": "kaspa:qp068cpq27w8naqk8q94r7gnlgna7v5085er8hr42g7q6qt0pv6859fk076tf",
+        "created_at": "2026-10-21T21:39:54.326Z"
+      },
+      {
+        "tx_id": "e9a1b6adcd2720470ad59ed8f98f622f3471c5bb62a144737ca6b42d02bd50f0",
+        "action_type": "SOVEREIGN_TRANSFER",
+        "amount_kas": 0.9,
+        "wallet_address": "kaspa:qq93jqztwyrwqfr8nfveskw5ezpf5hfmaeckpr72d90a7qsy26whszsxr4lj7",
+        "created_at": "2026-10-21T21:39:30.407Z"
+      },
+      {
+        "tx_id": "bd28e27b801632b5684478514ab71c53e088d75b11b8f5ce2fd94c670af66c7a",
+        "action_type": "SOVEREIGN_TRANSFER",
+        "amount_kas": 0.65569999,
+        "wallet_address": "kaspa:qp068cpq27w8naqk8q94r7gnlgna7v5085er8hr42g7q6qt0pv6859fk076tf",
+        "created_at": "2026-10-21T21:39:09.791Z"
+      },
+      {
+        "tx_id": "f853907ab2b58e9ae4d75ffd9f857a1cbe95127582a6e33f80f387c621be0e32",
+        "action_type": "SOVEREIGN_TRANSFER",
+        "amount_kas": 1.308,
+        "wallet_address": "kaspa:qpf0as6lsljr8zekfwtdx7qsvd5tvwv67augpvvdudwkgk4vc53vspc6s7pr0",
+        "created_at": "2026-10-21T21:38:42.660Z"
+      },
+      {
+        "tx_id": "322609eeacfb40a1c955ca104e24f2e472ca4fc4e3b10e1509de92256504848c",
+        "action_type": "SOVEREIGN_TRANSFER",
+        "amount_kas": 0.492312,
+        "wallet_address": "kaspa:qq93jqztwyrwqfr8nfveskw5ezpf5hfmaeckpr72d90a7qsy26whszsxr4lj7",
+        "created_at": "2026-10-21T21:38:22.796Z"
+      }
+    ]
+  }
+}

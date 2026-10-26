@@ -1,17 +1,24 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
+import { redis } from '$lib/server/redis';
 
 const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
 const DEV_ADMIN_BYPASS = false;
 
 export async function GET({ url, cookies }: RequestEvent) {
     // 1. Session Validation
-    const rawCookie = cookies.get('perennia_session');
-    if (!rawCookie) {
+    const sessionId = cookies.get('perennia_session');
+    if (!sessionId) {
         return json({ error: 'UNAUTHORIZED_DAG_ACCESS' }, { status: 401 });
     }
 
-    // ⚡ FIX: Decode cookie
-    const sessionCookie = decodeURIComponent(rawCookie);
+    // ⚡ FIX: Use Redis backed opaque token
+    const sessionWalletRaw = await redis.get(`session:${sessionId}`);
+    if (!sessionWalletRaw) {
+        return json({ error: 'SESSION_EXPIRED' }, { status: 401 });
+    }
+
+    const sessionCookie = sessionWalletRaw;
     const requestedAddress = url.searchParams.get('address');
     
     if (!requestedAddress) {
@@ -29,7 +36,8 @@ export async function GET({ url, cookies }: RequestEvent) {
     try {
         console.log(`\n⏳ UTXO Engine: Fetching unspent mass for ${requestedAddress.substring(0, 15)}...`);
         
-        const response = await fetch(`https://api.kaspa.org/addresses/${requestedAddress}/utxos`);
+        const kaspaRestUrl = (env.KASPA_REST_URL || 'https://api.kaspa.org').replace(/\/+$/, '');
+        const response = await fetch(`${kaspaRestUrl}/addresses/${requestedAddress}/utxos`);
         
         if (!response.ok) {
             throw new Error(`Mainnet REST API rejected request: Status ${response.status}`);

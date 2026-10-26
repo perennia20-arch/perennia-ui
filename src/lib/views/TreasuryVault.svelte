@@ -2,41 +2,74 @@
     import { onMount, onDestroy, untrack } from 'svelte';
     import { slide } from 'svelte/transition';
     import { browser } from '$app/environment';
-
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
-    import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
+    import { treasury } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
-
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
 
     let activeHoverSegment = $state<string | null>(null);
     let displayUnit = $state<'token' | 'usd'>('token');
     let timeframe = $state<'1H' | '24H' | '7D' | '30D' | '1Y' | 'ALL'>('24H');
-
-    let isAllNetworksDrawerOpen = $state(false);
+    let isAllNetworksDrawerOpen = $state(true);
     let isManagingNetworks = $state(false);
-    
     let isOrganizing = $state(false);
     let draggedNetwork = $state<string | null>(null);
-
     let networkSearchQuery = $state('');
     let isGlobalSearching = $state(false);
     let globalSearchError = $state('');
     let searchResults = $state<any[]>([]);
-
     let targetAutoOpenNetwork = $state<string | null>(null);
     let targetAutoOpenToken = $state<string | null>(null);
+    let activeNetworks = $state<string[]>(['BTC', 'ETH', 'SOL']);
 
-    // ⚡ THE FIX: Wiped the default array to [] for a true zero-state baseline
-    let activeNetworks = $state<string[]>([]);
-    
+    let isDirectorConsoleOpen = $state(true);
+    let activeDirectorTab = $state<'reconciliation' | 'fees' | 'buckets' | 'organization'>('reconciliation');
+    let corporateReconciliation = $state<{
+        nettingQueueLength: number;
+        passthroughQueueLength: number;
+        recentNettingOrders: any[];
+        accumulatedFees: Record<string, number>;
+        nettingProfitUsd: number;
+        unhedgedDeltaKas: number;
+        hedgeStatus: any;
+        fppsSolvency: any;
+        updatedAt: number;
+    } | null>(null);
+
+    let walletActivityEvents = $state<any[]>([]);
+
     let userCustomTokens = $state<Record<string, any[]>>({
-        KAS: [], BTC: [], ETH: [], ARB: [], BASE: [], SOL: [], DOGE: [], XRP: [], POL: [], AVAX: [], SUI: [], TRX: [], ZEC: []
+        KAS: [],
+        BTC: [],
+        ETH: [],
+        ARB: [],
+        BASE: [],
+        SOL: [],
+        DOGE: [],
+        XRP: [],
+        POL: [],
+        AVAX: [],
+        SUI: [],
+        TRX: [],
+        ZEC: []
     });
+
     let selectedTokensMap = $state<Record<string, string[]>>({
-        KAS: [], BTC: [], ETH: [], ARB: [], BASE: [], SOL: [], DOGE: [], XRP: [], POL: [], AVAX: [], SUI: [], TRX: [], ZEC: []
+        KAS: [],
+        BTC: [],
+        ETH: [],
+        ARB: [],
+        BASE: [],
+        SOL: [],
+        DOGE: [],
+        XRP: [],
+        POL: [],
+        AVAX: [],
+        SUI: [],
+        TRX: [],
+        ZEC: []
     });
 
     let hasLoadedLocalState = $state(false);
@@ -57,40 +90,180 @@
         { ticker: 'ZEC', standard: 'Shielded Assets' }
     ];
 
+    let totalOnChainUsd = $derived(
+        treasury.visibleAssets.reduce((sum, a) => sum + (a.onChain || 0) * (a.spotPrice || 0), 0)
+    );
+    let totalBatchQueueUsd = $derived(
+        treasury.visibleAssets.reduce((sum, a) => sum + (a.synthetic || 0) * (a.spotPrice || 0), 0)
+    );
+    let totalStakedLpUsd = $derived(
+        treasury.visibleAssets.reduce((sum, a) => sum + (a.lpStaked || 0) * (a.spotPrice || 0), 0)
+    );
+
+    function escapeCsvCell(val: unknown): string {
+        const s = String(val ?? '');
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+            return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+    }
+
+    async function exportFullVaultActivityCsv() {
+        if (!browser) return;
+        await fetchWalletActivity();
+        const rows: string[] = [
+            'Timestamp,Record_Category,Event_Type,Asset,OnChain_Or_Amount,Batch_Queue,USD_Value,Spot_Price_USD,Reference_Or_Address,Explorer_URL'
+        ];
+        for (const asset of treasury.visibleAssets) {
+            if (asset.totalBalance > 0 || asset.ticker === 'KAS') {
+                rows.push(
+                    [
+                        escapeCsvCell(new Date().toISOString()),
+                        'VAULT_SNAPSHOT',
+                        'EXPLORER_PARITY_BALANCE',
+                        escapeCsvCell(asset.ticker),
+                        Number(asset.onChain || 0).toFixed(8),
+                        Number(asset.synthetic || 0).toFixed(8),
+                        Number((asset.onChain || 0) * (asset.spotPrice || 0)).toFixed(2),
+                        Number(asset.spotPrice || 0).toFixed(4),
+                        escapeCsvCell(asset.address || identity.activeAddress || ''),
+                        escapeCsvCell('')
+                    ].join(',')
+                );
+            }
+        }
+        for (const ev of walletActivityEvents) {
+            const ticker = ev.asset?.ticker || 'KAS';
+            const amt = Number(ev.amount || 0);
+            const usd = Number(ev.usdValueAtTime || 0);
+            const impliedSpot = amt > 0 ? usd / amt : 0;
+            rows.push(
+                [
+                    escapeCsvCell(ev.timestamp),
+                    'IMMUTABLE_LEDGER_EVENT',
+                    escapeCsvCell(ev.type || 'SETTLEMENT'),
+                    escapeCsvCell(ticker),
+                    amt.toFixed(8),
+                    '0.00000000',
+                    usd.toFixed(2),
+                    impliedSpot.toFixed(4),
+                    escapeCsvCell(ev.txHash || ''),
+                    escapeCsvCell(ev.explorerUrl || '')
+                ].join(',')
+            );
+        }
+        const dateStamp = new Date().toISOString().slice(0, 10);
+        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Perennia_Treasury_Activity_${dateStamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        ui.triggerMicroBadge('treasury_export_badge', 'ACTIVITY CSV EXPORTED ✓', '#18C6A5');
+    }
+
+    async function exportFullVaultActivityJson() {
+        if (!browser) return;
+        await fetchWalletActivity();
+        const payload = {
+            exportedAt: new Date().toISOString(),
+            walletAddress: identity.activeAddress,
+            onChainPortfolioValueUsd: totalOnChainUsd,
+            batchSettlementQueueValueUsd: totalBatchQueueUsd,
+            totalVaultValueUsd: treasury.totalVaultValue,
+            assets: treasury.visibleAssets.map((a) => ({
+                ticker: a.ticker,
+                name: a.name,
+                network: a.network,
+                address: a.address,
+                onChainL1Balance: a.onChain,
+                inBatchSettlementQueue: a.synthetic,
+                stakedLp: a.lpStaked,
+                totalBalance: a.totalBalance,
+                spotPriceUsd: a.spotPrice,
+                onChainUsdValue: a.onChain * a.spotPrice,
+                totalUsdValue: a.totalBalance * a.spotPrice
+            })),
+            activityEvents: walletActivityEvents
+        };
+        const dateStamp = new Date().toISOString().slice(0, 10);
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {
+            type: 'application/json'
+        });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Perennia_Treasury_Activity_${dateStamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        ui.triggerMicroBadge('treasury_export_badge', 'ACTIVITY JSON EXPORTED ✓', '#18C6A5');
+    }
+
     let autoActiveNetworks = $derived.by(() => {
         const nets = new Set<string>(activeNetworks);
-        treasury.visibleAssets.forEach(asset => {
-            if (asset.network && asset.network !== 'KAS') {
+        treasury.visibleAssets.forEach((asset) => {
+            if (asset.network && asset.network !== 'KAS' && asset.network !== 'USD') {
                 nets.add(asset.network);
             }
         });
         return Array.from(nets);
     });
 
-    // ⚡ THE FIX: Autonomously maps targeted tokens so the UI can auto-expand their parent network
     let targetedSubAssetsMap = $derived.by(() => {
         const map: Record<string, string> = {};
         for (const asset of treasury.visibleAssets) {
-            if (asset.network && asset.network !== asset.ticker && operations.targetedAssets.includes(asset.ticker)) {
+            if (
+                asset.network &&
+                asset.network !== asset.ticker &&
+                operations.targetedAssets.includes(asset.ticker)
+            ) {
                 map[asset.network] = asset.ticker;
             }
         }
         return map;
     });
 
+    let totalAccumulatedFeesUsd = $derived.by(() => {
+        if (!corporateReconciliation?.accumulatedFees) return 0;
+        let sum = corporateReconciliation.nettingProfitUsd || 0;
+        for (const [ticker, qty] of Object.entries(corporateReconciliation.accumulatedFees)) {
+            const spot =
+                treasury.getAsset(ticker).spotPrice ||
+                (ticker === 'USDC' || ticker === 'USDT' ? 1 : 0);
+            sum += (Number(qty) || 0) * spot;
+        }
+        return sum;
+    });
+
     function getDynamicSubAssets(networkTicker: string) {
         const manualTokens = userCustomTokens[networkTicker] || [];
-        const autoTokens = treasury.visibleAssets.filter(a => a.network === networkTicker && a.ticker !== networkTicker);
-        
+        const autoTokens = treasury.visibleAssets.filter(
+            (a) => a.network === networkTicker && a.ticker !== networkTicker
+        );
         const map = new Map();
-        manualTokens.forEach(t => map.set(t.symbol, t));
-        autoTokens.forEach(t => {
+        manualTokens.forEach((t) => {
+            const reg = treasury.getAsset(t.symbol);
+            map.set(t.symbol, {
+                ...t,
+                onChain: reg.onChain || t.onChain || t.balance || 0,
+                synthetic: reg.synthetic || t.synthetic || 0,
+                balance: reg.onChain || t.onChain || t.balance || 0
+            });
+        });
+        autoTokens.forEach((t) => {
             map.set(t.ticker, {
                 symbol: t.ticker,
                 name: t.name,
                 hex: t.theme?.hex || '#ffffff',
                 imgUrl: t.imgUrl,
-                balance: t.availableBalance, 
+                onChain: t.onChain,
+                synthetic: t.synthetic,
+                balance: t.onChain,
                 stakedBalance: t.stakedBalance,
                 price: t.spotPrice,
                 contract: t.contract,
@@ -102,40 +275,42 @@
 
     function getDynamicSelectedTokens(networkTicker: string) {
         const manual = selectedTokensMap[networkTicker] || [];
-        const autoTokens = treasury.visibleAssets.filter(a => a.network === networkTicker && a.ticker !== networkTicker).map(a => a.ticker);
+        const autoTokens = treasury.visibleAssets
+            .filter((a) => a.network === networkTicker && a.ticker !== networkTicker)
+            .map((a) => a.ticker);
         return Array.from(new Set([...manual, ...autoTokens]));
     }
 
     let visibleSecondaryNetworks = $derived.by(() => {
         let visible: any[] = [];
-        autoActiveNetworks.forEach(ticker => {
-            if (ticker === 'KAS') return; 
-            const net = secondaryNetworks.find(n => n.ticker === ticker);
+        autoActiveNetworks.forEach((ticker) => {
+            if (ticker === 'KAS') return;
+            const net = secondaryNetworks.find((n) => n.ticker === ticker);
             if (net) visible.push(net);
         });
-
         if (isManagingNetworks || networkSearchQuery) {
-            secondaryNetworks.forEach(net => {
+            secondaryNetworks.forEach((net) => {
                 if (net.ticker !== 'KAS' && !autoActiveNetworks.includes(net.ticker)) {
                     visible.push(net);
                 }
             });
         }
-
         const query = networkSearchQuery.toLowerCase();
         if (!query) return visible;
-
-        return visible.filter(n => {
-            if (!n || n.ticker === 'KAS') return false; 
+        return visible.filter((n) => {
+            if (!n || n.ticker === 'KAS') return false;
             const asset = treasury.getAsset(n.ticker);
             const dynamicSubs = getDynamicSubAssets(n.ticker);
-            return n.ticker?.toLowerCase().includes(query) ||
-                (asset?.name?.toLowerCase().includes(query)) ||
-                (n.standard?.toLowerCase().includes(query)) ||
-                dynamicSubs.some((t: any) => 
-                    t?.symbol?.toLowerCase().includes(query) || 
-                    t?.name?.toLowerCase().includes(query)
-                );
+            return (
+                n.ticker?.toLowerCase().includes(query) ||
+                asset?.name?.toLowerCase().includes(query) ||
+                n.standard?.toLowerCase().includes(query) ||
+                dynamicSubs.some(
+                    (t: any) =>
+                        t?.symbol?.toLowerCase().includes(query) ||
+                        t?.name?.toLowerCase().includes(query)
+                )
+            );
         });
     });
 
@@ -150,10 +325,8 @@
     function handleDragOver(event: DragEvent, ticker: string) {
         event.preventDefault();
         if (!draggedNetwork || draggedNetwork === ticker) return;
-
         const fromIdx = activeNetworks.indexOf(draggedNetwork);
         const toIdx = activeNetworks.indexOf(ticker);
-
         if (fromIdx !== -1 && toIdx !== -1) {
             const newOrder = [...activeNetworks];
             newOrder.splice(fromIdx, 1);
@@ -189,7 +362,9 @@
     function toggleTokenSelection(network: string, symbol: string) {
         if (!selectedTokensMap[network]) selectedTokensMap[network] = [];
         if (selectedTokensMap[network].includes(symbol)) {
-            selectedTokensMap[network] = selectedTokensMap[network].filter((s: string) => s !== symbol);
+            selectedTokensMap[network] = selectedTokensMap[network].filter(
+                (s: string) => s !== symbol
+            );
         } else {
             selectedTokensMap[network] = [...selectedTokensMap[network], symbol];
         }
@@ -197,10 +372,14 @@
 
     function deleteTokenFromNetwork(network: string, symbol: string) {
         if (userCustomTokens[network]) {
-            userCustomTokens[network] = userCustomTokens[network].filter((t: any) => t.symbol !== symbol);
+            userCustomTokens[network] = userCustomTokens[network].filter(
+                (t: any) => t.symbol !== symbol
+            );
         }
         if (selectedTokensMap[network]) {
-            selectedTokensMap[network] = selectedTokensMap[network].filter((s: string) => s !== symbol);
+            selectedTokensMap[network] = selectedTokensMap[network].filter(
+                (s: string) => s !== symbol
+            );
         }
     }
 
@@ -211,49 +390,111 @@
             hex: result.hex,
             imgUrl: result.imgUrl,
             balance: 0,
+            onChain: 0,
+            synthetic: 0,
             price: result.price,
             contract: result.contract,
-            badge: result.badge 
+            badge: result.badge
         });
-        
         if (!activeNetworks.includes(result.network) && result.network !== 'KAS') {
             activeNetworks = [...activeNetworks, result.network];
         }
-        
         targetAutoOpenNetwork = result.network;
         targetAutoOpenToken = result.symbol;
-        
         searchResults = [];
         networkSearchQuery = '';
+        ui.triggerMicroBadge('treasury_search', `+${result.symbol} ADDED ✓`, '#18C6A5');
     }
 
     $effect(() => {
         if (identity.sovereignKeys) {
             untrack(() => {
-                if (identity.sovereignKeys.kaspa?.address) treasury.updateAsset('KAS', { address: identity.sovereignKeys.kaspa.address });
-                if (identity.sovereignKeys.bitcoin?.address) treasury.updateAsset('BTC', { address: identity.sovereignKeys.bitcoin.address });
-                if (identity.sovereignKeys.ethereum?.address) treasury.updateAsset('ETH', { address: identity.sovereignKeys.ethereum.address });
-                if (identity.sovereignKeys.solana?.address) treasury.updateAsset('SOL', { address: identity.sovereignKeys.solana.address });
-                if (identity.sovereignKeys.doge?.address) treasury.updateAsset('DOGE', { address: identity.sovereignKeys.doge.address });
-                if (identity.sovereignKeys.xrp?.address) treasury.updateAsset('XRP', { address: identity.sovereignKeys.xrp.address });
-                if (identity.sovereignKeys.polygon?.address) treasury.updateAsset('POL', { address: identity.sovereignKeys.polygon.address });
-                if (identity.sovereignKeys.avalanche?.address) treasury.updateAsset('AVAX', { address: identity.sovereignKeys.avalanche.address });
-                if (identity.sovereignKeys.sui?.address) treasury.updateAsset('SUI', { address: identity.sovereignKeys.sui.address });
-                if (identity.sovereignKeys.tron?.address) treasury.updateAsset('TRX', { address: identity.sovereignKeys.tron.address });
-                if (identity.sovereignKeys.zcash?.address) treasury.updateAsset('ZEC', { address: identity.sovereignKeys.zcash.address });
+                if (identity.sovereignKeys.kaspa?.address)
+                    treasury.updateAsset('KAS', {
+                        address: identity.sovereignKeys.kaspa.address
+                    });
+                if (identity.sovereignKeys.bitcoin?.address)
+                    treasury.updateAsset('BTC', {
+                        address: identity.sovereignKeys.bitcoin.address
+                    });
                 if (identity.sovereignKeys.ethereum?.address) {
-                    treasury.updateAsset('ARB', { address: identity.sovereignKeys.ethereum.address });
-                    treasury.updateAsset('BASE', { address: identity.sovereignKeys.ethereum.address });
+                    treasury.updateAsset('ETH', {
+                        address: identity.sovereignKeys.ethereum.address
+                    });
+                    treasury.updateAsset('USDC', {
+                        address: identity.sovereignKeys.ethereum.address
+                    });
+                    treasury.updateAsset('USDT', {
+                        address: identity.sovereignKeys.ethereum.address
+                    });
+                    treasury.updateAsset('ARB', {
+                        address: identity.sovereignKeys.ethereum.address
+                    });
+                    treasury.updateAsset('BASE', {
+                        address: identity.sovereignKeys.ethereum.address
+                    });
                 }
+                if (identity.sovereignKeys.solana?.address)
+                    treasury.updateAsset('SOL', {
+                        address: identity.sovereignKeys.solana.address
+                    });
+                if (identity.sovereignKeys.doge?.address)
+                    treasury.updateAsset('DOGE', {
+                        address: identity.sovereignKeys.doge.address
+                    });
+                if (identity.sovereignKeys.xrp?.address)
+                    treasury.updateAsset('XRP', {
+                        address: identity.sovereignKeys.xrp.address
+                    });
+                if (identity.sovereignKeys.polygon?.address)
+                    treasury.updateAsset('POL', {
+                        address: identity.sovereignKeys.polygon.address
+                    });
+                if (identity.sovereignKeys.avalanche?.address)
+                    treasury.updateAsset('AVAX', {
+                        address: identity.sovereignKeys.avalanche.address
+                    });
+                if (identity.sovereignKeys.sui?.address)
+                    treasury.updateAsset('SUI', {
+                        address: identity.sovereignKeys.sui.address
+                    });
+                if (identity.sovereignKeys.tron?.address)
+                    treasury.updateAsset('TRX', {
+                        address: identity.sovereignKeys.tron.address
+                    });
+                if (identity.sovereignKeys.zcash?.address)
+                    treasury.updateAsset('ZEC', {
+                        address: identity.sovereignKeys.zcash.address
+                    });
+            });
+        } else if (identity.activeAddress) {
+            untrack(() => {
+                treasury.updateAsset('KAS', { address: identity.activeAddress! });
             });
         }
     });
 
     const knownTokens = [
-        { tickers: ['PAXG', 'GOLD', 'PAX GOLD'], name: 'PAX Gold', symbol: 'PAXG', hex: '#E5A93C', imgUrl: 'https://cryptologos.cc/logos/pax-gold-paxg-logo.svg?v=033', price: 2412.50, network: 'ETH', badge: 'COMMODITY' },
-        { tickers: ['XAUT', 'GOLD', 'TETHER GOLD'], name: 'Tether Gold', symbol: 'XAUT', hex: '#E5A93C', imgUrl: 'https://cryptologos.cc/logos/tether-gold-xaut-logo.svg?v=033', price: 2412.50, network: 'ETH', badge: 'COMMODITY' },
-        { tickers: ['USDC', 'USD COIN'], name: 'USD Coin', hex: '#2775CA', imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032', price: 1.00, network: 'ETH', contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
-        { tickers: ['USDT', 'TETHER'], name: 'Tether USD', hex: '#26A17B', imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032', price: 1.00, network: 'ETH', contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7' }
+        {
+            tickers: ['USDC', 'USD COIN'],
+            name: 'USD Coin',
+            symbol: 'USDC',
+            hex: '#3B82F6',
+            imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032',
+            price: 1.0,
+            network: 'ETH',
+            contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+        },
+        {
+            tickers: ['USDT', 'TETHER'],
+            name: 'Tether USD',
+            symbol: 'USDT',
+            hex: '#18C6A5',
+            imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032',
+            price: 1.0,
+            network: 'ETH',
+            contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7'
+        }
     ];
 
     function handleLiveSearch() {
@@ -264,15 +505,14 @@
             isGlobalSearching = false;
             return;
         }
-
         let localResults: any[] = [];
-        const matches = knownTokens.filter(t => 
-            t.tickers.some(tk => tk.includes(query)) || 
-            (t.symbol && t.symbol.toUpperCase().includes(query)) ||
-            t.name.toUpperCase().includes(query)
+        const matches = knownTokens.filter(
+            (t) =>
+                t.tickers.some((tk) => tk.includes(query)) ||
+                (t.symbol && t.symbol.toUpperCase().includes(query)) ||
+                t.name.toUpperCase().includes(query)
         );
-
-        matches.forEach(match => {
+        matches.forEach((match) => {
             localResults.push({
                 symbol: match.symbol || match.tickers[0],
                 name: match.name,
@@ -280,61 +520,84 @@
                 imgUrl: match.imgUrl,
                 price: match.price || 0,
                 contract: (match as any).contract || query,
-                network: match.network,
-                badge: match.badge
+                network: match.network
             });
         });
-        
         searchResults = [...localResults];
     }
 
     async function executeGlobalMasterSearch() {
         const query = networkSearchQuery.trim().toUpperCase();
         if (query.length < 2) return;
-        
         isGlobalSearching = true;
         globalSearchError = '';
-        
         try {
             let externalResults: any[] = [];
-            
-            const dsRes = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${query}`);
+            const dsRes = await fetch(
+                `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`
+            );
             if (dsRes.ok) {
                 const dsData = await dsRes.json();
                 if (dsData.pairs && dsData.pairs.length > 0) {
-                    let exactPairs = dsData.pairs.filter((p: any) => p.baseToken.symbol.toUpperCase() === query || p.baseToken.name.toUpperCase().includes(query));
+                    let exactPairs = dsData.pairs.filter(
+                        (p: any) =>
+                            p.baseToken.symbol.toUpperCase() === query ||
+                            p.baseToken.name.toUpperCase().includes(query)
+                    );
                     if (exactPairs.length === 0) exactPairs = dsData.pairs;
-                    let liquidPairs = exactPairs.filter((p: any) => parseFloat(p.liquidity?.usd || 0) > 1000);
-                    
+                    let liquidPairs = exactPairs.filter(
+                        (p: any) => parseFloat(p.liquidity?.usd || 0) > 1000
+                    );
                     let bestPairPerChain: Record<string, any> = {};
                     liquidPairs.forEach((pair: any) => {
                         const chain = pair.chainId;
-                        if (!bestPairPerChain[chain] || parseFloat(pair.liquidity.usd) > parseFloat(bestPairPerChain[chain].liquidity.usd)) {
+                        if (
+                            !bestPairPerChain[chain] ||
+                            parseFloat(pair.liquidity.usd) >
+                                parseFloat(bestPairPerChain[chain].liquidity.usd)
+                        ) {
                             bestPairPerChain[chain] = pair;
                         }
                     });
-
                     for (const [chain, pair] of Object.entries(bestPairPerChain)) {
                         let targetNetwork = '';
-                        switch(chain) {
-                            case 'ethereum': targetNetwork = 'ETH'; break;
-                            case 'solana': targetNetwork = 'SOL'; break;
-                            case 'polygon': targetNetwork = 'POL'; break;
-                            case 'avalanche': targetNetwork = 'AVAX'; break;
-                            case 'arbitrum': targetNetwork = 'ARB'; break;
-                            case 'base': targetNetwork = 'BASE'; break;
-                            case 'sui': targetNetwork = 'SUI'; break;
-                            case 'bsc': targetNetwork = 'BSC'; break;
+                        switch (chain) {
+                            case 'ethereum':
+                                targetNetwork = 'ETH';
+                                break;
+                            case 'solana':
+                                targetNetwork = 'SOL';
+                                break;
+                            case 'polygon':
+                                targetNetwork = 'POL';
+                                break;
+                            case 'avalanche':
+                                targetNetwork = 'AVAX';
+                                break;
+                            case 'arbitrum':
+                                targetNetwork = 'ARB';
+                                break;
+                            case 'base':
+                                targetNetwork = 'BASE';
+                                break;
+                            case 'sui':
+                                targetNetwork = 'SUI';
+                                break;
                         }
-
                         if (targetNetwork) {
-                            const isDup = searchResults.some(r => r.symbol === pair.baseToken.symbol.toUpperCase() && r.network === targetNetwork);
+                            const isDup = searchResults.some(
+                                (r) =>
+                                    r.symbol === pair.baseToken.symbol.toUpperCase() &&
+                                    r.network === targetNetwork
+                            );
                             if (!isDup) {
                                 externalResults.push({
                                     symbol: pair.baseToken.symbol.toUpperCase(),
                                     name: pair.baseToken.name,
-                                    hex: '#18C6A5', 
-                                    imgUrl: pair.info?.imageUrl || `https://cryptologos.cc/logos/${pair.baseToken.symbol.toLowerCase()}-${pair.baseToken.symbol.toLowerCase()}-logo.svg`,
+                                    hex: '#18C6A5',
+                                    imgUrl:
+                                        pair.info?.imageUrl ||
+                                        `https://cryptologos.cc/logos/${pair.baseToken.symbol.toLowerCase()}-${pair.baseToken.symbol.toLowerCase()}-logo.svg`,
                                     price: parseFloat(pair.priceUsd || '0'),
                                     contract: pair.baseToken.address,
                                     network: targetNetwork
@@ -344,13 +607,16 @@
                     }
                 }
             }
-
             try {
-                const kasRes = await fetch(`https://api.kasplex.org/v1/krc20/token/${query}`);
+                const kasRes = await fetch(
+                    `https://api.kasplex.org/v1/krc20/token/${encodeURIComponent(query)}`
+                );
                 if (kasRes.ok) {
                     const kasData = await kasRes.json();
                     if (kasData.result && kasData.result.length > 0) {
-                        const isDup = searchResults.some(r => r.symbol === query && r.network === 'KAS');
+                        const isDup = searchResults.some(
+                            (r) => r.symbol === query && r.network === 'KAS'
+                        );
                         if (!isDup) {
                             externalResults.push({
                                 symbol: query,
@@ -364,15 +630,15 @@
                         }
                     }
                 }
-            } catch(e) {}
-
+            } catch {
+                // Ignore KRC-20 lookup timeout
+            }
             if (externalResults.length > 0) {
                 searchResults = [...searchResults, ...externalResults];
             } else {
                 globalSearchError = `No verified liquidity found for "${query}".`;
             }
-
-        } catch(e) {
+        } catch {
             globalSearchError = 'Global on-chain indexer unreachable.';
         }
         isGlobalSearching = false;
@@ -382,22 +648,20 @@
         if (browser && identity.activeAddress && hasLoadedLocalState) {
             const stateToSave = { activeNetworks, userCustomTokens, selectedTokensMap };
             const stateString = JSON.stringify(stateToSave);
-            
             localStorage.setItem(`p_custom_tokens_${identity.activeAddress}`, stateString);
-
             clearTimeout(serverSyncTimeout);
             serverSyncTimeout = setTimeout(async () => {
                 try {
                     await fetch('/api/treasury/preferences', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            walletAddress: identity.activeAddress, 
-                            preferences: stateToSave 
+                        body: JSON.stringify({
+                            walletAddress: identity.activeAddress,
+                            preferences: stateToSave
                         })
                     });
-                } catch(e) {
-                    console.error('Failed to sync treasury layout to remote database:', e);
+                } catch {
+                    // Ignore preference sync timeout
                 }
             }, 1500);
         }
@@ -405,35 +669,46 @@
 
     async function loadTreasuryState() {
         if (!browser || !identity.activeAddress) return;
-        
         const localSaved = localStorage.getItem(`p_custom_tokens_${identity.activeAddress}`);
         if (localSaved) {
             try {
                 const data = JSON.parse(localSaved);
                 if (data.activeNetworks) {
-                    activeNetworks = Array.from(new Set(data.activeNetworks)).filter((t: any) => t !== 'KAS') as string[];
+                    activeNetworks = Array.from(new Set(data.activeNetworks)).filter(
+                        (t: any) => t !== 'KAS'
+                    ) as string[];
                 }
                 if (data.userCustomTokens) userCustomTokens = data.userCustomTokens;
                 if (data.selectedTokensMap) selectedTokensMap = data.selectedTokensMap;
-            } catch(e) {}
+            } catch {
+                // Ignore malformed local JSON
+            }
         }
-        
         try {
-            const res = await fetch(`/api/treasury/preferences?wallet=${identity.activeAddress}`);
+            const res = await fetch(
+                `/api/treasury/preferences?wallet=${encodeURIComponent(identity.activeAddress)}`
+            );
             if (res.ok) {
                 const { preferences: remoteData } = await res.json();
                 if (remoteData) {
                     if (remoteData.activeNetworks) {
-                        activeNetworks = Array.from(new Set(remoteData.activeNetworks)).filter((t: any) => t !== 'KAS') as string[];
+                        activeNetworks = Array.from(new Set(remoteData.activeNetworks)).filter(
+                            (t: any) => t !== 'KAS'
+                        ) as string[];
                     }
-                    if (remoteData.userCustomTokens) userCustomTokens = remoteData.userCustomTokens;
-                    if (remoteData.selectedTokensMap) selectedTokensMap = remoteData.selectedTokensMap;
-                    
-                    localStorage.setItem(`p_custom_tokens_${identity.activeAddress}`, JSON.stringify(remoteData));
+                    if (remoteData.userCustomTokens)
+                        userCustomTokens = remoteData.userCustomTokens;
+                    if (remoteData.selectedTokensMap)
+                        selectedTokensMap = remoteData.selectedTokensMap;
+                    localStorage.setItem(
+                        `p_custom_tokens_${identity.activeAddress}`,
+                        JSON.stringify(remoteData)
+                    );
                 }
             }
-        } catch(e) {}
-
+        } catch {
+            // Ignore remote preference read error
+        }
         hasLoadedLocalState = true;
     }
 
@@ -446,314 +721,926 @@
     let ringSegments = $derived.by(() => {
         let cumulativePercent = 0;
         const vaultValue = treasury.totalVaultValue;
-
         return treasury.visibleAssets.map((asset) => {
-            let usdValue = asset.totalBalance * asset.spotPrice;
+            const usdValue = asset.totalBalance * asset.spotPrice;
             const percent = vaultValue > 0 ? (usdValue / vaultValue) * 100 : 0;
             const offset = -cumulativePercent;
             cumulativePercent += percent;
-            return { ...asset, usdValue, percent, dasharray: `${percent} ${100 - percent}`, dashoffset: offset };
+            return {
+                ...asset,
+                usdValue,
+                percent,
+                dasharray: `${percent} ${100 - percent}`,
+                dashoffset: offset
+            };
         });
     });
 
     async function fetchSyntheticLedger() {
         if (!identity.isWalletConnected || !identity.activeAddress) return;
         try {
-            const res = await fetch(`/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`);
+            const res = await fetch(
+                `/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`
+            );
             if (res.ok) {
                 const ledgerBalances = await res.json();
                 for (const [ticker, amount] of Object.entries(ledgerBalances)) {
-                    treasury.updateAsset(ticker.toUpperCase(), { synthetic: Number(amount) || 0 });
+                    if (
+                        ticker !== 'unassignedReserveKas' &&
+                        ticker !== 'unassignedReserveTargetKas'
+                    ) {
+                        treasury.updateAsset(ticker.toUpperCase(), {
+                            synthetic: Number(amount) || 0
+                        });
+                    }
                 }
             }
-        } catch (e) {}
+        } catch {
+            // Ignore ledger fetch timeout
+        }
+    }
+
+    async function fetchWalletActivity() {
+        if (!identity.isWalletConnected || !identity.activeAddress) return;
+        try {
+            const res = await fetch('/api/user/tax-events');
+            if (res.ok) {
+                const events = await res.json();
+                if (Array.isArray(events)) {
+                    walletActivityEvents = events;
+                    ui.taxEvents = events;
+                }
+            }
+        } catch {
+            // Ignore activity fetch timeout
+        }
+    }
+
+    async function fetchErc20AndL2Balances(evmAddress: string) {
+        if (!evmAddress || evmAddress.includes('Awaiting')) return;
+        const cleanHex = evmAddress.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+        const balanceOfData = `0x70a08231${cleanHex}`;
+        const queries = [
+            {
+                ticker: 'USDC',
+                rpc: 'https://ethereum-rpc.publicnode.com',
+                method: 'eth_call',
+                params: [
+                    {
+                        to: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+                        data: balanceOfData
+                    },
+                    'latest'
+                ],
+                decimals: 6
+            },
+            {
+                ticker: 'USDT',
+                rpc: 'https://ethereum-rpc.publicnode.com',
+                method: 'eth_call',
+                params: [
+                    {
+                        to: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+                        data: balanceOfData
+                    },
+                    'latest'
+                ],
+                decimals: 6
+            },
+            {
+                ticker: 'ARB',
+                rpc: 'https://arbitrum-one-rpc.publicnode.com',
+                method: 'eth_getBalance',
+                params: [evmAddress, 'latest'],
+                decimals: 18
+            },
+            {
+                ticker: 'BASE',
+                rpc: 'https://base-rpc.publicnode.com',
+                method: 'eth_getBalance',
+                params: [evmAddress, 'latest'],
+                decimals: 18
+            }
+        ];
+
+        await Promise.allSettled(
+            queries.map(async (q) => {
+                const res = await fetch(q.rpc, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: q.method,
+                        params: q.params
+                    }),
+                    signal: AbortSignal.timeout(4500)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.result && data.result !== '0x') {
+                        const raw = BigInt(data.result);
+                        const divisor = 10 ** q.decimals;
+                        const bal = Number(raw) / divisor;
+                        treasury.updateAsset(q.ticker, { onChain: bal });
+                    }
+                }
+            })
+        );
+    }
+
+    async function fetchKrc20OnChainBalances(kasAddress: string) {
+        if (!kasAddress || kasAddress.includes('Awaiting')) return;
+        const formatted = kasAddress.startsWith('kaspa:')
+            ? kasAddress
+            : `kaspa:${kasAddress}`;
+        try {
+            const res = await fetch(
+                `https://api.kasplex.org/v1/krc20/address/${encodeURIComponent(formatted)}/tokenlist`,
+                { signal: AbortSignal.timeout(4500) }
+            );
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data?.result)) {
+                    for (const item of data.result) {
+                        const tick = String(item.tick || '').trim().toUpperCase();
+                        const dec = Number(item.dec ?? 8);
+                        const rawBal = Number(item.balance || 0);
+                        if (tick && rawBal > 0) {
+                            const normalizedBal = rawBal / Math.pow(10, dec);
+                            treasury.updateAsset(tick, {
+                                name: `${tick} (KRC-20)`,
+                                assetClass: 'Ecosystem',
+                                network: 'KAS',
+                                onChain: normalizedBal
+                            });
+                            addTokenToNetwork('KAS', {
+                                symbol: tick,
+                                name: `${tick} (KRC-20)`,
+                                hex: '#18C6A5',
+                                imgUrl: `https://storage.googleapis.com/kasfyi/token-icons/${tick.toLowerCase()}.png`,
+                                balance: normalizedBal,
+                                onChain: normalizedBal,
+                                price: treasury.getAsset(tick).spotPrice || 0,
+                                contract: tick,
+                                badge: 'KRC-20'
+                            });
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Ignore Kasplex public indexer timeout
+        }
     }
 
     async function fetchOmniChainInventory() {
         if (!identity.isWalletConnected || !identity.activeAddress) return;
         try {
+            const kasAddr =
+                identity.sovereignKeys?.kaspa?.address || identity.activeAddress || '';
+            const ethAddr = identity.sovereignKeys?.ethereum?.address || '';
             const params = new URLSearchParams({
-                kas: identity.sovereignKeys?.kaspa?.address || identity.activeAddress,
+                kas: kasAddr,
                 btc: identity.sovereignKeys?.bitcoin?.address || '',
-                eth: identity.sovereignKeys?.ethereum?.address || '',
-                sol: identity.sovereignKeys?.solana?.address || ''
+                eth: ethAddr,
+                sol: identity.sovereignKeys?.solana?.address || '',
+                doge: identity.sovereignKeys?.doge?.address || '',
+                xrp: identity.sovereignKeys?.xrp?.address || '',
+                pol: identity.sovereignKeys?.polygon?.address || '',
+                avax: identity.sovereignKeys?.avalanche?.address || '',
+                sui: identity.sovereignKeys?.sui?.address || '',
+                trx: identity.sovereignKeys?.tron?.address || '',
+                zec: identity.sovereignKeys?.zcash?.address || ''
             });
-
+            if (identity.isCorporateAdmin) {
+                params.set('corporate', 'true');
+            }
             const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
             if (res.ok) {
                 const estate = await res.json();
                 estate.assets.forEach((onChainAsset: any) => {
-                    if (onChainAsset.balance !== undefined && onChainAsset.address && !onChainAsset.address.includes('Awaiting')) {
-                        treasury.updateAsset(onChainAsset.symbol.toUpperCase(), { onChain: onChainAsset.balance });
+                    if (
+                        onChainAsset.balance !== undefined &&
+                        onChainAsset.address &&
+                        !onChainAsset.address.includes('Awaiting')
+                    ) {
+                        treasury.updateAsset(onChainAsset.symbol.toUpperCase(), {
+                            onChain: onChainAsset.balance
+                        });
                     }
                 });
+                if (identity.isCorporateAdmin && estate.reconciliation) {
+                    corporateReconciliation = estate.reconciliation;
+                }
             }
-        } catch (e) {}
+            if (ethAddr) {
+                fetchErc20AndL2Balances(ethAddr);
+            }
+            if (kasAddr) {
+                fetchKrc20OnChainBalances(kasAddr);
+            }
+        } catch {
+            // Ignore omni-chain hydration error
+        }
     }
 
-    let fetchInterval: ReturnType<typeof setInterval>;
-    let omniChainInterval: ReturnType<typeof setInterval>;
+    function handleRealtimeSseSync() {
+        if (!identity.isWalletConnected) return;
+        fetchSyntheticLedger();
+        fetchWalletActivity();
+        fetchOmniChainInventory();
+    }
+
+    let refreshInterval: ReturnType<typeof setInterval>;
 
     onMount(() => {
-        if (identity.isWalletConnected) { 
-            fetchOmniChainInventory(); 
-            fetchSyntheticLedger();
-        }
-
-        fetchInterval = setInterval(() => { 
-            if (identity.isWalletConnected) {
-                fetchOmniChainInventory(); 
-                fetchSyntheticLedger();
-            }
-        }, 10000);
-
         if (browser) {
-            window.addEventListener('storage', (e) => {
-                if (e.key === `p_custom_tokens_${identity.activeAddress}`) {
-                    const saved = localStorage.getItem(`p_custom_tokens_${identity.activeAddress}`);
-                    if (saved) {
-                        try {
-                            const data = JSON.parse(saved);
-                            if (data.activeNetworks) {
-                                activeNetworks = Array.from(new Set(data.activeNetworks)).filter((t: any) => t !== 'KAS') as string[];
-                            }
-                            if (data.userCustomTokens) userCustomTokens = data.userCustomTokens;
-                            if (data.selectedTokensMap) selectedTokensMap = data.selectedTokensMap;
-                        } catch(err) {}
-                    }
-                }
-            });
+            window.addEventListener('perennia:yield_update', handleRealtimeSseSync);
+            window.addEventListener('perennia:fiat_event', handleRealtimeSseSync);
         }
-
-        omniChainInterval = setInterval(fetchOmniChainInventory, 15000);
+        if (identity.isWalletConnected) {
+            fetchOmniChainInventory();
+            fetchSyntheticLedger();
+            fetchWalletActivity();
+        }
+        refreshInterval = setInterval(() => {
+            if (identity.isWalletConnected) {
+                fetchOmniChainInventory();
+                fetchSyntheticLedger();
+                fetchWalletActivity();
+            }
+        }, 12000);
     });
 
     onDestroy(() => {
-        if (fetchInterval) clearInterval(fetchInterval);
-        if (omniChainInterval) clearInterval(omniChainInterval);
+        if (browser) {
+            window.removeEventListener('perennia:yield_update', handleRealtimeSseSync);
+            window.removeEventListener('perennia:fiat_event', handleRealtimeSseSync);
+        }
+        if (refreshInterval) clearInterval(refreshInterval);
+        clearTimeout(serverSyncTimeout);
     });
 </script>
 
-<div class="w-full h-full min-h-[100dvh] bg-app text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto animate-[fade-in-up_0.3s_ease-out] relative">
+<div
+    class="w-full h-full min-h-[100dvh] bg-app text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto relative"
+    data-tour="treasury-vault"
+>
     {#if !identity.isWalletConnected}
-        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505]/98 p-6 text-center">
-            <h2 class="text-2xl md:text-4xl font-medium uppercase tracking-[0.2em] text-neutral-500 mb-4">TREASURY LOCKED</h2>
+        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#06080b]/95 p-6 text-center gap-4">
+            <h2 class="text-2xl md:text-4xl font-black uppercase tracking-[0.2em] text-neutral-400">
+                TREASURY LOCKED
+            </h2>
+            <button
+                type="button"
+                onclick={() => (ui.showWalletModal = true)}
+                class="tactile-btn px-6 py-3 rounded-xl text-[#18C6A5] border-[#18C6A5]/40 text-xs font-black uppercase tracking-widest cursor-pointer"
+            >
+                Unlock Sovereign Vault
+            </button>
         </div>
     {/if}
 
-    <div class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-8 transition-opacity duration-500 {!identity.isWalletConnected ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative">
+    <div
+        class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-6 transition-opacity duration-500 {!identity.isWalletConnected ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative"
+    >
+        <div
+            class="bg-[#0a0d12] border border-white/10 rounded-2xl px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative"
+            style="background-image: radial-gradient(ellipse at left, {identity.isVaultUnlocked ? 'rgba(24, 198, 165, 0.10)' : 'rgba(245, 158, 11, 0.10)'}, transparent 65%);"
+        >
+            {#if ui.microBadges['treasury_export_badge']}
+                <div class="micro-confirm-badge absolute -top-3 right-6 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl">
+                    {ui.microBadges['treasury_export_badge'].label}
+                </div>
+            {/if}
+            <div class="flex items-center gap-3">
+                <span
+                    class="w-2 h-2 rounded-full {identity.isVaultUnlocked ? 'bg-[#18C6A5]' : 'bg-amber-400 animate-pulse'}"
+                ></span>
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-white">
+                        {identity.isCorporateAdmin
+                            ? `Master Treasury Session: ${identity.isVaultUnlocked ? 'Sovereign Cipher Unlocked' : 'Locked'}`
+                            : `Sovereign Vault Session: ${identity.isVaultUnlocked ? 'Unlocked & Active' : 'Locked'}`}
+                    </span>
+                    <span class="text-[9px] text-neutral-400">
+                        {identity.isVaultUnlocked
+                            ? '11-Chain Sovereign Vault unlocked for client-side L1 transfers, KRC-20 inscriptions, and UTXO compounding.'
+                            : 'Unlock your vault password to sign 11-chain L1 transactions or withdraw funds.'}
+                    </span>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                    type="button"
+                    data-testid="launch-tax-fortress-btn"
+                    onclick={() => (ui.activeTab = 'TAX FORTRESS')}
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-widest text-amber-400 border-amber-500/40 cursor-pointer"
+                    title="Open Zero-PII 2026 Jurisdiction Tax Fortress & 1099-DA / 8949 Compiler"
+                >
+                    [Tax Fortress v4 →]
+                </button>
+                <button
+                    type="button"
+                    onclick={exportFullVaultActivityCsv}
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                    title="Export complete immutable yield, swap, and fiat settlement history as CSV"
+                >
+                    [Export Activity CSV]
+                </button>
+                <button
+                    type="button"
+                    onclick={exportFullVaultActivityJson}
+                    class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
+                    title="Export complete vault snapshot and settlement ledger as JSON"
+                >
+                    [Export JSON]
+                </button>
+                {#if !identity.isVaultUnlocked}
+                    <button
+                        type="button"
+                        onclick={() => (ui.showWalletModal = true)}
+                        class="tactile-btn shrink-0 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-amber-400 border-amber-500/35 cursor-pointer"
+                    >
+                        Unlock Vault
+                    </button>
+                {/if}
+            </div>
+        </div>
 
-        <div class="bg-[#0a0a0a] border border-[#18C6A5]/20 rounded-[32px] shadow-[0_0_40px_rgba(24,198,165,0.15)] relative overflow-hidden group">
-            <div class="relative z-10 p-8 lg:p-10 flex flex-col md:flex-row items-center justify-between gap-10">
-                <div class="flex flex-col md:flex-row items-center w-full gap-10">
+        {#if identity.isCorporateAdmin}
+            <div
+                class="tactile-card bg-[#0a0d12] border border-white/15 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
+                style="background-image: radial-gradient(ellipse at top right, rgba(245, 158, 11, 0.12), rgba(24, 198, 165, 0.08) 45%, transparent 70%);"
+            >
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-[#11161f] border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs">
+                            MT
+                        </div>
+                        <div class="flex flex-col">
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
+                                    Master Treasury Organization &amp; Reconciliation Console
+                                </h2>
+                                <span class="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[8px] font-mono font-black uppercase">
+                                    DIRECTOR CLEARANCE
+                                </span>
+                            </div>
+                            <span class="text-[9px] font-mono text-neutral-400 mt-0.5">
+                                Dark Pool Order-Book Netting Queue • Protocol Fee Reserves • LP Bucket Skew • Corporate Estate Organization
+                            </span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onclick={() => {
+                                fetchOmniChainInventory();
+                                fetchSyntheticLedger();
+                                fetchWalletActivity();
+                                ui.triggerMicroBadge('corp_reconcile_sync', 'RECONCILED ✓', '#18C6A5');
+                            }}
+                            class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-mono font-bold uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
+                        >
+                            Sync Telemetry ↻
+                        </button>
+                        <button
+                            type="button"
+                            onclick={() => (isDirectorConsoleOpen = !isDirectorConsoleOpen)}
+                            class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
+                        >
+                            {isDirectorConsoleOpen ? 'Collapse ▴' : 'Expand ▾'}
+                        </button>
+                    </div>
+                </div>
+                {#if isDirectorConsoleOpen}
+                    <div transition:slide class="flex flex-col gap-5">
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+                                    Dark Pool Netting Queue
+                                </span>
+                                <div class="flex items-baseline justify-between mt-1.5">
+                                    <span class="text-lg font-mono font-black text-white tabular-nums">
+                                        {corporateReconciliation?.nettingQueueLength ?? 0} Orders
+                                    </span>
+                                    <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
+                                        +{corporateReconciliation?.passthroughQueueLength ?? 0} Pass-Through
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+                                    Unhedged Delta Exposure
+                                </span>
+                                <div class="flex items-baseline justify-between mt-1.5">
+                                    <span class="text-lg font-mono font-black {(corporateReconciliation?.unhedgedDeltaKas ?? 0) < 0 ? 'text-amber-400' : 'text-[#18C6A5]'} tabular-nums">
+                                        {(corporateReconciliation?.unhedgedDeltaKas ?? 0).toFixed(2)} KAS
+                                    </span>
+                                    <span class="text-[8px] font-mono text-neutral-400 uppercase">
+                                        {corporateReconciliation?.hedgeStatus?.cexConfigured ? 'MEXC ARMED' : 'LP SKEW GUARD'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+                                    Uncompounded Fee Reserve
+                                </span>
+                                <div class="flex items-baseline justify-between mt-1.5">
+                                    <span class="text-lg font-mono font-black text-[#18C6A5] tabular-nums">
+                                        ${totalAccumulatedFeesUsd.toFixed(2)}
+                                    </span>
+                                    <span class="text-[8px] font-mono text-neutral-400 uppercase">
+                                        Auto-2.5x LP @ ≥$5
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+                                    FPPS Solvency Headroom
+                                </span>
+                                <div class="flex items-baseline justify-between mt-1.5">
+                                    <span class="text-lg font-mono font-black text-white tabular-nums">
+                                        {(corporateReconciliation?.fppsSolvency?.availableHeadroomKas ?? 50).toFixed(2)} KAS
+                                    </span>
+                                    <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
+                                        Factor: {((corporateReconciliation?.fppsSolvency?.elasticStreamingFactor ?? 1) * 100).toFixed(0)}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-[#11161f] p-1.5 rounded-2xl border border-white/10">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onclick={() => (activeDirectorTab = 'reconciliation')}
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'reconciliation' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                >
+                                    Order-Book Reconciliation
+                                </button>
+                                <button
+                                    type="button"
+                                    onclick={() => (activeDirectorTab = 'fees')}
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'fees' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                >
+                                    Protocol Fees by Asset
+                                </button>
+                                <button
+                                    type="button"
+                                    onclick={() => (activeDirectorTab = 'buckets')}
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'buckets' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                >
+                                    LP Bucket Coverage &amp; Skew
+                                </button>
+                                <button
+                                    type="button"
+                                    onclick={() => (activeDirectorTab = 'organization')}
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'organization' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                >
+                                    Corporate Vault Organization
+                                </button>
+                            </div>
+                            <span class="text-[8px] font-mono text-neutral-500 uppercase px-2">
+                                22:00 UTC Bell in {operations.formatEpochCountdown()}
+                            </span>
+                        </div>
+                        {#if activeDirectorTab === 'reconciliation'}
+                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+                                <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
+                                    <span class="text-[10px] font-black uppercase tracking-widest text-white">
+                                        Live Dark Pool Netting Queue &amp; Solvency Ledger
+                                    </span>
+                                    <span class="text-[9px] font-mono text-neutral-400">
+                                        L1 Blocks Won: {(corporateReconciliation?.fppsSolvency?.l1BlocksWonKas ?? 0).toFixed(2)} KAS | Streamed: {(corporateReconciliation?.fppsSolvency?.externalStreamedKas ?? 0).toFixed(4)} KAS
+                                    </span>
+                                </div>
+                                {#if corporateReconciliation?.recentNettingOrders && corporateReconciliation.recentNettingOrders.length > 0}
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-left border-collapse text-[10px] font-mono">
+                                            <thead>
+                                                <tr class="border-b border-white/10 text-neutral-500 uppercase">
+                                                    <th class="py-2 px-3">Wallet</th>
+                                                    <th class="py-2 px-3">Direction</th>
+                                                    <th class="py-2 px-3">Target</th>
+                                                    <th class="py-2 px-3 text-right">KAS Volume</th>
+                                                    <th class="py-2 px-3 text-right">Est. Output</th>
+                                                    <th class="py-2 px-3 text-right">Fee USD</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {#each corporateReconciliation.recentNettingOrders as ord}
+                                                    <tr class="border-b border-white/5 hover:bg-[#0a0d12]/60">
+                                                        <td class="py-2 px-3 text-neutral-300">
+                                                            {String(ord.wallet || '').slice(0, 16)}...
+                                                        </td>
+                                                        <td class="py-2 px-3 text-[#18C6A5] font-bold">
+                                                            {ord.direction}
+                                                        </td>
+                                                        <td class="py-2 px-3 text-white">
+                                                            {ord.target_asset || 'USDC'}
+                                                        </td>
+                                                        <td class="py-2 px-3 text-right text-white tabular-nums">
+                                                            {Number(ord.amount_kas || 0).toFixed(4)}
+                                                        </td>
+                                                        <td class="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                                                            {Number(ord.estimated_output || 0).toFixed(6)}
+                                                        </td>
+                                                        <td class="py-2 px-3 text-right text-amber-400 tabular-nums">
+                                                            ${Number(ord.fee_captured_usd || 0).toFixed(4)}
+                                                        </td>
+                                                    </tr>
+                                                {/each}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                {:else}
+                                    <div class="py-6 text-center text-[10px] font-mono text-neutral-400 border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/50">
+                                        Dark Pool netting queue is currently clear (all pending batch orders reconciled into double-entry ledgers &amp; 365D House LP).
+                                    </div>
+                                {/if}
+                            </div>
+                        {:else if activeDirectorTab === 'fees'}
+                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                                {#each Object.entries(corporateReconciliation?.accumulatedFees || { KAS: 0, USDC: 0, BTC: 0, ETH: 0, SOL: 0 }) as [sym, feeAmt]}
+                                    {@const assetObj = treasury.getAsset(sym)}
+                                    {@const usdVal = (Number(feeAmt) || 0) * (assetObj.spotPrice || (sym === 'USDC' || sym === 'USDT' ? 1 : 0))}
+                                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-[10px] font-black text-white">{sym}</span>
+                                            <span class="text-[8px] font-mono text-[#18C6A5]">
+                                                ${usdVal.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <span class="text-xs font-mono font-bold text-neutral-200 tabular-nums">
+                                            {Number(feeAmt || 0).toFixed(6)}
+                                        </span>
+                                        <span class="text-[8px] font-mono text-neutral-500 uppercase">
+                                            Batch Fee Buffer
+                                        </span>
+                                    </div>
+                                {/each}
+                            </div>
+                        {:else if activeDirectorTab === 'buckets'}
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {#each operations.displayedBuckets as bucket (bucket.asset)}
+                                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-xs font-black text-white">
+                                                KAS / {bucket.asset} Bucket
+                                            </span>
+                                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[8px] font-mono text-[#18C6A5] uppercase">
+                                                {bucket.status}
+                                            </span>
+                                        </div>
+                                        <div class="grid grid-cols-3 gap-2 text-[9px] font-mono">
+                                            <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
+                                                <span class="text-[8px] text-neutral-500 block uppercase">Weight</span>
+                                                <span class="text-white font-bold">{bucket.weightPct.toFixed(1)}%</span>
+                                            </div>
+                                            <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
+                                                <span class="text-[8px] text-neutral-500 block uppercase">LP Coverage</span>
+                                                <span class="text-[#18C6A5] font-bold">{bucket.lpCoveragePct.toFixed(0)}%</span>
+                                            </div>
+                                            <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
+                                                <span class="text-[8px] text-neutral-500 block uppercase">Spread Floor</span>
+                                                <span class="text-amber-400 font-bold">{bucket.effectiveSpreadFloorPct.toFixed(2)}%</span>
+                                            </div>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-mono text-neutral-400">
+                                            <span>Pending: {bucket.pendingKas.toFixed(2)} KAS (${bucket.pendingUsd.toFixed(2)})</span>
+                                            <span>LP Cap: {bucket.lpAvailableKasCapacity.toFixed(1)} KAS</span>
+                                        </div>
+                                    </div>
+                                {/each}
+                            </div>
+                        {:else if activeDirectorTab === 'organization'}
+                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                <div class="flex flex-col gap-1">
+                                    <span class="text-[10px] font-black uppercase tracking-widest text-white">
+                                        Corporate Multi-Chain Vault Organization
+                                    </span>
+                                    <span class="text-[9px] text-neutral-400 leading-relaxed">
+                                        Reorder active corporate chain rows, toggle secondary network visibility, or inspect individual wallet layouts using SysAdmin target mode.
+                                    </span>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onclick={() => {
+                                            isOrganizing = !isOrganizing;
+                                            isAllNetworksDrawerOpen = true;
+                                        }}
+                                        class="tactile-btn px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {isOrganizing ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
+                                    >
+                                        {isOrganizing ? 'Finish Drag Reorder ✓' : 'Drag-Order Chains'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onclick={() => {
+                                            isManagingNetworks = !isManagingNetworks;
+                                            isAllNetworksDrawerOpen = true;
+                                        }}
+                                        class="tactile-btn px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
+                                    >
+                                        {isManagingNetworks ? 'Done Toggling ✓' : 'Toggle Active Chains'}
+                                    </button>
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+            </div>
+        {/if}
+
+        <div
+            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[28px] shadow-2xl relative overflow-hidden group"
+            style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 60%);"
+        >
+            <div class="relative z-10 p-8 lg:p-10 flex flex-col gap-6">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-8">
                     <div class="flex flex-col items-center md:items-start text-center md:text-left">
-                        <span class="text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-500 mb-2 flex items-center gap-2">
-                            <div class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></div> Total Vault Portfolio Value
+                        <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2 flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></span>
+                            Total Vault Portfolio Value (On-Chain L1 + Batch Queue + Staked LP)
                         </span>
-                        <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                            ${treasury.totalVaultValue.toLocaleString('en-US', { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}
+                        <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
+                            ${treasury.totalVaultValue.toLocaleString('en-US', {
+                                minimumFractionDigits: settingsStore.fiatDecimals,
+                                maximumFractionDigits: settingsStore.fiatDecimals
+                            })}
                         </span>
+                    </div>
+                    <div class="flex flex-col items-end gap-3 self-center lg:self-end relative z-20">
+                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0">
+                            {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
+                                <button
+                                    type="button"
+                                    onclick={() => (timeframe = tf as any)}
+                                    class="px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {timeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}"
+                                >
+                                    {tf}
+                                </button>
+                            {/each}
+                        </div>
+                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 w-fit">
+                            <button
+                                type="button"
+                                onclick={() => (displayUnit = 'token')}
+                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}"
+                            >
+                                Token
+                            </button>
+                            <button
+                                type="button"
+                                onclick={() => (displayUnit = 'usd')}
+                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}"
+                            >
+                                USD
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="flex flex-col items-end gap-3 self-center lg:self-end mt-6 lg:mt-0 relative z-20">
-                    <div class="flex items-center bg-[#111] border border-neutral-800 rounded-xl p-1 shrink-0 overflow-x-auto max-w-[280px] md:max-w-full no-scrollbar">
-                        {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
-                            <button onclick={() => timeframe = tf as any} class="px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {timeframe === tf ? 'bg-[#18C6A5] text-black shadow-md' : 'text-neutral-500 hover:text-white'}">{tf}</button>
-                        {/each}
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/10 pt-5">
+                    <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
+                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
+                            On-Chain L1 Balance (Explorer Parity)
+                        </span>
+                        <span class="text-xs font-mono font-black text-[#18C6A5] tabular-nums">
+                            ${totalOnChainUsd.toLocaleString(undefined, {
+                                minimumFractionDigits: settingsStore.fiatDecimals,
+                                maximumFractionDigits: settingsStore.fiatDecimals
+                            })}
+                        </span>
                     </div>
-
-                    <div class="flex items-center bg-[#111] border border-neutral-800 rounded-xl p-1 shrink-0 w-fit">
-                        <button onclick={() => displayUnit = 'token'} class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#18C6A5] text-black shadow-md' : 'text-neutral-500 hover:text-white'}">Token</button>
-                        <button onclick={() => displayUnit = 'usd'} class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#18C6A5] text-black shadow-md' : 'text-neutral-500 hover:text-white'}">USD</button>
+                    <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
+                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
+                            In Batch Settlement Queue
+                        </span>
+                        <span class="text-xs font-mono font-black text-amber-400 tabular-nums">
+                            ${totalBatchQueueUsd.toLocaleString(undefined, {
+                                minimumFractionDigits: settingsStore.fiatDecimals,
+                                maximumFractionDigits: settingsStore.fiatDecimals
+                            })}
+                        </span>
+                    </div>
+                    <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
+                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
+                            Active LP Staked
+                        </span>
+                        <span class="text-xs font-mono font-black text-blue-400 tabular-nums">
+                            ${totalStakedLpUsd.toLocaleString(undefined, {
+                                minimumFractionDigits: settingsStore.fiatDecimals,
+                                maximumFractionDigits: settingsStore.fiatDecimals
+                            })}
+                        </span>
                     </div>
                 </div>
             </div>
 
             <div class="absolute right-[-40px] top-[-40px] w-64 h-64 opacity-30 pointer-events-none hidden lg:block">
                 <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
-                    <circle cx="18" cy="18" r="15.915" fill="none" stroke="#222" stroke-width="2.5"></circle>
+                    <circle cx="18" cy="18" r="15.915" fill="none" stroke="#161d29" stroke-width="2.5"></circle>
                     {#each ringSegments as segment}
-                        <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.theme.hex} stroke-width={activeHoverSegment === segment.ticker ? "4" : "2.5"} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
+                        <circle
+                            cx="18"
+                            cy="18"
+                            r="15.915"
+                            fill="none"
+                            stroke={segment.theme.hex}
+                            stroke-width={activeHoverSegment === segment.ticker ? '4' : '2.5'}
+                            stroke-dasharray={segment.dasharray}
+                            stroke-dashoffset={segment.dashoffset}
+                            class="transition-all duration-300"
+                        ></circle>
                     {/each}
                 </svg>
             </div>
         </div>
 
-        <div class="flex justify-center -mt-2 mb-2 relative z-20">
-            <button onclick={() => isOrganizing = !isOrganizing} class="bg-[#111] hover:bg-[#1a1a1a] border border-neutral-800 text-neutral-400 hover:text-white px-5 py-2 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2 shadow-md cursor-pointer">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
-                {isOrganizing ? 'Done Organizing' : 'Organize Tokens'}
-            </button>
-        </div>
+        <NetworkRow
+            asset={treasury.getAsset('KAS') as any}
+            subAssets={getDynamicSubAssets('KAS')}
+            selectedTokens={getDynamicSelectedTokens('KAS')}
+            onToggleToken={(s: string) => toggleTokenSelection('KAS', s)}
+            onDeleteToken={(s: string) => deleteTokenFromNetwork('KAS', s)}
+            standardLabel="KRC-20"
+            searchQuery={networkSearchQuery}
+            {activeHoverSegment}
+            onHover={(v: string | null) => (activeHoverSegment = v)}
+            {displayUnit}
+            {timeframe}
+            fiatDecimals={settingsStore.fiatDecimals}
+            tokenDecimals={settingsStore.tokenDecimals}
+            isManagingNetworks={false}
+            isOrganizing={false}
+            isNetworkSelected={true}
+            autoOpenToken={targetAutoOpenNetwork === 'KAS' ? targetAutoOpenToken : targetedSubAssetsMap['KAS'] || null}
+            ledgerEvents={walletActivityEvents}
+        />
 
         <div class="flex flex-col gap-4 w-full relative">
-
-            <div class="bg-[#050505] border border-neutral-800/80 hover:border-neutral-700 rounded-[24px] shadow-xl w-full p-4 lg:p-6 flex flex-col lg:flex-row items-center justify-between gap-4 transition-colors cursor-pointer {isAllNetworksDrawerOpen ? 'border-neutral-600' : ''}" onclick={() => {
-                isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen;
-                if (!isAllNetworksDrawerOpen) {
-                    isManagingNetworks = false;
-                    networkSearchQuery = '';
-                    searchResults = [];
-                }
-            }}>
-                <div class="flex items-center gap-4 w-full lg:w-auto">
-                    <div class="w-10 h-10 rounded-xl bg-[#0a0a0a] border border-neutral-800 flex items-center justify-center text-neutral-500 shadow-inner shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+            <div
+                class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-4 lg:p-5 flex flex-col lg:flex-row items-center justify-between gap-4"
+            >
+                <button
+                    type="button"
+                    onclick={() => (isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen)}
+                    class="flex items-center gap-4 w-full lg:w-auto text-left bg-transparent border-none cursor-pointer"
+                >
+                    <div class="w-10 h-10 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center text-[#18C6A5] shrink-0">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
                     </div>
-                    <div class="flex flex-col items-start text-left flex-1">
-                        <span class="text-xs md:text-sm font-bold uppercase tracking-widest text-white">All Networks</span>
-                        <span class="text-[9px] text-neutral-500 mt-0.5">Sovereign Multi-Chain Key Derivations & Ecosystem Assets</span>
+                    <div class="flex flex-col">
+                        <span class="text-xs md:text-sm font-bold uppercase tracking-widest text-white">
+                            Sovereign Multi-Chain Derivations
+                        </span>
+                        <span class="text-[9px] text-neutral-500 mt-0.5">
+                            Universal Multi-Chain Token Search &amp; 11-Chain Key Matrix
+                        </span>
                     </div>
-                    <svg class="w-5 h-5 text-neutral-500 transform transition-transform duration-300 {isAllNetworksDrawerOpen ? 'rotate-180' : ''} lg:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                </div>
-                
-                <div class="flex items-center gap-3 w-full lg:w-auto justify-end" onclick={(e) => e.stopPropagation()}>
+                </button>
+                <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
                     <div class="relative flex-1 lg:w-[300px]">
-                        <input 
-                            type="text" 
-                            bind:value={networkSearchQuery} 
-                            oninput={() => { 
-                                if(networkSearchQuery.trim().length > 0) isAllNetworksDrawerOpen = true;
+                        {#if ui.microBadges['treasury_search']}
+                            <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">
+                                {ui.microBadges['treasury_search'].label}
+                            </div>
+                        {/if}
+                        <input
+                            type="text"
+                            bind:value={networkSearchQuery}
+                            oninput={() => {
+                                if (networkSearchQuery.trim().length > 0)
+                                    isAllNetworksDrawerOpen = true;
                                 handleLiveSearch();
                             }}
-                            placeholder="Search blockchains or Web3 tokens..." 
-                            class="w-full bg-[#111] border border-neutral-800 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-8 text-xs font-mono text-white outline-none transition-colors" 
+                            placeholder="Search chains or add Web3 token..."
+                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-8 text-xs font-mono text-white outline-none transition-colors"
                         />
-                        <svg class="absolute left-3 top-3 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                        
-                        <div class="absolute right-3 top-2.5 flex items-center justify-center">
-                            {#if isGlobalSearching}
-                                <div class="w-3.5 h-3.5 border-2 border-neutral-600 border-t-[#18C6A5] rounded-full animate-spin"></div>
-                            {:else if networkSearchQuery}
-                                <button aria-label="Clear Search" onclick={() => {networkSearchQuery = ''; searchResults = []; isGlobalSearching = false;}} class="w-3.5 h-3.5 text-neutral-500 hover:text-white transition-colors cursor-pointer flex items-center justify-center">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                </button>
-                            {/if}
-                        </div>
-
+                        <svg class="absolute left-3 top-3 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
                         {#if searchResults.length > 0}
-                            <div transition:slide={{duration: 200}} class="absolute top-[115%] left-0 w-full bg-[#111] border border-neutral-700 rounded-[20px] shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-[100] overflow-hidden max-h-[400px] overflow-y-auto flex flex-col no-scrollbar">
-                                <div class="px-5 py-3.5 bg-[#1a1a1a] border-b border-neutral-800 flex items-center justify-between sticky top-0 z-10 shadow-sm">
-                                    <span class="text-[9px] font-bold uppercase text-neutral-500 tracking-widest">Select Token</span>
-                                    <span class="text-[9px] font-bold text-neutral-600">{searchResults.length} Matches</span>
-                                </div>
+                            <div
+                                transition:slide={{ duration: 200 }}
+                                class="absolute top-[115%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col"
+                            >
                                 {#each searchResults as result}
-                                    <div class="flex items-center justify-between p-4 hover:bg-[#1a1a1a] transition-colors border-b border-neutral-800/50 last:border-0 cursor-pointer" onclick={(e) => { e.stopPropagation(); selectSearchResult(result); }}>
-                                        <div class="flex items-center gap-4">
-                                            <div class="w-10 h-10 rounded-[12px] bg-[#050505] border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                                    <button
+                                        type="button"
+                                        onclick={() => selectSearchResult(result)}
+                                        class="flex items-center justify-between p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 cursor-pointer text-left"
+                                    >
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
                                                 {#if result.imgUrl}
-                                                    <img src={result.imgUrl} class="w-6 h-6 object-contain drop-shadow-md" alt={result.symbol} onerror={(e) => (e.currentTarget as HTMLImageElement).style.display='none'} />
+                                                    <img src={result.imgUrl} class="w-5 h-5 object-contain" alt={result.symbol} />
                                                 {:else}
-                                                    <span class="text-[12px] font-black" style="color: {result.hex}">{result.symbol[0]}</span>
+                                                    <span class="text-xs font-black" style="color: {result.hex}">
+                                                        {result.symbol[0]}
+                                                    </span>
                                                 {/if}
                                             </div>
-                                            <div class="flex flex-col gap-0.5">
-                                                <span class="text-sm font-bold text-white tracking-wide flex items-center gap-2">
+                                            <div class="flex flex-col">
+                                                <span class="text-xs font-bold text-white flex items-center gap-2">
                                                     {result.symbol}
-                                                    <span class="text-[8px] bg-[#222] border border-neutral-700 text-neutral-400 px-1.5 py-0.5 rounded shrink-0 uppercase tracking-widest">{result.network}</span>
+                                                    <span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">
+                                                        {result.network}
+                                                    </span>
                                                 </span>
-                                                <span class="text-[9px] font-mono text-neutral-500 tracking-widest uppercase truncate max-w-[120px]">{result.name}</span>
+                                                <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[130px]">
+                                                    {result.name}
+                                                </span>
                                             </div>
                                         </div>
-                                        <button class="bg-[#18C6A5]/10 hover:bg-[#18C6A5]/20 text-[#18C6A5] px-4 py-2 rounded-[12px] text-[10px] font-bold uppercase tracking-widest transition-colors shrink-0 cursor-pointer">
-                                            Add
-                                        </button>
-                                    </div>
+                                        <span class="px-3 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold uppercase">
+                                            + Add
+                                        </span>
+                                    </button>
                                 {/each}
                             </div>
                         {/if}
-                        
-                        {#if networkSearchQuery.trim().length > 1 && searchResults.length === 0 && !isGlobalSearching}
-                            <div transition:slide={{duration: 200}} class="absolute top-[115%] left-0 w-full bg-[#111] border border-neutral-700 rounded-[20px] shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-[100] p-4 text-center">
-                                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-500">No assets found for "{networkSearchQuery}"</span>
-                            </div>
-                        {/if}
                     </div>
-                    
-                    <div class="flex items-center gap-2 shrink-0">
-                        <span class="text-[9px] font-bold uppercase tracking-widest {isManagingNetworks ? 'text-[#18C6A5]' : 'text-neutral-500'} transition-colors hidden sm:inline">Manage</span>
-                        <button aria-label="Toggle Manage Networks" onclick={() => { isManagingNetworks = !isManagingNetworks; if (!isManagingNetworks) { networkSearchQuery = ''; searchResults = []; } else isAllNetworksDrawerOpen = true; }} class="w-10 h-5 rounded-full border transition-colors duration-300 relative cursor-pointer focus:outline-none shrink-0" style="background-color: {isManagingNetworks ? '#18C6A520' : '#111'}; border-color: {isManagingNetworks ? '#18C6A550' : '#404040'};">
-                            <div class="absolute top-[1px] w-4 h-4 rounded-full transition-all duration-300 shadow-sm" style="background-color: {isManagingNetworks ? '#18C6A5' : '#737373'}; left: {isManagingNetworks ? '22px' : '1px'};"></div>
-                        </button>
-                    </div>
-                    <svg class="w-5 h-5 text-neutral-500 transform transition-transform duration-300 {isAllNetworksDrawerOpen ? 'rotate-180' : ''} hidden lg:block ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    <button
+                        type="button"
+                        onclick={() => (isOrganizing = !isOrganizing)}
+                        class="tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                        {isOrganizing ? 'Done' : 'Organize'}
+                    </button>
+                    <button
+                        type="button"
+                        onclick={() => {
+                            isManagingNetworks = !isManagingNetworks;
+                            if (isManagingNetworks) isAllNetworksDrawerOpen = true;
+                        }}
+                        class="tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
+                    >
+                        {isManagingNetworks ? 'Done Chains' : 'Manage Chains'}
+                    </button>
                 </div>
             </div>
 
             {#if isAllNetworksDrawerOpen}
-                <div transition:slide class="w-full">
-                    <div class="flex flex-col gap-4">
-                        
-                        {#if networkSearchQuery.trim().length > 1 && searchResults.length === 0 && !isGlobalSearching}
-                            <div transition:slide class="py-5 text-center flex flex-col items-center justify-center gap-3 border border-dashed border-neutral-800 rounded-2xl bg-[#0a0a0a] shadow-inner">
-                                <span class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">Don't see your token?</span>
-                                <button onclick={executeGlobalMasterSearch} disabled={isGlobalSearching} class="px-8 py-3 bg-[#111] hover:bg-[#1a1a1a] border border-[#18C6A5]/50 hover:border-[#18C6A5] text-[#18C6A5] rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all duration-300 cursor-pointer disabled:opacity-50 shadow-md">
-                                    Search Web3 for "{networkSearchQuery.toUpperCase()}"
-                                </button>
-                                {#if globalSearchError} <span class="text-red-500 text-[9px] mt-1">{globalSearchError}</span> {/if}
-                            </div>
-                        {:else if networkSearchQuery.trim().length > 0 && visibleSecondaryNetworks.length === 0 && searchResults.length === 0 && !isGlobalSearching}
-                            <div transition:slide class="py-8 text-center border border-dashed border-neutral-800 rounded-[24px] bg-[#0a0a0a]">
-                                <span class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">No local blockchains match "{networkSearchQuery}"</span>
-                            </div>
-                        {/if}
-
-                        <NetworkRow 
-                            asset={treasury.getAsset('KAS') as any} 
-                            subAssets={getDynamicSubAssets('KAS')} 
-                            selectedTokens={getDynamicSelectedTokens('KAS')} 
-                            onToggleToken={(s: string) => toggleTokenSelection('KAS', s)}
-                            onDeleteToken={(s: string) => deleteTokenFromNetwork('KAS', s)}
-                            standardLabel="KRC-20" 
-                            searchQuery={networkSearchQuery}
-                            {activeHoverSegment}
-                            onHover={(v: string | null) => activeHoverSegment = v} 
-                            {displayUnit} 
-                            {timeframe}
-                            fiatDecimals={settingsStore.fiatDecimals} 
-                            tokenDecimals={settingsStore.tokenDecimals} 
-                            {isManagingNetworks}
-                            {isOrganizing}
-                            isNetworkSelected={true}
-                            autoOpenToken={targetAutoOpenNetwork === 'KAS' ? targetAutoOpenToken : targetedSubAssetsMap['KAS'] || null}
-                        />
-
-                        {#each visibleSecondaryNetworks as net (net.ticker)}
-                            <div 
-                                draggable={isOrganizing && autoActiveNetworks.includes(net.ticker)}
-                                ondragstart={(e) => handleDragStart(e, net.ticker)}
-                                ondragover={(e) => handleDragOver(e, net.ticker)}
-                                ondrop={handleDrop}
-                                ondragend={() => draggedNetwork = null}
-                                class="transition-all duration-300 {draggedNetwork === net.ticker ? 'opacity-40 scale-[0.98]' : 'opacity-100'} {isOrganizing && autoActiveNetworks.includes(net.ticker) ? 'cursor-grab active:cursor-grabbing' : ''}"
+                <div transition:slide class="w-full flex flex-col gap-4">
+                    {#if networkSearchQuery.trim().length > 1 && searchResults.length === 0 && !isGlobalSearching}
+                        <div class="py-5 text-center flex flex-col items-center justify-center gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
+                            <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
+                                Query Global On-Chain Indexers for "{networkSearchQuery.toUpperCase()}"
+                            </span>
+                            <button
+                                type="button"
+                                onclick={executeGlobalMasterSearch}
+                                disabled={isGlobalSearching}
+                                class="tactile-btn px-6 py-2.5 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[10px] uppercase tracking-widest font-bold cursor-pointer"
                             >
-                                <NetworkRow 
-                                    asset={treasury.getAsset(net.ticker) as any} 
-                                    subAssets={getDynamicSubAssets(net.ticker)} 
-                                    selectedTokens={getDynamicSelectedTokens(net.ticker)} 
-                                    onToggleToken={(s: string) => toggleTokenSelection(net.ticker, s)}
-                                    onDeleteToken={(s: string) => deleteTokenFromNetwork(net.ticker, s)}
-                                    standardLabel={net.standard} 
-                                    searchQuery={networkSearchQuery}
-                                    {activeHoverSegment}
-                                    onHover={(v: string | null) => activeHoverSegment = v} 
-                                    {displayUnit} 
-                                    {timeframe}
-                                    fiatDecimals={settingsStore.fiatDecimals} 
-                                    tokenDecimals={settingsStore.tokenDecimals} 
-                                    {isManagingNetworks}
-                                    {isOrganizing}
-                                    isNetworkSelected={autoActiveNetworks.includes(net.ticker)}
-                                    onNetworkToggle={() => toggleNetworkVisibility(net.ticker)}
-                                    autoOpenToken={targetAutoOpenNetwork === net.ticker ? targetAutoOpenToken : targetedSubAssetsMap[net.ticker] || null}
-                                />
-                            </div>
-                        {/each}
-                    </div>
+                                Search Web3 Indexer
+                            </button>
+                            {#if globalSearchError}
+                                <span class="text-red-400 text-[9px]">{globalSearchError}</span>
+                            {/if}
+                        </div>
+                    {/if}
+
+                    {#each visibleSecondaryNetworks as net (net.ticker)}
+                        <div
+                            draggable={isOrganizing && autoActiveNetworks.includes(net.ticker)}
+                            ondragstart={(e) => handleDragStart(e, net.ticker)}
+                            ondragover={(e) => handleDragOver(e, net.ticker)}
+                            ondrop={handleDrop}
+                            ondragend={() => (draggedNetwork = null)}
+                            class="transition-all duration-300 {draggedNetwork === net.ticker ? 'opacity-40 scale-[0.98]' : 'opacity-100'} {isOrganizing && autoActiveNetworks.includes(net.ticker) ? 'cursor-grab active:cursor-grabbing' : ''}"
+                        >
+                            <NetworkRow
+                                asset={treasury.getAsset(net.ticker) as any}
+                                subAssets={getDynamicSubAssets(net.ticker)}
+                                selectedTokens={getDynamicSelectedTokens(net.ticker)}
+                                onToggleToken={(s: string) => toggleTokenSelection(net.ticker, s)}
+                                onDeleteToken={(s: string) => deleteTokenFromNetwork(net.ticker, s)}
+                                standardLabel={net.standard}
+                                searchQuery={networkSearchQuery}
+                                {activeHoverSegment}
+                                onHover={(v: string | null) => (activeHoverSegment = v)}
+                                {displayUnit}
+                                {timeframe}
+                                fiatDecimals={settingsStore.fiatDecimals}
+                                tokenDecimals={settingsStore.tokenDecimals}
+                                {isManagingNetworks}
+                                {isOrganizing}
+                                isNetworkSelected={autoActiveNetworks.includes(net.ticker)}
+                                onNetworkToggle={() => toggleNetworkVisibility(net.ticker)}
+                                autoOpenToken={targetAutoOpenNetwork === net.ticker ? targetAutoOpenToken : targetedSubAssetsMap[net.ticker] || null}
+                                ledgerEvents={walletActivityEvents}
+                            />
+                        </div>
+                    {/each}
                 </div>
             {/if}
-
         </div>
     </div>
 </div>
