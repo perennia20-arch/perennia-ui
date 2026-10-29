@@ -7,7 +7,9 @@
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
+    import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
+    import ColdVaultAirlock from '$lib/components/treasury/ColdVaultAirlock.svelte';
 
     let activeHoverSegment = $state<string | null>(null);
     let displayUnit = $state<'token' | 'usd'>('token');
@@ -23,9 +25,10 @@
     let targetAutoOpenNetwork = $state<string | null>(null);
     let targetAutoOpenToken = $state<string | null>(null);
     let activeNetworks = $state<string[]>(['BTC', 'ETH', 'SOL']);
-
     let isDirectorConsoleOpen = $state(true);
-    let activeDirectorTab = $state<'reconciliation' | 'fees' | 'buckets' | 'organization'>('reconciliation');
+    let activeDirectorTab = $state<
+        'reconciliation' | 'fees' | 'buckets' | 'organization'
+    >('reconciliation');
     let corporateReconciliation = $state<{
         nettingQueueLength: number;
         passthroughQueueLength: number;
@@ -37,9 +40,8 @@
         fppsSolvency: any;
         updatedAt: number;
     } | null>(null);
-
     let walletActivityEvents = $state<any[]>([]);
-
+    let customNetworks = $state<Array<{ ticker: string; standard: string }>>([]);
     let userCustomTokens = $state<Record<string, any[]>>({
         KAS: [],
         BTC: [],
@@ -55,7 +57,6 @@
         TRX: [],
         ZEC: []
     });
-
     let selectedTokensMap = $state<Record<string, string[]>>({
         KAS: [],
         BTC: [],
@@ -71,11 +72,11 @@
         TRX: [],
         ZEC: []
     });
-
     let hasLoadedLocalState = $state(false);
     let serverSyncTimeout: ReturnType<typeof setTimeout>;
+    let liveDiscoverTimeout: ReturnType<typeof setTimeout>;
 
-    const secondaryNetworks = [
+    const baseSecondaryNetworks = [
         { ticker: 'BTC', standard: 'BRC-20 / Runes' },
         { ticker: 'ETH', standard: 'ERC-20' },
         { ticker: 'ARB', standard: 'Arbitrum One' },
@@ -90,124 +91,52 @@
         { ticker: 'ZEC', standard: 'Shielded Assets' }
     ];
 
-    let totalOnChainUsd = $derived(
-        treasury.visibleAssets.reduce((sum, a) => sum + (a.onChain || 0) * (a.spotPrice || 0), 0)
-    );
-    let totalBatchQueueUsd = $derived(
-        treasury.visibleAssets.reduce((sum, a) => sum + (a.synthetic || 0) * (a.spotPrice || 0), 0)
-    );
-    let totalStakedLpUsd = $derived(
-        treasury.visibleAssets.reduce((sum, a) => sum + (a.lpStaked || 0) * (a.spotPrice || 0), 0)
-    );
-
-    function escapeCsvCell(val: unknown): string {
-        const s = String(val ?? '');
-        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-            return `"${s.replace(/"/g, '""')}"`;
+    let secondaryNetworks = $derived.by(() => {
+        const map = new Map<string, { ticker: string; standard: string }>();
+        for (const n of baseSecondaryNetworks) {
+            map.set(n.ticker, n);
         }
-        return s;
-    }
-
-    async function exportFullVaultActivityCsv() {
-        if (!browser) return;
-        await fetchWalletActivity();
-        const rows: string[] = [
-            'Timestamp,Record_Category,Event_Type,Asset,OnChain_Or_Amount,Batch_Queue,USD_Value,Spot_Price_USD,Reference_Or_Address,Explorer_URL'
-        ];
-        for (const asset of treasury.visibleAssets) {
-            if (asset.totalBalance > 0 || asset.ticker === 'KAS') {
-                rows.push(
-                    [
-                        escapeCsvCell(new Date().toISOString()),
-                        'VAULT_SNAPSHOT',
-                        'EXPLORER_PARITY_BALANCE',
-                        escapeCsvCell(asset.ticker),
-                        Number(asset.onChain || 0).toFixed(8),
-                        Number(asset.synthetic || 0).toFixed(8),
-                        Number((asset.onChain || 0) * (asset.spotPrice || 0)).toFixed(2),
-                        Number(asset.spotPrice || 0).toFixed(4),
-                        escapeCsvCell(asset.address || identity.activeAddress || ''),
-                        escapeCsvCell('')
-                    ].join(',')
-                );
+        for (const cn of customNetworks) {
+            if (!map.has(cn.ticker)) {
+                map.set(cn.ticker, cn);
             }
         }
-        for (const ev of walletActivityEvents) {
-            const ticker = ev.asset?.ticker || 'KAS';
-            const amt = Number(ev.amount || 0);
-            const usd = Number(ev.usdValueAtTime || 0);
-            const impliedSpot = amt > 0 ? usd / amt : 0;
-            rows.push(
-                [
-                    escapeCsvCell(ev.timestamp),
-                    'IMMUTABLE_LEDGER_EVENT',
-                    escapeCsvCell(ev.type || 'SETTLEMENT'),
-                    escapeCsvCell(ticker),
-                    amt.toFixed(8),
-                    '0.00000000',
-                    usd.toFixed(2),
-                    impliedSpot.toFixed(4),
-                    escapeCsvCell(ev.txHash || ''),
-                    escapeCsvCell(ev.explorerUrl || '')
-                ].join(',')
-            );
+        for (const t of activeNetworks) {
+            const clean = t.toUpperCase();
+            if (clean !== 'KAS' && clean !== 'USD' && !map.has(clean)) {
+                map.set(clean, { ticker: clean, standard: 'Native L1' });
+            }
         }
-        const dateStamp = new Date().toISOString().slice(0, 10);
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Perennia_Treasury_Activity_${dateStamp}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        ui.triggerMicroBadge('treasury_export_badge', 'ACTIVITY CSV EXPORTED ✓', '#18C6A5');
-    }
+        return Array.from(map.values());
+    });
 
-    async function exportFullVaultActivityJson() {
-        if (!browser) return;
-        await fetchWalletActivity();
-        const payload = {
-            exportedAt: new Date().toISOString(),
-            walletAddress: identity.activeAddress,
-            onChainPortfolioValueUsd: totalOnChainUsd,
-            batchSettlementQueueValueUsd: totalBatchQueueUsd,
-            totalVaultValueUsd: treasury.totalVaultValue,
-            assets: treasury.visibleAssets.map((a) => ({
-                ticker: a.ticker,
-                name: a.name,
-                network: a.network,
-                address: a.address,
-                onChainL1Balance: a.onChain,
-                inBatchSettlementQueue: a.synthetic,
-                stakedLp: a.lpStaked,
-                totalBalance: a.totalBalance,
-                spotPriceUsd: a.spotPrice,
-                onChainUsdValue: a.onChain * a.spotPrice,
-                totalUsdValue: a.totalBalance * a.spotPrice
-            })),
-            activityEvents: walletActivityEvents
-        };
-        const dateStamp = new Date().toISOString().slice(0, 10);
-        const blob = new Blob([JSON.stringify(payload, null, 2)], {
-            type: 'application/json'
-        });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Perennia_Treasury_Activity_${dateStamp}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        ui.triggerMicroBadge('treasury_export_badge', 'ACTIVITY JSON EXPORTED ✓', '#18C6A5');
-    }
+    let totalOnChainUsd = $derived(
+        treasury.visibleAssets.reduce(
+            (sum, a) => sum + (a.onChain || 0) * (a.spotPrice || 0),
+            0
+        )
+    );
+    let totalBatchQueueUsd = $derived(
+        treasury.visibleAssets.reduce(
+            (sum, a) => sum + (a.synthetic || 0) * (a.spotPrice || 0),
+            0
+        )
+    );
+    let totalStakedLpUsd = $derived(
+        treasury.visibleAssets.reduce(
+            (sum, a) => sum + (a.lpStaked || 0) * (a.spotPrice || 0),
+            0
+        )
+    );
 
     let autoActiveNetworks = $derived.by(() => {
         const nets = new Set<string>(activeNetworks);
         treasury.visibleAssets.forEach((asset) => {
-            if (asset.network && asset.network !== 'KAS' && asset.network !== 'USD') {
+            if (
+                asset.network &&
+                asset.network !== 'KAS' &&
+                asset.network !== 'USD'
+            ) {
                 nets.add(asset.network);
             }
         });
@@ -231,7 +160,9 @@
     let totalAccumulatedFeesUsd = $derived.by(() => {
         if (!corporateReconciliation?.accumulatedFees) return 0;
         let sum = corporateReconciliation.nettingProfitUsd || 0;
-        for (const [ticker, qty] of Object.entries(corporateReconciliation.accumulatedFees)) {
+        for (const [ticker, qty] of Object.entries(
+            corporateReconciliation.accumulatedFees
+        )) {
             const spot =
                 treasury.getAsset(ticker).spotPrice ||
                 (ticker === 'USDC' || ticker === 'USDT' ? 1 : 0);
@@ -239,6 +170,37 @@
         }
         return sum;
     });
+
+    function bindDerivedAddresses() {
+        const wallets = identity.sovereignKeys;
+        const fallbackKas = identity.activeAddress;
+        if (!wallets && !fallbackKas) return;
+        for (const asset of treasury.registry) {
+            if (asset.ticker === 'USD') continue;
+            const chainKey =
+                asset.network && asset.network !== 'USD'
+                    ? asset.network
+                    : asset.ticker;
+            const resolved = resolveSovereignAddressForChain(
+                chainKey,
+                wallets,
+                fallbackKas
+            );
+            if (resolved && !resolved.includes('Awaiting')) {
+                treasury.updateAsset(asset.ticker, { address: resolved });
+            }
+        }
+        for (const net of secondaryNetworks) {
+            const resolved = resolveSovereignAddressForChain(
+                net.ticker,
+                wallets,
+                fallbackKas
+            );
+            if (resolved && !resolved.includes('Awaiting')) {
+                treasury.updateAsset(net.ticker, { address: resolved });
+            }
+        }
+    }
 
     function getDynamicSubAssets(networkTicker: string) {
         const manualTokens = userCustomTokens[networkTicker] || [];
@@ -252,7 +214,8 @@
                 ...t,
                 onChain: reg.onChain || t.onChain || t.balance || 0,
                 synthetic: reg.synthetic || t.synthetic || 0,
-                balance: reg.onChain || t.onChain || t.balance || 0
+                balance: reg.onChain || t.onChain || t.balance || 0,
+                price: reg.spotPrice || t.price || 0
             });
         });
         autoTokens.forEach((t) => {
@@ -276,7 +239,9 @@
     function getDynamicSelectedTokens(networkTicker: string) {
         const manual = selectedTokensMap[networkTicker] || [];
         const autoTokens = treasury.visibleAssets
-            .filter((a) => a.network === networkTicker && a.ticker !== networkTicker)
+            .filter(
+                (a) => a.network === networkTicker && a.ticker !== networkTicker
+            )
             .map((a) => a.ticker);
         return Array.from(new Set([...manual, ...autoTokens]));
     }
@@ -290,7 +255,10 @@
         });
         if (isManagingNetworks || networkSearchQuery) {
             secondaryNetworks.forEach((net) => {
-                if (net.ticker !== 'KAS' && !autoActiveNetworks.includes(net.ticker)) {
+                if (
+                    net.ticker !== 'KAS' &&
+                    !autoActiveNetworks.includes(net.ticker)
+                ) {
                     visible.push(net);
                 }
             });
@@ -341,21 +309,42 @@
     }
 
     function toggleNetworkVisibility(ticker: string) {
-        if (activeNetworks.includes(ticker)) {
-            activeNetworks = activeNetworks.filter((t: string) => t !== ticker);
+        const clean = ticker.toUpperCase();
+        if (activeNetworks.includes(clean)) {
+            activeNetworks = activeNetworks.filter((t: string) => t !== clean);
         } else {
-            activeNetworks = [...activeNetworks, ticker];
+            const derivedAddr = resolveSovereignAddressForChain(
+                clean,
+                identity.sovereignKeys,
+                identity.activeAddress
+            );
+            treasury.updateAsset(clean, { address: derivedAddr });
+            activeNetworks = [...activeNetworks, clean];
         }
     }
 
     function addTokenToNetwork(network: string, token: any) {
         if (!userCustomTokens[network]) userCustomTokens[network] = [];
-        if (!userCustomTokens[network].some((t: any) => t.symbol === token.symbol)) {
+        if (
+            !userCustomTokens[network].some(
+                (t: any) => t.symbol === token.symbol
+            )
+        ) {
             userCustomTokens[network] = [...userCustomTokens[network], token];
+        } else {
+            userCustomTokens[network] = userCustomTokens[network].map(
+                (t: any) =>
+                    t.symbol === token.symbol
+                        ? { ...t, price: token.price || t.price }
+                        : t
+            );
         }
         if (!selectedTokensMap[network]) selectedTokensMap[network] = [];
         if (!selectedTokensMap[network].includes(token.symbol)) {
-            selectedTokensMap[network] = [...selectedTokensMap[network], token.symbol];
+            selectedTokensMap[network] = [
+                ...selectedTokensMap[network],
+                token.symbol
+            ];
         }
     }
 
@@ -366,7 +355,10 @@
                 (s: string) => s !== symbol
             );
         } else {
-            selectedTokensMap[network] = [...selectedTokensMap[network], symbol];
+            selectedTokensMap[network] = [
+                ...selectedTokensMap[network],
+                symbol
+            ];
         }
     }
 
@@ -381,95 +373,141 @@
                 (s: string) => s !== symbol
             );
         }
+        if (identity.isWalletConnected) {
+            fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'REMOVE_CUSTOM_TOKEN',
+                    payload: { ticker: symbol, network }
+                })
+            }).catch(() => {});
+        }
     }
 
-    function selectSearchResult(result: any) {
-        addTokenToNetwork(result.network, {
-            symbol: result.symbol,
-            name: result.name,
-            hex: result.hex,
-            imgUrl: result.imgUrl,
-            balance: 0,
-            onChain: 0,
-            synthetic: 0,
-            price: result.price,
-            contract: result.contract,
-            badge: result.badge
+    async function selectSearchResult(
+        result: any,
+        routeIntent?: 'pay' | 'receive'
+    ) {
+        const sym = String(result.symbol || '').trim().toUpperCase();
+        const net = String(result.network || sym).trim().toUpperCase();
+        const derivedAddr = resolveSovereignAddressForChain(
+            net,
+            identity.sovereignKeys,
+            identity.activeAddress
+        );
+        treasury.updateAsset(net, {
+            address: derivedAddr
         });
-        if (!activeNetworks.includes(result.network) && result.network !== 'KAS') {
-            activeNetworks = [...activeNetworks, result.network];
+
+        if (sym === net || result.isNativeChain) {
+            const existingAsset = treasury.getAsset(sym);
+            treasury.updateAsset(sym, {
+                name: result.name || existingAsset.name || sym,
+                spotPrice: result.price || existingAsset.spotPrice || 0,
+                address: derivedAddr
+            });
+            if (
+                sym !== 'KAS' &&
+                !secondaryNetworks.some((n) => n.ticker === sym)
+            ) {
+                customNetworks = [
+                    ...customNetworks,
+                    { ticker: sym, standard: result.badge || 'Native L1' }
+                ];
+            }
+            if (sym !== 'KAS' && !activeNetworks.includes(sym)) {
+                activeNetworks = [...activeNetworks, sym];
+            }
+            targetAutoOpenNetwork = sym;
+            targetAutoOpenToken = null;
+        } else {
+            treasury.updateAsset(sym, {
+                name: result.name || sym,
+                assetClass: result.badge || 'DeFi',
+                network: net,
+                spotPrice: result.price || 0,
+                contract: result.contract || sym,
+                address: derivedAddr,
+                imgUrl: result.imgUrl || '',
+                theme: {
+                    hex: result.hex || '#18C6A5',
+                    pastel: '#99f6e4'
+                }
+            });
+            addTokenToNetwork(net, {
+                symbol: sym,
+                name: result.name || sym,
+                hex: result.hex || '#18C6A5',
+                imgUrl: result.imgUrl || '',
+                balance: 0,
+                onChain: 0,
+                synthetic: 0,
+                price: result.price || 0,
+                contract: result.contract || sym,
+                badge: result.badge || 'TOKEN'
+            });
+            if (
+                net !== 'KAS' &&
+                !secondaryNetworks.some((n) => n.ticker === net)
+            ) {
+                customNetworks = [
+                    ...customNetworks,
+                    { ticker: net, standard: 'Multi-Chain' }
+                ];
+            }
+            if (net !== 'KAS' && !activeNetworks.includes(net)) {
+                activeNetworks = [...activeNetworks, net];
+            }
+            targetAutoOpenNetwork = net;
+            targetAutoOpenToken = sym;
         }
-        targetAutoOpenNetwork = result.network;
-        targetAutoOpenToken = result.symbol;
+
+        if (identity.isWalletConnected) {
+            fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'ADD_CUSTOM_TOKEN',
+                    payload: {
+                        ticker: sym,
+                        symbol: sym,
+                        name: result.name || sym,
+                        assetClass: result.badge || 'DeFi',
+                        network: net,
+                        spotPrice: Number(result.price || 0),
+                        change24h: Number(result.change24h || 0),
+                        contract: result.contract || sym,
+                        imgUrl: result.imgUrl || '',
+                        theme: {
+                            hex: result.hex || '#18C6A5',
+                            pastel: '#99f6e4'
+                        }
+                    }
+                })
+            }).catch(() => {});
+        }
+
+        isAllNetworksDrawerOpen = true;
         searchResults = [];
         networkSearchQuery = '';
-        ui.triggerMicroBadge('treasury_search', `+${result.symbol} ADDED ✓`, '#18C6A5');
+        ui.triggerMicroBadge(
+            'treasury_search',
+            `+${sym} ADDED ✓`,
+            '#18C6A5'
+        );
+
+        if (routeIntent === 'pay') {
+            ui.routeToDexSwap(sym, sym === 'KAS' ? 'USDC' : 'KAS', '');
+        } else if (routeIntent === 'receive') {
+            ui.routeToDexSwap('KAS', sym, '');
+        }
     }
 
     $effect(() => {
-        if (identity.sovereignKeys) {
+        if (identity.sovereignKeys || identity.activeAddress) {
             untrack(() => {
-                if (identity.sovereignKeys.kaspa?.address)
-                    treasury.updateAsset('KAS', {
-                        address: identity.sovereignKeys.kaspa.address
-                    });
-                if (identity.sovereignKeys.bitcoin?.address)
-                    treasury.updateAsset('BTC', {
-                        address: identity.sovereignKeys.bitcoin.address
-                    });
-                if (identity.sovereignKeys.ethereum?.address) {
-                    treasury.updateAsset('ETH', {
-                        address: identity.sovereignKeys.ethereum.address
-                    });
-                    treasury.updateAsset('USDC', {
-                        address: identity.sovereignKeys.ethereum.address
-                    });
-                    treasury.updateAsset('USDT', {
-                        address: identity.sovereignKeys.ethereum.address
-                    });
-                    treasury.updateAsset('ARB', {
-                        address: identity.sovereignKeys.ethereum.address
-                    });
-                    treasury.updateAsset('BASE', {
-                        address: identity.sovereignKeys.ethereum.address
-                    });
-                }
-                if (identity.sovereignKeys.solana?.address)
-                    treasury.updateAsset('SOL', {
-                        address: identity.sovereignKeys.solana.address
-                    });
-                if (identity.sovereignKeys.doge?.address)
-                    treasury.updateAsset('DOGE', {
-                        address: identity.sovereignKeys.doge.address
-                    });
-                if (identity.sovereignKeys.xrp?.address)
-                    treasury.updateAsset('XRP', {
-                        address: identity.sovereignKeys.xrp.address
-                    });
-                if (identity.sovereignKeys.polygon?.address)
-                    treasury.updateAsset('POL', {
-                        address: identity.sovereignKeys.polygon.address
-                    });
-                if (identity.sovereignKeys.avalanche?.address)
-                    treasury.updateAsset('AVAX', {
-                        address: identity.sovereignKeys.avalanche.address
-                    });
-                if (identity.sovereignKeys.sui?.address)
-                    treasury.updateAsset('SUI', {
-                        address: identity.sovereignKeys.sui.address
-                    });
-                if (identity.sovereignKeys.tron?.address)
-                    treasury.updateAsset('TRX', {
-                        address: identity.sovereignKeys.tron.address
-                    });
-                if (identity.sovereignKeys.zcash?.address)
-                    treasury.updateAsset('ZEC', {
-                        address: identity.sovereignKeys.zcash.address
-                    });
-            });
-        } else if (identity.activeAddress) {
-            untrack(() => {
-                treasury.updateAsset('KAS', { address: identity.activeAddress! });
+                bindDerivedAddresses();
             });
         }
     });
@@ -481,7 +519,6 @@
             symbol: 'USDC',
             hex: '#3B82F6',
             imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032',
-            price: 1.0,
             network: 'ETH',
             contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
         },
@@ -491,13 +528,58 @@
             symbol: 'USDT',
             hex: '#18C6A5',
             imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032',
-            price: 1.0,
             network: 'ETH',
             contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7'
+        },
+        {
+            tickers: ['LTC', 'LITECOIN'],
+            name: 'Litecoin',
+            symbol: 'LTC',
+            hex: '#345D9D',
+            imgUrl: '',
+            network: 'LTC',
+            isNativeChain: true
+        },
+        {
+            tickers: ['BNB', 'BSC', 'BINANCE'],
+            name: 'BNB Chain',
+            symbol: 'BNB',
+            hex: '#F3BA2F',
+            imgUrl: '',
+            network: 'BNB',
+            isNativeChain: true
+        },
+        {
+            tickers: ['OP', 'OPTIMISM'],
+            name: 'Optimism',
+            symbol: 'OP',
+            hex: '#FF0420',
+            imgUrl: '',
+            network: 'OP',
+            isNativeChain: true
+        },
+        {
+            tickers: ['TON', 'TONCOIN'],
+            name: 'Toncoin',
+            symbol: 'TON',
+            hex: '#0098EA',
+            imgUrl: '',
+            network: 'TON',
+            isNativeChain: true
+        },
+        {
+            tickers: ['ADA', 'CARDANO'],
+            name: 'Cardano',
+            symbol: 'ADA',
+            hex: '#0033AD',
+            imgUrl: '',
+            network: 'ADA',
+            isNativeChain: true
         }
     ];
 
     function handleLiveSearch() {
+        clearTimeout(liveDiscoverTimeout);
         const query = networkSearchQuery.trim().toUpperCase();
         if (!query) {
             searchResults = [];
@@ -505,7 +587,27 @@
             isGlobalSearching = false;
             return;
         }
-        let localResults: any[] = [];
+        const resultsMap = new Map<string, any>();
+        for (const regAsset of treasury.registry) {
+            if (regAsset.ticker === 'USD') continue;
+            if (
+                regAsset.ticker.toUpperCase().includes(query) ||
+                regAsset.name.toUpperCase().includes(query)
+            ) {
+                const key = `${regAsset.ticker}:${regAsset.network}`;
+                resultsMap.set(key, {
+                    symbol: regAsset.ticker,
+                    name: regAsset.name,
+                    hex: regAsset.theme?.hex || '#18C6A5',
+                    imgUrl: regAsset.imgUrl || '',
+                    price: regAsset.spotPrice || 0,
+                    contract: regAsset.contract || regAsset.ticker,
+                    network: regAsset.network || regAsset.ticker,
+                    badge: regAsset.assetClass,
+                    isNativeChain: regAsset.ticker === regAsset.network
+                });
+            }
+        }
         const matches = knownTokens.filter(
             (t) =>
                 t.tickers.some((tk) => tk.includes(query)) ||
@@ -513,17 +615,85 @@
                 t.name.toUpperCase().includes(query)
         );
         matches.forEach((match) => {
-            localResults.push({
-                symbol: match.symbol || match.tickers[0],
-                name: match.name,
-                hex: match.hex,
-                imgUrl: match.imgUrl,
-                price: match.price || 0,
-                contract: (match as any).contract || query,
-                network: match.network
-            });
+            const key = `${match.symbol}:${match.network}`;
+            if (!resultsMap.has(key)) {
+                const liveSpot = treasury.getAsset(match.symbol).spotPrice || 0;
+                resultsMap.set(key, {
+                    symbol: match.symbol || match.tickers[0],
+                    name: match.name,
+                    hex: match.hex,
+                    imgUrl: match.imgUrl,
+                    price: liveSpot,
+                    contract: (match as any).contract || query,
+                    network: match.network,
+                    isNativeChain: Boolean((match as any).isNativeChain)
+                });
+            }
         });
-        searchResults = [...localResults];
+        if (
+            query.length >= 2 &&
+            query.length <= 8 &&
+            /^[A-Z0-9]+$/.test(query)
+        ) {
+            const directChainKey = `${query}:${query}`;
+            if (!resultsMap.has(directChainKey)) {
+                resultsMap.set(directChainKey, {
+                    symbol: query,
+                    name: `${query} (L1 Chain / Token)`,
+                    hex: '#18C6A5',
+                    imgUrl: '',
+                    price: treasury.getAsset(query).spotPrice || 0,
+                    contract: query,
+                    network: query,
+                    badge: 'Sovereign Derived',
+                    isNativeChain: true
+                });
+            }
+        }
+        searchResults = Array.from(resultsMap.values());
+
+        if (
+            query.length >= 2 &&
+            query.length <= 12 &&
+            /^[A-Z0-9]+$/.test(query)
+        ) {
+            liveDiscoverTimeout = setTimeout(async () => {
+                try {
+                    const res = await fetch(
+                        `/api/prices?discover=${encodeURIComponent(query)}`
+                    );
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.success && data.asset) {
+                            const disc = data.asset;
+                            const discEntry = {
+                                symbol: disc.ticker,
+                                name: disc.name,
+                                hex: disc.theme?.hex || '#18C6A5',
+                                imgUrl: disc.imgUrl || '',
+                                price: Number(disc.spotPrice || 0),
+                                change24h: Number(disc.change24h || 0),
+                                contract: disc.contract || disc.ticker,
+                                network: disc.network || 'ETH',
+                                badge: `${disc.assetClass} • ${disc.quorumCount} Feeds`,
+                                isNativeChain: false
+                            };
+                            const filteredExisting = searchResults.filter(
+                                (r) =>
+                                    !(
+                                        r.symbol === discEntry.symbol &&
+                                        (r.network === discEntry.network ||
+                                            r.badge === 'Sovereign Derived')
+                                    )
+                            );
+                            searchResults = [discEntry, ...filteredExisting];
+                        }
+                    }
+                } catch {
+                    // Ignore background discovery timeout
+                }
+            }, 260);
+        }
     }
 
     async function executeGlobalMasterSearch() {
@@ -533,6 +703,31 @@
         globalSearchError = '';
         try {
             let externalResults: any[] = [];
+            try {
+                const oracleRes = await fetch(
+                    `/api/prices?discover=${encodeURIComponent(query)}`
+                );
+                if (oracleRes.ok) {
+                    const oracleData = await oracleRes.json();
+                    if (oracleData.success && oracleData.asset) {
+                        const disc = oracleData.asset;
+                        externalResults.push({
+                            symbol: disc.ticker,
+                            name: disc.name,
+                            hex: disc.theme?.hex || '#18C6A5',
+                            imgUrl: disc.imgUrl || '',
+                            price: Number(disc.spotPrice || 0),
+                            change24h: Number(disc.change24h || 0),
+                            contract: disc.contract || disc.ticker,
+                            network: disc.network || 'ETH',
+                            badge: `LIVE ORACLE (${disc.quorumCount} FEEDS)`
+                        });
+                    }
+                }
+            } catch {
+                // Continue to DEXScreener & Kasplex fallback
+            }
+
             const dsRes = await fetch(
                 `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`
             );
@@ -554,12 +749,16 @@
                         if (
                             !bestPairPerChain[chain] ||
                             parseFloat(pair.liquidity.usd) >
-                                parseFloat(bestPairPerChain[chain].liquidity.usd)
+                                parseFloat(
+                                    bestPairPerChain[chain].liquidity.usd
+                                )
                         ) {
                             bestPairPerChain[chain] = pair;
                         }
                     });
-                    for (const [chain, pair] of Object.entries(bestPairPerChain)) {
+                    for (const [chain, pair] of Object.entries(
+                        bestPairPerChain
+                    )) {
                         let targetNetwork = '';
                         switch (chain) {
                             case 'ethereum':
@@ -585,11 +784,19 @@
                                 break;
                         }
                         if (targetNetwork) {
-                            const isDup = searchResults.some(
-                                (r) =>
-                                    r.symbol === pair.baseToken.symbol.toUpperCase() &&
-                                    r.network === targetNetwork
-                            );
+                            const isDup =
+                                searchResults.some(
+                                    (r) =>
+                                        r.symbol ===
+                                            pair.baseToken.symbol.toUpperCase() &&
+                                        r.network === targetNetwork
+                                ) ||
+                                externalResults.some(
+                                    (r) =>
+                                        r.symbol ===
+                                            pair.baseToken.symbol.toUpperCase() &&
+                                        r.network === targetNetwork
+                                );
                             if (!isDup) {
                                 externalResults.push({
                                     symbol: pair.baseToken.symbol.toUpperCase(),
@@ -614,16 +821,20 @@
                 if (kasRes.ok) {
                     const kasData = await kasRes.json();
                     if (kasData.result && kasData.result.length > 0) {
-                        const isDup = searchResults.some(
-                            (r) => r.symbol === query && r.network === 'KAS'
-                        );
+                        const isDup =
+                            searchResults.some(
+                                (r) => r.symbol === query && r.network === 'KAS'
+                            ) ||
+                            externalResults.some(
+                                (r) => r.symbol === query && r.network === 'KAS'
+                            );
                         if (!isDup) {
                             externalResults.push({
                                 symbol: query,
                                 name: `${query} (KRC-20)`,
                                 hex: '#18C6A5',
                                 imgUrl: `https://storage.googleapis.com/kasfyi/token-icons/${query.toLowerCase()}.png`,
-                                price: 0,
+                                price: treasury.getAsset(query).spotPrice || 0,
                                 contract: query,
                                 network: 'KAS'
                             });
@@ -631,12 +842,12 @@
                     }
                 }
             } catch {
-                // Ignore KRC-20 lookup timeout
+                // Ignore Kasplex lookup timeout
             }
             if (externalResults.length > 0) {
-                searchResults = [...searchResults, ...externalResults];
+                searchResults = [...externalResults, ...searchResults];
             } else {
-                globalSearchError = `No verified liquidity found for "${query}".`;
+                globalSearchError = `No external liquidity found for "${query}". You can still add it directly above.`;
             }
         } catch {
             globalSearchError = 'Global on-chain indexer unreachable.';
@@ -646,9 +857,17 @@
 
     $effect(() => {
         if (browser && identity.activeAddress && hasLoadedLocalState) {
-            const stateToSave = { activeNetworks, userCustomTokens, selectedTokensMap };
+            const stateToSave = {
+                activeNetworks,
+                userCustomTokens,
+                selectedTokensMap,
+                customNetworks
+            };
             const stateString = JSON.stringify(stateToSave);
-            localStorage.setItem(`p_custom_tokens_${identity.activeAddress}`, stateString);
+            localStorage.setItem(
+                `p_custom_tokens_${identity.activeAddress}`,
+                stateString
+            );
             clearTimeout(serverSyncTimeout);
             serverSyncTimeout = setTimeout(async () => {
                 try {
@@ -661,7 +880,7 @@
                         })
                     });
                 } catch {
-                    // Ignore preference sync timeout
+                    // Ignore background preference sync error
                 }
             }, 1500);
         }
@@ -669,46 +888,93 @@
 
     async function loadTreasuryState() {
         if (!browser || !identity.activeAddress) return;
-        const localSaved = localStorage.getItem(`p_custom_tokens_${identity.activeAddress}`);
+        const localSaved = localStorage.getItem(
+            `p_custom_tokens_${identity.activeAddress}`
+        );
         if (localSaved) {
             try {
                 const data = JSON.parse(localSaved);
                 if (data.activeNetworks) {
-                    activeNetworks = Array.from(new Set(data.activeNetworks)).filter(
-                        (t: any) => t !== 'KAS'
-                    ) as string[];
+                    activeNetworks = Array.from(
+                        new Set(data.activeNetworks)
+                    ).filter((t: any) => t !== 'KAS') as string[];
                 }
-                if (data.userCustomTokens) userCustomTokens = data.userCustomTokens;
-                if (data.selectedTokensMap) selectedTokensMap = data.selectedTokensMap;
+                if (data.userCustomTokens)
+                    userCustomTokens = data.userCustomTokens;
+                if (data.selectedTokensMap)
+                    selectedTokensMap = data.selectedTokensMap;
+                if (Array.isArray(data.customNetworks))
+                    customNetworks = data.customNetworks;
             } catch {
-                // Ignore malformed local JSON
+                // Ignore malformed local preferences
             }
         }
         try {
-            const res = await fetch(
-                `/api/treasury/preferences?wallet=${encodeURIComponent(identity.activeAddress)}`
-            );
-            if (res.ok) {
-                const { preferences: remoteData } = await res.json();
+            const [prefRes, stateRes] = await Promise.all([
+                fetch(
+                    `/api/treasury/preferences?wallet=${encodeURIComponent(identity.activeAddress)}`
+                ),
+                fetch('/api/state')
+            ]);
+            if (prefRes.ok) {
+                const { preferences: remoteData } = await prefRes.json();
                 if (remoteData) {
                     if (remoteData.activeNetworks) {
-                        activeNetworks = Array.from(new Set(remoteData.activeNetworks)).filter(
-                            (t: any) => t !== 'KAS'
-                        ) as string[];
+                        activeNetworks = Array.from(
+                            new Set(remoteData.activeNetworks)
+                        ).filter((t: any) => t !== 'KAS') as string[];
                     }
                     if (remoteData.userCustomTokens)
                         userCustomTokens = remoteData.userCustomTokens;
                     if (remoteData.selectedTokensMap)
                         selectedTokensMap = remoteData.selectedTokensMap;
-                    localStorage.setItem(
-                        `p_custom_tokens_${identity.activeAddress}`,
-                        JSON.stringify(remoteData)
-                    );
+                    if (Array.isArray(remoteData.customNetworks))
+                        customNetworks = remoteData.customNetworks;
+                }
+            }
+            if (stateRes.ok) {
+                const stateData = await stateRes.json();
+                if (Array.isArray(stateData?.customTokens)) {
+                    for (const ct of stateData.customTokens) {
+                        const sym = String(ct?.ticker || ct?.symbol || '')
+                            .trim()
+                            .toUpperCase();
+                        const net = String(ct?.network || 'ETH')
+                            .trim()
+                            .toUpperCase();
+                        if (!sym) continue;
+                        treasury.updateAsset(sym, {
+                            name: ct.name || sym,
+                            assetClass: ct.assetClass || 'DeFi',
+                            network: net,
+                            spotPrice: Number(ct.spotPrice ?? ct.price ?? 0),
+                            delta: Number(ct.delta ?? ct.change24h ?? 0),
+                            contract: ct.contract || sym,
+                            imgUrl: ct.imgUrl || '',
+                            theme: ct.theme || {
+                                hex: '#18C6A5',
+                                pastel: '#99f6e4'
+                            }
+                        });
+                        addTokenToNetwork(net, {
+                            symbol: sym,
+                            name: ct.name || sym,
+                            hex: ct.theme?.hex || '#18C6A5',
+                            imgUrl: ct.imgUrl || '',
+                            balance: 0,
+                            onChain: 0,
+                            synthetic: 0,
+                            price: Number(ct.spotPrice ?? ct.price ?? 0),
+                            contract: ct.contract || sym,
+                            badge: ct.assetClass || 'TOKEN'
+                        });
+                    }
                 }
             }
         } catch {
-            // Ignore remote preference read error
+            // Ignore remote preference fetch error
         }
+        bindDerivedAddresses();
         hasLoadedLocalState = true;
     }
 
@@ -756,7 +1022,7 @@
                 }
             }
         } catch {
-            // Ignore ledger fetch timeout
+            // Ignore ledger poll error
         }
     }
 
@@ -772,13 +1038,16 @@
                 }
             }
         } catch {
-            // Ignore activity fetch timeout
+            // Ignore activity poll error
         }
     }
 
     async function fetchErc20AndL2Balances(evmAddress: string) {
         if (!evmAddress || evmAddress.includes('Awaiting')) return;
-        const cleanHex = evmAddress.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+        const cleanHex = evmAddress
+            .toLowerCase()
+            .replace(/^0x/, '')
+            .padStart(64, '0');
         const balanceOfData = `0x70a08231${cleanHex}`;
         const queries = [
             {
@@ -822,7 +1091,6 @@
                 decimals: 18
             }
         ];
-
         await Promise.allSettled(
             queries.map(async (q) => {
                 const res = await fetch(q.rpc, {
@@ -863,7 +1131,9 @@
                 const data = await res.json();
                 if (Array.isArray(data?.result)) {
                     for (const item of data.result) {
-                        const tick = String(item.tick || '').trim().toUpperCase();
+                        const tick = String(item.tick || '')
+                            .trim()
+                            .toUpperCase();
                         const dec = Number(item.dec ?? 8);
                         const rawBal = Number(item.balance || 0);
                         if (tick && rawBal > 0) {
@@ -872,7 +1142,8 @@
                                 name: `${tick} (KRC-20)`,
                                 assetClass: 'Ecosystem',
                                 network: 'KAS',
-                                onChain: normalizedBal
+                                onChain: normalizedBal,
+                                address: formatted
                             });
                             addTokenToNetwork('KAS', {
                                 symbol: tick,
@@ -890,15 +1161,18 @@
                 }
             }
         } catch {
-            // Ignore Kasplex public indexer timeout
+            // Ignore Kasplex balance poll timeout
         }
     }
 
     async function fetchOmniChainInventory() {
         if (!identity.isWalletConnected || !identity.activeAddress) return;
         try {
+            bindDerivedAddresses();
             const kasAddr =
-                identity.sovereignKeys?.kaspa?.address || identity.activeAddress || '';
+                identity.sovereignKeys?.kaspa?.address ||
+                identity.activeAddress ||
+                '';
             const ethAddr = identity.sovereignKeys?.ethereum?.address || '';
             const params = new URLSearchParams({
                 kas: kasAddr,
@@ -916,7 +1190,9 @@
             if (identity.isCorporateAdmin) {
                 params.set('corporate', 'true');
             }
-            const res = await fetch(`/api/treasury/corporate?${params.toString()}`);
+            const res = await fetch(
+                `/api/treasury/corporate?${params.toString()}`
+            );
             if (res.ok) {
                 const estate = await res.json();
                 estate.assets.forEach((onChainAsset: any) => {
@@ -925,9 +1201,13 @@
                         onChainAsset.address &&
                         !onChainAsset.address.includes('Awaiting')
                     ) {
-                        treasury.updateAsset(onChainAsset.symbol.toUpperCase(), {
-                            onChain: onChainAsset.balance
-                        });
+                        treasury.updateAsset(
+                            onChainAsset.symbol.toUpperCase(),
+                            {
+                                onChain: onChainAsset.balance,
+                                address: onChainAsset.address
+                            }
+                        );
                     }
                 });
                 if (identity.isCorporateAdmin && estate.reconciliation) {
@@ -941,7 +1221,7 @@
                 fetchKrc20OnChainBalances(kasAddr);
             }
         } catch {
-            // Ignore omni-chain hydration error
+            // Ignore multi-chain inventory poll error
         }
     }
 
@@ -956,8 +1236,14 @@
 
     onMount(() => {
         if (browser) {
-            window.addEventListener('perennia:yield_update', handleRealtimeSseSync);
-            window.addEventListener('perennia:fiat_event', handleRealtimeSseSync);
+            window.addEventListener(
+                'perennia:yield_update',
+                handleRealtimeSseSync
+            );
+            window.addEventListener(
+                'perennia:fiat_event',
+                handleRealtimeSseSync
+            );
         }
         if (identity.isWalletConnected) {
             fetchOmniChainInventory();
@@ -975,11 +1261,18 @@
 
     onDestroy(() => {
         if (browser) {
-            window.removeEventListener('perennia:yield_update', handleRealtimeSseSync);
-            window.removeEventListener('perennia:fiat_event', handleRealtimeSseSync);
+            window.removeEventListener(
+                'perennia:yield_update',
+                handleRealtimeSseSync
+            );
+            window.removeEventListener(
+                'perennia:fiat_event',
+                handleRealtimeSseSync
+            );
         }
         if (refreshInterval) clearInterval(refreshInterval);
         clearTimeout(serverSyncTimeout);
+        clearTimeout(liveDiscoverTimeout);
     });
 </script>
 
@@ -1001,7 +1294,6 @@
             </button>
         </div>
     {/if}
-
     <div
         class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-6 transition-opacity duration-500 {!identity.isWalletConnected ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative"
     >
@@ -1009,11 +1301,6 @@
             class="bg-[#0a0d12] border border-white/10 rounded-2xl px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative"
             style="background-image: radial-gradient(ellipse at left, {identity.isVaultUnlocked ? 'rgba(24, 198, 165, 0.10)' : 'rgba(245, 158, 11, 0.10)'}, transparent 65%);"
         >
-            {#if ui.microBadges['treasury_export_badge']}
-                <div class="micro-confirm-badge absolute -top-3 right-6 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl">
-                    {ui.microBadges['treasury_export_badge'].label}
-                </div>
-            {/if}
             <div class="flex items-center gap-3">
                 <span
                     class="w-2 h-2 rounded-full {identity.isVaultUnlocked ? 'bg-[#18C6A5]' : 'bg-amber-400 animate-pulse'}"
@@ -1026,38 +1313,13 @@
                     </span>
                     <span class="text-[9px] text-neutral-400">
                         {identity.isVaultUnlocked
-                            ? '11-Chain Sovereign Vault unlocked for client-side L1 transfers, KRC-20 inscriptions, and UTXO compounding.'
-                            : 'Unlock your vault password to sign 11-chain L1 transactions or withdraw funds.'}
+                            ? 'Sovereign Vault unlocked for client-side L1 transfers, KRC-20 inscriptions, and UTXO compounding.'
+                            : 'Unlock your vault password to sign multi-chain L1 transactions or withdraw funds.'}
                     </span>
                 </div>
             </div>
-            <div class="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                    type="button"
-                    data-testid="launch-tax-fortress-btn"
-                    onclick={() => (ui.activeTab = 'TAX FORTRESS')}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-widest text-amber-400 border-amber-500/40 cursor-pointer"
-                    title="Open Zero-PII 2026 Jurisdiction Tax Fortress & 1099-DA / 8949 Compiler"
-                >
-                    [Tax Fortress v4 →]
-                </button>
-                <button
-                    type="button"
-                    onclick={exportFullVaultActivityCsv}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-mono font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
-                    title="Export complete immutable yield, swap, and fiat settlement history as CSV"
-                >
-                    [Export Activity CSV]
-                </button>
-                <button
-                    type="button"
-                    onclick={exportFullVaultActivityJson}
-                    class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
-                    title="Export complete vault snapshot and settlement ledger as JSON"
-                >
-                    [Export JSON]
-                </button>
-                {#if !identity.isVaultUnlocked}
+            {#if !identity.isVaultUnlocked}
+                <div class="flex items-center gap-2 shrink-0">
                     <button
                         type="button"
                         onclick={() => (ui.showWalletModal = true)}
@@ -1065,9 +1327,11 @@
                     >
                         Unlock Vault
                     </button>
-                {/if}
-            </div>
+                </div>
+            {/if}
         </div>
+
+        <ColdVaultAirlock />
 
         {#if identity.isCorporateAdmin}
             <div
@@ -1089,7 +1353,7 @@
                                 </span>
                             </div>
                             <span class="text-[9px] font-mono text-neutral-400 mt-0.5">
-                                Dark Pool Order-Book Netting Queue • Protocol Fee Reserves • LP Bucket Skew • Corporate Estate Organization
+                                Order-Book Netting Queue • Protocol Fee Reserves • LP Bucket Skew • Corporate Estate Organization
                             </span>
                         </div>
                     </div>
@@ -1120,7 +1384,7 @@
                         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
-                                    Dark Pool Netting Queue
+                                    Pool Netting Queue
                                 </span>
                                 <div class="flex items-baseline justify-between mt-1.5">
                                     <span class="text-lg font-mono font-black text-white tabular-nums">
@@ -1203,14 +1467,14 @@
                                 </button>
                             </div>
                             <span class="text-[8px] font-mono text-neutral-500 uppercase px-2">
-                                22:00 UTC Bell in {operations.formatEpochCountdown()}
+                                22:00 UTC Settlement in {operations.formatEpochCountdown()}
                             </span>
                         </div>
                         {#if activeDirectorTab === 'reconciliation'}
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                                 <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
                                     <span class="text-[10px] font-black uppercase tracking-widest text-white">
-                                        Live Dark Pool Netting Queue &amp; Solvency Ledger
+                                        Live Netting Queue &amp; Solvency Ledger
                                     </span>
                                     <span class="text-[9px] font-mono text-neutral-400">
                                         L1 Blocks Won: {(corporateReconciliation?.fppsSolvency?.l1BlocksWonKas ?? 0).toFixed(2)} KAS | Streamed: {(corporateReconciliation?.fppsSolvency?.externalStreamedKas ?? 0).toFixed(4)} KAS
@@ -1257,7 +1521,7 @@
                                     </div>
                                 {:else}
                                     <div class="py-6 text-center text-[10px] font-mono text-neutral-400 border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/50">
-                                        Dark Pool netting queue is currently clear (all pending batch orders reconciled into double-entry ledgers &amp; 365D House LP).
+                                        Netting queue is currently clear (all pending batch orders reconciled into double-entry ledgers &amp; 365D House LP).
                                     </div>
                                 {/if}
                             </div>
@@ -1363,7 +1627,7 @@
                     <div class="flex flex-col items-center md:items-start text-center md:text-left">
                         <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2 flex items-center gap-2">
                             <span class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></span>
-                            Total Vault Portfolio Value (On-Chain L1 + Batch Queue + Staked LP)
+                            Total Vault Value
                         </span>
                         <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
                             ${treasury.totalVaultValue.toLocaleString('en-US', {
@@ -1402,11 +1666,10 @@
                         </div>
                     </div>
                 </div>
-
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/10 pt-5">
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            On-Chain L1 Balance (Explorer Parity)
+                            On-Chain L1 Balance
                         </span>
                         <span class="text-xs font-mono font-black text-[#18C6A5] tabular-nums">
                             ${totalOnChainUsd.toLocaleString(undefined, {
@@ -1439,7 +1702,6 @@
                     </div>
                 </div>
             </div>
-
             <div class="absolute right-[-40px] top-[-40px] w-64 h-64 opacity-30 pointer-events-none hidden lg:block">
                 <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
                     <circle cx="18" cy="18" r="15.915" fill="none" stroke="#161d29" stroke-width="2.5"></circle>
@@ -1500,12 +1762,12 @@
                             Sovereign Multi-Chain Derivations
                         </span>
                         <span class="text-[9px] text-neutral-500 mt-0.5">
-                            Universal Multi-Chain Token Search &amp; 11-Chain Key Matrix
+                            Universal Multi-Chain Token Search &amp; Key Matrix
                         </span>
                     </div>
                 </button>
                 <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
-                    <div class="relative flex-1 lg:w-[300px]">
+                    <div class="relative flex-1 lg:w-[340px]">
                         {#if ui.microBadges['treasury_search']}
                             <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">
                                 {ui.microBadges['treasury_search'].label}
@@ -1513,13 +1775,14 @@
                         {/if}
                         <input
                             type="text"
+                            data-testid="treasury-token-search-input"
                             bind:value={networkSearchQuery}
                             oninput={() => {
                                 if (networkSearchQuery.trim().length > 0)
                                     isAllNetworksDrawerOpen = true;
                                 handleLiveSearch();
                             }}
-                            placeholder="Search chains or add Web3 token..."
+                            placeholder="Search chains or add Web3 token (PEPE, ONDO)..."
                             class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-8 text-xs font-mono text-white outline-none transition-colors"
                         />
                         <svg class="absolute left-3 top-3 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1528,40 +1791,71 @@
                         {#if searchResults.length > 0}
                             <div
                                 transition:slide={{ duration: 200 }}
-                                class="absolute top-[115%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col"
+                                class="absolute top-[115%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[380px] overflow-y-auto flex flex-col"
                             >
                                 {#each searchResults as result}
-                                    <button
-                                        type="button"
-                                        onclick={() => selectSearchResult(result)}
-                                        class="flex items-center justify-between p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 cursor-pointer text-left"
+                                    <div
+                                        class="flex flex-col gap-2 p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 text-left"
                                     >
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
-                                                {#if result.imgUrl}
-                                                    <img src={result.imgUrl} class="w-5 h-5 object-contain" alt={result.symbol} />
-                                                {:else}
-                                                    <span class="text-xs font-black" style="color: {result.hex}">
-                                                        {result.symbol[0]}
+                                        <div class="flex items-center justify-between gap-2">
+                                            <div class="flex items-center gap-3 min-w-0">
+                                                <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                                                    {#if result.imgUrl}
+                                                        <img
+                                                            src={result.imgUrl}
+                                                            class="w-5 h-5 object-contain"
+                                                            alt={result.symbol}
+                                                            onerror={(e) =>
+                                                                ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                                        />
+                                                    {:else}
+                                                        <span class="text-xs font-black" style="color: {result.hex}">
+                                                            {result.symbol[0]}
+                                                        </span>
+                                                    {/if}
+                                                </div>
+                                                <div class="flex flex-col min-w-0">
+                                                    <span class="text-xs font-bold text-white flex items-center gap-2">
+                                                        {result.symbol}
+                                                        <span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">
+                                                            {result.network}
+                                                        </span>
                                                     </span>
-                                                {/if}
-                                            </div>
-                                            <div class="flex flex-col">
-                                                <span class="text-xs font-bold text-white flex items-center gap-2">
-                                                    {result.symbol}
-                                                    <span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">
-                                                        {result.network}
+                                                    <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[160px]">
+                                                        {result.name}
                                                     </span>
-                                                </span>
-                                                <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[130px]">
-                                                    {result.name}
-                                                </span>
+                                                </div>
                                             </div>
+                                            {#if result.price > 0}
+                                                <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums shrink-0">
+                                                    ${result.price < 0.01 ? result.price.toFixed(8) : result.price.toFixed(4)}
+                                                </span>
+                                            {/if}
                                         </div>
-                                        <span class="px-3 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold uppercase">
-                                            + Add
-                                        </span>
-                                    </button>
+                                        <div class="grid grid-cols-3 gap-1.5 pt-1">
+                                            <button
+                                                type="button"
+                                                onclick={() => selectSearchResult(result, 'pay')}
+                                                class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white cursor-pointer"
+                                            >
+                                                YOU PAY
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onclick={() => selectSearchResult(result, 'receive')}
+                                                class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                                            >
+                                                YOU RECEIVE
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onclick={() => selectSearchResult(result)}
+                                                class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer"
+                                            >
+                                                + ADD TO WALLET
+                                            </button>
+                                        </div>
+                                    </div>
                                 {/each}
                             </div>
                         {/if}
@@ -1585,28 +1879,26 @@
                     </button>
                 </div>
             </div>
-
             {#if isAllNetworksDrawerOpen}
                 <div transition:slide class="w-full flex flex-col gap-4">
-                    {#if networkSearchQuery.trim().length > 1 && searchResults.length === 0 && !isGlobalSearching}
-                        <div class="py-5 text-center flex flex-col items-center justify-center gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
+                    {#if networkSearchQuery.trim().length > 1 && !isGlobalSearching}
+                        <div class="py-4 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
                             <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
-                                Query Global On-Chain Indexers for "{networkSearchQuery.toUpperCase()}"
+                                Query Global On-Chain Indexers &amp; CEX Oracles for "{networkSearchQuery.toUpperCase()}"
                             </span>
                             <button
                                 type="button"
                                 onclick={executeGlobalMasterSearch}
                                 disabled={isGlobalSearching}
-                                class="tactile-btn px-6 py-2.5 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[10px] uppercase tracking-widest font-bold cursor-pointer"
+                                class="tactile-btn px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[9px] uppercase tracking-widest font-bold cursor-pointer"
                             >
                                 Search Web3 Indexer
                             </button>
                             {#if globalSearchError}
-                                <span class="text-red-400 text-[9px]">{globalSearchError}</span>
+                                <span class="text-amber-400 text-[9px]">{globalSearchError}</span>
                             {/if}
                         </div>
                     {/if}
-
                     {#each visibleSecondaryNetworks as net (net.ticker)}
                         <div
                             draggable={isOrganizing && autoActiveNetworks.includes(net.ticker)}

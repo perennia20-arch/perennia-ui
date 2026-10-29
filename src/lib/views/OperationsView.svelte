@@ -60,7 +60,7 @@
         { id: 'ka-box-pro', model: 'Goldshell KA Box Pro', manufacturer: 'Goldshell', hashrateTh: 1.6, displayHashrate: '1.6 TH/s', powerWatts: 600, port: 3333, tierLabel: 'MID AUTO-DIFF' },
         { id: 'ks2-lite', model: 'IceRiver KS2 Lite', manufacturer: 'IceRiver', hashrateTh: 2.0, displayHashrate: '2.0 TH/s', powerWatts: 500, port: 3333, tierLabel: 'MID AUTO-DIFF' },
         { id: 'ks2', model: 'IceRiver KS2', manufacturer: 'IceRiver', hashrateTh: 2.0, displayHashrate: '2.0 TH/s', powerWatts: 1200, port: 3333, tierLabel: 'MID AUTO-DIFF' },
-        { id: 'ks7-lite', model: 'IceRiver KS7 Lite', manufacturer: 'IceRiver', hashrateTh: 4.2, displayHashrate: '4.2 TH/s', powerWatts: 500, port: 3333, tierLabel: 'MID AUTO-DIFF' },
+        { id: 'ks7-lite', model: 'IceRiver KS7 Lite', manufacturer: 'IceRiver', hashrateTh: 4.2, displayHashrate: '4.2 TH/s', powerWatts: 500, port: 3334, tierLabel: 'HIGH AUTO-DIFF' },
         { id: 'ks3l', model: 'IceRiver KS3L', manufacturer: 'IceRiver', hashrateTh: 5.0, displayHashrate: '5.0 TH/s', powerWatts: 3200, port: 3333, tierLabel: 'MID AUTO-DIFF' },
         { id: 'e-ka1m', model: 'Goldshell E-KA1M', manufacturer: 'Goldshell', hashrateTh: 5.5, displayHashrate: '5.5 TH/s', powerWatts: 1800, port: 3333, tierLabel: 'MID AUTO-DIFF' },
         { id: 'ks3m', model: 'IceRiver KS3M', manufacturer: 'IceRiver', hashrateTh: 6.0, displayHashrate: '6.0 TH/s', powerWatts: 3400, port: 3333, tierLabel: 'MID AUTO-DIFF' },
@@ -76,14 +76,13 @@
         { id: 'antminer-ks7-45t', model: 'Antminer KS7 (45T)', manufacturer: 'Bitmain', hashrateTh: 45.0, displayHashrate: '45.0 TH/s', powerWatts: 3465, port: 3334, tierLabel: 'HIGH AUTO-DIFF' }
     ];
 
-    let nowMs = $state(Date.now());
     let unassignedReserveKas = $state(0.0);
     let unassignedReserveTargetKas = $state(DEFAULT_RESERVE_PAYOUT_KAS);
     let savedBankRailLast4 = $state<string | null>(null);
     let savedBankRailLabel = $state<string>('Primary Operating Account');
     let savedBankRailMethod = $state<string>('ACH');
+    let isPullingOutKey = $state<string | null>(null);
 
-    // Deliverable L4: Proof-of-Hashrate Mineable KRC-20 Vaults & Syndicate Sectors
     let mineableKrc20Vaults = $state<MineableKrc20VaultInfo[]>([
         {
             vaultId: 'vault-silo-genesis',
@@ -161,19 +160,36 @@
                         merged.set(v.tokenTicker.toUpperCase(), v);
                     }
                     for (const rv of remoteList) {
-                        const tick = String(rv.tokenTicker || '').trim().toUpperCase();
+                        const tick = String(rv.tokenTicker || '')
+                            .trim()
+                            .toUpperCase();
                         if (tick) {
                             merged.set(tick, {
                                 vaultId: String(rv.vaultId || `vault-${tick}`),
                                 tokenTicker: tick,
-                                vaultLabel: String(rv.vaultLabel || `${tick} Mining Vault`),
-                                totalFundedTokens: Number(rv.totalFundedTokens || 0),
-                                remainingVaultTokens: Number(rv.remainingVaultTokens || 0),
-                                dailyEmissionTokens: Number(rv.dailyEmissionTokens || 0),
-                                distributedTokens: Number(rv.distributedTokens || 0),
-                                minHashrateThs: Number(rv.minHashrateThs || 0.1),
-                                syndicateSectorEnabled: rv.syndicateSectorEnabled !== false,
-                                activeMinersCount: Number(rv.activeMinersCount || 1),
+                                vaultLabel: String(
+                                    rv.vaultLabel || `${tick} Mining Vault`
+                                ),
+                                totalFundedTokens: Number(
+                                    rv.totalFundedTokens || 0
+                                ),
+                                remainingVaultTokens: Number(
+                                    rv.remainingVaultTokens || 0
+                                ),
+                                dailyEmissionTokens: Number(
+                                    rv.dailyEmissionTokens || 0
+                                ),
+                                distributedTokens: Number(
+                                    rv.distributedTokens || 0
+                                ),
+                                minHashrateThs: Number(
+                                    rv.minHashrateThs || 0.1
+                                ),
+                                syndicateSectorEnabled:
+                                    rv.syndicateSectorEnabled !== false,
+                                activeMinersCount: Number(
+                                    rv.activeMinersCount || 1
+                                ),
                                 status: String(rv.status || 'ACTIVE')
                             });
                             treasury.updateAsset(tick, {
@@ -187,7 +203,7 @@
                 }
             }
         } catch {
-            // Keep default seeded mineable vaults if offline
+            // Ignore vault sync timeout
         }
     }
 
@@ -196,7 +212,9 @@
             100,
             Math.max(
                 0,
-                (unassignedReserveKas / (unassignedReserveTargetKas || DEFAULT_RESERVE_PAYOUT_KAS)) *
+                (unassignedReserveKas /
+                    (unassignedReserveTargetKas ||
+                        DEFAULT_RESERVE_PAYOUT_KAS)) *
                     100
             )
         )
@@ -212,36 +230,123 @@
         );
     }
 
-    function formatWorkerAcceptancePct(worker: Worker): {
-        label: string;
-        pct: number;
-        rejected: number;
-    } {
-        const rejected = Number(worker.rejectedShares || 0);
-        const valid = Number(worker.validShares || 0);
-        let pct = 100.0;
-        if (typeof worker.acceptancePct === 'number' && !isNaN(worker.acceptancePct)) {
-            pct = Math.max(0, Math.min(100, worker.acceptancePct));
-        } else if (valid + rejected > 0) {
-            pct = (valid / (valid + rejected)) * 100.0;
+    function getUserPendingKasForBucket(bucketAsset: string): number {
+        const cleanAsset = bucketAsset.trim().toUpperCase();
+        let total = 0;
+        for (const sec of operations.sectors || []) {
+            const pending = Math.max(0, Number(sec.pendingKaspa || 0));
+            if (pending <= 0) continue;
+            const primaryTarget = (
+                sec.settlementConfig?.targetAsset?.ticker || ''
+            ).toUpperCase();
+            if (sec.routeMode === 'auto-lp') {
+                const targets = hydrateSectorTargetAssets(sec);
+                const match = targets.find(
+                    (t) =>
+                        t.ticker.toUpperCase() === cleanAsset &&
+                        t.ticker.toUpperCase() !== 'KAS'
+                );
+                if (match) {
+                    total += pending;
+                } else if (primaryTarget === cleanAsset) {
+                    total += pending;
+                }
+            } else if (primaryTarget === cleanAsset) {
+                total += pending;
+            }
         }
-        const label = pct >= 99.95 ? '100%' : `${pct.toFixed(1)}%`;
-        return { label, pct, rejected };
+        return total;
     }
 
-    function formatLastShareAge(lastShareTs?: number): string {
-        if (!lastShareTs || lastShareTs <= 0) {
-            return 'Awaiting Share';
+    async function claimPendingSectorKas(params: {
+        sectorId?: string;
+        targetAsset?: string;
+    }) {
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
         }
-        const elapsedSec = Math.max(0, Math.floor((nowMs - lastShareTs) / 1000));
-        if (elapsedSec <= 1) return 'Just now';
-        if (elapsedSec < 60) return `${elapsedSec}s ago`;
-        if (elapsedSec < 3600) {
-            const mins = Math.floor(elapsedSec / 60);
-            const secs = elapsedSec % 60;
-            return `${mins}m ${secs}s ago`;
+        const key = params.sectorId || params.targetAsset || 'claim';
+        isPullingOutKey = key;
+        markMutation();
+        let claimedSum = 0;
+        const cleanTarget = params.targetAsset
+            ? params.targetAsset.trim().toUpperCase()
+            : '';
+        operations.sectors = (operations.sectors || []).map((sec) => {
+            const pending = Math.max(0, Number(sec.pendingKaspa || 0));
+            if (pending <= 0) return sec;
+            let matches = false;
+            if (params.sectorId && sec.id === params.sectorId) {
+                matches = true;
+            } else if (cleanTarget) {
+                const primary = (
+                    sec.settlementConfig?.targetAsset?.ticker || ''
+                ).toUpperCase();
+                if (primary === cleanTarget) {
+                    matches = true;
+                } else if (sec.routeMode === 'auto-lp') {
+                    const targets = hydrateSectorTargetAssets(sec);
+                    if (
+                        targets.some(
+                            (t) => t.ticker.toUpperCase() === cleanTarget
+                        )
+                    ) {
+                        matches = true;
+                    }
+                }
+            }
+            if (matches) {
+                claimedSum += pending;
+                return { ...sec, pendingKaspa: 0 };
+            }
+            return sec;
+        });
+        try {
+            const targetWallet =
+                identity.isCorporateAdmin &&
+                ui.adminModeActive &&
+                ui.adminTargetWallet
+                    ? ui.adminTargetWallet
+                    : undefined;
+            const res = await fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'CLAIM_PENDING_SECTOR_KAS',
+                    payload: {
+                        sectorId: params.sectorId,
+                        targetAsset: params.targetAsset
+                    },
+                    targetWallet
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            const finalClaimed = Number(data?.data?.claimedKas ?? claimedSum);
+            if (params.sectorId) {
+                triggerShimmer(`sector_${params.sectorId}`);
+                ui.triggerMicroBadge(
+                    `sector_${params.sectorId}`,
+                    `PULLED OUT ${finalClaimed.toFixed(2)} KAS ✓`,
+                    '#18C6A5'
+                );
+            } else if (cleanTarget) {
+                ui.triggerMicroBadge(
+                    `bucket_${cleanTarget}`,
+                    `PULLED OUT ${finalClaimed.toFixed(2)} KAS ✓`,
+                    '#18C6A5'
+                );
+            }
+            await Promise.all([
+                syncUnassignedReserveTelemetry(),
+                syncRecentSettlementEvents()
+            ]);
+        } catch (e) {
+            console.error('Failed to pull out pending sector KAS:', e);
+        } finally {
+            isPullingOutKey = null;
+            markMutation();
         }
-        return `${Math.floor(elapsedSec / 3600)}h ago`;
     }
 
     async function syncSavedBankRailStatus() {
@@ -253,11 +358,14 @@
                 savedBankRailLast4 = data.savedBankRailLast4 || null;
                 if (data.savedBankRail) {
                     savedBankRailLabel =
-                        data.savedBankRail.bankLabel || 'Primary Operating Account';
-                    savedBankRailMethod = data.savedBankRail.payoutMethod || 'ACH';
+                        data.savedBankRail.bankLabel ||
+                        'Primary Operating Account';
+                    savedBankRailMethod =
+                        data.savedBankRail.payoutMethod || 'ACH';
                 }
             }
         } catch {
+            // Ignore bank rail status poll error
         }
     }
 
@@ -272,13 +380,17 @@
                 }
             }
         } catch {
+            // Ignore tax events poll error
         }
     }
 
     async function syncUnassignedReserveTelemetry() {
-        if (!browser || !identity.isWalletConnected || !identity.activeAddress) return;
+        if (!browser || !identity.isWalletConnected || !identity.activeAddress)
+            return;
         const targetWallet =
-            identity.isCorporateAdmin && ui.adminModeActive && ui.adminTargetWallet
+            identity.isCorporateAdmin &&
+            ui.adminModeActive &&
+            ui.adminTargetWallet
                 ? ui.adminTargetWallet
                 : identity.activeAddress;
         try {
@@ -288,13 +400,17 @@
             if (res.ok) {
                 const data = await res.json();
                 if (typeof data.unassignedReserveKas === 'number') {
-                    unassignedReserveKas = Math.max(0, data.unassignedReserveKas);
+                    unassignedReserveKas = Math.max(
+                        0,
+                        data.unassignedReserveKas
+                    );
                 }
                 if (
                     typeof data.unassignedReserveTargetKas === 'number' &&
                     data.unassignedReserveTargetKas > 0
                 ) {
-                    unassignedReserveTargetKas = data.unassignedReserveTargetKas;
+                    unassignedReserveTargetKas =
+                        data.unassignedReserveTargetKas;
                 }
                 if (!ui.adminModeActive) {
                     for (const [ticker, val] of Object.entries(data)) {
@@ -310,6 +426,7 @@
                 }
             }
         } catch {
+            // Ignore reserve telemetry poll error
         }
     }
 
@@ -326,7 +443,10 @@
         }
     });
 
-    function formatPortTierLabel(port: 3332 | 3333 | 3334, rawTierLabel: string): string {
+    function formatPortTierLabel(
+        port: 3332 | 3333 | 3334,
+        rawTierLabel: string
+    ): string {
         if (identity.isCorporateAdmin) {
             return rawTierLabel;
         }
@@ -349,25 +469,43 @@
     function matchCatalogSpecForWorker(worker: Worker): KaspaMinerSpec | null {
         const hw = (worker.hardwareType || '').toLowerCase();
         const name = (worker.name || '').toLowerCase();
-        for (const spec of [...KASPA_MINER_CATALOG].sort((a, b) => b.model.length - a.model.length)) {
-            if (hw === spec.model.toLowerCase() || hw.includes(spec.model.toLowerCase())) {
+        for (const spec of [...KASPA_MINER_CATALOG].sort(
+            (a, b) => b.model.length - a.model.length
+        )) {
+            if (
+                hw === spec.model.toLowerCase() ||
+                hw.includes(spec.model.toLowerCase())
+            ) {
                 return spec;
             }
         }
         if (hw.includes('iceriverminer-v1.1') || name.includes('ultra')) {
-            return KASPA_MINER_CATALOG.find((s) => s.id === 'ks0-ultra') || null;
+            return (
+                KASPA_MINER_CATALOG.find((s) => s.id === 'ks0-ultra') || null
+            );
         }
-        if (hw.includes('iceriverminer-v7') || name.includes('ks7lite') || name.includes('ks7-lite')) {
-            return KASPA_MINER_CATALOG.find((s) => s.id === 'ks7-lite') || null;
+        if (
+            hw.includes('iceriverminer-v7') ||
+            name.includes('ks7lite') ||
+            name.includes('ks7-lite')
+        ) {
+            return (
+                KASPA_MINER_CATALOG.find((s) => s.id === 'ks7-lite') || null
+            );
         }
         if (name.includes('ks0pro') || name.includes('ks0-pro')) {
-            return KASPA_MINER_CATALOG.find((s) => s.id === 'ks0-pro') || null;
+            return (
+                KASPA_MINER_CATALOG.find((s) => s.id === 'ks0-pro') || null
+            );
         }
         if (name.includes('ks0')) {
             return KASPA_MINER_CATALOG.find((s) => s.id === 'ks0') || null;
         }
         if (name.includes('ks5pro') || name.includes('ks5-pro')) {
-            return KASPA_MINER_CATALOG.find((s) => s.id === 'antminer-ks5-pro') || null;
+            return (
+                KASPA_MINER_CATALOG.find((s) => s.id === 'antminer-ks5-pro') ||
+                null
+            );
         }
         if (name.includes('ks5m')) {
             return KASPA_MINER_CATALOG.find((s) => s.id === 'ks5m') || null;
@@ -395,11 +533,17 @@
             const byLiveHash = resolvePortByHashrateTh(worker.hashRate);
             return { ...byLiveHash, matchedSpec: null };
         }
-        const explicitPortMatch = (worker.stratumUrl || '').match(/:(3332|3333|3334)$/);
+        const explicitPortMatch = (worker.stratumUrl || '').match(
+            /:(3332|3333|3334)$/
+        );
         if (explicitPortMatch) {
             const p = Number(explicitPortMatch[1]) as 3332 | 3333 | 3334;
             const tierLabel =
-                p === 3334 ? 'HIGH AUTO-DIFF' : p === 3333 ? 'MID AUTO-DIFF' : 'LOW AUTO-DIFF';
+                p === 3334
+                    ? 'HIGH AUTO-DIFF'
+                    : p === 3333
+                      ? 'MID AUTO-DIFF'
+                      : 'LOW AUTO-DIFF';
             return { port: p, tierLabel, matchedSpec: null };
         }
         return { port: 3332, tierLabel: 'LOW AUTO-DIFF', matchedSpec: null };
@@ -412,7 +556,9 @@
 
     function getWorkerIdentityString(worker: Worker): string {
         const targetAddr =
-            identity.isCorporateAdmin && ui.adminModeActive && ui.adminTargetWallet
+            identity.isCorporateAdmin &&
+            ui.adminModeActive &&
+            ui.adminTargetWallet
                 ? ui.adminTargetWallet
                 : identity.activeAddress;
         const cleanWallet = targetAddr?.replace(/kaspa:/i, '').trim() || '';
@@ -499,10 +645,16 @@
         displayedWorkers.reduce((acc, w) => acc + (w.hashRate || 0), 0)
     );
     let totalShares = $derived(
-        displayedWorkers.reduce((acc, w) => acc + (w.sharesContributed || 0), 0)
+        displayedWorkers.reduce(
+            (acc, w) => acc + (w.sharesContributed || 0),
+            0
+        )
     );
     let allocatedPercentage = $derived(
-        (operations.sectors || []).reduce((acc, s) => acc + (s.allocationPercentage || 0), 0)
+        (operations.sectors || []).reduce(
+            (acc, s) => acc + (s.allocationPercentage || 0),
+            0
+        )
     );
     let unallocatedPercentage = $derived(
         Math.max(0, parseFloat((100.0 - allocatedPercentage).toFixed(1)))
@@ -515,7 +667,9 @@
     );
     let dragSectorId = $state<string | null>(null);
     let dropTargetSectorId = $state<string | null>(null);
-    let displayedBuckets = $derived<AssetBucketTelemetry[]>(operations.displayedBuckets);
+    let displayedBuckets = $derived<AssetBucketTelemetry[]>(
+        operations.displayedBuckets
+    );
 
     function computeLiveKasPerThPerDay(): number {
         if (operations.networkDifficulty > 0 && operations.blockRewardKas > 0) {
@@ -524,17 +678,27 @@
                 operations.networkDifficulty * 2.0 * KASPA_DIFF_CONSTANT;
             if (expectedBlockHashes > 0) {
                 const grossKasPerThDay =
-                    (hashesPerThPerDay * operations.blockRewardKas) / expectedBlockHashes;
+                    (hashesPerThPerDay * operations.blockRewardKas) /
+                    expectedBlockHashes;
                 return Math.max(0, grossKasPerThDay * (1.0 - POOL_FEE_RATE));
             }
         }
         const anchorMs = Date.UTC(2024, 4, 5, 0, 0, 0);
         const currentMs = Date.now();
-        const monthsElapsed = Math.max(0, (currentMs - anchorMs) / (1000 * 86400 * 30.436875));
+        const monthsElapsed = Math.max(
+            0,
+            (currentMs - anchorMs) / (1000 * 86400 * 30.436875)
+        );
         const kasPerSecondGlobal = 103.83 * Math.pow(0.5, monthsElapsed / 12);
         const dailyGlobalKas = kasPerSecondGlobal * 86400;
-        const baselineNetworkTh = Math.max(1_150_000_000, operations.globalNetworkHashrate || 0);
-        return Math.max(0.5, (dailyGlobalKas / baselineNetworkTh) * (1.0 - POOL_FEE_RATE));
+        const baselineNetworkTh = Math.max(
+            1_150_000_000,
+            operations.globalNetworkHashrate || 0
+        );
+        return Math.max(
+            0.5,
+            (dailyGlobalKas / baselineNetworkTh) * (1.0 - POOL_FEE_RATE)
+        );
     }
 
     function estimateSectorDailyKas(sector: ViewSector): number {
@@ -546,7 +710,8 @@
         if (consensusEstimate > 0) {
             return consensusEstimate * lpMultiplier;
         }
-        const pctRatio = Math.max(0, Number(sector.allocationPercentage || 0)) / 100.0;
+        const pctRatio =
+            Math.max(0, Number(sector.allocationPercentage || 0)) / 100.0;
         const catalogFallbackTh = displayedWorkers.reduce((sum, w) => {
             const spec = matchCatalogSpecForWorker(w);
             return sum + (spec ? spec.hashrateTh : 0);
@@ -558,7 +723,10 @@
                   ? catalogFallbackTh * pctRatio
                   : 0;
         if (effectiveTh <= 0) return 0;
-        return Math.max(0, effectiveTh * computeLiveKasPerThPerDay() * lpMultiplier);
+        return Math.max(
+            0,
+            effectiveTh * computeLiveKasPerThPerDay() * lpMultiplier
+        );
     }
 
     function estimateSectorDailyUsd(sector: ViewSector): number {
@@ -572,9 +740,14 @@
             ui.showWalletModal = true;
             return;
         }
-        const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const randomSuffix = Math.random()
+            .toString(36)
+            .substring(2, 6)
+            .toUpperCase();
         const defaultName = `RIG-${randomSuffix}`;
-        const cleanWallet = identity.activeAddress.replace(/kaspa:/i, '').trim();
+        const cleanWallet = identity.activeAddress
+            .replace(/kaspa:/i, '')
+            .trim();
         const newWorker: Worker = {
             id: Math.random().toString(36).substring(2, 8).toUpperCase(),
             type: 'physical',
@@ -592,7 +765,11 @@
         };
         operations.workers = [...operations.workers, newWorker];
         triggerShimmer(`worker_${newWorker.id}`);
-        ui.triggerMicroBadge(`worker_${newWorker.id}`, 'WORKER DEPLOYED ✓', '#18C6A5');
+        ui.triggerMicroBadge(
+            `worker_${newWorker.id}`,
+            'WORKER DEPLOYED ✓',
+            '#18C6A5'
+        );
         await safeDispatch('ADD_WORKER', newWorker);
     }
 
@@ -601,15 +778,25 @@
         activeMinerTypePickerWorkerId = null;
         const newName = prompt('Rename this worker:', worker.name);
         if (newName && newName.trim() !== '' && newName.trim() !== worker.name) {
-            const cleanWallet = identity.activeAddress?.replace(/kaspa:/i, '').trim();
+            const cleanWallet = identity.activeAddress
+                ?.replace(/kaspa:/i, '')
+                .trim();
             const newWalletWorker = `kaspa:${cleanWallet}.${newName.trim()}`;
             operations.workers = operations.workers.map((w) =>
                 w.id === worker.id
-                    ? { ...w, name: newName.trim(), walletWorker: newWalletWorker }
+                    ? {
+                          ...w,
+                          name: newName.trim(),
+                          walletWorker: newWalletWorker
+                      }
                     : w
             );
             triggerShimmer(`worker_${worker.id}`);
-            ui.triggerMicroBadge(`worker_${worker.id}`, 'RENAMED ✓', '#18C6A5');
+            ui.triggerMicroBadge(
+                `worker_${worker.id}`,
+                'RENAMED ✓',
+                '#18C6A5'
+            );
             await safeDispatch('RENAME_WORKER', {
                 id: worker.id,
                 name: newName.trim(),
@@ -621,7 +808,11 @@
     async function deleteWorkerAction(id: string) {
         activeWorkerMenu = null;
         activeMinerTypePickerWorkerId = null;
-        if (confirm('Remove this worker? It will reappear if hardware continues hashing.')) {
+        if (
+            confirm(
+                'Remove this worker? It will reappear if hardware continues hashing.'
+            )
+        ) {
             operations.workers = operations.workers.filter((w) => w.id !== id);
             await safeDispatch('DELETE_WORKER', { id });
         }
@@ -634,7 +825,11 @@
         }
         markInlineCopied(`stratum_${worker.id}`);
         triggerShimmer(`worker_${worker.id}`);
-        ui.triggerMicroBadge(`worker_${worker.id}`, 'STRATUM COPIED ✓', '#18C6A5');
+        ui.triggerMicroBadge(
+            `worker_${worker.id}`,
+            'STRATUM COPIED ✓',
+            '#18C6A5'
+        );
     }
 
     function copyWorkerIdentityOnly(worker: Worker) {
@@ -644,7 +839,11 @@
         }
         markInlineCopied(`wallet_${worker.id}`);
         triggerShimmer(`worker_${worker.id}`);
-        ui.triggerMicroBadge(`worker_${worker.id}`, 'WALLET.WORKER COPIED ✓', '#18C6A5');
+        ui.triggerMicroBadge(
+            `worker_${worker.id}`,
+            'WALLET.WORKER COPIED ✓',
+            '#18C6A5'
+        );
     }
 
     function handleSectorDragStart(e: DragEvent, sector: Sector) {
@@ -703,10 +902,14 @@
         operations.sectors = operations.sectors.map((s) => {
             if (s.id !== id) return s;
             const otherAllocated = operations.sectors.reduce(
-                (acc, sec) => (sec.id === id ? acc : acc + (sec.allocationPercentage || 0)),
+                (acc, sec) =>
+                    sec.id === id ? acc : acc + (sec.allocationPercentage || 0),
                 0
             );
-            const maxAvailable = Math.max(0, parseFloat((100.0 - otherAllocated).toFixed(1)));
+            const maxAvailable = Math.max(
+                0,
+                parseFloat((100.0 - otherAllocated).toFixed(1))
+            );
             updatedPct = maxAvailable;
             return { ...s, allocationPercentage: maxAvailable };
         });
@@ -726,10 +929,14 @@
     let editSelectedAssets = $state<PlantAssetTarget[]>([]);
     let draftIsSyndicateSector = $state(false);
     let assetPickerTarget = $state<'create' | 'edit'>('create');
-    let assetPickerActionMode = $state<'replace_primary' | 'add_secondary'>('replace_primary');
+    let assetPickerActionMode = $state<'replace_primary' | 'add_secondary'>(
+        'replace_primary'
+    );
     let isAssetPickerOpen = $state(false);
     let assetSearchQuery = $state('');
-    let assetCategoryFilter = $state<'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES' | 'MINEABLE'>('ALL');
+    let assetCategoryFilter = $state<
+        'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES' | 'MINEABLE'
+    >('ALL');
 
     const defaultSettlement: SettlementConfig = {
         targetAsset: treasury.registry[0],
@@ -744,12 +951,19 @@
         appointmentTime: '17:00'
     };
 
-    let draftSettlementConfig = $state<SettlementConfig>({ ...defaultSettlement });
+    let draftSettlementConfig = $state<SettlementConfig>({
+        ...defaultSettlement
+    });
     let settlementModalSilo = $state<Sector | null>(null);
     let editSectorName = $state('');
-    let editSettlementParams = $state<SettlementConfig>({ ...defaultSettlement });
+    let editSettlementParams = $state<SettlementConfig>({
+        ...defaultSettlement
+    });
 
-    function toPlantTargetSpec(asset: UnifiedAsset, weightPct: number): PlantAssetTarget {
+    function toPlantTargetSpec(
+        asset: UnifiedAsset,
+        weightPct: number
+    ): PlantAssetTarget {
         return {
             ticker: asset.ticker,
             name: asset.name,
@@ -761,13 +975,18 @@
         };
     }
 
-    function normalizePlantTargets(rawList: PlantAssetTarget[]): PlantAssetTarget[] {
+    function normalizePlantTargets(
+        rawList: PlantAssetTarget[]
+    ): PlantAssetTarget[] {
         if (rawList.length <= 1) {
-            const first = rawList[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0);
+            const first =
+                rawList[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0);
             return [{ ...first, weightPct: 100.0 }];
         }
         const kasAsset = treasury.getAsset('KAS');
-        const secondary = rawList.filter((a) => a.ticker.toUpperCase() !== 'KAS').slice(0, 4);
+        const secondary = rawList
+            .filter((a) => a.ticker.toUpperCase() !== 'KAS')
+            .slice(0, 4);
         if (secondary.length === 0) {
             const usdc = treasury.getAsset('USDC');
             return [
@@ -776,14 +995,21 @@
             ];
         }
         const nSec = secondary.length;
-        const rawSecSum = secondary.reduce((s, a) => s + Math.max(0, Number(a.weightPct || 0)), 0);
+        const rawSecSum = secondary.reduce(
+            (s, a) => s + Math.max(0, Number(a.weightPct || 0)),
+            0
+        );
         let allocatedSec = 0;
         const normalizedSecondary = secondary.map((item, idx) => {
             let pct: number;
             if (idx === nSec - 1) {
                 pct = Number(Math.max(0.01, 50.0 - allocatedSec).toFixed(2));
             } else if (rawSecSum > 0) {
-                pct = Number((((Math.max(0.1, item.weightPct) / rawSecSum) * 50.0)).toFixed(2));
+                pct = Number(
+                    ((Math.max(0.1, item.weightPct) / rawSecSum) * 50.0).toFixed(
+                        2
+                    )
+                );
             } else {
                 pct = Number((50.0 / nSec).toFixed(2));
             }
@@ -813,7 +1039,9 @@
             cfg.plantWeights = weightsMap;
             cfg.plantPair = normalized.map((i) => i.ticker).join('/');
             cfg.mode = 'epoch';
-            cfg.payoutAddress = resolveChainAddressForTicker(primarySecondary.ticker);
+            cfg.payoutAddress = resolveChainAddressForTicker(
+                primarySecondary.ticker
+            );
         } else {
             const single = normalized[0];
             cfg.targetAsset = single;
@@ -832,13 +1060,16 @@
     let draftMineableVaultInfo = $derived(
         !isDraftMultiAssetPlant
             ? mineableVaultMap.get(
-                  (draftSettlementConfig.targetAsset?.ticker || '').toUpperCase()
+                  (
+                      draftSettlementConfig.targetAsset?.ticker || ''
+                  ).toUpperCase()
               ) || null
             : null
     );
     let draftInternalPairsCount = $derived(
         draftSelectedAssets.length >= 2
-            ? (draftSelectedAssets.length * (draftSelectedAssets.length - 1)) / 2
+            ? (draftSelectedAssets.length * (draftSelectedAssets.length - 1)) /
+                  2
             : 0
     );
     let editInternalPairsCount = $derived(
@@ -847,27 +1078,44 @@
             : 0
     );
 
-    function setSingleTargetAsset(targetMode: 'create' | 'edit', asset: UnifiedAsset) {
+    function setSingleTargetAsset(
+        targetMode: 'create' | 'edit',
+        asset: UnifiedAsset
+    ) {
         const singleList = [toPlantTargetSpec(asset, 100.0)];
         const isMineable = mineableVaultMap.has(asset.ticker.toUpperCase());
         if (targetMode === 'create') {
-            const res = syncConfigFromAssetList(singleList, draftSettlementConfig);
+            const res = syncConfigFromAssetList(
+                singleList,
+                draftSettlementConfig
+            );
             draftSelectedAssets = res.updatedList;
             draftIsSyndicateSector = isMineable;
             if (isMineable && draftSectorName.startsWith('SILO-')) {
                 draftSectorName = `SYNDICATE-${asset.ticker.toUpperCase()}`;
             }
         } else {
-            const res = syncConfigFromAssetList(singleList, editSettlementParams);
+            const res = syncConfigFromAssetList(
+                singleList,
+                editSettlementParams
+            );
             editSelectedAssets = res.updatedList;
         }
     }
 
-    function addOrToggleAssetInSector(targetMode: 'create' | 'edit', asset: UnifiedAsset) {
+    function addOrToggleAssetInSector(
+        targetMode: 'create' | 'edit',
+        asset: UnifiedAsset
+    ) {
         const currentList =
-            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
+            targetMode === 'create'
+                ? [...draftSelectedAssets]
+                : [...editSelectedAssets];
         const cleanTicker = asset.ticker.toUpperCase();
-        if (currentList.length === 1 && assetPickerActionMode === 'replace_primary') {
+        if (
+            currentList.length === 1 &&
+            assetPickerActionMode === 'replace_primary'
+        ) {
             setSingleTargetAsset(targetMode, asset);
             return;
         }
@@ -904,9 +1152,13 @@
         if (cleanTicker !== 'KAS') {
             existingSecondaries.push(toPlantTargetSpec(asset, 0));
         } else if (existingSecondaries.length === 0) {
-            existingSecondaries.push(toPlantTargetSpec(treasury.getAsset('USDC'), 50.0));
+            existingSecondaries.push(
+                toPlantTargetSpec(treasury.getAsset('USDC'), 50.0)
+            );
         }
-        const equalShare = Number((50.0 / existingSecondaries.length).toFixed(2));
+        const equalShare = Number(
+            (50.0 / existingSecondaries.length).toFixed(2)
+        );
         const reweightedSecondaries = existingSecondaries.map((sec) => ({
             ...sec,
             weightPct: equalShare
@@ -932,23 +1184,39 @@
         }
     }
 
-    function removeAssetFromSector(targetMode: 'create' | 'edit', ticker: string) {
+    function removeAssetFromSector(
+        targetMode: 'create' | 'edit',
+        ticker: string
+    ) {
         const clean = ticker.toUpperCase();
         const currentList =
-            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
+            targetMode === 'create'
+                ? [...draftSelectedAssets]
+                : [...editSelectedAssets];
         const remainingSecondaries = currentList.filter(
-            (i) => i.ticker.toUpperCase() !== clean && i.ticker.toUpperCase() !== 'KAS'
+            (i) =>
+                i.ticker.toUpperCase() !== clean &&
+                i.ticker.toUpperCase() !== 'KAS'
         );
         let nextList: PlantAssetTarget[];
         if (remainingSecondaries.length === 0) {
             nextList = [toPlantTargetSpec(treasury.getAsset('KAS'), 100.0)];
-        } else if (remainingSecondaries.length === 1 && currentList.length === 2 && clean === 'KAS') {
+        } else if (
+            remainingSecondaries.length === 1 &&
+            currentList.length === 2 &&
+            clean === 'KAS'
+        ) {
             nextList = [{ ...remainingSecondaries[0], weightPct: 100.0 }];
         } else {
-            const equalW = Number((50.0 / remainingSecondaries.length).toFixed(2));
+            const equalW = Number(
+                (50.0 / remainingSecondaries.length).toFixed(2)
+            );
             nextList = [
                 toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
-                ...remainingSecondaries.map((s) => ({ ...s, weightPct: equalW }))
+                ...remainingSecondaries.map((s) => ({
+                    ...s,
+                    weightPct: equalW
+                }))
             ];
         }
         if (targetMode === 'create') {
@@ -966,9 +1234,13 @@
 
     function equalizeSecondaryWeights(targetMode: 'create' | 'edit') {
         const currentList =
-            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
+            targetMode === 'create'
+                ? [...draftSelectedAssets]
+                : [...editSelectedAssets];
         if (currentList.length < 2) return;
-        const secondaries = currentList.filter((i) => i.ticker.toUpperCase() !== 'KAS');
+        const secondaries = currentList.filter(
+            (i) => i.ticker.toUpperCase() !== 'KAS'
+        );
         const eq = Number((50.0 / Math.max(1, secondaries.length)).toFixed(2));
         const reset = [
             toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
@@ -993,9 +1265,13 @@
         rawNewPct: number
     ) {
         const currentList =
-            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
+            targetMode === 'create'
+                ? [...draftSelectedAssets]
+                : [...editSelectedAssets];
         if (currentList.length < 2) return;
-        const secondaries = currentList.filter((i) => i.ticker.toUpperCase() !== 'KAS');
+        const secondaries = currentList.filter(
+            (i) => i.ticker.toUpperCase() !== 'KAS'
+        );
         if (secondaries.length <= 1) {
             return;
         }
@@ -1004,14 +1280,18 @@
         const others = secondaries.filter(
             (s) => s.ticker.toUpperCase() !== changedTicker.toUpperCase()
         );
-        const othersOldSum = others.reduce((sum, o) => sum + Math.max(0.1, o.weightPct), 0);
+        const othersOldSum = others.reduce(
+            (sum, o) => sum + Math.max(0.1, o.weightPct),
+            0
+        );
         const updatedSecondaries = secondaries.map((s) => {
             if (s.ticker.toUpperCase() === changedTicker.toUpperCase()) {
                 return { ...s, weightPct: Number(clampedTarget.toFixed(2)) };
             }
             const share =
                 othersOldSum > 0
-                    ? (Math.max(0.1, s.weightPct) / othersOldSum) * remainingForOthers
+                    ? (Math.max(0.1, s.weightPct) / othersOldSum) *
+                      remainingForOthers
                     : remainingForOthers / Math.max(1, others.length);
             return { ...s, weightPct: Number(share.toFixed(2)) };
         });
@@ -1071,9 +1351,19 @@
             case 'XRP':
                 return keys.xrp?.address || identity.activeAddress || '';
             case 'POL':
-                return keys.polygon?.address || keys.ethereum?.address || identity.activeAddress || '';
+                return (
+                    keys.polygon?.address ||
+                    keys.ethereum?.address ||
+                    identity.activeAddress ||
+                    ''
+                );
             case 'AVAX':
-                return keys.avalanche?.address || keys.ethereum?.address || identity.activeAddress || '';
+                return (
+                    keys.avalanche?.address ||
+                    keys.ethereum?.address ||
+                    identity.activeAddress ||
+                    ''
+                );
             case 'SUI':
                 return keys.sui?.address || identity.activeAddress || '';
             case 'TRX':
@@ -1097,7 +1387,9 @@
         if (isNaN(val)) val = 0;
         const maxHash = displayHashrate * (draftSectorMax / 100);
         if (val > maxHash) val = maxHash;
-        draftSectorPct = parseFloat(((val / (displayHashrate || 1)) * 100).toFixed(1));
+        draftSectorPct = parseFloat(
+            ((val / (displayHashrate || 1)) * 100).toFixed(1)
+        );
     }
 
     function handleSectorInputPct(id: string, valStr: string) {
@@ -1123,7 +1415,9 @@
                 const maxPct = s.allocationPercentage + unallocatedPercentage;
                 const maxHash = displayHashrate * (maxPct / 100);
                 const cleanHash = Math.min(hashVal, maxHash);
-                const pct = parseFloat(((cleanHash / (displayHashrate || 1)) * 100).toFixed(1));
+                const pct = parseFloat(
+                    ((cleanHash / (displayHashrate || 1)) * 100).toFixed(1)
+                );
                 return { ...s, allocationPercentage: pct };
             }
             return s;
@@ -1138,7 +1432,8 @@
         operations.sectors = operations.sectors.map((s) => {
             if (s.id !== id) return s;
             const otherAllocated = operations.sectors.reduce(
-                (acc, sec) => (sec.id === id ? acc : acc + sec.allocationPercentage),
+                (acc, sec) =>
+                    sec.id === id ? acc : acc + sec.allocationPercentage,
                 0
             );
             const absoluteMax = parseFloat((100.0 - otherAllocated).toFixed(1));
@@ -1181,13 +1476,18 @@
                 return a.assetClass === 'Public Equity';
             }
             if (assetCategoryFilter === 'COMMODITIES') {
-                return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
+                return (
+                    a.assetClass === 'Commodity' ||
+                    a.assetClass === 'Sovereign Debt'
+                );
             }
             if (assetCategoryFilter === 'CRYPTO') {
                 return (
                     a.assetClass === 'Native L1' ||
                     a.assetClass === 'Stablecoin' ||
-                    a.assetClass === 'Ecosystem'
+                    a.assetClass === 'Ecosystem' ||
+                    a.assetClass === 'DeFi' ||
+                    a.assetClass === 'Tokenized Asset'
                 );
             }
             return true;
@@ -1201,7 +1501,10 @@
         treasury.syncRwaOraclePrices();
         draftSectorPct = parseFloat(unallocatedPercentage.toFixed(1));
         draftSectorMax = parseFloat(unallocatedPercentage.toFixed(1));
-        const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const randomHex = Math.random()
+            .toString(36)
+            .substring(2, 6)
+            .toUpperCase();
         draftSectorName = `SILO-${randomHex}`;
         draftIsSyndicateSector = false;
         const kasAsset = treasury.getAsset('KAS');
@@ -1233,13 +1536,18 @@
             routeMode = 'auto-lp';
         } else {
             routeMode =
-                draftSettlementConfig.targetAsset.ticker === 'KAS' ? 'hold' : 'swap';
+                draftSettlementConfig.targetAsset.ticker === 'KAS'
+                    ? 'hold'
+                    : 'swap';
         }
-        const configCopy: any = JSON.parse(JSON.stringify(draftSettlementConfig));
+        const configCopy: any = JSON.parse(
+            JSON.stringify(draftSettlementConfig)
+        );
         if (!isPlant && draftMineableVaultInfo) {
             configCopy.isMineableKrc20 = true;
             configCopy.syndicateVault = draftIsSyndicateSector;
-            configCopy.dailyVaultEmission = draftMineableVaultInfo.dailyEmissionTokens;
+            configCopy.dailyVaultEmission =
+                draftMineableVaultInfo.dailyEmissionTokens;
         }
         const newSector: Sector = {
             id,
@@ -1281,14 +1589,21 @@
                 );
                 triggerShimmer(`sector_${id}`);
                 ui.triggerMicroBadge(`sector_${id}`, 'RENAMED ✓', '#18C6A5');
-                await safeDispatch('RENAME_SECTOR', { id, name: newName.trim() });
+                await safeDispatch('RENAME_SECTOR', {
+                    id,
+                    name: newName.trim()
+                });
             }
         }
     }
 
     function hydrateSectorTargetAssets(sector: Sector): PlantAssetTarget[] {
         const cfg = sector.settlementConfig;
-        if (cfg?.targetAssets && Array.isArray(cfg.targetAssets) && cfg.targetAssets.length > 0) {
+        if (
+            cfg?.targetAssets &&
+            Array.isArray(cfg.targetAssets) &&
+            cfg.targetAssets.length > 0
+        ) {
             return normalizePlantTargets(cfg.targetAssets);
         }
         if (cfg?.plantWeights && Object.keys(cfg.plantWeights).length >= 2) {
@@ -1320,7 +1635,8 @@
             ...defaultSettlement,
             payoutAddress: resolveChainAddressForTicker('KAS')
         };
-        if (!safeConfig.targetAsset) safeConfig.targetAsset = treasury.getAsset('KAS') as any;
+        if (!safeConfig.targetAsset)
+            safeConfig.targetAsset = treasury.getAsset('KAS') as any;
         editSettlementParams = JSON.parse(JSON.stringify(safeConfig));
         editSelectedAssets = hydrateSectorTargetAssets(sector);
         syncConfigFromAssetList(editSelectedAssets, editSettlementParams);
@@ -1330,7 +1646,6 @@
     }
 
     let isSigningSettlement = $state(false);
-
     async function saveSettlementParams() {
         if (settlementModalSilo) {
             isSigningSettlement = true;
@@ -1342,7 +1657,8 @@
                 editSelectedAssets = updatedList;
                 const trimmedName = editSectorName.trim();
                 const nameChanged =
-                    trimmedName !== '' && trimmedName !== settlementModalSilo.name;
+                    trimmedName !== '' &&
+                    trimmedName !== settlementModalSilo.name;
                 const activeSiloId = settlementModalSilo.id;
                 const newRouteMode: RouteMode = isPlant
                     ? 'auto-lp'
@@ -1354,7 +1670,9 @@
                         return {
                             ...s,
                             name: nameChanged ? trimmedName : s.name,
-                            settlementConfig: JSON.parse(JSON.stringify(editSettlementParams)),
+                            settlementConfig: JSON.parse(
+                                JSON.stringify(editSettlementParams)
+                            ),
                             routeMode: newRouteMode
                         };
                     }
@@ -1363,7 +1681,9 @@
                 triggerShimmer(`sector_${activeSiloId}`);
                 ui.triggerMicroBadge(
                     `sector_${activeSiloId}`,
-                    isPlant ? 'LIQUIDITY PLANT UPDATED ✓' : 'PROTOCOL UPDATED ✓',
+                    isPlant
+                        ? 'LIQUIDITY PLANT UPDATED ✓'
+                        : 'PROTOCOL UPDATED ✓',
                     editSettlementParams.targetAsset?.theme?.hex || '#18C6A5'
                 );
                 if (nameChanged)
@@ -1399,7 +1719,8 @@
         operations.sectors.forEach((sec) => {
             if (sec.allocationPercentage > 0) {
                 const pct = sec.allocationPercentage;
-                const hex = sec.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5';
+                const hex =
+                    sec.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5';
                 segments.push({
                     id: sec.id,
                     name: sec.name,
@@ -1420,10 +1741,15 @@
         if (!rawType) return 'Select Miner';
         if (rawType.includes('IceRiverMiner-v1.1')) return 'IceRiver KS0 Ultra';
         if (rawType.includes('IceRiverMiner-v7')) return 'IceRiver KS7 Lite';
-        if (rawType.includes('IceRiver')) return rawType.replace('IceRiverMiner-', 'IceRiver KS');
+        if (rawType.includes('IceRiver'))
+            return rawType.replace('IceRiverMiner-', 'IceRiver KS');
         if (rawType.includes('Goldshell'))
             return rawType.replace('GoldshellMiner-', 'Goldshell KS');
-        if (rawType === 'Awaiting Connection' || rawType === 'Select Miner Type') return 'Select Miner';
+        if (
+            rawType === 'Awaiting Connection' ||
+            rawType === 'Select Miner Type'
+        )
+            return 'Select Miner';
         return rawType.replace('Miner-', ' ').substring(0, 22);
     }
 
@@ -1431,7 +1757,6 @@
     let kasHistory = $state<number[]>([]);
     let chartInterval: ReturnType<typeof setInterval>;
     let reservePollInterval: ReturnType<typeof setInterval>;
-    let clockInterval: ReturnType<typeof setInterval>;
 
     function handleRealtimeYieldOrFiatEvent() {
         syncUnassignedReserveTelemetry();
@@ -1445,15 +1770,21 @@
         syncRecentSettlementEvents();
         syncMineableKrc20Vaults();
         if (browser) {
-            window.addEventListener('perennia:yield_update', handleRealtimeYieldOrFiatEvent);
-            window.addEventListener('perennia:fiat_event', handleRealtimeYieldOrFiatEvent);
+            window.addEventListener(
+                'perennia:yield_update',
+                handleRealtimeYieldOrFiatEvent
+            );
+            window.addEventListener(
+                'perennia:fiat_event',
+                handleRealtimeYieldOrFiatEvent
+            );
         }
-        clockInterval = setInterval(() => {
-            nowMs = Date.now();
-        }, 1000);
         chartInterval = setInterval(() => {
             if (browser && identity.isWalletConnected) {
-                displayHashHistory = [...displayHashHistory, displayHashrate].slice(-30);
+                displayHashHistory = [
+                    ...displayHashHistory,
+                    displayHashrate
+                ].slice(-30);
                 const spot = treasury.getAsset('KAS').spotPrice;
                 if (spot > 0) {
                     kasHistory = [...kasHistory, spot].slice(-30);
@@ -1469,10 +1800,15 @@
 
     onDestroy(() => {
         if (browser) {
-            window.removeEventListener('perennia:yield_update', handleRealtimeYieldOrFiatEvent);
-            window.removeEventListener('perennia:fiat_event', handleRealtimeYieldOrFiatEvent);
+            window.removeEventListener(
+                'perennia:yield_update',
+                handleRealtimeYieldOrFiatEvent
+            );
+            window.removeEventListener(
+                'perennia:fiat_event',
+                handleRealtimeYieldOrFiatEvent
+            );
         }
-        if (clockInterval) clearInterval(clockInterval);
         if (chartInterval) clearInterval(chartInterval);
         if (reservePollInterval) clearInterval(reservePollInterval);
     });
@@ -1495,13 +1831,16 @@
         return data
             .map((d, i) => {
                 const x = (i / Math.max(1, data.length - 1)) * width;
-                const y = d === 0 ? height : height - ((d - min) / range) * height;
+                const y =
+                    d === 0 ? height : height - ((d - min) / range) * height;
                 return `${i === 0 ? 'M' : 'L'} ${x},${y}`;
             })
             .join(' ');
     }
 
-    let hashratePath = $derived(buildSvgPath(displayHashHistory, 200, 240, true));
+    let hashratePath = $derived(
+        buildSvgPath(displayHashHistory, 200, 240, true)
+    );
     let pricePath = $derived(buildSvgPath(kasHistory, 200, 240, false));
 </script>
 
@@ -1528,16 +1867,22 @@
 
 {#snippet sectorCard(sector: ViewSector)}
     {@const isLp = sector.routeMode === 'auto-lp'}
-    {@const targetTicker = sector.settlementConfig?.targetAsset?.ticker || 'KAS'}
+    {@const targetTicker =
+        sector.settlementConfig?.targetAsset?.ticker || 'KAS'}
     {@const isUsdSilo = !isLp && targetTicker === 'USD'}
-    {@const mineableInfo = !isLp ? mineableVaultMap.get(targetTicker.toUpperCase()) : null}
-    {@const hex = sector.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5'}
-    {@const mappedHash = displayHashrate * (sector.allocationPercentage / 100)}
+    {@const mineableInfo = !isLp
+        ? mineableVaultMap.get(targetTicker.toUpperCase())
+        : null}
+    {@const hex =
+        sector.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5'}
+    {@const mappedHash =
+        displayHashrate * (sector.allocationPercentage / 100)}
     {@const dailyKas = estimateSectorDailyKas(sector)}
     {@const dailyUsd = estimateSectorDailyUsd(sector)}
     {@const isDragged = dragSectorId === sector.id}
     {@const isDropTarget = dropTargetSectorId === sector.id}
-    {@const spanClass = (sector.width || 6) === 12 ? 'md:col-span-12' : 'md:col-span-6'}
+    {@const spanClass =
+        (sector.width || 6) === 12 ? 'md:col-span-12' : 'md:col-span-6'}
     {@const activeBadge = ui.microBadges[`sector_${sector.id}`]}
     {@const resolvedPayoutAddr =
         sector.settlementConfig?.payoutAddress ||
@@ -1557,6 +1902,7 @@
         isLp && plantTargets.length >= 2
             ? (plantTargets.length * (plantTargets.length - 1)) / 2
             : 1}
+    {@const sectorPendingKas = Math.max(0, Number(sector.pendingKaspa || 0))}
     <div
         draggable="true"
         data-testid="sector-card-{sector.name}"
@@ -1591,7 +1937,7 @@
                           ? `Proof-of-Hashrate Syndicate Sector (${mineableInfo.dailyEmissionTokens.toLocaleString()} ${targetTicker}/d)`
                           : isUsdSilo
                             ? 'Mining-to-Bank USD Silo ($25 Min ACH)'
-                            : '1-Asset Settlement Silo'}
+                            : 'Settlement Silo'}
                 </span>
                 <button
                     type="button"
@@ -1651,7 +1997,7 @@
                     </button>
                 </div>
                 <span class="text-[11px] font-mono text-amber-400 font-black whitespace-nowrap tabular-nums drop-shadow-[0_0_8px_rgba(245,158,11,0.25)]">
-                    {(sector.pendingKaspa || 0).toFixed(6)} KAS
+                    {sectorPendingKas.toFixed(6)} KAS
                 </span>
                 <span class="text-[7px] font-mono uppercase tracking-widest text-neutral-400">
                     In Batch Settlement Queue
@@ -1704,8 +2050,8 @@
                                 {isUsdSilo
                                     ? 'USD (Direct Bank ACH / Wire)'
                                     : mineableInfo
-                                      ? `${targetTicker} (Proof-of-Hashrate Mineable KRC-20)`
-                                      : `${sector.settlementConfig?.targetAsset?.ticker || 'KAS'} (Direct Settlement Silo)`}
+                                      ? `${targetTicker} (Mineable KRC-20)`
+                                      : `${sector.settlementConfig?.targetAsset?.ticker || 'KAS'}`}
                             </span>
                             {#if isUsdSilo}
                                 <span class="text-[8px] font-mono {savedBankRailLast4 ? 'text-[#18C6A5]' : 'text-amber-400'} truncate">
@@ -1731,7 +2077,7 @@
                         {sector.routeMode === 'auto-lp' ||
                         (sector.settlementConfig?.targetAsset?.ticker &&
                             sector.settlementConfig.targetAsset.ticker !== 'KAS')
-                            ? '22:00 UTC BELL'
+                            ? '22:00 UTC SETTLEMENT'
                             : sector.settlementConfig?.mode === 'threshold'
                               ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS LIMIT`
                               : sector.settlementConfig?.mode || 'epoch'}
@@ -1747,6 +2093,23 @@
                     <span class="text-[#18C6A5] ml-0.5">(${dailyUsd.toFixed(2)})</span>
                 </span>
             </div>
+            {#if sectorPendingKas > 0}
+                <button
+                    type="button"
+                    data-testid="sector-pull-out-kas-btn-{sector.id}"
+                    onmousedown={(e) => e.stopPropagation()}
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        claimPendingSectorKas({ sectorId: sector.id });
+                    }}
+                    disabled={isPullingOutKey === sector.id}
+                    class="tactile-btn w-full mt-1 py-1.5 rounded-lg text-[9px] font-mono font-black uppercase tracking-wider text-amber-400 border-amber-500/40 hover:text-white cursor-pointer disabled:opacity-40"
+                >
+                    {isPullingOutKey === sector.id
+                        ? 'Pulling Out KAS...'
+                        : `[Pull Out My ${sectorPendingKas.toFixed(2)} KAS Now]`}
+                </button>
+            {/if}
         </div>
         <div
             class="mt-0.5 flex flex-col gap-2 min-w-0 w-full"
@@ -1803,6 +2166,7 @@
         </div>
     </div>
 {/snippet}
+
 <div class="w-full h-full p-4 md:p-6 lg:p-8 overflow-y-auto bg-transparent" role="presentation">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 w-full max-w-[1720px] mx-auto pb-24 items-start">
         <div
@@ -1894,8 +2258,6 @@
                     {@const portTelemetry = getWorkerPortTelemetry(worker)}
                     {@const liveStratumUrl = getWorkerStratumUrl(worker)}
                     {@const liveWalletWorker = getWorkerIdentityString(worker)}
-                    {@const acceptanceDiag = formatWorkerAcceptancePct(worker)}
-                    {@const lastShareLabel = formatLastShareAge(worker.lastShareTimestamp)}
                     {@const isMenuOpen = activeWorkerMenu === worker.id}
                     {@const isMinerPickerOpen = activeMinerTypePickerWorkerId === worker.id}
                     {@const isStratumCopied = copiedMenuField === `stratum_${worker.id}`}
@@ -1929,17 +2291,6 @@
                                         class="text-[8px] font-mono text-[#18C6A5]/90 bg-[#11161f] border border-white/10 px-2 py-0.5 rounded-md uppercase tracking-wider select-none"
                                     >
                                         {formatHardwareName(worker)}
-                                    </span>
-                                    <span
-                                        class="text-[8px] font-mono text-neutral-400 bg-[#11161f] border border-white/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none"
-                                    >
-                                        :{portTelemetry.port}
-                                    </span>
-                                    <span
-                                        class="text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-md border select-none {acceptanceDiag.pct >= 98.0 ? 'text-[#18C6A5] border-[#18C6A5]/30 bg-[#11161f]' : 'text-amber-400 border-amber-500/35 bg-[#11161f]'}"
-                                        title="Valid vs. Rejected Share Acceptance Rate"
-                                    >
-                                        {acceptanceDiag.label} ACC
                                     </span>
                                 </div>
                             </div>
@@ -2112,7 +2463,7 @@
                         <div class="flex justify-between items-end border-t border-white/10 pt-2 mt-0.5">
                             <div class="flex flex-col">
                                 <span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono">
-                                    Live Hash • :{portTelemetry.port}
+                                    Live Hash
                                 </span>
                                 <span class="text-xs font-mono font-black {worker.hashRate > 0 ? 'text-white' : 'text-neutral-500'}">
                                     {worker.hashRate.toFixed(2)}
@@ -2137,18 +2488,6 @@
                                     </span>
                                 </div>
                             </div>
-                        </div>
-                        <div class="flex items-center justify-between text-[8px] font-mono text-neutral-400 border-t border-white/5 pt-1.5">
-                            <span>
-                                Last Share: <strong class="text-neutral-300">{lastShareLabel}</strong>
-                            </span>
-                            {#if acceptanceDiag.rejected > 0}
-                                <span class="text-amber-400 font-bold">
-                                    {acceptanceDiag.rejected} Rejected
-                                </span>
-                            {:else}
-                                <span class="text-[#18C6A5]">0 Rejected</span>
-                            {/if}
                         </div>
                     </div>
                 {/each}
@@ -2342,7 +2681,7 @@
                         <p class="text-[11px] uppercase tracking-widest text-neutral-400 font-bold text-center leading-relaxed">
                             Reserve Active (Default 50 KAS Direct L1 Payout)<br />
                             <span class="text-[10px] font-mono text-neutral-500 font-normal mt-2 block">
-                                Select 1 Target Asset for a Settlement Silo / Mineable KRC-20 Syndicate or 2+ Assets for a 50% KAS Liquidity Plant
+                                Select 1 Target Asset for a Settlement Silo or 2+ Assets for a 50% KAS Liquidity Plant
                             </span>
                         </p>
                     </div>
@@ -2351,7 +2690,7 @@
                         {#if siloSectors.length > 0}
                             <div class="flex flex-col gap-3" data-testid="settlement-silos-section">
                                 <h3 class="text-[10px] font-bold uppercase tracking-widest text-[#18C6A5] border-b border-[#18C6A5]/25 pb-2">
-                                    Settlement Silos &amp; Proof-of-Hashrate Mineable KRC-20 Syndicates
+                                    Settlement Silos
                                 </h3>
                                 <div class="grid grid-cols-1 md:grid-cols-12 gap-4 xl:gap-5">
                                     {#each siloSectors as sector (sector.id)}
@@ -2363,7 +2702,7 @@
                         {#if plantSectors.length > 0}
                             <div class="flex flex-col gap-3 mt-2" data-testid="liquidity-plants-section">
                                 <h3 class="text-[10px] font-bold uppercase tracking-widest text-blue-400 border-b border-blue-500/25 pb-2">
-                                    Multi-Asset Liquidity Plants (50.0% KAS Anchor + Secondary Assets)
+                                    Liquidity Plants
                                 </h3>
                                 <div class="grid grid-cols-1 md:grid-cols-12 gap-4 xl:gap-5">
                                     {#each plantSectors as sector (sector.id)}
@@ -2377,18 +2716,18 @@
             </div>
         </div>
         <div
-            class="flex flex-col gap-4 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0d12] border border-white/10 rounded-[32px] p-4 sm:p-5 shadow-2xl h-full pb-20 w-full relative z-10"
+            class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0d12] border border-white/10 rounded-[32px] p-4 shadow-2xl h-full pb-12 w-full relative z-10"
             data-tour="bell-telemetry"
         >
             {#if identity.isWalletConnected}
-                <div class="mb-3 w-full flex flex-col">
-                    <div class="flex items-center justify-between border-b border-white/10 pb-3 mb-4 pointer-events-none">
+                <div class="w-full flex flex-col">
+                    <div class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3 pointer-events-none">
                         <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
                             Pool Distribution
                         </h2>
                     </div>
                     <div class="flex flex-col items-center pointer-events-auto">
-                        <div class="relative w-36 h-36 mb-5 pointer-events-none">
+                        <div class="relative w-28 h-28 mb-3 pointer-events-none">
                             <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
                                 <circle cx="50" cy="50" r="42" fill="transparent" stroke="#161d29" stroke-width="6"></circle>
                                 {#if effortData.segments.length === 0}
@@ -2419,30 +2758,30 @@
                                 {/each}
                             </svg>
                             <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <span class="text-2xl font-mono font-light text-white leading-none">
+                                <span class="text-xl font-mono font-light text-white leading-none">
                                     {displayHashrate.toFixed(2)}
                                 </span>
-                                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400 mt-1">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 mt-0.5">
                                     TH/s
                                 </span>
                             </div>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 p-3.5 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[85px] w-full mb-5 pointer-events-none">
-                            <div class="text-[9px] font-bold uppercase tracking-widest text-neutral-400 text-center mb-1">
+                        <div class="bg-[#11161f] border border-white/10 p-3 rounded-2xl shadow-xl flex flex-col items-center justify-center min-h-[68px] w-full mb-3 pointer-events-none">
+                            <div class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 text-center mb-0.5">
                                 Total Treasury Value
                             </div>
-                            <div class="text-xl xl:text-2xl font-mono font-light text-[#18C6A5] drop-shadow-[0_0_12px_rgba(24,198,165,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">
+                            <div class="text-lg xl:text-xl font-mono font-light text-[#18C6A5] drop-shadow-[0_0_12px_rgba(24,198,165,0.2)] tracking-tighter text-center tabular-nums transition-all truncate w-full px-2">
                                 ${treasury.totalVaultValue.toLocaleString(undefined, {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2
                                 })}
                             </div>
                         </div>
-                        <div class="w-full flex flex-col gap-2 pointer-events-auto">
-                            <div class="flex flex-col gap-2 w-full max-h-[200px] overflow-y-auto pr-1 hide-scrollbar">
+                        <div class="w-full flex flex-col gap-1.5 pointer-events-auto">
+                            <div class="flex flex-col gap-1.5 w-full max-h-[120px] overflow-y-auto pr-1 hide-scrollbar">
                                 {#each effortData.segments as seg}
                                     <div class="flex items-stretch gap-1.5 w-full group">
-                                        <div class="flex-1 bg-[#11161f] hover:bg-[#161d29] border border-white/10 rounded-xl p-2.5 flex justify-between items-center transition-colors min-w-0">
+                                        <div class="flex-1 bg-[#11161f] hover:bg-[#161d29] border border-white/10 rounded-xl p-2 flex justify-between items-center transition-colors min-w-0">
                                             <div class="flex items-center gap-2 min-w-0">
                                                 <div
                                                     class="w-2 h-2 rounded-full shrink-0"
@@ -2459,7 +2798,7 @@
                                     </div>
                                 {/each}
                                 {#if effortData.segments.length === 0}
-                                    <div class="text-center text-[10px] font-mono text-neutral-400 uppercase tracking-widest py-3 px-2 border border-dashed border-white/10 rounded-xl">
+                                    <div class="text-center text-[9px] font-mono text-neutral-400 uppercase tracking-widest py-2 px-2 border border-dashed border-white/10 rounded-xl">
                                         100% Unassigned Reserve (Auto-Payout at 50 KAS)
                                     </div>
                                 {/if}
@@ -2467,19 +2806,19 @@
                         </div>
                     </div>
                 </div>
-                <div class="w-full flex flex-col gap-3 border-t border-white/10 pt-4 mb-4">
+                <div class="w-full flex flex-col gap-2.5 border-t border-white/10 pt-3 mb-2">
                     <div
-                        class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 shadow-inner flex flex-col gap-1"
+                        class="bg-[#11161f] border border-white/10 rounded-2xl p-3 shadow-inner flex flex-col gap-0.5"
                         style="background-image: radial-gradient(ellipse at top, rgba(24, 198, 165, 0.08), transparent 70%);"
                     >
                         <div class="flex items-center justify-between">
                             <span class="text-[9px] font-bold uppercase tracking-wider text-[#18C6A5] flex items-center gap-1.5">
                                 <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] animate-pulse"></span>
-                                Global Settlement Bell
+                                22:00 UTC Global Settlement
                             </span>
-                            <span class="text-[9px] font-mono text-neutral-400 uppercase">22:00 UTC</span>
+                            <span class="text-[8px] font-mono text-neutral-400 uppercase">22:00 UTC</span>
                         </div>
-                        <div class="text-xl font-mono font-black text-white tracking-wider text-center py-1 tabular-nums">
+                        <div class="text-lg font-mono font-black text-white tracking-wider text-center py-0.5 tabular-nums">
                             {operations.formatEpochCountdown()}
                         </div>
                         <div class="text-[8px] font-mono text-neutral-400 text-center uppercase tracking-wider">
@@ -2489,33 +2828,45 @@
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between px-0.5">
                             <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">
-                                Pool Asset Weight Gauges
-                            </span>
-                            <span class="text-[8px] font-mono text-neutral-500">
-                                Sweep ≥{operations.epochTelemetry?.volatilitySweepThresholdPct || 450}%
+                                Pool Batch Buckets
                             </span>
                         </div>
-                        <div class="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-0.5 hide-scrollbar">
+                        <div
+                            data-testid="pool-buckets-scroll-container"
+                            class="flex flex-col gap-2.5 max-h-[520px] overflow-y-auto pr-0.5 hide-scrollbar"
+                        >
                             {#each displayedBuckets as bucket (bucket.asset)}
                                 {@const assetTheme = treasury.getAsset(bucket.asset).theme?.hex || '#18C6A5'}
                                 {@const barWidth = Math.min(100, Math.max(0, bucket.weightPct))}
-                                {@const isReady = bucket.weightPct >= 100}
+                                {@const isReady = bucket.weightPct >= 100 || bucket.status === 'READY_FOR_BELL'}
                                 {@const neededKas = Math.max(0, (bucket.minProfitableKas || 0) - (bucket.pendingKas || 0))}
-                                <div class="tactile-card bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1.5">
+                                {@const userPendingInBucket = getUserPendingKasForBucket(bucket.asset)}
+                                {@const bucketBadge = ui.microBadges[`bucket_${bucket.asset}`]}
+                                <div
+                                    data-testid="bucket-card-{bucket.asset}"
+                                    class="tactile-card bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2 relative"
+                                >
+                                    {#if bucketBadge}
+                                        <div
+                                            class="micro-confirm-badge absolute top-2 right-2 z-30 px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase"
+                                        >
+                                            {bucketBadge.label}
+                                        </div>
+                                    {/if}
                                     <div class="flex items-center justify-between">
                                         <div class="flex items-center gap-1.5">
                                             <span
                                                 class="w-2 h-2 rounded-full"
                                                 style="background-color: {assetTheme};"
                                             ></span>
-                                            <span class="text-[11px] font-bold font-mono text-white">
+                                            <span class="text-xs font-bold font-mono text-white">
                                                 {bucket.asset}
                                             </span>
                                         </div>
                                         <span
-                                            class="text-[10px] font-mono font-black {isReady ? 'text-[#18C6A5]' : bucket.status === 'ROLLED_OVER' ? 'text-amber-400' : 'text-neutral-300'}"
+                                            class="text-[10px] font-mono font-black {isReady ? 'text-[#18C6A5]' : 'text-neutral-300'}"
                                         >
-                                            {bucket.weightPct.toFixed(1)}%
+                                            {bucket.weightPct.toFixed(1)}% to Batch Clear
                                         </span>
                                     </div>
                                     <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10">
@@ -2529,28 +2880,32 @@
                                             {bucket.pendingKas.toFixed(1)} / {bucket.minProfitableKas > 0 ? bucket.minProfitableKas.toFixed(1) : '0.0'} KAS
                                         </span>
                                         <span
-                                            class="uppercase {isReady ? 'text-[#18C6A5] font-bold' : bucket.status === 'ROLLED_OVER' ? 'text-amber-400' : 'text-neutral-400'}"
+                                            class="uppercase font-bold {isReady ? 'text-[#18C6A5]' : 'text-neutral-300'}"
                                         >
-                                            {bucket.status === 'READY_FOR_BELL'
-                                                ? 'ARMED'
-                                                : bucket.status === 'ROLLED_OVER'
-                                                  ? 'ROLLOVER'
-                                                  : bucket.status === 'SWEPT_VOLATILITY'
-                                                    ? 'SWEPT'
-                                                    : bucket.status}
+                                            {isReady ? 'READY' : 'FILLING'}
                                         </span>
                                     </div>
-                                    <div class="flex justify-between items-center text-[8px] font-mono text-neutral-400 border-t border-white/5 pt-1">
-                                        <span>LP Cov: {bucket.lpCoveragePct.toFixed(0)}%</span>
-                                        <span>Fee: {bucket.effectiveSpreadFloorPct.toFixed(2)}%</span>
-                                    </div>
+                                    {#if userPendingInBucket > 0}
+                                        <button
+                                            type="button"
+                                            data-testid="bucket-pull-out-kas-btn-{bucket.asset}"
+                                            onclick={() =>
+                                                claimPendingSectorKas({ targetAsset: bucket.asset })}
+                                            disabled={isPullingOutKey === bucket.asset}
+                                            class="tactile-btn w-full py-1.5 rounded-lg text-[9px] font-mono font-black uppercase tracking-wider text-amber-400 border-amber-500/40 hover:text-white cursor-pointer disabled:opacity-40"
+                                        >
+                                            {isPullingOutKey === bucket.asset
+                                                ? 'Pulling Out KAS...'
+                                                : `[Pull Out My ${userPendingInBucket.toFixed(2)} KAS Now]`}
+                                        </button>
+                                    {/if}
                                     {#if !isReady && neededKas > 0 && bucket.asset !== 'USD'}
                                         <button
                                             type="button"
                                             onclick={() => ui.triggerBucketBoost(bucket.asset, neededKas)}
-                                            class="tactile-btn w-full mt-1 py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] hover:text-white cursor-pointer"
+                                            class="tactile-btn w-full py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] hover:text-white cursor-pointer"
                                         >
-                                            ⚡ Boost +{neededKas.toFixed(1)} KAS in DEX
+                                            [Boost +{neededKas.toFixed(1)} KAS in DEX]
                                         </button>
                                     {/if}
                                 </div>
@@ -2559,7 +2914,7 @@
                     </div>
                 </div>
             {/if}
-            <div class="mt-auto pointer-events-none flex flex-col gap-4 w-full">
+            <div class="mt-auto pointer-events-none flex flex-col gap-3 w-full">
                 <div class="flex items-center justify-between border-b border-white/10 pb-2">
                     <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
                         NODE SYNC
@@ -2683,7 +3038,7 @@
                                 Target Asset Routing Matrix
                             </span>
                             <span class="text-[9px] text-neutral-400">
-                                1 Asset = Silo / Mineable KRC-20 Syndicate • 2+ Assets = 50% KAS Liquidity Plant
+                                1 Asset = Silo • 2+ Assets = 50% KAS Liquidity Plant
                             </span>
                         </div>
                         {#if isDraftMultiAssetPlant && draftSelectedAssets.length > 2}
@@ -2702,7 +3057,7 @@
                                 <span class="text-[9px] font-mono font-black uppercase tracking-widest text-[#18C6A5]">
                                     {draftMineableVaultInfo
                                         ? `⛏️ Proof-of-Hashrate Mineable KRC-20 Vault (${draftMineableVaultInfo.dailyEmissionTokens.toLocaleString()} ${draftSettlementConfig.targetAsset.ticker}/d)`
-                                        : '✓ 1 Target Asset Selected → Direct Settlement Silo'}
+                                        : '✓ 1 Target Asset Selected → Settlement Silo'}
                                 </span>
                                 <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[8px] font-mono text-neutral-300">
                                     100.0% {draftSettlementConfig.targetAsset.ticker}
@@ -2746,7 +3101,6 @@
                                     {draftMineableVaultInfo ? 'MINEABLE KRC-20' : draftSettlementConfig.targetAsset.assetClass}
                                 </span>
                             </button>
-
                             {#if draftMineableVaultInfo}
                                 <div
                                     data-testid="mineable-syndicate-banner"
@@ -2757,7 +3111,7 @@
                                             Syndicate Hashpower Pledge Active
                                         </span>
                                         <span class="text-neutral-400">
-                                            Pro-rata daily {draftMineableVaultInfo.tokenTicker} distribution at the 22:00 UTC Bell based on verified ASIC share difficulty.
+                                            Pro-rata daily {draftMineableVaultInfo.tokenTicker} distribution at the 22:00 UTC Global Settlement based on verified ASIC share difficulty.
                                         </span>
                                     </div>
                                     <button
@@ -2770,7 +3124,6 @@
                                     </button>
                                 </div>
                             {/if}
-
                             <button
                                 type="button"
                                 data-testid="add-plant-asset-btn"
@@ -2913,7 +3266,7 @@
                             </span>
                         </div>
                         <p class="text-[9px] text-neutral-400 leading-relaxed">
-                            At the 22:00 UTC Global Settlement Bell, if this silo has accrued ≥$25.00 USD in KAS and your AES-256-GCM bank rail is saved, Chronos automatically converts your KAS into an ACH/Wire payout in the Treasury Dispatch Queue.
+                            At the 22:00 UTC Global Settlement, if this silo has accrued ≥$25.00 USD in KAS and your AES-256-GCM bank rail is saved, Chronos automatically converts your KAS into an ACH/Wire payout in the Treasury Dispatch Queue.
                         </p>
                     </div>
                 {/if}
@@ -2946,7 +3299,7 @@
                         </span>
                         <span class="text-[10px] text-neutral-400 leading-tight mt-0.5">
                             {isDraftMultiAssetPlant
-                                ? 'Synchronized to the 22:00 UTC Global Settlement Bell for multi-asset LP rebalancing.'
+                                ? 'Synchronized to the 22:00 UTC Global Settlement for multi-asset LP rebalancing.'
                                 : 'Route yields directly to your on-chain L1 wallet.'}
                         </span>
                     </div>
@@ -3026,7 +3379,7 @@
                 <span class="text-[10px] text-neutral-400 uppercase tracking-widest text-center block font-bold">
                     {isEditMultiAssetPlant
                         ? `Multi-Asset Liquidity Plant (50% KAS • ${editInternalPairsCount} Cross-Pairs)`
-                        : '1-Asset Settlement Silo Protocol'}
+                        : 'Settlement Silo Protocol'}
                 </span>
             </div>
             <div class="p-6 flex flex-col gap-5 max-h-[60vh] overflow-y-auto hide-scrollbar">
@@ -3209,7 +3562,6 @@
     </div>
 {/if}
 
-<!-- TARGET ASSET MATRIX MODAL (WITH WALL ST. EQUITIES, COMMODITIES & MINEABLE KRC-20 TABS) -->
 {#if isAssetPickerOpen}
     <div
         class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#050505]/95"

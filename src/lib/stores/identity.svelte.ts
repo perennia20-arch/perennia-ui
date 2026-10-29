@@ -2,7 +2,9 @@ import { browser } from '$app/environment';
 import { ui } from '$lib/stores/ui.svelte';
 import { operations } from '$lib/stores/operations.svelte';
 
-const MASTER_ADMIN_ADDRESS = "kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579";
+export const MASTER_ADMIN_ADDRESS =
+    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+
 const DEV_ADMIN_BYPASS = false;
 
 class IdentityStore {
@@ -15,12 +17,35 @@ class IdentityStore {
     isVaultUnlockPending = $state(false);
     pendingTransactionDetails = $state<any>(null);
     isVaultUnlocked = $state(false);
+    forgePublicEnabled = $state(false);
 
     get isCorporateAdmin() {
         return (
             DEV_ADMIN_BYPASS ||
-            (this.activeAddress &&
-                this.activeAddress.toLowerCase() === MASTER_ADMIN_ADDRESS.toLowerCase())
+            Boolean(
+                this.activeAddress &&
+                    this.activeAddress.trim().toLowerCase() ===
+                        MASTER_ADMIN_ADDRESS.toLowerCase()
+            )
+        );
+    }
+
+    get isLocalOrLanHost(): boolean {
+        if (!browser || typeof window === 'undefined') return false;
+        const host = window.location.hostname.trim().toLowerCase();
+        return (
+            host === 'localhost' ||
+            host === '127.0.0.1' ||
+            host === '192.168.50.100' ||
+            host.startsWith('192.168.50.')
+        );
+    }
+
+    get canAccessForge(): boolean {
+        return Boolean(
+            this.forgePublicEnabled ||
+                this.isCorporateAdmin ||
+                this.isLocalOrLanHost
         );
     }
 
@@ -36,7 +61,7 @@ class IdentityStore {
     }
 
     hexToBytes(hex: string): Uint8Array {
-        if (hex.length % 2 !== 0) throw new Error("ERR_INVALID_HEX_LENGTH");
+        if (hex.length % 2 !== 0) throw new Error('ERR_INVALID_HEX_LENGTH');
         const bytes = new Uint8Array(hex.length / 2);
         for (let i = 0; i < bytes.length; i++) {
             bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
@@ -52,43 +77,49 @@ class IdentityStore {
 
     authorizeSovereignVault(vaultPayload: any) {
         this.sovereignKeys = vaultPayload.wallets;
-        this.activeAddress = this.normalizeKaspaAddress(vaultPayload.wallets.kaspa.address);
+        this.activeAddress = this.normalizeKaspaAddress(
+            vaultPayload.wallets.kaspa.address
+        );
         this.activeWalletType = 'sovereign';
         this.isVaultUnlocked = true;
-
         if (browser) {
             sessionStorage.setItem('perennia_active_wallet_type', 'sovereign');
             sessionStorage.setItem('perennia_vault_unlocked', 'true');
-            localStorage.setItem('perennia_sovereign_payload', JSON.stringify(vaultPayload));
+            localStorage.setItem(
+                'perennia_sovereign_payload',
+                JSON.stringify(vaultPayload)
+            );
         }
-
         this.isWalletConnected = true;
         ui.checkFirstTimeTutorialPrompt();
     }
 
     hydrateStoredSovereignSession(authenticatedAddress?: string | null): boolean {
         if (!browser) return false;
-
         const normalizedAuth = this.normalizeKaspaAddress(authenticatedAddress);
         const rawPayload = localStorage.getItem('perennia_sovereign_payload');
-        const unlockedInTab = sessionStorage.getItem('perennia_vault_unlocked') === 'true';
-
+        const unlockedInTab =
+            sessionStorage.getItem('perennia_vault_unlocked') === 'true';
         if (rawPayload) {
             try {
                 const parsed = JSON.parse(rawPayload);
                 const vaultKaspaAddr = this.normalizeKaspaAddress(
                     parsed?.wallets?.kaspa?.address
                 );
-
-                if (vaultKaspaAddr && (!normalizedAuth || vaultKaspaAddr === normalizedAuth)) {
+                if (
+                    vaultKaspaAddr &&
+                    (!normalizedAuth || vaultKaspaAddr === normalizedAuth)
+                ) {
                     this.sovereignKeys = parsed.wallets;
                     this.activeAddress = vaultKaspaAddr;
                     this.activeWalletType = 'sovereign';
-
                     if (unlockedInTab) {
                         this.isVaultUnlocked = true;
                         this.isWalletConnected = true;
-                        sessionStorage.setItem('perennia_active_wallet_type', 'sovereign');
+                        sessionStorage.setItem(
+                            'perennia_active_wallet_type',
+                            'sovereign'
+                        );
                         ui.checkFirstTimeTutorialPrompt();
                         return true;
                     } else {
@@ -99,14 +130,12 @@ class IdentityStore {
                     }
                 }
             } catch {
-                // Ignore malformed localStorage payload
+                // Ignore malformed local payload
             }
         }
-
         if (normalizedAuth) {
             this.activeAddress = normalizedAuth;
             this.activeWalletType = 'sovereign';
-
             if (unlockedInTab) {
                 this.isVaultUnlocked = true;
                 this.isWalletConnected = true;
@@ -120,7 +149,6 @@ class IdentityStore {
                 return false;
             }
         }
-
         return false;
     }
 
@@ -140,7 +168,6 @@ class IdentityStore {
         this.isVaultUnlockPending = false;
         this.pendingTransactionDetails = null;
         operations.purge();
-
         if (browser) {
             sessionStorage.removeItem('perennia_active_wallet_type');
             sessionStorage.removeItem('perennia_vault_unlocked');

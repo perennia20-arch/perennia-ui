@@ -13,6 +13,7 @@
     } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
     import { txState } from '$lib/stores/transaction.svelte';
+    import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
 
     interface LpPosition {
         lpId: string;
@@ -64,6 +65,27 @@
         checksumValid: boolean;
         institutionName: string | null;
         fedDistrict: string | null;
+    }
+
+    interface DiscoveredOracleAsset {
+        ticker: string;
+        name: string;
+        assetClass: 'Ecosystem' | 'Native L1' | 'DeFi' | 'Tokenized Asset';
+        network: string;
+        spotPrice: number;
+        change24h: number;
+        sources: string[];
+        quorumCount: number;
+        isKrc20: boolean;
+        contract?: string;
+        maxSupply?: number;
+        mintedSupply?: number;
+        holders?: number;
+        theme: {
+            hex: string;
+            pastel: string;
+        };
+        imgUrl: string;
     }
 
     const ABA_INSTITUTION_DIRECTORY: Record<string, string> = {
@@ -137,13 +159,17 @@
             '11': 'Dallas Fed (11)',
             '12': 'San Francisco Fed (12)'
         };
-        const fedDistrict = districtMap[cleanDigits.slice(0, 2)] || 'Federal Reserve ABA';
+        const fedDistrict =
+            districtMap[cleanDigits.slice(0, 2)] || 'Federal Reserve ABA';
         return {
             cleanDigits,
             isComplete: true,
             checksumValid,
             institutionName:
-                knownBank || (checksumValid ? `Verified Commercial Bank (${fedDistrict})` : null),
+                knownBank ||
+                (checksumValid
+                    ? `Verified Commercial Bank (${fedDistrict})`
+                    : null),
             fedDistrict
         };
     }
@@ -152,6 +178,8 @@
     let lpPositionsInterval: ReturnType<typeof setInterval>;
     let balanceSyncInterval: ReturnType<typeof setInterval>;
     let onrampPollInterval: ReturnType<typeof setInterval>;
+    let globalDiscoverDebounce: ReturnType<typeof setTimeout>;
+    let modalDiscoverDebounce: ReturnType<typeof setTimeout>;
 
     let isExecuting = $state(false);
     let isCancellingP2pId = $state<string | null>(null);
@@ -159,13 +187,10 @@
     let swapSuccessId = $state<string | null>(null);
     let swapLegs = $state<any[]>([]);
     let activeDexTab = $state<'Swap' | 'Liquidity' | 'P2P' | 'Fiat'>('Swap');
-
     let payAmount = $state('');
     let receiveAmount = $state('');
     let payTicker = $state('KAS');
     let receiveTicker = $state('BTC');
-
-    // Multi-Asset Liquidity Plant State (KAS permanently anchored at 50.0%)
     let lpTickerA = $state('KAS');
     let lpTickerB = $state('USDC');
     let lpAmountA = $state('');
@@ -173,7 +198,6 @@
     let lpWeightPctB = $state(50.0);
     let extraPlantLegs = $state<SecondaryPlantLeg[]>([]);
     let editingExtraLegIndex = $state<number>(0);
-
     let p2pSellTicker = $state('KAS');
     let p2pBuyTicker = $state('USDC');
 
@@ -228,7 +252,6 @@
 
     let isTileSweeping = $state(false);
     let sweepTimeout: ReturnType<typeof setTimeout>;
-
     function triggerTileSweep() {
         isTileSweeping = false;
         clearTimeout(sweepTimeout);
@@ -257,24 +280,22 @@
                     ? 'USDC'
                     : receiveToken.ticker;
         if (targetTicker === 'BTC') return '#F7931A';
-        if (targetTicker === 'USDC' || targetTicker === 'ARB' || targetTicker === 'BASE')
+        if (
+            targetTicker === 'USDC' ||
+            targetTicker === 'ARB' ||
+            targetTicker === 'BASE'
+        )
             return '#3B82F6';
         if (targetTicker === 'ETH') return '#627EEA';
         if (targetTicker === 'SOL') return '#14F195';
-        if (targetTicker === 'DOGE' || targetTicker === 'ZEC' || targetTicker === 'XAU')
+        if (
+            targetTicker === 'DOGE' ||
+            targetTicker === 'ZEC' ||
+            targetTicker === 'XAU'
+        )
             return '#D4AF37';
         const asset = treasury.getAsset(targetTicker);
         return asset?.hex || '#3B82F6';
-    });
-
-    let isSecondaryGold = $derived.by(() => {
-        const t =
-            activeDexTab === 'Liquidity'
-                ? lpTokenB.ticker
-                : activeDexTab === 'P2P'
-                  ? p2pBuyToken.ticker
-                  : receiveToken.ticker;
-        return t === 'BTC' || t === 'DOGE' || t === 'ZEC' || t === 'XAU';
     });
 
     let isProvidingLiquidity = $state(false);
@@ -302,14 +323,15 @@
             status: string;
         }[]
     >([]);
-
     let treasuryKasBalance = $state(0);
 
     // Fiat On/Off-Ramp State
     const WIRE_FEE_USD = 15.0;
     const ACH_FEE_USD = 2.0;
     let fiatMode = $state<'offramp' | 'onramp'>('onramp');
-    let offrampSourceMode = $state<'onchain_kas' | 'ledger_kas' | 'ledger_usdc'>('onchain_kas');
+    let offrampSourceMode = $state<'onchain_kas' | 'ledger_kas' | 'ledger_usdc'>(
+        'onchain_kas'
+    );
     let otcCryptoAmountInput = $state('');
     let otcNetFiatOutput = $state(0);
     let otcSpreadFee = $state(0);
@@ -333,14 +355,17 @@
             abaTelemetry.isComplete &&
             abaTelemetry.checksumValid &&
             abaTelemetry.institutionName &&
-            (offrampBankLabel === 'Primary Operating Account' || !offrampBankLabel.trim())
+            (offrampBankLabel === 'Primary Operating Account' ||
+                !offrampBankLabel.trim())
         ) {
             offrampBankLabel = abaTelemetry.institutionName;
         }
     });
 
     let onrampFiatAmountUsd = $state('250');
-    let onrampPaymentRail = $state<'SOVEREIGN_WIRE_ACH' | 'CARD_INSTANT'>('SOVEREIGN_WIRE_ACH');
+    let onrampPaymentRail = $state<'SOVEREIGN_WIRE_ACH' | 'CARD_INSTANT'>(
+        'SOVEREIGN_WIRE_ACH'
+    );
     let onrampSettlementTarget = $state<'LEDGER_KAS' | 'L1_KAS'>('LEDGER_KAS');
     let isInitializingOnramp = $state(false);
     let onrampSessionData = $state<{
@@ -385,54 +410,6 @@
         return treasury.getAsset('KAS').onChain || 0;
     });
 
-    let darkPoolNettedVolumeUsd = $derived.by(() => {
-        const pendingBucketsUsd = operations.displayedBuckets.reduce(
-            (sum, b) => sum + (b.pendingUsd || 0),
-            0
-        );
-        const stakedUsd = lpPositions.reduce((sum, pos) => {
-            if (pos.reserves && Object.keys(pos.reserves).length > 0) {
-                return (
-                    sum +
-                    Object.entries(pos.reserves).reduce((acc, [tick, qty]) => {
-                        const spot = treasury.getAsset(tick).spotPrice || (tick === 'USDC' ? 1 : 0);
-                        return acc + (Number(qty) || 0) * spot;
-                    }, 0)
-                );
-            }
-            const [tA, tB] = (pos.poolPair || 'KAS/USDC').split('/');
-            const pA = treasury.getAsset(tA || 'KAS').spotPrice || 0;
-            const pB = treasury.getAsset(tB || 'USDC').spotPrice || 1;
-            return sum + (pos.stakedAssetA || 0) * pA + (pos.stakedAssetB || 0) * pB;
-        }, 0);
-        return pendingBucketsUsd + stakedUsd;
-    });
-
-    let darkPoolDepthUsd = $derived.by(() => {
-        const kasSpot = treasury.getAsset('KAS').spotPrice || 0;
-        const bucketCapKas = operations.displayedBuckets.reduce(
-            (sum, b) => sum + (b.lpAvailableKasCapacity || 0),
-            0
-        );
-        const totalKasDepth = Math.max(treasuryKasBalance, bucketCapKas);
-        const lpPositionUsd = lpPositions.reduce((sum, pos) => {
-            if (pos.reserves && Object.keys(pos.reserves).length > 0) {
-                return (
-                    sum +
-                    Object.entries(pos.reserves).reduce((acc, [tick, qty]) => {
-                        const spot = treasury.getAsset(tick).spotPrice || (tick === 'USDC' ? 1 : 0);
-                        return acc + (Number(qty) || 0) * spot;
-                    }, 0)
-                );
-            }
-            const [tA, tB] = (pos.poolPair || 'KAS/USDC').split('/');
-            const pA = treasury.getAsset(tA || 'KAS').spotPrice || 0;
-            const pB = treasury.getAsset(tB || 'USDC').spotPrice || 1;
-            return sum + (pos.stakedAssetA || 0) * pA + (pos.stakedAssetB || 0) * pB;
-        }, 0);
-        return totalKasDepth * kasSpot + lpPositionUsd;
-    });
-
     let swapQuoteTelemetry = $derived.by(() => {
         const pSpot = payToken.spotPrice || 0;
         const rSpot = receiveToken.spotPrice || 0;
@@ -444,7 +421,11 @@
         let feeLabel = '1.50% Standard Tier';
         let feeRate = 0.015;
         let isDiscounted = false;
-        if (targetBucket && targetBucket.weightPct >= 85 && targetBucket.weightPct < 100) {
+        if (
+            targetBucket &&
+            targetBucket.weightPct >= 85 &&
+            targetBucket.weightPct < 100
+        ) {
             feeLabel = '0.15% Drain Discount (Bucket Boost)';
             feeRate = 0.0015;
             isDiscounted = true;
@@ -531,7 +512,6 @@
             defaultTicker && !used.has(defaultTicker.toUpperCase())
                 ? defaultTicker.toUpperCase()
                 : candidates.find((c) => !used.has(c)) || 'NVDA';
-
         const nextCount = 1 + extraPlantLegs.length + 1;
         const equalShare = Number((50.0 / nextCount).toFixed(2));
         let allocated = equalShare;
@@ -566,7 +546,10 @@
         }
     }
 
-    function adjustDexPlantSecondaryWeights(changedKey: 'B' | number, rawNewPct: number) {
+    function adjustDexPlantSecondaryWeights(
+        changedKey: 'B' | number,
+        rawNewPct: number
+    ) {
         if (extraPlantLegs.length === 0) {
             lpWeightPctB = 50.0;
             return;
@@ -575,7 +558,10 @@
         const remForOthers = Math.max(1.0, 50.0 - clamped);
         if (changedKey === 'B') {
             lpWeightPctB = Number(clamped.toFixed(2));
-            const oldSum = extraPlantLegs.reduce((s, l) => s + Math.max(0.1, l.weightPct), 0);
+            const oldSum = extraPlantLegs.reduce(
+                (s, l) => s + Math.max(0.1, l.weightPct),
+                0
+            );
             extraPlantLegs = extraPlantLegs.map((l) => {
                 const share =
                     oldSum > 0
@@ -584,18 +570,24 @@
                 return { ...l, weightPct: Number(share.toFixed(2)) };
             });
         } else {
-            const otherExtras = extraPlantLegs.filter((_, idx) => idx !== changedKey);
+            const otherExtras = extraPlantLegs.filter(
+                (_, idx) => idx !== changedKey
+            );
             const oldOtherSum =
                 Math.max(0.1, lpWeightPctB) +
                 otherExtras.reduce((s, l) => s + Math.max(0.1, l.weightPct), 0);
             lpWeightPctB = Number(
-                ((Math.max(0.1, lpWeightPctB) / oldOtherSum) * remForOthers).toFixed(2)
+                (
+                    (Math.max(0.1, lpWeightPctB) / oldOtherSum) *
+                    remForOthers
+                ).toFixed(2)
             );
             extraPlantLegs = extraPlantLegs.map((l, idx) => {
                 if (idx === changedKey) {
                     return { ...l, weightPct: Number(clamped.toFixed(2)) };
                 }
-                const share = (Math.max(0.1, l.weightPct) / oldOtherSum) * remForOthers;
+                const share =
+                    (Math.max(0.1, l.weightPct) / oldOtherSum) * remForOthers;
                 return { ...l, weightPct: Number(share.toFixed(2)) };
             });
         }
@@ -609,8 +601,12 @@
         if (!identity.isWalletConnected || !identity.activeAddress) return;
         try {
             const [ledgerRes, onChainRes] = await Promise.all([
-                fetch(`/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`),
-                fetch(`/api/balance?address=${encodeURIComponent(identity.activeAddress)}`)
+                fetch(
+                    `/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`
+                ),
+                fetch(
+                    `/api/balance?address=${encodeURIComponent(identity.activeAddress)}`
+                )
             ]);
             if (ledgerRes.ok) {
                 const ledgerBalances = await ledgerRes.json();
@@ -632,7 +628,7 @@
                 }
             }
         } catch {
-            // Retain existing balances
+            // Ignore transient sync error
         }
     }
 
@@ -652,10 +648,13 @@
                 if (data.success && data.data) {
                     const d = data.data;
                     siloStakingTelemetry = {
-                        ecosystemTicker: d.ecosystemTicker || DEFAULT_ECOSYSTEM_TICKER,
+                        ecosystemTicker:
+                            d.ecosystemTicker || DEFAULT_ECOSYSTEM_TICKER,
                         activeStaked: Number(d.activeStaked || 0),
                         cooldownStaked: Number(d.cooldownStaked || 0),
-                        combinedEligibleStaked: Number(d.combinedEligibleStaked || 0),
+                        combinedEligibleStaked: Number(
+                            d.combinedEligibleStaked || 0
+                        ),
                         feeRateCap: Number(d.feeRateCap ?? 0.015),
                         tierLabel: d.tierLabel || '1.50% Standard Tier',
                         positions: Array.isArray(d.positions) ? d.positions : []
@@ -668,7 +667,7 @@
                 }
             }
         } catch {
-            // Retain existing staking state
+            // Ignore staking poll error
         }
     }
 
@@ -704,11 +703,14 @@
                 await Promise.all([fetchSiloStaking(), syncUserBalances()]);
             } else {
                 swapError = formatRetailSafeCopy(
-                    data.error || `Failed to stake ${DEFAULT_ECOSYSTEM_TICKER}.`
+                    data.error ||
+                        `Failed to stake ${DEFAULT_ECOSYSTEM_TICKER}.`
                 );
             }
         } catch (err: any) {
-            swapError = formatRetailSafeCopy(err.message || 'SILO staking request failed.');
+            swapError = formatRetailSafeCopy(
+                err.message || 'SILO staking request failed.'
+            );
         } finally {
             isStakingSilo = false;
         }
@@ -795,13 +797,16 @@
                 if (status.savedBankRail) {
                     savedBankRailMeta = status.savedBankRail;
                     offrampBankLabel =
-                        status.savedBankRail.bankLabel || 'Primary Operating Account';
+                        status.savedBankRail.bankLabel ||
+                        'Primary Operating Account';
                     offrampAccountType =
                         status.savedBankRail.accountType === 'SAVINGS'
                             ? 'SAVINGS'
                             : 'CHECKING';
                     payoutMethod =
-                        status.savedBankRail.payoutMethod === 'WIRE' ? 'wire' : 'ach';
+                        status.savedBankRail.payoutMethod === 'WIRE'
+                            ? 'wire'
+                            : 'ach';
                 }
                 if (Array.isArray(status.recentPayouts)) {
                     recentOfframpPayouts = status.recentPayouts;
@@ -817,7 +822,7 @@
                 }
             }
         } catch {
-            // Retain existing fiat gateway status
+            // Ignore gateway poll error
         }
     }
 
@@ -857,7 +862,8 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                offrampError = data.error || 'Failed to save encrypted bank rail.';
+                offrampError =
+                    data.error || 'Failed to save encrypted bank rail.';
                 return;
             }
             savedBankLast4 = data.savedBankRailLast4 || cleanAccount.slice(-4);
@@ -868,7 +874,11 @@
             offrampAccountNumber = '';
             isEditingBankRail = false;
             offrampSuccessBanner = `AES-256-GCM Bank Rail Vault Updated (${resolvedLabel} • *${savedBankLast4} • ${offrampAccountType})`;
-            ui.triggerMicroBadge('dex_fiat_btn', `BANK *${savedBankLast4} SAVED ✓`, '#18C6A5');
+            ui.triggerMicroBadge(
+                'dex_fiat_btn',
+                `BANK *${savedBankLast4} SAVED ✓`,
+                '#18C6A5'
+            );
         } catch (err: any) {
             offrampError = err.message || 'Failed to save encrypted bank rail.';
         } finally {
@@ -882,20 +892,31 @@
             const pdfDoc = await PDFDocument.create();
             const page = pdfDoc.addPage([612, 520]);
             const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
-            const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+            const fontBold = await pdfDoc.embedFont(
+                StandardFonts.HelveticaBold
+            );
             const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
             const slateBg = rgb(0.04, 0.05, 0.07);
             const teal = rgb(0.094, 0.776, 0.647);
             const dark = rgb(0.1, 0.12, 0.16);
             const muted = rgb(0.42, 0.46, 0.52);
-            page.drawRectangle({ x: 0, y: 440, width: 612, height: 80, color: slateBg });
-            page.drawText('PERENNIA SOVEREIGN TREASURY — OFFICIAL WIRE / ACH SLIP', {
-                x: 36,
-                y: 484,
-                size: 13,
-                font: fontBold,
-                color: teal
+            page.drawRectangle({
+                x: 0,
+                y: 440,
+                width: 612,
+                height: 80,
+                color: slateBg
             });
+            page.drawText(
+                'PERENNIA SOVEREIGN TREASURY — OFFICIAL WIRE / ACH SLIP',
+                {
+                    x: 36,
+                    y: 484,
+                    size: 13,
+                    font: fontBold,
+                    color: teal
+                }
+            );
             page.drawText(
                 `ORDER ID: ${sessionObj.sessionId || sessionObj.orderId} • MANDATORY MEMO: ${sessionObj.wireMemo || sessionObj.sessionId}`,
                 {
@@ -907,23 +928,44 @@
                 }
             );
             const wi = sessionObj.wireInstructions || {
-                beneficiaryName: 'Perennia Holdings, LLC — Sovereign Treasury',
+                beneficiaryName:
+                    'Perennia Holdings, LLC — Sovereign Treasury',
                 bankName: 'Mercury / Column N.A. Commercial Vault',
                 routingNumber: '021000021',
                 accountNumber: '8804921044',
                 accountType: 'COMMERCIAL CHECKING'
             };
             const lines = [
-                ['MANDATORY WIRE / ACH MEMO', String(sessionObj.wireMemo || sessionObj.sessionId)],
+                [
+                    'MANDATORY WIRE / ACH MEMO',
+                    String(sessionObj.wireMemo || sessionObj.sessionId)
+                ],
                 ['BENEFICIARY NAME', String(wi.beneficiaryName)],
                 ['RECEIVING COMMERCIAL BANK', String(wi.bankName)],
                 ['9-DIGIT ABA ROUTING NUMBER', String(wi.routingNumber)],
                 ['COMMERCIAL ACCOUNT NUMBER', String(wi.accountNumber)],
-                ['ACCOUNT TYPE', String(wi.accountType || 'COMMERCIAL CHECKING')],
-                ['USD AMOUNT TO WIRE', `$${Number(sessionObj.fiatAmountUsd || onrampFiatAmountUsd || 0).toFixed(2)} USD`],
-                ['ESTIMATED KAS DELIVERY', `~${Number(sessionObj.estimatedKas || 0).toFixed(4)} KAS (@ $${Number(sessionObj.spotPrice || 0).toFixed(4)})`],
-                ['SETTLEMENT TARGET', String(sessionObj.settlementTarget || 'LEDGER_KAS')],
-                ['DESTINATION KASPA WALLET', String(identity.activeAddress || sessionObj.walletAddress || '')]
+                [
+                    'ACCOUNT TYPE',
+                    String(wi.accountType || 'COMMERCIAL CHECKING')
+                ],
+                [
+                    'USD AMOUNT TO WIRE',
+                    `$${Number(sessionObj.fiatAmountUsd || onrampFiatAmountUsd || 0).toFixed(2)} USD`
+                ],
+                [
+                    'ESTIMATED KAS DELIVERY',
+                    `~${Number(sessionObj.estimatedKas || 0).toFixed(4)} KAS (@ $${Number(sessionObj.spotPrice || 0).toFixed(4)})`
+                ],
+                [
+                    'SETTLEMENT TARGET',
+                    String(sessionObj.settlementTarget || 'LEDGER_KAS')
+                ],
+                [
+                    'DESTINATION KASPA WALLET',
+                    String(
+                        identity.activeAddress || sessionObj.walletAddress || ''
+                    )
+                ]
             ];
             let y = 406;
             for (const [label, val] of lines) {
@@ -935,7 +977,13 @@
                     borderColor: rgb(0.84, 0.87, 0.9),
                     borderWidth: 1
                 });
-                page.drawText(label, { x: 46, y: y + 2, size: 8, font: fontBold, color: muted });
+                page.drawText(label, {
+                    x: 46,
+                    y: y + 2,
+                    size: 8,
+                    font: fontBold,
+                    color: muted
+                });
                 page.drawText(val.slice(0, 62), {
                     x: 235,
                     y: y + 2,
@@ -956,7 +1004,9 @@
                 }
             );
             const pdfBytes = await pdfDoc.save();
-            const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
+            const blob = new Blob([pdfBytes as any], {
+                type: 'application/pdf'
+            });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -965,7 +1015,11 @@
             a.click();
             a.remove();
             window.URL.revokeObjectURL(url);
-            ui.triggerMicroBadge('dex_fiat_btn', 'WIRE SLIP PDF DOWNLOADED ✓', '#18C6A5');
+            ui.triggerMicroBadge(
+                'dex_fiat_btn',
+                'WIRE SLIP PDF DOWNLOADED ✓',
+                '#18C6A5'
+            );
         } catch (err) {
             console.error('Failed to generate Wire Slip PDF:', err);
         }
@@ -976,21 +1030,32 @@
         try {
             const pdfDoc = await PDFDocument.create();
             const page = pdfDoc.addPage([612, 480]);
-            const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+            const fontBold = await pdfDoc.embedFont(
+                StandardFonts.HelveticaBold
+            );
             const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
             const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
             const slateBg = rgb(0.04, 0.05, 0.07);
             const teal = rgb(0.094, 0.776, 0.647);
             const dark = rgb(0.1, 0.12, 0.16);
             const muted = rgb(0.42, 0.46, 0.52);
-            page.drawRectangle({ x: 0, y: 400, width: 612, height: 80, color: slateBg });
-            page.drawText('PERENNIA SOVEREIGN TREASURY — ACH / WIRE SETTLEMENT RECEIPT', {
-                x: 36,
-                y: 444,
-                size: 12.5,
-                font: fontBold,
-                color: teal
+            page.drawRectangle({
+                x: 0,
+                y: 400,
+                width: 612,
+                height: 80,
+                color: slateBg
             });
+            page.drawText(
+                'PERENNIA SOVEREIGN TREASURY — ACH / WIRE SETTLEMENT RECEIPT',
+                {
+                    x: 36,
+                    y: 444,
+                    size: 12.5,
+                    font: fontBold,
+                    color: teal
+                }
+            );
             page.drawText(
                 `PAYOUT ID: ${payout.payout_id || payout.payoutId} • STATUS: ${payout.status}`,
                 {
@@ -1002,15 +1067,50 @@
                 }
             );
             const rows = [
-                ['PAYOUT REFERENCE ID', String(payout.payout_id || payout.payoutId)],
-                ['SETTLEMENT STATUS', String(payout.status || 'QUEUED_FOR_TREASURY_DISPATCH')],
-                ['ACH / WIRE TRACE NUMBER', String(payout.trace_id || payout.traceId || 'AWAITING_BATCH_TRACE')],
-                ['DESTINATION BANK RAIL', `${payout.payout_method || 'ACH'} Account Ending *${payout.bank_last4 || '0000'}`],
-                ['SOURCE ASSET LIQUIDATED', `${Number(payout.amount_crypto || 0).toFixed(4)} ${payout.source_asset || 'KAS'} (${payout.source_type || 'ledger'})`],
-                ['GROSS USD PROCEEDS', `$${Number(payout.gross_usd || 0).toFixed(2)} USD`],
-                ['PROTOCOL & RAIL FEE', `-$${Number(payout.fee_usd || 0).toFixed(2)} USD`],
-                ['NET USD DISPATCHED TO BANK', `$${Number(payout.net_fiat_usd || 0).toFixed(2)} USD`],
-                ['CREATED TIMESTAMP', String(payout.created_at ? new Date(payout.created_at).toISOString() : new Date().toISOString())]
+                [
+                    'PAYOUT REFERENCE ID',
+                    String(payout.payout_id || payout.payoutId)
+                ],
+                [
+                    'SETTLEMENT STATUS',
+                    String(payout.status || 'QUEUED_FOR_TREASURY_DISPATCH')
+                ],
+                [
+                    'ACH / WIRE TRACE NUMBER',
+                    String(
+                        payout.trace_id ||
+                            payout.traceId ||
+                            'AWAITING_BATCH_TRACE'
+                    )
+                ],
+                [
+                    'DESTINATION BANK RAIL',
+                    `${payout.payout_method || 'ACH'} Account Ending *${payout.bank_last4 || '0000'}`
+                ],
+                [
+                    'SOURCE ASSET LIQUIDATED',
+                    `${Number(payout.amount_crypto || 0).toFixed(4)} ${payout.source_asset || 'KAS'} (${payout.source_type || 'ledger'})`
+                ],
+                [
+                    'GROSS USD PROCEEDS',
+                    `$${Number(payout.gross_usd || 0).toFixed(2)} USD`
+                ],
+                [
+                    'PROTOCOL & RAIL FEE',
+                    `-$${Number(payout.fee_usd || 0).toFixed(2)} USD`
+                ],
+                [
+                    'NET USD DISPATCHED TO BANK',
+                    `$${Number(payout.net_fiat_usd || 0).toFixed(2)} USD`
+                ],
+                [
+                    'CREATED TIMESTAMP',
+                    String(
+                        payout.created_at
+                            ? new Date(payout.created_at).toISOString()
+                            : new Date().toISOString()
+                    )
+                ]
             ];
             let y = 364;
             for (const [label, val] of rows) {
@@ -1022,7 +1122,13 @@
                     borderColor: rgb(0.84, 0.87, 0.9),
                     borderWidth: 1
                 });
-                page.drawText(label, { x: 46, y: y + 2, size: 8, font: fontBold, color: muted });
+                page.drawText(label, {
+                    x: 46,
+                    y: y + 2,
+                    size: 8,
+                    font: fontBold,
+                    color: muted
+                });
                 page.drawText(val.slice(0, 62), {
                     x: 240,
                     y: y + 2,
@@ -1033,7 +1139,7 @@
                 y -= 34;
             }
             page.drawText(
-                'Cryptographically verified by Perennia Sovereign Fiat Bridge v2 • Zero-PII Client Receipt.',
+                'Cryptographically verified by Perennia Fiat Bridge • Zero-PII Client Receipt.',
                 {
                     x: 36,
                     y: 32,
@@ -1043,7 +1149,9 @@
                 }
             );
             const pdfBytes = await pdfDoc.save();
-            const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
+            const blob = new Blob([pdfBytes as any], {
+                type: 'application/pdf'
+            });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -1080,14 +1188,18 @@
                         txHash: data.session.txHash || onrampSessionData.txHash
                     };
                     if (data.session.status === 'COMPLETED') {
-                        ui.triggerMicroBadge('dex_fiat_btn', 'ON-RAMP COMPLETED ✓', '#18C6A5');
+                        ui.triggerMicroBadge(
+                            'dex_fiat_btn',
+                            'ON-RAMP COMPLETED ✓',
+                            '#18C6A5'
+                        );
                         syncUserBalances();
                         checkFiatGatewayStatus();
                     }
                 }
             }
         } catch {
-            // Retain existing session state
+            // Ignore poll timeout
         }
     }
 
@@ -1116,7 +1228,8 @@
         otcSpreadFee = grossUsd * activeSpreadPct;
         let activeTransferFee = 0.0;
         if (!isWhaleWaiverActive) {
-            activeTransferFee = payoutMethod === 'wire' ? WIRE_FEE_USD : ACH_FEE_USD;
+            activeTransferFee =
+                payoutMethod === 'wire' ? WIRE_FEE_USD : ACH_FEE_USD;
         }
         const net = grossUsd - otcSpreadFee - activeTransferFee;
         otcNetFiatOutput = Math.max(0, net);
@@ -1143,7 +1256,8 @@
                     sourceMode: offrampSourceMode,
                     sourceAsset: offrampSelectedAssetTicker,
                     payoutMethod,
-                    bankLabel: offrampBankLabel.trim() || 'Primary Operating Account',
+                    bankLabel:
+                        offrampBankLabel.trim() || 'Primary Operating Account',
                     accountType: offrampAccountType,
                     routingNumber: offrampRoutingNumber.trim() || undefined,
                     accountNumber: offrampAccountNumber.trim() || undefined,
@@ -1154,14 +1268,16 @@
             const preFlightData = await preFlightRes.json().catch(() => ({}));
             if (!preFlightRes.ok) {
                 offrampError =
-                    preFlightData.error || 'Fiat Off-Ramp pre-flight check failed.';
+                    preFlightData.error ||
+                    'Fiat Off-Ramp pre-flight check failed.';
                 return;
             }
             if (preFlightData.bankAccountLast4) {
                 savedBankLast4 = preFlightData.bankAccountLast4;
             }
         } catch (err: any) {
-            offrampError = err.message || 'Unable to verify Fiat Off-Ramp gateway.';
+            offrampError =
+                err.message || 'Unable to verify Fiat Off-Ramp gateway.';
             return;
         }
         identity.requestVaultAuthorization({
@@ -1205,7 +1321,9 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data.error || 'Failed to initialize Fiat On-Ramp session.');
+                throw new Error(
+                    data.error || 'Failed to initialize Fiat On-Ramp session.'
+                );
             }
             onrampSessionData = {
                 sessionId: data.sessionId,
@@ -1238,20 +1356,32 @@
         }
     }
 
-    function copyWireField(text: string, badgeLabel: string) {
-        if (browser && navigator.clipboard && text) {
-            navigator.clipboard.writeText(text);
-            ui.triggerMicroBadge('dex_fiat_btn', `${badgeLabel} COPIED ✓`, '#18C6A5');
-        }
-    }
-
+    // Universal Dynamic Asset Discovery State
     let globalSearchQuery = $state('');
+    let isDiscoveringGlobal = $state(false);
+    let discoveredGlobalAsset = $state<DiscoveredOracleAsset | null>(null);
+    let discoverGlobalError = $state<string | null>(null);
+
     let isTokenModalOpen = $state(false);
     let activeSelection = $state<
-        'pay' | 'receive' | 'lpA' | 'lpB' | 'lpExtra' | 'p2pSell' | 'p2pBuy' | null
+        | 'pay'
+        | 'receive'
+        | 'lpA'
+        | 'lpB'
+        | 'lpExtra'
+        | 'p2pSell'
+        | 'p2pBuy'
+        | null
     >(null);
     let tokenSearchQuery = $state('');
-    let tokenCategoryFilter = $state<'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES'>('ALL');
+    let isDiscoveringModal = $state(false);
+    let discoveredModalAsset = $state<DiscoveredOracleAsset | null>(null);
+    let discoverModalError = $state<string | null>(null);
+    let isPersistingWalletToken = $state<string | null>(null);
+
+    let tokenCategoryFilter = $state<
+        'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES'
+    >('ALL');
     let slippageTolerance = $state('0.5');
 
     let filteredTokens = $derived(
@@ -1267,13 +1397,18 @@
                 return t.assetClass === 'Public Equity';
             }
             if (tokenCategoryFilter === 'COMMODITIES') {
-                return t.assetClass === 'Commodity' || t.assetClass === 'Sovereign Debt';
+                return (
+                    t.assetClass === 'Commodity' ||
+                    t.assetClass === 'Sovereign Debt'
+                );
             }
             if (tokenCategoryFilter === 'CRYPTO') {
                 return (
                     t.assetClass === 'Native L1' ||
                     t.assetClass === 'Stablecoin' ||
-                    t.assetClass === 'Ecosystem'
+                    t.assetClass === 'Ecosystem' ||
+                    t.assetClass === 'DeFi' ||
+                    t.assetClass === 'Tokenized Asset'
                 );
             }
             return true;
@@ -1281,28 +1416,384 @@
     );
 
     let globalSearchResults = $derived(
-        globalSearchQuery
+        globalSearchQuery.trim()
             ? treasury.registry.filter(
                   (t) =>
-                      t.ticker.toLowerCase().includes(globalSearchQuery.toLowerCase()) ||
-                      t.name.toLowerCase().includes(globalSearchQuery.toLowerCase())
+                      t.ticker
+                          .toLowerCase()
+                          .includes(globalSearchQuery.trim().toLowerCase()) ||
+                      t.name
+                          .toLowerCase()
+                          .includes(globalSearchQuery.trim().toLowerCase())
               )
             : []
     );
+
+    async function queryDynamicOracleDiscovery(
+        rawQuery: string,
+        mode: 'global' | 'modal'
+    ) {
+        const cleanTicker = rawQuery
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '')
+            .slice(0, 12);
+        if (cleanTicker.length < 2) {
+            if (mode === 'global') {
+                isDiscoveringGlobal = false;
+                discoveredGlobalAsset = null;
+                discoverGlobalError = null;
+            } else {
+                isDiscoveringModal = false;
+                discoveredModalAsset = null;
+                discoverModalError = null;
+            }
+            return;
+        }
+
+        const existingInRegistry = treasury.registry.find(
+            (a) => a.ticker.toUpperCase() === cleanTicker
+        );
+        if (existingInRegistry && existingInRegistry.spotPrice > 0) {
+            if (mode === 'global') {
+                isDiscoveringGlobal = false;
+                discoveredGlobalAsset = null;
+                discoverGlobalError = null;
+            } else {
+                isDiscoveringModal = false;
+                discoveredModalAsset = null;
+                discoverModalError = null;
+            }
+            return;
+        }
+
+        if (mode === 'global') {
+            isDiscoveringGlobal = true;
+            discoverGlobalError = null;
+        } else {
+            isDiscoveringModal = true;
+            discoverModalError = null;
+        }
+
+        try {
+            const res = await fetch(
+                `/api/prices?discover=${encodeURIComponent(cleanTicker)}`
+            );
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success && data.asset) {
+                const asset: DiscoveredOracleAsset = data.asset;
+                const derivedAddr = resolveSovereignAddressForChain(
+                    asset.network || asset.ticker,
+                    identity.sovereignKeys,
+                    identity.activeAddress
+                );
+                treasury.updateAsset(asset.ticker, {
+                    name: asset.name,
+                    assetClass: asset.assetClass,
+                    network: asset.network,
+                    spotPrice: Number(asset.spotPrice || 0),
+                    delta: Number(asset.change24h || 0),
+                    contract: asset.contract || asset.ticker,
+                    address: derivedAddr,
+                    imgUrl: asset.imgUrl || '',
+                    theme: asset.theme || {
+                        hex: '#18C6A5',
+                        pastel: '#99f6e4'
+                    }
+                });
+                if (mode === 'global') {
+                    discoveredGlobalAsset = asset;
+                    discoverGlobalError = null;
+                } else {
+                    discoveredModalAsset = asset;
+                    discoverModalError = null;
+                }
+            } else {
+                if (mode === 'global') {
+                    discoveredGlobalAsset = null;
+                    discoverGlobalError =
+                        data.error ||
+                        `No live oracle feed found for "${cleanTicker}".`;
+                } else {
+                    discoveredModalAsset = null;
+                    discoverModalError =
+                        data.error ||
+                        `No live oracle feed found for "${cleanTicker}".`;
+                }
+            }
+        } catch {
+            if (mode === 'global') {
+                discoveredGlobalAsset = null;
+                discoverGlobalError = 'Live oracle discovery timed out.';
+            } else {
+                discoveredModalAsset = null;
+                discoverModalError = 'Live oracle discovery timed out.';
+            }
+        } finally {
+            if (mode === 'global') {
+                isDiscoveringGlobal = false;
+            } else {
+                isDiscoveringModal = false;
+            }
+        }
+    }
+
+    function handleGlobalSearchInput() {
+        clearTimeout(globalDiscoverDebounce);
+        const q = globalSearchQuery.trim();
+        if (q.length < 2) {
+            isDiscoveringGlobal = false;
+            discoveredGlobalAsset = null;
+            discoverGlobalError = null;
+            return;
+        }
+        globalDiscoverDebounce = setTimeout(() => {
+            queryDynamicOracleDiscovery(q, 'global');
+        }, 260);
+    }
+
+    function handleModalSearchInput() {
+        clearTimeout(modalDiscoverDebounce);
+        const q = tokenSearchQuery.trim();
+        if (q.length < 2) {
+            isDiscoveringModal = false;
+            discoveredModalAsset = null;
+            discoverModalError = null;
+            return;
+        }
+        modalDiscoverDebounce = setTimeout(() => {
+            queryDynamicOracleDiscovery(q, 'modal');
+        }, 260);
+    }
+
+    async function persistCustomTokenToWallet(tokenSpec: {
+        ticker: string;
+        name: string;
+        assetClass?: string;
+        network?: string;
+        spotPrice: number;
+        delta?: number;
+        contract?: string;
+        imgUrl?: string;
+        theme?: { hex: string; pastel: string };
+    }) {
+        const cleanTicker = tokenSpec.ticker.trim().toUpperCase();
+        const cleanNetwork = (
+            tokenSpec.network ||
+            (cleanTicker.length <= 6 ? 'KAS' : 'ETH')
+        )
+            .trim()
+            .toUpperCase();
+        const derivedAddr = resolveSovereignAddressForChain(
+            cleanNetwork,
+            identity.sovereignKeys,
+            identity.activeAddress
+        );
+
+        treasury.updateAsset(cleanTicker, {
+            name: tokenSpec.name || cleanTicker,
+            assetClass: (tokenSpec.assetClass as any) || 'DeFi',
+            network: cleanNetwork,
+            spotPrice: Number(tokenSpec.spotPrice || 0),
+            delta: Number(tokenSpec.delta || 0),
+            contract: tokenSpec.contract || cleanTicker,
+            address: derivedAddr,
+            imgUrl: tokenSpec.imgUrl || '',
+            theme: tokenSpec.theme || { hex: '#18C6A5', pastel: '#99f6e4' }
+        });
+
+        if (browser && identity.activeAddress) {
+            try {
+                const storageKey = `p_custom_tokens_${identity.activeAddress}`;
+                const existingRaw = localStorage.getItem(storageKey);
+                const parsed = existingRaw
+                    ? JSON.parse(existingRaw)
+                    : {
+                          activeNetworks: ['BTC', 'ETH', 'SOL'],
+                          userCustomTokens: {},
+                          selectedTokensMap: {},
+                          customNetworks: []
+                      };
+                if (!parsed.userCustomTokens) parsed.userCustomTokens = {};
+                if (!parsed.selectedTokensMap) parsed.selectedTokensMap = {};
+                if (!Array.isArray(parsed.userCustomTokens[cleanNetwork])) {
+                    parsed.userCustomTokens[cleanNetwork] = [];
+                }
+                if (!Array.isArray(parsed.selectedTokensMap[cleanNetwork])) {
+                    parsed.selectedTokensMap[cleanNetwork] = [];
+                }
+                if (
+                    !parsed.userCustomTokens[cleanNetwork].some(
+                        (t: any) =>
+                            String(t.symbol || '').toUpperCase() === cleanTicker
+                    )
+                ) {
+                    parsed.userCustomTokens[cleanNetwork].push({
+                        symbol: cleanTicker,
+                        name: tokenSpec.name || cleanTicker,
+                        hex: tokenSpec.theme?.hex || '#18C6A5',
+                        imgUrl: tokenSpec.imgUrl || '',
+                        balance: 0,
+                        onChain: 0,
+                        synthetic: 0,
+                        price: Number(tokenSpec.spotPrice || 0),
+                        contract: tokenSpec.contract || cleanTicker,
+                        badge: tokenSpec.assetClass || 'DeFi'
+                    });
+                }
+                if (
+                    !parsed.selectedTokensMap[cleanNetwork].includes(
+                        cleanTicker
+                    )
+                ) {
+                    parsed.selectedTokensMap[cleanNetwork].push(cleanTicker);
+                }
+                if (
+                    cleanNetwork !== 'KAS' &&
+                    Array.isArray(parsed.activeNetworks) &&
+                    !parsed.activeNetworks.includes(cleanNetwork)
+                ) {
+                    parsed.activeNetworks.push(cleanNetwork);
+                }
+                localStorage.setItem(storageKey, JSON.stringify(parsed));
+                fetch('/api/treasury/preferences', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        walletAddress: identity.activeAddress,
+                        preferences: parsed
+                    })
+                }).catch(() => {});
+            } catch {
+                // Ignore local storage quota or parse warning
+            }
+        }
+
+        if (identity.isWalletConnected) {
+            isPersistingWalletToken = cleanTicker;
+            try {
+                await fetch('/api/state/action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'ADD_CUSTOM_TOKEN',
+                        payload: {
+                            ticker: cleanTicker,
+                            symbol: cleanTicker,
+                            name: tokenSpec.name || cleanTicker,
+                            assetClass: tokenSpec.assetClass || 'DeFi',
+                            network: cleanNetwork,
+                            spotPrice: Number(tokenSpec.spotPrice || 0),
+                            change24h: Number(tokenSpec.delta || 0),
+                            contract: tokenSpec.contract || cleanTicker,
+                            imgUrl: tokenSpec.imgUrl || '',
+                            theme: tokenSpec.theme || {
+                                hex: '#18C6A5',
+                                pastel: '#99f6e4'
+                            }
+                        }
+                    })
+                });
+            } catch {
+                // Non-blocking fallback
+            } finally {
+                isPersistingWalletToken = null;
+            }
+        }
+    }
+
+    async function applyDiscoveredOrSearchAsset(
+        assetObj: {
+            ticker: string;
+            name: string;
+            assetClass?: string;
+            network?: string;
+            spotPrice: number;
+            delta?: number;
+            change24h?: number;
+            contract?: string;
+            imgUrl?: string;
+            icon?: string;
+            hex?: string;
+            theme?: { hex: string; pastel: string };
+        },
+        role: 'pay' | 'receive' | 'wallet'
+    ) {
+        const cleanTicker = assetObj.ticker.trim().toUpperCase();
+        await persistCustomTokenToWallet({
+            ticker: cleanTicker,
+            name: assetObj.name || cleanTicker,
+            assetClass: assetObj.assetClass || 'DeFi',
+            network: assetObj.network || 'ETH',
+            spotPrice: Number(assetObj.spotPrice || 0),
+            delta: Number(assetObj.delta ?? assetObj.change24h ?? 0),
+            contract: assetObj.contract || cleanTicker,
+            imgUrl: assetObj.imgUrl || assetObj.icon || '',
+            theme: assetObj.theme || {
+                hex: assetObj.hex || '#18C6A5',
+                pastel: '#99f6e4'
+            }
+        });
+
+        if (role === 'pay') {
+            if (receiveTicker === cleanTicker) {
+                receiveTicker = payTicker;
+            }
+            payTicker = cleanTicker;
+            activeDexTab = 'Swap';
+        } else if (role === 'receive') {
+            if (payTicker === cleanTicker) {
+                payTicker = receiveTicker;
+            }
+            receiveTicker = cleanTicker;
+            activeDexTab = 'Swap';
+        }
+
+        const pVal = parseFloat(payAmount);
+        const pSpot = treasury.getAsset(payTicker).spotPrice;
+        const rSpot = treasury.getAsset(receiveTicker).spotPrice;
+        if (!isNaN(pVal) && pVal > 0 && pSpot > 0 && rSpot > 0) {
+            receiveAmount = ((pVal * pSpot) / rSpot).toFixed(8);
+        }
+
+        if (role === 'wallet') {
+            ui.triggerMicroBadge(
+                'dex_swap_btn',
+                `+${cleanTicker} ADDED TO WALLET ✓`,
+                '#18C6A5'
+            );
+        } else {
+            ui.triggerMicroBadge(
+                'dex_swap_btn',
+                `${cleanTicker} → ${role === 'pay' ? 'YOU PAY' : 'YOU RECEIVE'} ✓`,
+                '#18C6A5'
+            );
+            globalSearchQuery = '';
+            discoveredGlobalAsset = null;
+            isTokenModalOpen = false;
+            triggerTileSweep();
+        }
+    }
 
     async function fetchP2pOrders() {
         try {
             const res = await fetch('/api/p2p');
             if (res.ok) p2pOrders = await res.json();
         } catch {
-            // Retain existing P2P orders
+            // Ignore P2P poll error
         }
     }
 
     function isOrderMaker(sellerAddress: string): boolean {
         if (!identity.activeAddress || !sellerAddress) return false;
-        const cleanSeller = sellerAddress.trim().toLowerCase().replace(/^kaspa:/i, '');
-        const cleanMe = identity.activeAddress.trim().toLowerCase().replace(/^kaspa:/i, '');
+        const cleanSeller = sellerAddress
+            .trim()
+            .toLowerCase()
+            .replace(/^kaspa:/i, '');
+        const cleanMe = identity.activeAddress
+            .trim()
+            .toLowerCase()
+            .replace(/^kaspa:/i, '');
         return cleanSeller === cleanMe || Boolean(identity.isCorporateAdmin);
     }
 
@@ -1311,18 +1802,27 @@
         isCancellingP2pId = orderId;
         swapError = null;
         try {
-            const res = await fetch(`/api/p2p?id=${encodeURIComponent(orderId)}`, {
-                method: 'DELETE'
-            });
+            const res = await fetch(
+                `/api/p2p?id=${encodeURIComponent(orderId)}`,
+                {
+                    method: 'DELETE'
+                }
+            );
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 throw new Error(data.error || 'Failed to cancel P2P offer.');
             }
             p2pOrders = p2pOrders.filter((o) => o.id !== orderId);
-            ui.triggerMicroBadge(`p2p_order_${orderId}`, 'OFFER CANCELLED ✓', '#18C6A5');
+            ui.triggerMicroBadge(
+                `p2p_order_${orderId}`,
+                'OFFER CANCELLED ✓',
+                '#18C6A5'
+            );
             triggerTileSweep();
         } catch (err: any) {
-            swapError = formatRetailSafeCopy(err.message || 'Could not cancel P2P offer.');
+            swapError = formatRetailSafeCopy(
+                err.message || 'Could not cancel P2P offer.'
+            );
         } finally {
             isCancellingP2pId = null;
         }
@@ -1335,13 +1835,15 @@
             );
             if (res.ok) {
                 const data = await res.json();
-                const kasAsset = data.assets.find((a: any) => a.symbol === 'KAS');
+                const kasAsset = data.assets.find(
+                    (a: any) => a.symbol === 'KAS'
+                );
                 if (kasAsset && typeof kasAsset.balance === 'number') {
                     treasuryKasBalance = kasAsset.balance;
                 }
             }
         } catch {
-            // Retain existing treasury liquid balance
+            // Ignore corporate balance poll error
         }
     }
 
@@ -1362,19 +1864,29 @@
                     lpPositions = data.data;
                     const stakedTotals: Record<string, number> = {};
                     for (const pos of lpPositions) {
-                        if (pos.reserves && Object.keys(pos.reserves).length > 0) {
-                            for (const [tick, qty] of Object.entries(pos.reserves)) {
+                        if (
+                            pos.reserves &&
+                            Object.keys(pos.reserves).length > 0
+                        ) {
+                            for (const [tick, qty] of Object.entries(
+                                pos.reserves
+                            )) {
                                 stakedTotals[tick] =
-                                    (stakedTotals[tick] || 0) + (Number(qty) || 0);
+                                    (stakedTotals[tick] || 0) +
+                                    (Number(qty) || 0);
                             }
                         } else {
-                            const [tA, tB] = (pos.poolPair || 'KAS/USDC').split('/');
+                            const [tA, tB] = (
+                                pos.poolPair || 'KAS/USDC'
+                            ).split('/');
                             if (tA)
                                 stakedTotals[tA] =
-                                    (stakedTotals[tA] || 0) + (Number(pos.stakedAssetA) || 0);
+                                    (stakedTotals[tA] || 0) +
+                                    (Number(pos.stakedAssetA) || 0);
                             if (tB)
                                 stakedTotals[tB] =
-                                    (stakedTotals[tB] || 0) + (Number(pos.stakedAssetB) || 0);
+                                    (stakedTotals[tB] || 0) +
+                                    (Number(pos.stakedAssetB) || 0);
                         }
                     }
                     for (const asset of treasury.registry) {
@@ -1387,7 +1899,7 @@
                 }
             }
         } catch {
-            // Retain existing LP positions
+            // Ignore LP positions poll error
         }
     }
 
@@ -1405,14 +1917,21 @@
             .trim();
         if (myClean && evtClean === myClean) {
             if (payload.eventType === 'FIAT_ONRAMP') {
-                if (onrampSessionData && payload.sessionId === onrampSessionData.sessionId) {
+                if (
+                    onrampSessionData &&
+                    payload.sessionId === onrampSessionData.sessionId
+                ) {
                     onrampSessionData = {
                         ...onrampSessionData,
                         status: payload.status || 'COMPLETED',
                         txHash: payload.txHash || onrampSessionData.txHash
                     };
                 }
-                ui.triggerMicroBadge('dex_fiat_btn', 'ON-RAMP SETTLED ✓', '#18C6A5');
+                ui.triggerMicroBadge(
+                    'dex_fiat_btn',
+                    'ON-RAMP SETTLED ✓',
+                    '#18C6A5'
+                );
             } else if (payload.eventType === 'FIAT_OFFRAMP') {
                 offrampSuccessBanner = `Fiat Off-Ramp Dispatched ($${Number(payload.payout?.netFiatUsd || 0).toFixed(2)} USD • Ref: ${payload.payout?.payoutId || 'QUEUED'})`;
             } else if (payload.eventType === 'FIAT_DISPATCHED') {
@@ -1428,7 +1947,10 @@
         treasury.syncRwaOraclePrices();
         triggerTileSweep();
         if (browser) {
-            window.addEventListener('perennia:fiat_event', handleLiveFiatSseEvent);
+            window.addEventListener(
+                'perennia:fiat_event',
+                handleLiveFiatSseEvent
+            );
         }
         if (identity.isWalletConnected) {
             syncUserBalances();
@@ -1467,13 +1989,18 @@
 
     onDestroy(() => {
         if (browser) {
-            window.removeEventListener('perennia:fiat_event', handleLiveFiatSseEvent);
+            window.removeEventListener(
+                'perennia:fiat_event',
+                handleLiveFiatSseEvent
+            );
         }
         if (balanceSyncInterval) clearInterval(balanceSyncInterval);
         if (p2pInterval) clearInterval(p2pInterval);
         if (lpPositionsInterval) clearInterval(lpPositionsInterval);
         if (onrampPollInterval) clearInterval(onrampPollInterval);
         clearTimeout(sweepTimeout);
+        clearTimeout(globalDiscoverDebounce);
+        clearTimeout(modalDiscoverDebounce);
     });
 
     function setPercentage(percent: number) {
@@ -1499,7 +2026,9 @@
         const bal = lpTokenA.availableBalance;
         if (bal <= 0) return;
         const effectiveBal =
-            lpTokenA.ticker === 'KAS' && lpTokenA.synthetic < bal * percent && percent === 1.0
+            lpTokenA.ticker === 'KAS' &&
+            lpTokenA.synthetic < bal * percent &&
+            percent === 1.0
                 ? Math.max(0, bal - 0.01)
                 : bal * percent;
         lpAmountA = effectiveBal.toFixed(6);
@@ -1560,7 +2089,12 @@
         const val = (e.target as HTMLInputElement).value;
         lpAmountB = val;
         const amount = parseFloat(val);
-        if (!isNaN(amount) && amount > 0 && lpTokenB.spotPrice > 0 && lpTokenA.spotPrice > 0) {
+        if (
+            !isNaN(amount) &&
+            amount > 0 &&
+            lpTokenB.spotPrice > 0 &&
+            lpTokenA.spotPrice > 0
+        ) {
             const bUsdVal = amount * lpTokenB.spotPrice;
             const impliedKasUsd = bUsdVal * (50.0 / Math.max(1.0, lpWeightPctB));
             const impliedKas = impliedKasUsd / lpTokenA.spotPrice;
@@ -1586,7 +2120,14 @@
     }
 
     function openTokenModal(
-        type: 'pay' | 'receive' | 'lpA' | 'lpB' | 'lpExtra' | 'p2pSell' | 'p2pBuy',
+        type:
+            | 'pay'
+            | 'receive'
+            | 'lpA'
+            | 'lpB'
+            | 'lpExtra'
+            | 'p2pSell'
+            | 'p2pBuy',
         extraIdx?: number
     ) {
         activeSelection = type;
@@ -1594,6 +2135,8 @@
             editingExtraLegIndex = extraIdx;
         }
         tokenSearchQuery = '';
+        discoveredModalAsset = null;
+        discoverModalError = null;
         tokenCategoryFilter = 'ALL';
         isTokenModalOpen = true;
     }
@@ -1618,7 +2161,9 @@
         } else if (activeSelection === 'lpExtra') {
             if (token.ticker !== 'KAS') {
                 extraPlantLegs = extraPlantLegs.map((l, idx) =>
-                    idx === editingExtraLegIndex ? { ...l, ticker: token.ticker } : l
+                    idx === editingExtraLegIndex
+                        ? { ...l, ticker: token.ticker }
+                        : l
                 );
                 const kasNum = parseFloat(lpAmountA);
                 if (!isNaN(kasNum) && kasNum > 0) {
@@ -1678,13 +2223,15 @@
             if (!data.psbt) {
                 swapSuccessId =
                     data.transaction_uuid ||
-                    (identity.isCorporateAdmin ? 'DARK_POOL_BATCH_QUEUED' : 'POOL_SWAP_CONFIRMED');
+                    (identity.isCorporateAdmin
+                        ? 'POOL_BATCH_QUEUED'
+                        : 'POOL_SWAP_CONFIRMED');
                 payAmount = '';
                 receiveAmount = '';
                 isExecuting = false;
                 ui.triggerMicroBadge(
                     'dex_swap_btn',
-                    identity.isCorporateAdmin ? 'DARK POOL NETTED ✓' : 'SWAP EXECUTED ✓',
+                    'SWAP EXECUTED ✓',
                     ambientSecondaryHex
                 );
                 setTimeout(syncUserBalances, 1500);
@@ -1698,10 +2245,15 @@
                 payAmount: payAmount,
                 destinationAddress: 'DEX Smart Router',
                 amountSompi: Math.floor(amount * 1e8),
-                psbtData: { psbt: data.psbt, formattedUtxos: data.formattedUtxos }
+                psbtData: {
+                    psbt: data.psbt,
+                    formattedUtxos: data.formattedUtxos
+                }
             });
         } catch (e: any) {
-            swapError = formatRetailSafeCopy(e.message || 'Execution Signature Denied');
+            swapError = formatRetailSafeCopy(
+                e.message || 'Execution Signature Denied'
+            );
             isExecuting = false;
         }
     }
@@ -1715,7 +2267,6 @@
             const valA = parseFloat(lpAmountA);
             const valB = parseFloat(lpAmountB);
             const currentDuration = lockOptions[lockDurationIndex];
-
             const secondaryAssetsPayload = [
                 {
                     ticker: lpTokenB.ticker,
@@ -1730,15 +2281,18 @@
                     }))
                     .filter((l) => l.amount > 0)
             ];
-
             const weightsMap: Record<string, number> = { KAS: 0.5 };
             const reservesMap: Record<string, number> = { KAS: valA };
             for (const sec of secondaryAssetsPayload) {
-                weightsMap[sec.ticker] = Number((sec.weightPct / 100.0).toFixed(4));
+                weightsMap[sec.ticker] = Number(
+                    (sec.weightPct / 100.0).toFixed(4)
+                );
                 reservesMap[sec.ticker] = sec.amount;
             }
-
-            const pairName = ['KAS', ...secondaryAssetsPayload.map((s) => s.ticker)].join('/');
+            const pairName = [
+                'KAS',
+                ...secondaryAssetsPayload.map((s) => s.ticker)
+            ].join('/');
             const res = await fetch('/api/state/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1759,9 +2313,20 @@
             if (res.ok && data.success) {
                 lpAmountA = '';
                 lpAmountB = '';
-                extraPlantLegs = extraPlantLegs.map((l) => ({ ...l, amount: '' }));
-                ui.triggerMicroBadge('dex_lp_stake_btn', '+LP PLANT STAKED ✓', ambientSecondaryHex);
-                await Promise.all([fetchLpPositions(), fetchSiloStaking(), syncUserBalances()]);
+                extraPlantLegs = extraPlantLegs.map((l) => ({
+                    ...l,
+                    amount: ''
+                }));
+                ui.triggerMicroBadge(
+                    'dex_lp_stake_btn',
+                    '+LP PLANT STAKED ✓',
+                    ambientSecondaryHex
+                );
+                await Promise.all([
+                    fetchLpPositions(),
+                    fetchSiloStaking(),
+                    syncUserBalances()
+                ]);
             } else {
                 swapError = formatRetailSafeCopy(
                     data.error || 'Liquidity Staking Verification Rejected.'
@@ -1789,8 +2354,16 @@
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.success) {
-                ui.triggerMicroBadge(`lp_pos_${lpId}`, 'LP UNLOCKED ✓', '#18C6A5');
-                await Promise.all([fetchLpPositions(), fetchSiloStaking(), syncUserBalances()]);
+                ui.triggerMicroBadge(
+                    `lp_pos_${lpId}`,
+                    'LP UNLOCKED ✓',
+                    '#18C6A5'
+                );
+                await Promise.all([
+                    fetchLpPositions(),
+                    fetchSiloStaking(),
+                    syncUserBalances()
+                ]);
             } else {
                 swapError = formatRetailSafeCopy(
                     data.error || 'Protocol invariant lockup active.'
@@ -1807,7 +2380,8 @@
         if (!identity.activeAddress) return;
         const sellVal = parseFloat(p2pSellAmount);
         const buyVal = parseFloat(p2pBuyAmount);
-        if (isNaN(sellVal) || isNaN(buyVal) || sellVal <= 0 || buyVal <= 0) return;
+        if (isNaN(sellVal) || isNaN(buyVal) || sellVal <= 0 || buyVal <= 0)
+            return;
         isExecuting = true;
         swapError = null;
         triggerTileSweep();
@@ -1825,17 +2399,25 @@
                 })
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || 'Failed to assemble atomic swap PSBT.');
+            if (!res.ok)
+                throw new Error(
+                    data.error || 'Failed to assemble atomic swap PSBT.'
+                );
             identity.requestVaultAuthorization({
                 actionType: 'CREATE_P2P',
                 payAsset: p2pSellToken.ticker,
                 receiveAsset: p2pBuyToken.ticker,
                 sellAmount: sellVal,
                 buyAmount: buyVal,
-                psbtData: { psbt: data.psbt, formattedUtxos: data.formattedUtxos }
+                psbtData: {
+                    psbt: data.psbt,
+                    formattedUtxos: data.formattedUtxos
+                }
             });
         } catch (e: any) {
-            swapError = formatRetailSafeCopy(e.message || 'P2P Contract Assembly Failed');
+            swapError = formatRetailSafeCopy(
+                e.message || 'P2P Contract Assembly Failed'
+            );
             isExecuting = false;
         }
     }
@@ -1851,7 +2433,8 @@
         triggerTileSweep();
         try {
             const res = await fetch(
-                '/api/utxos?address=' + encodeURIComponent(identity.activeAddress)
+                '/api/utxos?address=' +
+                    encodeURIComponent(identity.activeAddress)
             );
             if (!res.ok) throw new Error('Failed to fetch UTXOs for P2P fill.');
             const utxoData = await res.json();
@@ -1860,7 +2443,9 @@
                 index: u.outpoint?.index || u.index,
                 amount: Number(u.utxoEntry?.amount || u.amount || 0),
                 scriptPublicKey:
-                    u.utxoEntry?.scriptPublicKey?.scriptPublicKey || u.scriptPublicKey || ''
+                    u.utxoEntry?.scriptPublicKey?.scriptPublicKey ||
+                    u.scriptPublicKey ||
+                    ''
             }));
             identity.requestVaultAuthorization({
                 actionType: 'FILL_P2P',
@@ -1872,7 +2457,9 @@
                 psbtData: { formattedUtxos }
             });
         } catch (e: any) {
-            swapError = formatRetailSafeCopy(e.message || 'P2P Execution Failed');
+            swapError = formatRetailSafeCopy(
+                e.message || 'P2P Execution Failed'
+            );
             isExecuting = false;
         }
     }
@@ -1887,7 +2474,11 @@
                 p2pSellAmount = '';
                 p2pBuyAmount = '';
                 triggerTileSweep();
-                ui.triggerMicroBadge('dex_swap_btn', 'BROADCASTED ✓', ambientSecondaryHex);
+                ui.triggerMicroBadge(
+                    'dex_swap_btn',
+                    'BROADCASTED ✓',
+                    ambientSecondaryHex
+                );
                 setTimeout(syncUserBalances, 1500);
                 setTimeout(fetchP2pOrders, 1500);
                 setTimeout(checkFiatGatewayStatus, 1800);
@@ -1898,121 +2489,16 @@
 </script>
 
 <div
-    class="w-full min-h-[calc(100dvh-9rem)] bg-app text-white font-mono flex flex-col items-center justify-start pt-3 pb-24 px-4 lg:px-10 relative overflow-hidden"
+    class="w-full min-h-[calc(100dvh-9rem)] bg-app text-white font-mono flex flex-col items-center justify-start pt-4 pb-24 px-4 lg:px-10 relative overflow-hidden"
     data-tour="dex-workspace"
     style="--sweep-primary: {ambientPrimaryHex}; --sweep-secondary: {ambientSecondaryHex};"
 >
     <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div
-            class="absolute inset-0 transition-all duration-500"
-            style="
-                clip-path: polygon(0 0, 100% 0, 0 100%);
-                background: radial-gradient(circle at 22% 24%, {ambientPrimaryHex}1c 0%, transparent 64%);
-            "
-        ></div>
-        <div
-            class="absolute inset-0 transition-all duration-500"
-            style="
-                clip-path: polygon(100% 0, 100% 100%, 0 100%);
-                background:
-                    radial-gradient(circle at 78% 76%, {ambientSecondaryHex}{isSecondaryGold ? '2c' : '20'} 0%, transparent 66%),
-                    linear-gradient(135deg, transparent 46%, {ambientSecondaryHex}{isSecondaryGold ? '16' : '0c'} 100%);
-            "
-        ></div>
         <div class="absolute inset-0 dex-deep-shaded-tiles"></div>
-        <div
-            class="absolute inset-0 opacity-40 transition-all duration-500"
-            style="
-                background: linear-gradient(
-                    135deg,
-                    transparent calc(50% - 1px),
-                    {ambientSecondaryHex}40 50%,
-                    transparent calc(50% + 1px)
-                );
-            "
-        ></div>
         {#if isTileSweeping}
             <div class="absolute inset-0 dex-subgrid-sweep"></div>
         {/if}
     </div>
-
-    <div class="w-full max-w-[1160px] grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 relative z-20 shrink-0">
-        <div
-            class="tactile-card bg-[#0a0d12]/90 border border-white/10 rounded-2xl px-4 py-3 flex flex-col justify-between"
-            style="background-image: radial-gradient(ellipse at top left, {ambientPrimaryHex}14, transparent 70%);"
-        >
-            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
-                {identity.isCorporateAdmin ? 'Dark Pool Active Queue' : 'Pool Settlement Volume'}
-            </span>
-            <div class="flex items-baseline justify-between mt-1">
-                <span class="text-sm md:text-base font-mono font-black text-white tabular-nums">
-                    ${darkPoolNettedVolumeUsd.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                    })}
-                </span>
-                <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
-                    {operations.armedBucketCount} Armed
-                </span>
-            </div>
-        </div>
-        <div
-            class="tactile-card bg-[#0a0d12]/90 border border-white/10 rounded-2xl px-4 py-3 flex flex-col justify-between"
-            style="background-image: radial-gradient(ellipse at top left, {ambientSecondaryHex}14, transparent 70%);"
-        >
-            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
-                Pool Liquidity Depth
-            </span>
-            <div class="flex items-baseline justify-between mt-1">
-                <span class="text-sm md:text-base font-mono font-black text-white tabular-nums">
-                    ${darkPoolDepthUsd.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                    })}
-                </span>
-                <span class="text-[8px] font-mono text-neutral-400 uppercase">
-                    {lpPositions.length} LP Plants
-                </span>
-            </div>
-        </div>
-        <div
-            class="tactile-card bg-[#0a0d12]/90 border border-white/10 rounded-2xl px-4 py-3 flex flex-col justify-between"
-            style="background-image: radial-gradient(ellipse at top right, {swapQuoteTelemetry.isDiscounted ? '#F59E0B18' : '#18C6A512'}, transparent 70%);"
-        >
-            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
-                Active Fee Tier
-            </span>
-            <div class="flex items-baseline justify-between mt-1">
-                <span
-                    data-testid="dex-active-fee-pct"
-                    class="text-xs md:text-sm font-mono font-black truncate {swapQuoteTelemetry.isDiscounted ? 'text-amber-400' : 'text-[#18C6A5]'}"
-                >
-                    {(swapQuoteTelemetry.feeRate * 100).toFixed(2)}%
-                </span>
-                <span class="text-[8px] font-mono text-neutral-400 uppercase truncate max-w-[130px]">
-                    {swapQuoteTelemetry.feeLabel}
-                </span>
-            </div>
-        </div>
-        <div
-            class="tactile-card bg-[#0a0d12]/90 border border-white/10 rounded-2xl px-4 py-3 flex flex-col justify-between"
-            style="background-image: radial-gradient(ellipse at top right, rgba(24, 198, 165, 0.14), transparent 70%);"
-        >
-            <span class="text-[8px] font-bold uppercase tracking-widest text-[#18C6A5] flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] animate-pulse"></span>
-                22:00 UTC Settlement Bell
-            </span>
-            <div class="flex items-baseline justify-between mt-1">
-                <span class="text-sm md:text-base font-mono font-black text-white tabular-nums">
-                    {operations.formatEpochCountdown()}
-                </span>
-                <span class="text-[8px] font-mono text-neutral-500 uppercase">
-                    {operations.localBellTimeLabel}
-                </span>
-            </div>
-        </div>
-    </div>
-
     <div class="w-full max-w-[620px] relative mb-4 z-40 shrink-0 flex flex-col gap-2">
         <div class="relative">
             <div class="absolute inset-y-0 left-5 flex items-center pointer-events-none">
@@ -2022,15 +2508,21 @@
             </div>
             <input
                 type="text"
+                data-testid="dex-global-search-input"
                 bind:value={globalSearchQuery}
-                placeholder="Search 24/7 Wall St. Equities, Gold, T-Bills or Crypto (NVDA, SPY, XAU)..."
+                oninput={handleGlobalSearchInput}
+                placeholder="Search 24/7 Wall St. Equities, RWAs, T-Bills, or Crypto (NVDA, SPY, PEPE, XAU)..."
                 class="w-full bg-[#0a0d12] border border-white/10 focus:border-white/25 rounded-2xl pl-12 pr-24 py-3.5 text-xs font-mono text-white outline-none transition-colors shadow-xl placeholder-neutral-600"
             />
             <div class="absolute inset-y-0 right-3 flex items-center gap-1.5">
                 {#if globalSearchQuery}
                     <button
                         type="button"
-                        onclick={() => (globalSearchQuery = '')}
+                        onclick={() => {
+                            globalSearchQuery = '';
+                            discoveredGlobalAsset = null;
+                            discoverGlobalError = null;
+                        }}
                         class="text-neutral-500 hover:text-white text-xs px-2 py-1 cursor-pointer"
                     >
                         ✕
@@ -2042,88 +2534,190 @@
                     {payTicker}/{receiveTicker}
                 </span>
             </div>
-            {#if globalSearchQuery && globalSearchResults.length > 0}
+
+            {#if globalSearchQuery.trim().length > 0 && (globalSearchResults.length > 0 || isDiscoveringGlobal || discoveredGlobalAsset || discoverGlobalError)}
                 <div
-                    class="absolute top-[110%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl z-[100] overflow-hidden flex flex-col max-h-[320px] overflow-y-auto"
+                    data-testid="dex-global-search-dropdown"
+                    class="absolute top-[110%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl z-[100] overflow-hidden flex flex-col max-h-[380px] overflow-y-auto"
                     transition:slide={{ duration: 150 }}
                 >
-                    {#each globalSearchResults as token}
-                        <button
-                            type="button"
-                            onclick={() => {
-                                receiveTicker = token.ticker;
-                                activeDexTab = 'Swap';
-                                globalSearchQuery = '';
-                                triggerTileSweep();
-                            }}
-                            class="w-full flex items-center justify-between p-3.5 hover:bg-[#11161f] border-b border-white/5 transition-colors text-left cursor-pointer group"
+                    {#each globalSearchResults as token (token.ticker)}
+                        <div
+                            data-testid="dex-search-result-{token.ticker}"
+                            class="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 hover:bg-[#11161f] border-b border-white/5 transition-colors"
                         >
-                            <div class="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onclick={() => {
+                                    receiveTicker = token.ticker;
+                                    activeDexTab = 'Swap';
+                                    globalSearchQuery = '';
+                                    discoveredGlobalAsset = null;
+                                    triggerTileSweep();
+                                }}
+                                class="flex items-center gap-3 text-left cursor-pointer flex-1"
+                            >
                                 <div
-                                    class="w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px] bg-[#11161f] border border-white/10 overflow-hidden"
+                                    class="w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px] bg-[#11161f] border border-white/10 overflow-hidden shrink-0"
                                     style="color: {token.hex};"
                                 >
                                     {#if token.icon}
-                                        <img src={token.icon} alt={token.ticker} class="w-5 h-5 object-contain" />
+                                        <img
+                                            src={token.icon}
+                                            alt={token.ticker}
+                                            class="w-5 h-5 object-contain"
+                                            onerror={(e) =>
+                                                ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                        />
                                     {:else}
                                         {token.ticker[0]}
                                     {/if}
                                 </div>
                                 <div class="flex flex-col">
-                                    <span class="text-white font-bold text-xs tracking-wider">{token.ticker}</span>
-                                    <span class="text-[10px] text-neutral-500">{token.name}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-bold text-xs tracking-wider">
+                                            {token.ticker}
+                                        </span>
+                                        <span class="text-[8px] px-1.5 py-0.5 rounded bg-[#161d29] border border-white/10 text-neutral-400 uppercase">
+                                            {token.assetClass}
+                                        </span>
+                                    </div>
+                                    <span class="text-[10px] text-neutral-500">
+                                        {token.name}
+                                    </span>
+                                </div>
+                            </button>
+                            <div class="flex flex-wrap items-center justify-end gap-2">
+                                <div class="flex flex-col items-end mr-1">
+                                    <span class="text-xs font-mono text-[#18C6A5] font-bold tabular-nums">
+                                        ${token.spotPrice > 0 && token.spotPrice < 0.01
+                                            ? token.spotPrice.toFixed(8)
+                                            : token.spotPrice.toFixed(settingsStore.fiatDecimals)}
+                                    </span>
+                                    <span class="text-[9px] font-mono text-neutral-500">
+                                        Avail: {token.availableBalance.toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 4
+                                        })}
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    data-testid="dex-search-inject-pay-{token.ticker}"
+                                    onclick={() => applyDiscoveredOrSearchAsset(token, 'pay')}
+                                    class="tactile-btn px-2.5 py-1.5 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white border-white/15 cursor-pointer"
+                                >
+                                    YOU PAY
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="dex-search-inject-receive-{token.ticker}"
+                                    onclick={() => applyDiscoveredOrSearchAsset(token, 'receive')}
+                                    class="tactile-btn px-2.5 py-1.5 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                                >
+                                    YOU RECEIVE (EST.)
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="dex-search-add-wallet-{token.ticker}"
+                                    disabled={isPersistingWalletToken === token.ticker}
+                                    onclick={() => applyDiscoveredOrSearchAsset(token, 'wallet')}
+                                    class="tactile-btn px-2.5 py-1.5 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer disabled:opacity-40"
+                                >
+                                    + ADD TO WALLET
+                                </button>
+                            </div>
+                        </div>
+                    {/each}
+
+                    {#if isDiscoveringGlobal}
+                        <div class="p-4 text-center text-[10px] font-mono text-[#18C6A5] animate-pulse uppercase tracking-widest">
+                            Querying Live Exchange Oracles (MEXC • Gate.io • KuCoin • Bitget • CoinEx) &amp; Kasplex L1 for "{globalSearchQuery.trim().toUpperCase()}"...
+                        </div>
+                    {:else if discoveredGlobalAsset && !globalSearchResults.some((r) => r.ticker === discoveredGlobalAsset?.ticker)}
+                        <div
+                            data-testid="dex-discovered-asset-{discoveredGlobalAsset.ticker}"
+                            class="p-4 bg-[#11161f] border-t border-[#18C6A5]/35 flex flex-col gap-3"
+                        >
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-3">
+                                    <div
+                                        class="w-9 h-9 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/45 flex items-center justify-center font-black text-xs text-[#18C6A5]"
+                                    >
+                                        {discoveredGlobalAsset.ticker.slice(0, 3)}
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs font-black text-white tracking-wider">
+                                                {discoveredGlobalAsset.ticker}
+                                            </span>
+                                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-mono font-bold uppercase">
+                                                LIVE ORACLE DISCOVERED ({discoveredGlobalAsset.quorumCount} FEEDS)
+                                            </span>
+                                        </div>
+                                        <span class="text-[9px] text-neutral-400 mt-0.5">
+                                            {discoveredGlobalAsset.name}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col items-end">
+                                    <span
+                                        data-testid="dex-discovered-price-{discoveredGlobalAsset.ticker}"
+                                        class="text-sm font-mono font-black text-[#18C6A5] tabular-nums"
+                                    >
+                                        ${discoveredGlobalAsset.spotPrice < 0.01
+                                            ? discoveredGlobalAsset.spotPrice.toFixed(8)
+                                            : discoveredGlobalAsset.spotPrice.toFixed(4)}
+                                    </span>
+                                    <span
+                                        class="text-[9px] font-mono {discoveredGlobalAsset.change24h >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}"
+                                    >
+                                        {discoveredGlobalAsset.change24h >= 0 ? '+' : ''}{discoveredGlobalAsset.change24h.toFixed(2)}% (24H)
+                                    </span>
                                 </div>
                             </div>
-                            <div class="flex flex-col items-end">
-                                <span class="text-xs font-mono text-[#18C6A5] font-bold">
-                                    ${token.spotPrice.toFixed(settingsStore.fiatDecimals)}
-                                </span>
-                                <span class="text-[9px] font-mono text-neutral-500">
-                                    Avail: {token.availableBalance.toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 4
-                                    })}
-                                </span>
+                            <div class="grid grid-cols-3 gap-2 pt-1 border-t border-white/10">
+                                <button
+                                    type="button"
+                                    data-testid="dex-discovered-pay-btn"
+                                    onclick={() =>
+                                        discoveredGlobalAsset &&
+                                        applyDiscoveredOrSearchAsset(discoveredGlobalAsset, 'pay')}
+                                    class="tactile-btn py-2 px-3 rounded-xl text-[9px] font-mono font-black uppercase text-white border-white/15 cursor-pointer"
+                                >
+                                    YOU PAY
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="dex-discovered-receive-btn"
+                                    onclick={() =>
+                                        discoveredGlobalAsset &&
+                                        applyDiscoveredOrSearchAsset(discoveredGlobalAsset, 'receive')}
+                                    class="tactile-btn py-2 px-3 rounded-xl text-[9px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                                >
+                                    YOU RECEIVE (EST.)
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="dex-discovered-wallet-btn"
+                                    onclick={() =>
+                                        discoveredGlobalAsset &&
+                                        applyDiscoveredOrSearchAsset(discoveredGlobalAsset, 'wallet')}
+                                    class="tactile-btn py-2 px-3 rounded-xl text-[9px] font-mono font-black uppercase text-blue-400 border-blue-500/45 cursor-pointer"
+                                >
+                                    + ADD TO WALLET
+                                </button>
                             </div>
-                        </button>
-                    {/each}
+                        </div>
+                    {:else if discoverGlobalError && globalSearchResults.length === 0}
+                        <div class="p-4 text-center text-[10px] font-mono text-amber-400">
+                            {discoverGlobalError}
+                        </div>
+                    {/if}
                 </div>
             {/if}
         </div>
-        <!-- 24/7 WALL STREET EQUITIES & COMMODITIES QUICK-STRIP -->
-        <div
-            data-testid="dex-wall-street-quick-strip"
-            class="flex flex-wrap items-center justify-between gap-1.5 bg-[#0a0d12]/90 border border-white/10 rounded-xl px-3 py-2"
-        >
-            <span class="text-[8px] font-mono font-black uppercase tracking-widest text-[#18C6A5]">
-                24/7 Pyth RWA &amp; Equities:
-            </span>
-            <div class="flex flex-wrap items-center gap-1">
-                {#each ['NVDA', 'SPY', 'QQQ', 'AMD', 'TSLA', 'AAPL', 'XAU', 'USTB'] as rwaTick}
-                    <button
-                        type="button"
-                        data-testid="quick-select-rwa-{rwaTick}"
-                        onclick={() => {
-                            receiveTicker = rwaTick;
-                            activeDexTab = 'Swap';
-                            const pVal = parseFloat(payAmount);
-                            const pSpot = treasury.getAsset(payTicker).spotPrice;
-                            const rSpot = treasury.getAsset(rwaTick).spotPrice;
-                            if (!isNaN(pVal) && pVal > 0 && pSpot > 0 && rSpot > 0) {
-                                receiveAmount = ((pVal * pSpot) / rSpot).toFixed(8);
-                            }
-                            triggerTileSweep();
-                        }}
-                        class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {receiveTicker === rwaTick ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-300 hover:text-white border border-white/5'}"
-                    >
-                        {rwaTick}
-                    </button>
-                {/each}
-            </div>
-        </div>
     </div>
-
-    <!-- LOCKED TAB BAR CONTAINER -->
     <div
         class="w-full {activeDexTab === 'Liquidity' || activeDexTab === 'P2P' ? 'max-w-[1160px]' : 'max-w-[620px]'} transition-all duration-300 relative z-20 flex flex-col items-stretch"
     >
@@ -2161,27 +2755,16 @@
                 <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10">
                     Slippage: {slippageTolerance}%
                 </span>
-                <span
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10"
-                    style="color: {ambientSecondaryHex};"
-                >
-                    {isSecondaryGold
-                        ? 'AU / BTC GOLD SPECTRUM'
-                        : identity.isCorporateAdmin
-                          ? 'DARK POOL SOR v4'
-                          : '24/7 ZERO-GAS POOL ROUTER'}
-                </span>
             </div>
         </div>
-
         {#if activeDexTab === 'Swap'}
             <div
                 class="w-full bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col gap-3"
                 style="
                     background-image:
-                        radial-gradient(ellipse at top left, {ambientPrimaryHex}16, transparent 58%),
-                        radial-gradient(ellipse at bottom right, {ambientSecondaryHex}{isSecondaryGold ? '24' : '18'}, transparent 62%);
-                    box-shadow: 0 16px 48px -12px {ambientSecondaryHex}22;
+                        radial-gradient(ellipse at top left, {ambientPrimaryHex}12, transparent 58%),
+                        radial-gradient(ellipse at bottom right, {ambientSecondaryHex}14, transparent 62%);
+                    box-shadow: 0 16px 48px -12px {ambientSecondaryHex}18;
                 "
                 in:fade={{ duration: 150 }}
             >
@@ -2224,7 +2807,13 @@
                                 style="background-color: {payToken.hex}20; border: 1px solid {payToken.hex}50; color: {payToken.hex};"
                             >
                                 {#if payToken.icon}
-                                    <img src={payToken.icon} alt={payToken.ticker} class="w-4 h-4 object-contain" />
+                                    <img
+                                        src={payToken.icon}
+                                        alt={payToken.ticker}
+                                        class="w-4 h-4 object-contain"
+                                        onerror={(e) =>
+                                            ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                    />
                                 {:else}
                                     {payToken.ticker[0]}
                                 {/if}
@@ -2234,7 +2823,9 @@
                                     {payToken.ticker}
                                 </span>
                                 <span class="text-[9px] font-mono text-neutral-400 leading-none">
-                                    ${payToken.spotPrice.toFixed(settingsStore.fiatDecimals)}
+                                    ${payToken.spotPrice > 0 && payToken.spotPrice < 0.01
+                                        ? payToken.spotPrice.toFixed(6)
+                                        : payToken.spotPrice.toFixed(settingsStore.fiatDecimals)}
                                 </span>
                             </div>
                             <svg class="w-3.5 h-3.5 text-neutral-400 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2278,7 +2869,7 @@
                     class="tactile-card bg-[#11161f] border rounded-2xl p-5"
                     style="
                         border-color: {ambientSecondaryHex}30;
-                        background-image: radial-gradient(ellipse at bottom right, {ambientSecondaryHex}{isSecondaryGold ? '1e' : '12'}, transparent 65%);
+                        background-image: radial-gradient(ellipse at bottom right, {ambientSecondaryHex}14, transparent 65%);
                     "
                 >
                     <div class="flex justify-between items-center mb-3">
@@ -2312,7 +2903,13 @@
                                 style="background-color: {receiveToken.hex}20; border: 1px solid {receiveToken.hex}50; color: {receiveToken.hex};"
                             >
                                 {#if receiveToken.icon}
-                                    <img src={receiveToken.icon} alt={receiveToken.ticker} class="w-4 h-4 object-contain" />
+                                    <img
+                                        src={receiveToken.icon}
+                                        alt={receiveToken.ticker}
+                                        class="w-4 h-4 object-contain"
+                                        onerror={(e) =>
+                                            ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                    />
                                 {:else}
                                     {receiveToken.ticker[0]}
                                 {/if}
@@ -2322,10 +2919,12 @@
                                     {receiveToken.ticker}
                                 </span>
                                 <span class="text-[9px] font-mono leading-none" style="color: {ambientSecondaryHex};">
-                                    ${receiveToken.spotPrice.toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                    })}
+                                    ${receiveToken.spotPrice > 0 && receiveToken.spotPrice < 0.01
+                                        ? receiveToken.spotPrice.toFixed(6)
+                                        : receiveToken.spotPrice.toLocaleString(undefined, {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2
+                                          })}
                                 </span>
                             </div>
                             <svg class="w-3.5 h-3.5 text-neutral-400 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2355,7 +2954,7 @@
                     <div class="flex justify-between items-center">
                         <span class="text-neutral-500 uppercase tracking-widest">Active Fee Tier</span>
                         <span class="{swapQuoteTelemetry.isDiscounted ? 'text-amber-400 font-bold' : 'text-neutral-300'}">
-                            {swapQuoteTelemetry.feeLabel}
+                            <span data-testid="dex-active-fee-pct">{(swapQuoteTelemetry.feeRate * 100).toFixed(2)}%</span> • {swapQuoteTelemetry.feeLabel}
                             {#if swapQuoteTelemetry.usdVolume > 0}
                                 (${swapQuoteTelemetry.feeUsd.toFixed(2)})
                             {/if}
@@ -2364,9 +2963,7 @@
                     <div class="flex justify-between items-center border-t border-white/5 pt-2">
                         <span class="text-neutral-500 uppercase tracking-widest">Settlement Execution</span>
                         <span class="text-[#18C6A5] font-bold">
-                            {identity.isCorporateAdmin
-                                ? '$0.00 Network Gas (Dark Pool Netted)'
-                                : '$0.00 Network Gas (Instant Pool Settlement)'}
+                            $0.00 Network Gas (Instant Pool Settlement)
                         </span>
                     </div>
                 </div>
@@ -2438,7 +3035,6 @@
                 </div>
             </div>
         {/if}
-
         {#if activeDexTab === 'Liquidity'}
             <div class="flex flex-col gap-6" in:fade={{ duration: 150 }}>
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2462,8 +3058,6 @@
                                 {plantPairSummary}
                             </span>
                         </div>
-
-                        <!-- ASSET A: PERMANENT 50.0% KAS ANCHOR -->
                         <div class="tactile-card flex flex-col gap-2.5 bg-[#11161f] p-4 rounded-2xl border border-[#18C6A5]/35">
                             <div class="flex justify-between items-center">
                                 <span class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]">
@@ -2505,12 +3099,9 @@
                                 </span>
                             </div>
                         </div>
-
                         <div class="text-center text-neutral-500 font-bold text-[10px] -my-1">
                             + 50.0% SECONDARY BASKET ({totalPlantAssetCount - 1} ASSET{totalPlantAssetCount - 1 === 1 ? '' : 'S'}) +
                         </div>
-
-                        <!-- PRIMARY SECONDARY ASSET B -->
                         <div
                             class="tactile-card flex flex-col gap-2.5 bg-[#11161f] p-4 rounded-2xl border"
                             style="border-color: {ambientSecondaryHex}30;"
@@ -2579,8 +3170,6 @@
                                 </span>
                             </div>
                         </div>
-
-                        <!-- ADDITIONAL SECONDARY ASSETS (FOR 3+ ASSET PLANTS) -->
                         {#each extraPlantLegs as leg, idx (leg.ticker + idx)}
                             {@const legAsset = treasury.getAsset(leg.ticker)}
                             <div
@@ -2643,7 +3232,6 @@
                                 </div>
                             </div>
                         {/each}
-
                         {#if extraPlantLegs.length < 3}
                             <button
                                 type="button"
@@ -2654,7 +3242,6 @@
                                 + Add Secondary Asset to 50% KAS Liquidity Plant
                             </button>
                         {/if}
-
                         <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4">
                             <div class="flex justify-between items-center mb-3">
                                 <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
@@ -2687,7 +3274,6 @@
                                 </div>
                             {/if}
                         </div>
-
                         <div class="relative">
                             {#if ui.microBadges['dex_lp_stake_btn']}
                                 <div
@@ -2714,7 +3300,6 @@
                             </button>
                         </div>
                     </div>
-
                     <div
                         class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-4 min-h-[480px]"
                         style="background-image: radial-gradient(ellipse at top right, {ambientSecondaryHex}14, transparent 65%);"
@@ -2725,7 +3310,7 @@
                                     Active Staked Liquidity Plants
                                 </h4>
                                 <span class="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mt-0.5">
-                                    50%-KAS Constant-Mean Invariant • Rebalanced Daily at 22:00 UTC Bell
+                                    50%-KAS Constant-Mean Invariant • Rebalanced Daily at 22:00 UTC Global Settlement
                                 </span>
                             </div>
                             <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-mono text-[#18C6A5] uppercase">
@@ -2780,7 +3365,7 @@
                                                 {pos.isUnlocked ? 'Matured' : 'Timelocked'}
                                             </span>
                                             <span class="text-[9px] font-mono text-neutral-500 mt-0.5">
-                                                {pos.unlockDate
+                                                {pos.unlockDate && pos.lockDurationDays > 0
                                                     ? new Date(pos.unlockDate).toLocaleDateString()
                                                     : 'Flexible'}
                                             </span>
@@ -2825,8 +3410,6 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- SILO 7-DAY COOLDOWN STAKING VAULT -->
                 <div
                     data-testid="silo-staking-vault-card"
                     class="bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
@@ -2992,7 +3575,6 @@
                 </div>
             </div>
         {/if}
-
         {#if activeDexTab === 'P2P'}
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" in:fade={{ duration: 150 }}>
                 <div
@@ -3141,7 +3723,6 @@
                 </div>
             </div>
         {/if}
-
         {#if activeDexTab === 'Fiat'}
             <div
                 class="w-full bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
@@ -3152,7 +3733,7 @@
                     <div class="flex items-center justify-between flex-wrap gap-2">
                         <div class="flex flex-col">
                             <h3 class="text-white font-black text-xs uppercase tracking-widest">
-                                Sovereign Fiat Bridge v2
+                                Fiat Bridge
                             </h3>
                             <span class="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mt-0.5">
                                 Sovereign Wire / ACH On-Ramp • Local ABA Mod-10 Recognition • 4-Stage ACH Pipeline
@@ -3668,9 +4249,7 @@
                                             { step: 1, label: '1. Silo/Ledger Swept' },
                                             {
                                                 step: 2,
-                                                label: identity.isCorporateAdmin
-                                                    ? '2. Dark Pool Netted'
-                                                    : '2. Pool Liquidity Cleared'
+                                                label: '2. Pool Liquidity Cleared'
                                             },
                                             { step: 3, label: '3. Treasury Queued' },
                                             { step: 4, label: p.trace_id ? `4. Dispatched (${p.trace_id.slice(0, 10)})` : '4. Bank Dispatched' }
@@ -3697,7 +4276,6 @@
     </div>
 </div>
 
-<!-- TOKEN SELECTOR MODAL (WITH CRYPTO, EQUITIES & COMMODITIES TABS) -->
 {#if isTokenModalOpen}
     <div
         class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#06080b]/95 backdrop-blur-sm"
@@ -3730,7 +4308,8 @@
                     type="text"
                     data-testid="dex-token-modal-search"
                     bind:value={tokenSearchQuery}
-                    placeholder="Filter NVDA, SPY, AMD, XAU, USTB, BTC..."
+                    oninput={handleModalSearchInput}
+                    placeholder="Filter or discover any ticker (NVDA, SPY, PEPE, XAU, BTC)..."
                     class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
                 />
                 <div class="grid grid-cols-4 gap-1.5">
@@ -3753,6 +4332,63 @@
             </div>
             <div class="flex-1 overflow-y-auto p-2 bg-[#0a0d12] hide-scrollbar">
                 <div class="flex flex-col gap-1">
+                    {#if isDiscoveringModal}
+                        <div class="p-4 text-center text-[10px] font-mono text-[#18C6A5] animate-pulse uppercase tracking-widest">
+                            Discovering Live Oracle Feed for "{tokenSearchQuery.trim().toUpperCase()}"...
+                        </div>
+                    {:else if discoveredModalAsset && !filteredTokens.some((t) => t.ticker === discoveredModalAsset?.ticker)}
+                        <div class="p-3.5 rounded-xl bg-[#11161f] border border-[#18C6A5]/40 flex flex-col gap-2.5 mb-2">
+                            <div class="flex items-center justify-between">
+                                <div class="flex flex-col">
+                                    <span class="text-xs font-black text-white">
+                                        {discoveredModalAsset.ticker} • {discoveredModalAsset.name}
+                                    </span>
+                                    <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
+                                        LIVE ORACLE FEED ({discoveredModalAsset.quorumCount} SOURCES)
+                                    </span>
+                                </div>
+                                <span class="text-xs font-mono font-black text-[#18C6A5]">
+                                    ${discoveredModalAsset.spotPrice < 0.01
+                                        ? discoveredModalAsset.spotPrice.toFixed(8)
+                                        : discoveredModalAsset.spotPrice.toFixed(4)}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-1.5">
+                                <button
+                                    type="button"
+                                    onclick={() =>
+                                        discoveredModalAsset &&
+                                        applyDiscoveredOrSearchAsset(discoveredModalAsset, 'pay')}
+                                    class="tactile-btn py-1.5 rounded-lg text-[8px] font-mono font-black uppercase text-white cursor-pointer"
+                                >
+                                    YOU PAY
+                                </button>
+                                <button
+                                    type="button"
+                                    onclick={() =>
+                                        discoveredModalAsset &&
+                                        applyDiscoveredOrSearchAsset(discoveredModalAsset, 'receive')}
+                                    class="tactile-btn py-1.5 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                                >
+                                    YOU RECEIVE
+                                </button>
+                                <button
+                                    type="button"
+                                    onclick={() =>
+                                        discoveredModalAsset &&
+                                        applyDiscoveredOrSearchAsset(discoveredModalAsset, 'wallet')}
+                                    class="tactile-btn py-1.5 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer"
+                                >
+                                    + ADD TO WALLET
+                                </button>
+                            </div>
+                        </div>
+                    {:else if discoverModalError && filteredTokens.length === 0}
+                        <div class="p-4 text-center text-[10px] font-mono text-amber-400">
+                            {discoverModalError}
+                        </div>
+                    {/if}
+
                     {#each filteredTokens as token (token.ticker)}
                         <button
                             type="button"
@@ -3767,7 +4403,13 @@
                                     style="color: {token.hex};"
                                 >
                                     {#if token.icon}
-                                        <img src={token.icon} class="w-4 h-4 object-contain" alt="logo" />
+                                        <img
+                                            src={token.icon}
+                                            class="w-4 h-4 object-contain"
+                                            alt="logo"
+                                            onerror={(e) =>
+                                                ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                        />
                                     {:else}
                                         {token.ticker.slice(0, 3)}
                                     {/if}
@@ -3786,7 +4428,9 @@
                             </div>
                             <div class="flex flex-col items-end pointer-events-none">
                                 <span class="text-xs font-mono text-[#18C6A5] font-bold">
-                                    ${token.spotPrice.toFixed(settingsStore.fiatDecimals)}
+                                    ${token.spotPrice > 0 && token.spotPrice < 0.01
+                                        ? token.spotPrice.toFixed(6)
+                                        : token.spotPrice.toFixed(settingsStore.fiatDecimals)}
                                 </span>
                                 <span class="text-[9px] font-mono text-neutral-500">
                                     Avail: {token.availableBalance.toLocaleString(undefined, {
@@ -3805,18 +4449,16 @@
 <style>
     .dex-deep-shaded-tiles {
         background-image:
-            linear-gradient(to right, rgba(0, 0, 0, 0.72) 2px, rgba(255, 255, 255, 0.025) 2px, rgba(255, 255, 255, 0.025) 3px, transparent 3px),
-            linear-gradient(to bottom, rgba(0, 0, 0, 0.72) 2px, rgba(255, 255, 255, 0.025) 2px, rgba(255, 255, 255, 0.025) 3px, transparent 3px),
-            linear-gradient(135deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.48) 100%);
-        background-size: 30px 30px, 30px 30px, 30px 30px;
-        background-position: 0 0, 0 0, 0 0;
+            linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+        background-size: 14px 14px;
+        background-position: 0 0;
     }
     :global(html.theme-light) .dex-deep-shaded-tiles {
         background-image:
-            linear-gradient(to right, rgba(42, 36, 24, 0.14) 1px, rgba(255, 255, 255, 0.5) 1px, rgba(255, 255, 255, 0.5) 2px, transparent 2px),
-            linear-gradient(to bottom, rgba(42, 36, 24, 0.14) 1px, rgba(255, 255, 255, 0.5) 1px, rgba(255, 255, 255, 0.5) 2px, transparent 2px),
-            linear-gradient(135deg, rgba(42, 36, 24, 0.02) 0%, rgba(42, 36, 24, 0.08) 100%);
-        background-size: 30px 30px, 30px 30px, 30px 30px;
+            linear-gradient(to right, rgba(42, 36, 24, 0.04) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(42, 36, 24, 0.04) 1px, transparent 1px);
+        background-size: 14px 14px;
     }
     @keyframes subgrid-shockwave {
         0% {
@@ -3836,9 +4478,9 @@
         background: linear-gradient(
             135deg,
             transparent 43%,
-            color-mix(in srgb, var(--sweep-primary) 16%, transparent) 48%,
-            color-mix(in srgb, var(--sweep-secondary) 28%, transparent) 50%,
-            rgba(255, 255, 255, 0.08) 51%,
+            color-mix(in srgb, var(--sweep-primary) 12%, transparent) 48%,
+            color-mix(in srgb, var(--sweep-secondary) 18%, transparent) 50%,
+            rgba(255, 255, 255, 0.05) 51%,
             transparent 56%
         );
         animation: subgrid-shockwave 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;

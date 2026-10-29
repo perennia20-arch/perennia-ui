@@ -16,11 +16,23 @@
 
     let { children } = $props();
 
-    let tabs = $derived(
-        identity.isCorporateAdmin
-            ? ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS', 'DIRECTOR']
-            : ['DEX', 'OPERATIONS', 'FORGE', 'TREASURY', 'TAX FORTRESS']
-    );
+    let tabs = $derived.by(() => {
+        const navTabs = ['DEX', 'OPERATIONS'];
+        if (identity.canAccessForge) {
+            navTabs.push('FORGE');
+        }
+        navTabs.push('TREASURY', 'TAX FORTRESS');
+        if (identity.isCorporateAdmin) {
+            navTabs.push('DIRECTOR');
+        }
+        return navTabs;
+    });
+
+    $effect(() => {
+        if (ui.activeTab === 'FORGE' && !identity.canAccessForge) {
+            ui.activeTab = 'OPERATIONS';
+        }
+    });
 
     const BACKEND_BASE = '';
     let hasEntered = $state(false);
@@ -63,6 +75,37 @@
         }
     }
 
+    function hydratePersistedCustomTokens(customTokens: any[] | undefined) {
+        if (!Array.isArray(customTokens)) return;
+        for (const ct of customTokens) {
+            const tick = String(ct?.ticker || ct?.symbol || '')
+                .trim()
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, '');
+            if (!tick) continue;
+            const existing = treasury.getAsset(tick);
+            treasury.updateAsset(tick, {
+                name: ct.name || existing.name || tick,
+                assetClass: ct.assetClass || existing.assetClass || 'DeFi',
+                network: (ct.network || existing.network || 'ETH').toUpperCase(),
+                spotPrice:
+                    Number(ct.spotPrice ?? ct.price ?? 0) > 0
+                        ? Number(ct.spotPrice ?? ct.price)
+                        : existing.spotPrice,
+                delta:
+                    ct.delta !== undefined || ct.change24h !== undefined
+                        ? Number(ct.delta ?? ct.change24h ?? 0)
+                        : existing.delta,
+                contract: ct.contract || existing.contract || tick,
+                imgUrl: ct.imgUrl || existing.imgUrl || '',
+                theme: ct.theme || existing.theme || {
+                    hex: '#18C6A5',
+                    pastel: '#99f6e4'
+                }
+            });
+        }
+    }
+
     async function loadStateFromServer(targetWallet: string | null = null) {
         if (!browser || !identity.activeAddress || !identity.isWalletConnected) return;
         try {
@@ -75,13 +118,25 @@
                 operations.workers = parsed.workers || [];
                 operations.sectors = parsed.sectors || [];
                 if (parsed.systemMode) ui.systemMode = parsed.systemMode;
+                if (typeof parsed.forgePublicEnabled === 'boolean') {
+                    identity.forgePublicEnabled = parsed.forgePublicEnabled;
+                }
+                if (Array.isArray(parsed.customTokens)) {
+                    hydratePersistedCustomTokens(parsed.customTokens);
+                }
                 if (parsed.epochTelemetry) {
                     operations.updateEpochTelemetry(parsed.epochTelemetry);
                 }
-                if (typeof parsed.networkDifficulty === 'number' && parsed.networkDifficulty > 0) {
+                if (
+                    typeof parsed.networkDifficulty === 'number' &&
+                    parsed.networkDifficulty > 0
+                ) {
                     operations.networkDifficulty = parsed.networkDifficulty;
                 }
-                if (typeof parsed.blockRewardKas === 'number' && parsed.blockRewardKas > 0) {
+                if (
+                    typeof parsed.blockRewardKas === 'number' &&
+                    parsed.blockRewardKas > 0
+                ) {
                     operations.blockRewardKas = parsed.blockRewardKas;
                 }
                 isServerReachable = true;
@@ -173,6 +228,11 @@
                                     operations.sectors = parsed.state.sectors || [];
                                     if (parsed.state.systemMode)
                                         ui.systemMode = parsed.state.systemMode;
+                                    if (Array.isArray(parsed.state.customTokens)) {
+                                        hydratePersistedCustomTokens(
+                                            parsed.state.customTokens
+                                        );
+                                    }
                                 }
                                 return;
                             }
@@ -341,6 +401,7 @@
                     zcash: 'ZEC',
                     arbitrum: 'ARB'
                 };
+                const mappedKeys = new Set(Object.keys(map));
                 for (const [cgKey, ticker] of Object.entries(map)) {
                     if (data?.[cgKey]?.usd !== undefined) {
                         treasury.updateAsset(ticker, {
@@ -349,8 +410,22 @@
                         });
                     }
                 }
+                for (const [rawKey, valObj] of Object.entries(data || {})) {
+                    if (mappedKeys.has(rawKey)) continue;
+                    const quote = valObj as any;
+                    if (quote && typeof quote.usd === 'number' && quote.usd > 0) {
+                        const dynTicker = rawKey.trim().toUpperCase();
+                        if (treasury.registry.some((a) => a.ticker === dynTicker)) {
+                            treasury.updateAsset(dynTicker, {
+                                spotPrice: Number(quote.usd),
+                                delta: Number(quote.usd_24h_change || 0)
+                            });
+                        }
+                    }
+                }
             }
         } catch {
+            // Ignore transient price poll timeout
         }
     }
 
@@ -384,6 +459,7 @@
                 }
             }
         } catch {
+            // Ignore initial session check error
         }
         fetchPriceData();
         settingsStore.applyTheme();
@@ -415,14 +491,10 @@
                         </div>
                         <div class="flex items-center gap-2 hidden sm:flex h-full">
                             <span class="font-black tracking-[0.2em] text-xl md:text-2xl uppercase text-white leading-none self-center">
-                                Perennia
-                            </span>
-                            <span class="text-[10px] font-mono text-neutral-500 tracking-widest lowercase self-center mt-0.5 select-none">
-                                v4
+                                PERENNIA
                             </span>
                         </div>
                     </button>
-
                     <div class="flex items-center gap-2.5 md:gap-3.5 shrink-0">
                         {#if identity.isCorporateAdmin && ui.adminModeActive && ui.adminTargetWallet}
                             <div class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 font-mono">
@@ -443,17 +515,15 @@
                                 </button>
                             </div>
                         {/if}
-
                         <button
                             type="button"
                             onclick={() => ui.toggleTutorialMode()}
                             class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest cursor-pointer flex items-center gap-1.5 {ui.isTutorialActive ? 'text-[#18C6A5] border-[#18C6A5]/50' : 'text-neutral-400 hover:text-white'}"
-                            title="Toggle Interactive Nexus Guide"
+                            title="Toggle Interactive Guide"
                         >
                             <span class="w-1.5 h-1.5 rounded-full {ui.isTutorialActive ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-500'}"></span>
                             <span>[? GUIDE]</span>
                         </button>
-
                         <button
                             type="button"
                             aria-label="Settings"
@@ -466,9 +536,7 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                             </svg>
                         </button>
-
                         <div class="h-7 w-px bg-white/10 hidden sm:block"></div>
-
                         {#if !identity.isWalletConnected}
                             <button
                                 type="button"
@@ -521,7 +589,6 @@
                     </div>
                 </div>
             </header>
-
             <nav class="h-14 bg-[#06080b]/90 flex justify-center w-full z-40 shrink-0 hide-scrollbar border-b border-white/10">
                 <div class="w-full max-w-[1600px] px-4 lg:px-10 flex items-center justify-between overflow-x-auto h-full hide-scrollbar gap-4">
                     <div class="flex gap-6 sm:gap-10 h-full min-w-max items-center">
@@ -540,7 +607,6 @@
                     </div>
                 </div>
             </nav>
-
             <main class="flex-1 overflow-y-auto relative pb-24 mt-2">
                 <div class="w-full h-full relative z-10">
                     {@render children()}
@@ -549,7 +615,6 @@
         </div>
     {/if}
 </div>
-
 <WalletModal />
 <SettingsModal />
 <TutorialOverlay />
