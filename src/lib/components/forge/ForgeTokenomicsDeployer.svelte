@@ -8,7 +8,9 @@
         validateKaspaBech32mAddress,
         parseCapTableCsv,
         deriveDeterministicKaspaAddress,
+        compileSilverScriptProofOfLockVault,
         type CapTableEntry,
+        type ForgeTokenStandard,
         type KasplexProtocolInfo
     } from '$lib/stores/transaction.svelte';
 
@@ -26,7 +28,10 @@
         onExecuteDeploy: (config: any) => Promise<void>;
     } = $props();
 
-    // Core KRC-20 Deploy Parameters (Defaults to SILO for baseline verification)
+    // Token Standard Selector: Standard KRC-20 vs. KCC-20 + SilverScript Covenant
+    let tokenStandard = $state<ForgeTokenStandard>('KRC-20');
+
+    // Core KRC-20 / KCC-20 Deploy Parameters (Defaults to SILO for baseline verification)
     let deployTicker = $state(DEFAULT_ECOSYSTEM_TICKER);
     let deployMaxSupply = $state(21_000_000);
     let deployMintLimit = $state(1_000);
@@ -40,37 +45,32 @@
         error?: string;
     } | null>(null);
 
-    // Deliverable L1 & L2: Unlimited Multi-Wallet Genesis Cap Table & Proof-of-Lock Vesting
+    // Unlimited Multi-Wallet Genesis Cap Table & Proof-of-Lock SilverScript Covenants
     let capTable = $state<CapTableEntry[]>([]);
+    let expandedSilDrawers = $state<Record<string, boolean>>({});
     let showCsvImportDrawer = $state(false);
     let csvRawText = $state('');
     let csvImportFeedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
     let csvFileInputRef = $state<HTMLInputElement | null>(null);
 
-    // Deliverable L3: Deflationary Auto-Burn & Chromatic Halving Monetary Policy Charter
     let enableMonetaryCharter = $state(true);
-    let burnRateBps = $state(50); // 50 bps = 0.50%
+    let burnRateBps = $state(50);
     let emissionScheduleType = $state<'CHROMATIC_HALVING' | 'PERIODIC_HALVING' | 'FLAT_TAIL'>(
         'CHROMATIC_HALVING'
     );
     let dailyEmissionRate = $state(5_000);
     let halvingIntervalDays = $state(365);
     let reserveLockedTokens = $state(2_100_000);
-
-    // Deliverable L5: Zero-Rug Liquidity Bootstrapper (80% - 100% KAS to 365D 2.5x LP Plant)
     let enableZeroRugLp = $state(true);
     let zeroRugLpPct = $state(85);
     let zeroRugInitialKas = $state(500);
     let zeroRugInitialTokens = $state(1_050_000);
-
-    // Deliverable L4: Proof-of-Hashrate Mineable KRC-20 Vault
     let enableMineableVault = $state(false);
     let mineableVaultLabel = $state('Perennia Proof-of-Hashrate Mining Vault');
     let mineableFundedTokens = $state(3_150_000);
     let mineableDailyEmission = $state(8_630);
     let mineableMinHashrateThs = $state(0.1);
     let syndicateSectorEnabled = $state(true);
-
     let charterSha256 = $state('');
 
     let totalCapTableTokens = $derived(
@@ -88,6 +88,66 @@
         capTable.every((r) => r.checksumValid && r.amount > 0)
     );
 
+    function enrichCapRowWithSilverScript(row: CapTableEntry): CapTableEntry {
+        const cleanTicker = deployTicker.trim().toUpperCase() || DEFAULT_ECOSYSTEM_TICKER;
+        const chk = validateKaspaBech32mAddress(row.address);
+        const valid = chk.valid && row.amount > 0;
+        const cliff = Math.max(0, Math.floor(Number(row.cliffDays) || 0));
+        const linear = Math.max(0, Math.floor(Number(row.linearDays) || 0));
+
+        if (!valid) {
+            return {
+                ...row,
+                cliffDays: cliff,
+                linearDays: linear,
+                checksumValid: false,
+                checksumError: chk.valid ? 'Amount must be > 0' : chk.error,
+                tokenStandard
+            };
+        }
+
+        const compiled = compileSilverScriptProofOfLockVault({
+            ticker: cleanTicker,
+            tokenStandard,
+            label: row.label,
+            beneficiaryAddress: chk.normalized,
+            totalAllocation: row.amount,
+            decimals: deployDecimals,
+            cliffDays: cliff,
+            linearDays: linear,
+            charterSha256Hex: charterSha256 || undefined
+        });
+
+        return {
+            ...row,
+            address: chk.normalized,
+            cliffDays: cliff,
+            linearDays: linear,
+            checksumValid: true,
+            checksumError: undefined,
+            covenantAddress: compiled.covenantAddress,
+            silverscriptSource: compiled.silverscriptSource,
+            redeemScriptHex: compiled.redeemScriptHex,
+            kcc20StateCommitment: compiled.kcc20State.stateRootHex,
+            vprogStateRoot: compiled.kcc20State.stateRootHex,
+            tokenStandard
+        };
+    }
+
+    function setTokenStandard(nextStandard: ForgeTokenStandard) {
+        tokenStandard = nextStandard;
+        if (capTable.length > 0) {
+            capTable = capTable.map((r) => enrichCapRowWithSilverScript(r));
+        }
+    }
+
+    function toggleSilDrawer(rowId: string) {
+        expandedSilDrawers = {
+            ...expandedSilDrawers,
+            [rowId]: !expandedSilDrawers[rowId]
+        };
+    }
+
     // Synchronize deployPreAllocation with Cap Table + Reserve + Mining Vault
     $effect(() => {
         const capSum = totalCapTableTokens;
@@ -100,10 +160,12 @@
     // Compute live SHA-256 Monetary Policy Charter digest
     $effect(() => {
         const canonical = JSON.stringify({
+            standard: tokenStandard,
             ticker: deployTicker.trim().toUpperCase() || DEFAULT_ECOSYSTEM_TICKER,
             maxSupply: deployMaxSupply,
             capTable: capTable.map((r) => ({
                 address: r.address,
+                covenantAddress: r.covenantAddress,
                 amount: r.amount,
                 label: r.label,
                 cliffDays: r.cliffDays,
@@ -148,27 +210,21 @@
             }
             return acc;
         }, 0);
-
         const circulatingPoints: string[] = [];
         const emissionPoints: string[] = [];
         const burnedPoints: string[] = [];
-
         let cumulativeEmitted = 0;
         let cumulativeBurned = 0;
         let cumulativeVested = 0;
-
         for (let m = 0; m <= months; m++) {
             const day = m * 30.4375;
             if (m > 0) {
                 const daysInStep = 30.4375;
-                // Vesting unlock step
                 const vestStep = Math.min(
                     Math.max(0, lockedCovenantTokens - cumulativeVested),
                     dailyVestingSum * daysInStep
                 );
                 cumulativeVested += vestStep;
-
-                // Emission step
                 if (enableMonetaryCharter && reserveLockedTokens > cumulativeEmitted) {
                     const decay =
                         emissionScheduleType === 'CHROMATIC_HALVING'
@@ -182,8 +238,6 @@
                     );
                     cumulativeEmitted += emitStep;
                 }
-
-                // Mineable KRC-20 step
                 if (enableMineableVault && mineableDailyEmission > 0) {
                     const mineStep = Math.min(
                         Math.max(0, mineableFundedTokens - cumulativeEmitted * 0.25),
@@ -191,8 +245,6 @@
                     );
                     cumulativeEmitted += mineStep * 0.5;
                 }
-
-                // Auto-Burn sink step
                 if (enableMonetaryCharter && burnRateBps > 0) {
                     const dailyBurn = maxSup * (burnRateBps / 10_000) * 0.0012;
                     cumulativeBurned = Math.min(
@@ -201,12 +253,10 @@
                     );
                 }
             }
-
             const netCirculating = Math.min(
                 maxSup,
                 Math.max(0, initialUnlocked + cumulativeVested + cumulativeEmitted - cumulativeBurned)
             );
-
             const x = (m / months) * width;
             const yCirc = height - Math.min(1, netCirculating / maxSup) * (height - 18) - 8;
             const yEmit =
@@ -215,12 +265,10 @@
                     (height - 18) -
                 8;
             const yBurn = height - Math.min(1, cumulativeBurned / maxSup) * (height - 18) - 8;
-
             circulatingPoints.push(`${x.toFixed(1)},${yCirc.toFixed(1)}`);
             emissionPoints.push(`${x.toFixed(1)},${yEmit.toFixed(1)}`);
             burnedPoints.push(`${x.toFixed(1)},${yBurn.toFixed(1)}`);
         }
-
         return {
             circulatingPath: `M ${circulatingPoints.join(' L ')}`,
             emissionPath: `M ${emissionPoints.join(' L ')}`,
@@ -292,7 +340,7 @@
                 checkedTicker: clean,
                 available: false,
                 existingToken: null,
-                error: 'KRC-20 tickers must be 4 to 6 alphabetic characters (A–Z).'
+                error: 'KRC-20 / KCC-20 tickers must be 4 to 6 alphabetic characters (A–Z).'
             };
             return;
         }
@@ -331,20 +379,19 @@
         const check = validateKaspaBech32mAddress(defaultAddr);
         const amount = preset?.amount ?? Math.round(deployMaxSupply * 0.05);
         const pct = deployMaxSupply > 0 ? Number(((amount / deployMaxSupply) * 100).toFixed(2)) : 5;
-        capTable = [
-            ...capTable,
-            {
-                id: `cap_${Date.now()}_${capTable.length}`,
-                label: preset?.label || `Tranche #${capTable.length + 1}`,
-                address: check.normalized || defaultAddr,
-                amount,
-                pctOfSupply: pct,
-                cliffDays: preset?.cliffDays ?? 90,
-                linearDays: preset?.linearDays ?? 365,
-                checksumValid: check.valid && amount > 0,
-                checksumError: check.error
-            }
-        ];
+        const baseRow: CapTableEntry = {
+            id: `cap_${Date.now()}_${capTable.length}`,
+            label: preset?.label || `Tranche #${capTable.length + 1}`,
+            address: check.normalized || defaultAddr,
+            amount,
+            pctOfSupply: pct,
+            cliffDays: preset?.cliffDays ?? 90,
+            linearDays: preset?.linearDays ?? 365,
+            checksumValid: check.valid && amount > 0,
+            checksumError: check.error,
+            tokenStandard
+        };
+        capTable = [...capTable, enrichCapRowWithSilverScript(baseRow)];
     }
 
     function loadInstitutionalCapTableTemplate() {
@@ -355,7 +402,6 @@
                 : deriveDeterministicKaspaAddress('perennia_treasury_vault');
         const investorsAddr = deriveDeterministicKaspaAddress('perennia_early_investors');
         const lpReserveAddr = deriveDeterministicKaspaAddress('perennia_lp_reserve');
-
         const templates = [
             {
                 label: 'Founders & Core Architects',
@@ -386,11 +432,10 @@
                 linearDays: 365
             }
         ];
-
         capTable = templates.map((t, idx) => {
             const amt = Math.round(deployMaxSupply * (t.pct / 100));
             const chk = validateKaspaBech32mAddress(t.address);
-            return {
+            return enrichCapRowWithSilverScript({
                 id: `cap_tpl_${idx}`,
                 label: t.label,
                 address: chk.normalized,
@@ -399,8 +444,9 @@
                 cliffDays: t.cliffDays,
                 linearDays: t.linearDays,
                 checksumValid: chk.valid,
-                checksumError: chk.error
-            };
+                checksumError: chk.error,
+                tokenStandard
+            });
         });
     }
 
@@ -409,15 +455,12 @@
     }
 
     function updateCapRowAddress(idx: number, rawAddr: string) {
-        const chk = validateKaspaBech32mAddress(rawAddr);
         capTable = capTable.map((row, i) =>
             i === idx
-                ? {
+                ? enrichCapRowWithSilverScript({
                       ...row,
-                      address: rawAddr.trim().toLowerCase(),
-                      checksumValid: chk.valid && row.amount > 0,
-                      checksumError: chk.error
-                  }
+                      address: rawAddr.trim().toLowerCase()
+                  })
                 : row
         );
     }
@@ -428,18 +471,11 @@
             deployMaxSupply > 0 ? Number(((amt / deployMaxSupply) * 100).toFixed(4)) : 0;
         capTable = capTable.map((row, i) => {
             if (i !== idx) return row;
-            const chk = validateKaspaBech32mAddress(row.address);
-            return {
+            return enrichCapRowWithSilverScript({
                 ...row,
                 amount: amt,
-                pctOfSupply: pct,
-                checksumValid: chk.valid && amt > 0,
-                checksumError: chk.valid
-                    ? amt > 0
-                        ? undefined
-                        : 'Amount must be > 0'
-                    : chk.error
-            };
+                pctOfSupply: pct
+            });
         });
     }
 
@@ -448,18 +484,22 @@
         const amt = Math.round(deployMaxSupply * (pct / 100));
         capTable = capTable.map((row, i) => {
             if (i !== idx) return row;
-            const chk = validateKaspaBech32mAddress(row.address);
-            return {
+            return enrichCapRowWithSilverScript({
                 ...row,
                 pctOfSupply: pct,
-                amount: amt,
-                checksumValid: chk.valid && amt > 0,
-                checksumError: chk.valid
-                    ? amt > 0
-                        ? undefined
-                        : 'Amount must be > 0'
-                    : chk.error
-            };
+                amount: amt
+            });
+        });
+    }
+
+    function updateCapRowLockSchedule(idx: number, nextCliff: number, nextLinear: number) {
+        capTable = capTable.map((row, i) => {
+            if (i !== idx) return row;
+            return enrichCapRowWithSilverScript({
+                ...row,
+                cliffDays: Math.max(0, Math.floor(nextCliff || 0)),
+                linearDays: Math.max(0, Math.floor(nextLinear || 0))
+            });
         });
     }
 
@@ -470,9 +510,14 @@
             const addr2 = deriveDeterministicKaspaAddress('csv_treasury_2');
             csvRawText = `address,amount,label,cliff_days,linear_days\n${addr1},2100000,Founders Vault,180,365\n${addr2},1050000,Ecosystem Grants,90,180`;
         }
-        const parsed = parseCapTableCsv(csvRawText, deployMaxSupply);
+        const parsed = parseCapTableCsv(
+            csvRawText,
+            deployMaxSupply,
+            deployTicker.trim().toUpperCase() || DEFAULT_ECOSYSTEM_TICKER,
+            tokenStandard
+        );
         if (parsed.entries.length > 0) {
-            capTable = parsed.entries;
+            capTable = parsed.entries.map((r) => enrichCapRowWithSilverScript(r));
         }
         if (parsed.invalidCount > 0) {
             csvImportFeedback = {
@@ -482,7 +527,7 @@
         } else {
             csvImportFeedback = {
                 type: 'success',
-                message: `✓ Verified & imported ${parsed.validCount} Bech32m Cap Table rows (${parsed.totalAllocatedTokens.toLocaleString()} ${deployTicker}).`
+                message: `✓ Verified & imported ${parsed.validCount} Bech32m Cap Table rows (${parsed.totalAllocatedTokens.toLocaleString()} ${deployTicker}) with SilverScript P2SH vaults.`
             };
         }
     }
@@ -498,13 +543,16 @@
     }
 
     async function submitTokenomicsDeploy() {
+        const enrichedCapTable = capTable.map((r) => enrichCapRowWithSilverScript(r));
+        capTable = enrichedCapTable;
         await onExecuteDeploy({
+            tokenStandard,
             ticker: deployTicker.trim().toUpperCase(),
             maxSupply: deployMaxSupply,
             mintLimit: deployMintLimit,
             decimals: deployDecimals,
             preAllocation: deployPreAllocation,
-            capTable,
+            capTable: enrichedCapTable,
             monetaryPolicy: enableMonetaryCharter
                 ? {
                       burnRateBps,
@@ -544,7 +592,7 @@
 />
 
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" in:fade={{ duration: 150 }}>
-    <!-- LEFT COLUMN: KRC-20 DEPLOYER, MULTI-WALLET CAP TABLE & PROOF-OF-LOCK -->
+    <!-- LEFT COLUMN: KRC-20 / KCC-20 DEPLOYER, MULTI-WALLET CAP TABLE & SILVERSCRIPT PROOF-OF-LOCK -->
     <div
         class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-6"
         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
@@ -555,12 +603,57 @@
                     Mode 01 • KRC-20 Deploy &amp; Tokenomics Studio
                 </h2>
                 <span class="text-[10px] text-neutral-400 mt-0.5">
-                    Genesis Supply Matrix • Unlimited Multi-Wallet Cap Table • Proof-of-Lock Vesting • Auto-Burn &amp; Mineable Vaults
+                    Configure genesis supply, multi-wallet allocations, SilverScript `.sil` Proof-of-Lock vesting covenants, and deflationary burn sinks.
                 </span>
             </div>
             <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[9px] font-bold uppercase">
                 KAS-ONLY FEE FIREWALL
             </span>
+        </div>
+
+        <!-- TOKEN STANDARD SELECTOR: KRC-20 VS KCC-20 SILVERSCRIPT COVENANT -->
+        <div class="flex flex-col gap-2">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-300">
+                L1 Token &amp; Covenant Standard
+            </span>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-[#11161f] p-1.5 rounded-2xl border border-white/10">
+                <button
+                    type="button"
+                    data-testid="token-standard-krc20-btn"
+                    onclick={() => setTokenStandard('KRC-20')}
+                    class="p-3 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-0.5 border {tokenStandard === 'KRC-20' ? 'bg-[#161d29] border-[#18C6A5]/45 text-white shadow-md' : 'bg-[#0a0d12]/60 border-white/5 text-neutral-400 hover:text-white'}"
+                >
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-white">
+                            Standard KRC-20 Inscription
+                        </span>
+                        <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[#18C6A5]">
+                            KASPLEX L1
+                        </span>
+                    </div>
+                    <span class="text-[9px] text-neutral-400">
+                        Kasplex envelope + Proof-of-Lock P2SH vault routing
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    data-testid="token-standard-kcc20-btn"
+                    onclick={() => setTokenStandard('KCC-20')}
+                    class="p-3 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-0.5 border {tokenStandard === 'KCC-20' ? 'bg-[#161d29] border-blue-500/45 text-white shadow-md' : 'bg-[#0a0d12]/60 border-white/5 text-neutral-400 hover:text-white'}"
+                >
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-white">
+                            KCC-20 + SilverScript Covenant
+                        </span>
+                        <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[#0a0d12] border border-blue-500/40 text-blue-400">
+                            SILVERSCRIPT v1
+                        </span>
+                    </div>
+                    <span class="text-[9px] text-neutral-400">
+                        Fixed-width KCC20State commitment + `kaspa:p...` P2SH vaults
+                    </span>
+                </button>
+            </div>
         </div>
 
         <!-- TICKER & AVAILABILITY VERIFIER -->
@@ -580,6 +673,9 @@
                     bind:value={deployTicker}
                     oninput={() => {
                         deployTicker = deployTicker.toUpperCase().replace(/[^A-Z]/g, '');
+                        if (capTable.length > 0) {
+                            capTable = capTable.map((r) => enrichCapRowWithSilverScript(r));
+                        }
                     }}
                     placeholder="SILO"
                     class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-base font-mono font-black text-white uppercase tracking-widest outline-none"
@@ -702,7 +798,7 @@
             </div>
         </div>
 
-        <!-- DELIVERABLE L1 & L2: UNLIMITED MULTI-WALLET GENESIS CAP TABLE & PROOF-OF-LOCK -->
+        <!-- UNLIMITED MULTI-WALLET GENESIS CAP TABLE & SILVERSCRIPT PROOF-OF-LOCK -->
         <div
             class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-4"
             data-testid="genesis-cap-table-builder"
@@ -710,10 +806,10 @@
             <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
                 <div class="flex flex-col">
                     <span class="text-xs font-black uppercase tracking-widest text-white">
-                        Genesis Multi-Wallet Cap Table &amp; Proof-of-Lock Covenants
+                        Genesis Multi-Wallet Cap Table &amp; SilverScript Covenants
                     </span>
                     <span class="text-[9px] text-neutral-400">
-                        Chained client-side `"op": "deploy"` → `"op": "transfer"` fan-out with 22:00 UTC linear vesting unlocks
+                        Automated `kaspa:p...` P2SH vault derivation with 22:00 UTC linear vesting unlocks &amp; inspectable `.sil` source
                     </span>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5">
@@ -795,30 +891,49 @@
                         0 Pre-Allocation Cap Table Rows (100% Public Fair Launch)
                     </span>
                     <span class="text-[9px] text-neutral-500">
-                        Click [+ Add Recipient Row] or [⚡ Load 4-Tranche Template] to configure multi-wallet allocations &amp; Proof-of-Lock vesting covenants.
+                        Click [+ Add Recipient Row] or [⚡ Load 4-Tranche Template] to configure multi-wallet allocations &amp; SilverScript Proof-of-Lock vesting covenants.
                     </span>
                 </div>
             {:else}
-                <div class="flex flex-col gap-2.5 max-h-[340px] overflow-y-auto pr-1 hide-scrollbar">
+                <div class="flex flex-col gap-2.5 max-h-[420px] overflow-y-auto pr-1 hide-scrollbar">
                     {#each capTable as row, idx (row.id)}
+                        {@const isTimelockedRow = row.cliffDays > 0 || row.linearDays > 0}
+                        {@const isSilOpen = Boolean(expandedSilDrawers[row.id])}
                         <div
                             data-testid="cap-table-row-{idx}"
                             class="bg-[#0a0d12] border {row.checksumValid ? 'border-white/10' : 'border-red-500/50'} rounded-xl p-3 flex flex-col gap-2"
                         >
-                            <div class="flex items-center justify-between gap-2">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
                                 <input
                                     type="text"
                                     bind:value={row.label}
+                                    oninput={() => {
+                                        capTable = capTable.map((r, i) =>
+                                            i === idx ? enrichCapRowWithSilverScript(r) : r
+                                        );
+                                    }}
                                     placeholder="Tranche Label (e.g. Founders / Treasury)"
                                     class="bg-transparent text-xs font-bold text-white outline-none border-b border-transparent focus:border-[#18C6A5]/50 w-48"
                                 />
-                                <div class="flex items-center gap-2">
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    {#if row.checksumValid && (isTimelockedRow || tokenStandard === 'KCC-20')}
+                                        <button
+                                            type="button"
+                                            data-testid="toggle-sil-drawer-{idx}"
+                                            onclick={() => toggleSilDrawer(row.id)}
+                                            class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-black uppercase border border-blue-500/40 text-blue-400 cursor-pointer"
+                                        >
+                                            {isSilOpen
+                                                ? '[Hide .sil Contract ▴]'
+                                                : '[View Compiled .sil Contract]'}
+                                        </button>
+                                    {/if}
                                     <span
                                         data-testid="cap-table-checksum-badge-{idx}"
                                         class="px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase border {row.checksumValid ? 'border-[#18C6A5]/40 text-[#18C6A5] bg-[#11161f]' : 'border-red-500/40 text-red-400 bg-red-950/20'}"
                                     >
                                         {row.checksumValid
-                                            ? row.cliffDays > 0 || row.linearDays > 0
+                                            ? isTimelockedRow
                                                 ? `PROOF-OF-LOCK (${row.cliffDays}D CLIFF / ${row.linearDays}D LIN)`
                                                 : 'BECH32M VALID • INSTANT'
                                             : row.checksumError || 'INVALID BECH32M'}
@@ -832,6 +947,7 @@
                                     </button>
                                 </div>
                             </div>
+
                             <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                                 <div class="sm:col-span-5">
                                     <input
@@ -843,7 +959,7 @@
                                                 idx,
                                                 (e.currentTarget as HTMLInputElement).value
                                             )}
-                                        placeholder="kaspa:qp..."
+                                        placeholder="kaspa:qp... or kaspa:p..."
                                         spellcheck="false"
                                         class="w-full bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-white outline-none"
                                     />
@@ -882,7 +998,13 @@
                                         type="number"
                                         min="0"
                                         data-testid="cap-table-cliff-input-{idx}"
-                                        bind:value={row.cliffDays}
+                                        value={row.cliffDays}
+                                        oninput={(e) =>
+                                            updateCapRowLockSchedule(
+                                                idx,
+                                                parseInt((e.currentTarget as HTMLInputElement).value || '0', 10),
+                                                row.linearDays
+                                            )}
                                         class="w-full bg-transparent text-[9px] font-mono text-amber-400 outline-none text-center"
                                     />
                                     <span class="text-[7px] text-neutral-500">CLF</span>
@@ -892,12 +1014,53 @@
                                         type="number"
                                         min="0"
                                         data-testid="cap-table-linear-input-{idx}"
-                                        bind:value={row.linearDays}
+                                        value={row.linearDays}
+                                        oninput={(e) =>
+                                            updateCapRowLockSchedule(
+                                                idx,
+                                                row.cliffDays,
+                                                parseInt((e.currentTarget as HTMLInputElement).value || '0', 10)
+                                            )}
                                         class="w-full bg-transparent text-[9px] font-mono text-blue-400 outline-none text-center"
                                     />
                                     <span class="text-[7px] text-neutral-500">LIN</span>
                                 </div>
                             </div>
+
+                            {#if row.checksumValid && (isTimelockedRow || tokenStandard === 'KCC-20') && row.covenantAddress}
+                                <div
+                                    data-testid="cap-table-covenant-vault-{idx}"
+                                    class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/5 text-[8px] font-mono"
+                                >
+                                    <span class="text-neutral-400 truncate max-w-[330px]">
+                                        SilverScript P2SH Vault: <strong class="text-[#18C6A5] select-all">{row.covenantAddress}</strong>
+                                    </span>
+                                    <span class="text-blue-400 truncate max-w-[200px]">
+                                        KCC-20 Root: {String(row.kcc20StateCommitment || '').slice(0, 14)}...
+                                    </span>
+                                </div>
+                            {/if}
+
+                            {#if isSilOpen && row.silverscriptSource}
+                                <div
+                                    data-testid="sil-contract-drawer-{idx}"
+                                    transition:slide={{ duration: 150 }}
+                                    class="mt-1 bg-[#11161f] border border-blue-500/35 rounded-xl p-3 flex flex-col gap-2"
+                                >
+                                    <div class="flex flex-wrap items-center justify-between gap-2 text-[8px] font-mono">
+                                        <span class="text-blue-400 font-bold uppercase tracking-wider">
+                                            Compiled SilverScript v1 Contract (`ProofOfLockVault.sil`)
+                                        </span>
+                                        <span class="text-neutral-400">
+                                            P2SH SPK: `a9{String(row.redeemScriptHex || '').slice(0, 12)}...87`
+                                        </span>
+                                    </div>
+                                    <pre
+                                        data-testid="sil-contract-source-{idx}"
+                                        class="bg-[#0a0d12] border border-white/10 rounded-lg p-2.5 text-[9px] font-mono text-[#18C6A5] overflow-x-auto leading-relaxed select-all"
+                                    >{row.silverscriptSource}</pre>
+                                </div>
+                            {/if}
                         </div>
                     {/each}
                 </div>
@@ -906,7 +1069,7 @@
                         Cap Table Total: <strong class="text-white">{totalCapTableTokens.toLocaleString()} {deployTicker}</strong> ({totalCapTablePct.toFixed(2)}% of Max Supply)
                     </span>
                     <span class="text-[#18C6A5]">
-                        Locked in Timelock Covenants: <strong>{lockedCovenantTokens.toLocaleString()} {deployTicker}</strong>
+                        Locked in SilverScript Vaults: <strong>{lockedCovenantTokens.toLocaleString()} {deployTicker}</strong>
                     </span>
                 </div>
             {/if}
@@ -921,21 +1084,19 @@
             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
         >
             {#if isForging}
-                {forgeStatusMessage || 'Signing KRC-20 Deploy & Cap-Table Fan-Out...'}
+                {forgeStatusMessage || `Signing ${tokenStandard} Deploy & Cap-Table Fan-Out...`}
             {:else if capTable.length > 0}
-                Sign &amp; Deploy {deployTicker || 'KRC-20'} + Fan-Out {capTable.length} Cap Table Wallets Locally →
+                Sign &amp; Deploy {deployTicker || tokenStandard} ({tokenStandard}) + Fan-Out {capTable.length} Cap Table Wallets Locally →
             {:else}
-                Sign &amp; Deploy {deployTicker || 'KRC-20'} Inscription Locally →
+                Sign &amp; Deploy {deployTicker || tokenStandard} ({tokenStandard}) Inscription Locally →
             {/if}
         </button>
     </div>
 
-    <!-- RIGHT COLUMN: MONETARY POLICY CHARTER, 5-YEAR SUPPLY CURVE SVG, ZERO-RUG LP & MINEABLE VAULT -->
     <div
         class="lg:col-span-5 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
         style="background-image: radial-gradient(ellipse at bottom right, rgba(24, 198, 165, 0.08), transparent 65%);"
     >
-        <!-- DELIVERABLE L3: DEFLATIONARY AUTO-BURN & ALGORITHMIC HALVING EMISSIONS -->
         <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
             <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
                 <div class="flex flex-col">
@@ -954,7 +1115,6 @@
                     {enableMonetaryCharter ? '✓ CHARTER ARMED' : 'DISABLED'}
                 </button>
             </div>
-
             {#if enableMonetaryCharter}
                 <div class="grid grid-cols-2 gap-3 text-[10px]">
                     <div class="flex flex-col gap-1">
@@ -1020,8 +1180,6 @@
                         />
                     </div>
                 </div>
-
-                <!-- INTERACTIVE 5-YEAR SUPPLY CURVE SVG PREVIEW -->
                 <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2">
                     <div class="flex items-center justify-between text-[8px] font-mono">
                         <span class="text-neutral-300 font-bold uppercase">
@@ -1069,7 +1227,6 @@
             {/if}
         </div>
 
-        <!-- DELIVERABLE L5: ZERO-RUG LIQUIDITY BOOTSTRAPPER (365D 2.5x LP PLANT) -->
         <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
             <div class="flex items-center justify-between">
                 <div class="flex flex-col">
@@ -1103,7 +1260,6 @@
             </div>
         </div>
 
-        <!-- DELIVERABLE L4: PROOF-OF-HASHRATE MINEABLE KRC-20 VAULT -->
         <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
             <div class="flex items-center justify-between">
                 <div class="flex flex-col">
@@ -1111,7 +1267,7 @@
                         Proof-of-Hashrate Mineable KRC-20 Vault
                     </span>
                     <span class="text-[8px] font-mono text-neutral-400">
-                        Allow ASIC miners on `:3332–:3334` to mine `{deployTicker || 'TOKEN'}` pro-rata at the 22:00 UTC Bell
+                        Allow ASIC miners on `:3332–:3334` to mine `{deployTicker || 'TOKEN'}` pro-rata at the 22:00 UTC Global Settlement
                     </span>
                 </div>
                 <button
@@ -1155,11 +1311,10 @@
             {/if}
         </div>
 
-        <!-- CANONICAL INSCRIPTION & CHARTER SHA-256 PREVIEW -->
         <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between text-[9px] font-mono">
                 <span class="font-bold uppercase tracking-widest text-neutral-400">
-                    Canonical L1 Deploy &amp; Charter Hash
+                    Canonical L1 Deploy &amp; Charter Hash ({tokenStandard})
                 </span>
                 <span
                     data-testid="charter-sha256-badge"
@@ -1171,7 +1326,7 @@
             </div>
             <pre class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 text-[10px] text-[#18C6A5] overflow-x-auto">{JSON.stringify(
                 {
-                    p: 'krc-20',
+                    p: tokenStandard === 'KCC-20' ? 'kcc-20' : 'krc-20',
                     op: 'deploy',
                     tick: deployTicker.trim().toUpperCase() || DEFAULT_ECOSYSTEM_TICKER,
                     max: formatTokenBaseUnits(deployMaxSupply, deployDecimals),
@@ -1180,6 +1335,7 @@
                     ...(deployPreAllocation > 0
                         ? { pre: formatTokenBaseUnits(deployPreAllocation, deployDecimals) }
                         : {}),
+                    ...(tokenStandard === 'KCC-20' ? { cov: 'silverscript-v1' } : {}),
                     ...(charterSha256 ? { charter: charterSha256.slice(0, 32) } : {})
                 },
                 null,

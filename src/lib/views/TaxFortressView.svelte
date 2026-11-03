@@ -1,1569 +1,1464 @@
 <script lang="ts">
     import { fade, slide } from 'svelte/transition';
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount } from 'svelte';
     import { browser } from '$app/environment';
-    import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-    import { ui } from '$lib/stores/ui.svelte';
+    import { ui, SANDBOX_TAX_EVENTS } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
-    import { operations } from '$lib/stores/operations.svelte';
+    import { treasury } from '$lib/stores/treasury.svelte';
+    import {
+        NON_CPA_PROTOCOL_DISCLAIMER,
+        COUNTRY_TAX_MATRIX,
+        US_STATE_TAX_MATRIX,
+        ENTITY_STRUCTURE_OPTIONS,
+        FILING_STATUS_OPTIONS,
+        computeCompositeEffectiveTaxRate,
+        saveLocalEncryptedTaxPii,
+        loadLocalEncryptedTaxPii,
+        exportHifoTaxLedgerCsv,
+        generate1099DaAnd8949Pdf,
+        type HifoTaxBundle,
+        type LocalTaxPiiProfile,
+        type TaxEscrowReserveMode
+    } from '$lib/crypto/taxFortressEngine';
 
-    type EntityType = 'LLC' | 'S-CORP' | 'C-CORP' | 'PARTNERSHIP' | 'INDIVIDUAL';
-    type FilingStatus = 'SINGLE' | 'MFJ' | 'HOH';
+    const NON_CPA_ACK_STORAGE_KEY = 'perennia_non_cpa_acknowledged_v1';
 
-    interface StateTaxSpec {
-        code: string;
-        name: string;
-        ratePct: number;
-        noIncomeTax: boolean;
-        note: string;
-    }
-
-    interface CountryTaxSpec {
-        code: string;
-        name: string;
-        baseEffectivePct: number;
-        corpFlatPct: number;
-        note: string;
-    }
-
-    const US_STATE_TAX_MATRIX: StateTaxSpec[] = [
-        { code: 'TX', name: 'Texas', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax (Constitutional)' },
-        { code: 'FL', name: 'Florida', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax' },
-        { code: 'NV', name: 'Nevada', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax' },
-        { code: 'WY', name: 'Wyoming', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax' },
-        { code: 'WA', name: 'Washington', ratePct: 0.0, noIncomeTax: true, note: '0.0% Personal Income Tax' },
-        { code: 'TN', name: 'Tennessee', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax' },
-        { code: 'SD', name: 'South Dakota', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax' },
-        { code: 'AK', name: 'Alaska', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax' },
-        { code: 'NH', name: 'New Hampshire', ratePct: 0.0, noIncomeTax: true, note: '0.0% State Income Tax (I&D Repealed)' },
-        { code: 'AZ', name: 'Arizona', ratePct: 2.5, noIncomeTax: false, note: '2.5% Flat State Tax' },
-        { code: 'CO', name: 'Colorado', ratePct: 4.4, noIncomeTax: false, note: '4.4% Flat State Tax' },
-        { code: 'PA', name: 'Pennsylvania', ratePct: 3.07, noIncomeTax: false, note: '3.07% Flat State Tax' },
-        { code: 'IL', name: 'Illinois', ratePct: 4.95, noIncomeTax: false, note: '4.95% Flat State Tax' },
-        { code: 'IN', name: 'Indiana', ratePct: 3.0, noIncomeTax: false, note: '3.0% Flat State Tax' },
-        { code: 'MI', name: 'Michigan', ratePct: 4.25, noIncomeTax: false, note: '4.25% Flat State Tax' },
-        { code: 'NC', name: 'North Carolina', ratePct: 4.25, noIncomeTax: false, note: '4.25% Flat State Tax (2026)' },
-        { code: 'GA', name: 'Georgia', ratePct: 5.19, noIncomeTax: false, note: '5.19% Flat State Tax (2026)' },
-        { code: 'OH', name: 'Ohio', ratePct: 3.5, noIncomeTax: false, note: '3.5% Top Progressive Bracket' },
-        { code: 'UT', name: 'Utah', ratePct: 4.55, noIncomeTax: false, note: '4.55% Flat State Tax' },
-        { code: 'MA', name: 'Massachusetts', ratePct: 5.0, noIncomeTax: false, note: '5.0% Base Flat State Tax' },
-        { code: 'VA', name: 'Virginia', ratePct: 5.75, noIncomeTax: false, note: '5.75% Top Progressive Bracket' },
-        { code: 'MD', name: 'Maryland', ratePct: 5.75, noIncomeTax: false, note: '5.75% State Progressive Rate' },
-        { code: 'NJ', name: 'New Jersey', ratePct: 6.37, noIncomeTax: false, note: '6.37% Mid-Tier Progressive Rate' },
-        { code: 'NY', name: 'New York', ratePct: 6.85, noIncomeTax: false, note: '6.85% Progressive State Rate' },
-        { code: 'OR', name: 'Oregon', ratePct: 8.75, noIncomeTax: false, note: '8.75% Progressive State Rate' },
-        { code: 'MN', name: 'Minnesota', ratePct: 7.85, noIncomeTax: false, note: '7.85% Progressive State Rate' },
-        { code: 'CA', name: 'California', ratePct: 9.3, noIncomeTax: false, note: '9.3% Mid-Tier Progressive Rate' }
-    ];
-
-    const INTERNATIONAL_JURISDICTIONS: CountryTaxSpec[] = [
-        { code: 'US', name: 'United States (IRS 2026)', baseEffectivePct: 18.4, corpFlatPct: 21.0, note: '2026 IRS Brackets + Sec. 199A QBI' },
-        { code: 'PR', name: 'Puerto Rico (Act 60)', baseEffectivePct: 4.0, corpFlatPct: 4.0, note: 'Act 60 Export Services Decree (4.0%)' },
-        { code: 'AE', name: 'United Arab Emirates', baseEffectivePct: 0.0, corpFlatPct: 9.0, note: '0.0% Personal / 9.0% Corporate (>375k AED)' },
-        { code: 'CH', name: 'Switzerland (Zug)', baseEffectivePct: 11.8, corpFlatPct: 11.9, note: 'Canton Zug Federal + Cantonal Composite' },
-        { code: 'SG', name: 'Singapore (IRAS)', baseEffectivePct: 11.5, corpFlatPct: 17.0, note: '0% Capital Gains / Progressive Income' },
-        { code: 'GB', name: 'United Kingdom (HMRC)', baseEffectivePct: 24.0, corpFlatPct: 25.0, note: 'HMRC Self-Assessment & Corporation Tax' },
-        { code: 'CA', name: 'Canada (CRA)', baseEffectivePct: 26.5, corpFlatPct: 15.0, note: 'Federal + Provincial Composite' },
-        { code: 'DE', name: 'Germany (BMF)', baseEffectivePct: 28.0, corpFlatPct: 29.8, note: 'Gewerbesteuer + Einkommensteuer' }
-    ];
-
-    // 2026 IRS Standard Deductions
-    const IRS_2026_STANDARD_DEDUCTIONS: Record<FilingStatus, number> = {
-        SINGLE: 16100,
-        MFJ: 32200,
-        HOH: 24150
+    const EMPTY_HIFO_BUNDLE: HifoTaxBundle = {
+        accountingMethod: 'PASSIVE_HIFO_NO_WASH',
+        lots: [],
+        disposalMatches: [],
+        summary: {
+            openCostBasisUsd: 0.0,
+            openKasTokens: 0.0,
+            totalMatchedCostBasisUsd: 0.0,
+            totalMatchedProceedsUsd: 0.0,
+            shortTermGainLossUsd: 0.0,
+            longTermGainLossUsd: 0.0,
+            netRealizedGainLossUsd: 0.0
+        }
     };
 
-    // 2026 IRS Progressive Federal Tax Brackets
-    const IRS_2026_BRACKETS: Record<FilingStatus, Array<{ upTo: number; rate: number }>> = {
-        SINGLE: [
-            { upTo: 11925, rate: 0.10 },
-            { upTo: 48475, rate: 0.12 },
-            { upTo: 103350, rate: 0.22 },
-            { upTo: 197300, rate: 0.24 },
-            { upTo: 250525, rate: 0.32 },
-            { upTo: 626350, rate: 0.35 },
-            { upTo: Infinity, rate: 0.37 }
+    const SANDBOX_DEFAULT_HIFO_BUNDLE: HifoTaxBundle = {
+        accountingMethod: 'PASSIVE_HIFO_NO_WASH',
+        lots: [
+            {
+                lotId: 'LOT-HIGH-0180',
+                assetTicker: 'KAS',
+                acquiredAt: '2026-10-20T22:00:00.000Z',
+                kasSompi: 100_000_000_000,
+                initialTokens: 1000.0,
+                remainingSompi: 50_000_000_000,
+                remainingTokens: 500.0,
+                fmvUsdPerToken: 0.18,
+                totalCostBasisUsd: 180.0,
+                remainingCostBasisUsd: 90.0,
+                sourceEventType: 'YIELD',
+                sourceTxHash:
+                    'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
+                status: 'OPEN',
+                holdingDays: 9,
+                isLongTerm: false
+            },
+            {
+                lotId: 'LOT-LOW-0150',
+                assetTicker: 'KAS',
+                acquiredAt: '2026-10-24T22:00:00.000Z',
+                kasSompi: 100_000_000_000,
+                initialTokens: 1000.0,
+                remainingSompi: 100_000_000_000,
+                remainingTokens: 1000.0,
+                fmvUsdPerToken: 0.15,
+                totalCostBasisUsd: 150.0,
+                remainingCostBasisUsd: 150.0,
+                sourceEventType: 'YIELD',
+                sourceTxHash:
+                    'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
+                status: 'OPEN',
+                holdingDays: 5,
+                isLongTerm: false
+            }
         ],
-        MFJ: [
-            { upTo: 23850, rate: 0.10 },
-            { upTo: 96950, rate: 0.12 },
-            { upTo: 206700, rate: 0.22 },
-            { upTo: 394600, rate: 0.24 },
-            { upTo: 501050, rate: 0.32 },
-            { upTo: 751600, rate: 0.35 },
-            { upTo: Infinity, rate: 0.37 }
+        disposalMatches: [
+            {
+                matchId: 'MATCH-8949-01',
+                lotId: 'LOT-HIGH-0180',
+                assetTicker: 'KAS',
+                disposedSompi: 50_000_000_000,
+                disposedTokens: 500.0,
+                acquiredAt: '2026-10-20T22:00:00.000Z',
+                disposedAt: '2026-10-28T16:30:00.000Z',
+                holdingPeriodDays: 8,
+                isLongTerm: false,
+                costBasisUsd: 90.0,
+                grossProceedsUsd: 95.0,
+                realizedGainLossUsd: 5.0,
+                disposalTxHash:
+                    'c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef012'
+            }
         ],
-        HOH: [
-            { upTo: 17000, rate: 0.10 },
-            { upTo: 64850, rate: 0.12 },
-            { upTo: 103350, rate: 0.22 },
-            { upTo: 197300, rate: 0.24 },
-            { upTo: 250500, rate: 0.32 },
-            { upTo: 626350, rate: 0.35 },
-            { upTo: Infinity, rate: 0.37 }
-        ]
+        summary: {
+            openCostBasisUsd: 240.0,
+            openKasTokens: 1500.0,
+            totalMatchedCostBasisUsd: 90.0,
+            totalMatchedProceedsUsd: 95.0,
+            shortTermGainLossUsd: 5.0,
+            longTermGainLossUsd: 0.0,
+            netRealizedGainLossUsd: 5.0
+        }
     };
 
-    let kycStatus = $state<'unverified' | 'pending' | 'verified'>('verified');
-    let bankAccountLast4 = $state<string | null>(null);
+    // One-Time Cookie-Style Non-CPA Disclaimer State
+    let nonCpaAcknowledged = $state(false);
+    let showNonCpaNoticeDrawer = $state(false);
+
+    let countryCode = $state('US');
+    let stateRegion = $state('TX');
+    let entityType = $state('LLC');
+    let filingStatus = $state('SINGLE');
+    let useCustomOverride = $state(false);
+    let customOverrideRate = $state(15.0);
+    let legalName = $state('');
+    let tinEin = $state('');
+    let businessAddress = $state('');
     let showJurisdictionDrawer = $state(false);
     let isSavingProfile = $state(false);
-    let profileFeedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
-    let isExporting = $state(false);
-    let isEscrowActive = $state(false);
-    let showEscrowLegal = $state(false);
-    let activeEventFilter = $state<'ALL' | 'YIELD' | 'DISPOSITION' | 'BASIS' | 'ESCROW'>('ALL');
 
-    // 100% Local Browser Tax Identity & 2026 Jurisdiction Profile (Zero-PII on Server)
-    let localProfile = $state({
-        legalName: '',
-        tin: '',
-        address: '',
-        countryCode: 'US',
-        stateRegion: 'TX',
-        entityType: 'LLC' as EntityType,
-        filingStatus: 'SINGLE' as FilingStatus,
-        annualIncomeUsd: 125000,
-        includeSeTax: true,
-        useCustomOverride: false,
-        customOverrideRate: 18.4,
-        routingNumber: '',
-        accountNumber: ''
-    });
+    // Tax Escrow State: Mode A (100% USDC Reserve Default) vs Mode B (50/50 KAS/USDC Auto-LP)
+    let taxEscrowEnabled = $state(false);
+    let escrowReserveMode = $state<TaxEscrowReserveMode>('USDC_RESERVE');
+    let impermanentLossAcknowledged = $state(false);
+    let showEscrowModal = $state(false);
+    let escrowLpBalanceUsd = $state(0.0);
+    let isWithdrawingEscrowLp = $state(false);
 
-    function getLocalStorageKey(): string {
-        const clean = (identity.activeAddress || 'default')
-            .toLowerCase()
-            .replace(/^kaspa:/i, '')
-            .trim();
-        return `perennia_zero_pii_tax_v4_${clean}`;
-    }
-
-    function loadLocalTaxProfile() {
-        if (!browser) return;
-        const raw = localStorage.getItem(getLocalStorageKey());
-        if (raw) {
-            try {
-                const parsed = JSON.parse(raw);
-                localProfile = {
-                    ...localProfile,
-                    ...parsed,
-                    routingNumber: '',
-                    accountNumber: ''
-                };
-            } catch {
-                // Ignore malformed local profile
-            }
-        }
-    }
-
-    function saveLocalTaxProfileToBrowser() {
-        if (!browser) return;
-        const toStore = {
-            legalName: localProfile.legalName,
-            tin: localProfile.tin,
-            address: localProfile.address,
-            countryCode: localProfile.countryCode,
-            stateRegion: localProfile.stateRegion,
-            entityType: localProfile.entityType,
-            filingStatus: localProfile.filingStatus,
-            annualIncomeUsd: localProfile.annualIncomeUsd,
-            includeSeTax: localProfile.includeSeTax,
-            useCustomOverride: localProfile.useCustomOverride,
-            customOverrideRate: localProfile.customOverrideRate
-        };
-        localStorage.setItem(getLocalStorageKey(), JSON.stringify(toStore));
-    }
-
-    let selectedStateSpec = $derived(
-        US_STATE_TAX_MATRIX.find((s) => s.code === localProfile.stateRegion) ||
-            US_STATE_TAX_MATRIX[0]
+    let isGeneratingPdf = $state(false);
+    let activeLedgerTab = $state<'EXECUTIONS' | 'HIFO_LOTS' | 'DISPOSITIONS'>(
+        'EXECUTIONS'
     );
 
-    let selectedCountrySpec = $derived(
-        INTERNATIONAL_JURISDICTIONS.find((c) => c.code === localProfile.countryCode) ||
-            INTERNATIONAL_JURISDICTIONS[0]
+    let liveHifoBundle = $state<HifoTaxBundle>({ ...EMPTY_HIFO_BUNDLE });
+
+    let hifoBundle = $derived<HifoTaxBundle>(
+        ui.isTutorialActive || ui.isTutorialSandbox
+            ? SANDBOX_DEFAULT_HIFO_BUNDLE
+            : liveHifoBundle
     );
 
-    let yieldProceedsUsd = $derived(
-        ui.taxEvents
-            .filter((e) => e.rawEventType === 'YIELD' || e.type === 'Epoch Reward')
-            .reduce((sum, e) => sum + Number(e.usdValueAtTime || 0), 0)
+    let rateCalculation = $derived(
+        computeCompositeEffectiveTaxRate({
+            countryCode,
+            stateRegion,
+            entityType,
+            filingStatus,
+            customOverrideRate: useCustomOverride ? customOverrideRate : null
+        })
     );
 
-    let dispositionProceedsUsd = $derived(
-        ui.taxEvents
-            .filter(
-                (e) =>
-                    e.rawEventType === 'DEX_SWAP' ||
-                    e.rawEventType === 'FIAT_OFFRAMP' ||
-                    e.rawEventType === 'PASSTHROUGH_SETTLED' ||
-                    e.rawEventType === 'OTC_SETTLEMENT' ||
-                    e.type === 'DEX Swap' ||
-                    e.type === 'Fiat Off-Ramp' ||
-                    e.type === '3rd-Party Pass-Through'
-            )
-            .reduce((sum, e) => sum + Number(e.usdValueAtTime || 0), 0)
+    let displayedEvents = $derived(
+        ui.isTutorialActive || ui.isTutorialSandbox
+            ? Array.isArray(ui.taxEvents) && ui.taxEvents.length > 0
+                ? ui.taxEvents
+                : SANDBOX_TAX_EVENTS
+            : Array.isArray(ui.taxEvents)
+              ? ui.taxEvents
+              : []
     );
 
-    let totalGross = $derived(yieldProceedsUsd + dispositionProceedsUsd);
-
-    let estCostBasis = $derived(
-        ui.taxEvents
-            .filter((e) => e.rawEventType === 'FIAT_ONRAMP' || e.type === 'Fiat On-Ramp')
-            .reduce((sum, e) => sum + Number(e.usdValueAtTime || 0), 0)
+    let grossTaxableProceedsUsd = $derived(
+        displayedEvents.reduce(
+            (sum, ev) => sum + Math.max(0, Number(ev.usdValueAtTime || 0)),
+            0
+        )
     );
 
-    let totalEscrowLockedEventsUsd = $derived(
-        ui.taxEvents
-            .filter(
-                (e) =>
-                    e.rawEventType === 'TAX_ESCROW_LP' || e.type === 'Tax Escrow Auto-LP'
-            )
-            .reduce((sum, e) => sum + Number(e.usdValueAtTime || 0), 0)
-    );
-
-    let netGain = $derived(Math.max(0, totalGross - estCostBasis));
-
-    // 2026 Jurisdiction Tax Engine Calculation
-    let taxBreakdown = $derived.by(() => {
-        const grossIncome = Math.max(
-            25000,
-            Number(localProfile.annualIncomeUsd || 125000) + netGain
-        );
-        const stdDeduction =
-            IRS_2026_STANDARD_DEDUCTIONS[localProfile.filingStatus] || 16100;
-        const isPassThroughQbiEligible =
-            localProfile.entityType === 'LLC' ||
-            localProfile.entityType === 'S-CORP' ||
-            localProfile.entityType === 'PARTNERSHIP';
-
-        if (localProfile.countryCode !== 'US') {
-            const intlBase =
-                localProfile.entityType === 'C-CORP'
-                    ? selectedCountrySpec.corpFlatPct
-                    : isPassThroughQbiEligible
-                      ? selectedCountrySpec.baseEffectivePct * 0.9
-                      : selectedCountrySpec.baseEffectivePct;
-            const compositeRate = localProfile.useCustomOverride
-                ? Number(localProfile.customOverrideRate)
-                : Number(intlBase.toFixed(2));
-            return {
-                standardDeduction: 0,
-                qbiDeductionPct: isPassThroughQbiEligible ? 10.0 : 0.0,
-                federalEffectivePct: Number(intlBase.toFixed(2)),
-                seTaxEffectivePct: 0.0,
-                stateTaxPct: 0.0,
-                marginalBracketPct: Number(intlBase.toFixed(1)),
-                compositeEffectivePct: Math.max(0, Math.min(50, compositeRate)),
-                jurisdictionCode: localProfile.countryCode,
-                statutoryDeadline:
-                    localProfile.entityType === 'S-CORP' ||
-                    localProfile.entityType === 'PARTNERSHIP'
-                        ? '2027-03-15'
-                        : '2027-04-15'
-            };
-        }
-
-        const stateRatePct = selectedStateSpec.ratePct;
-
-        if (localProfile.entityType === 'C-CORP') {
-            const fedCorpRate = 21.0;
-            const computed = Number((fedCorpRate + stateRatePct).toFixed(2));
-            const compositeEffectivePct = localProfile.useCustomOverride
-                ? Number(localProfile.customOverrideRate)
-                : Math.min(50, computed);
-            return {
-                standardDeduction: 0,
-                qbiDeductionPct: 0.0,
-                federalEffectivePct: fedCorpRate,
-                seTaxEffectivePct: 0.0,
-                stateTaxPct: stateRatePct,
-                marginalBracketPct: 21.0,
-                compositeEffectivePct: Number(compositeEffectivePct.toFixed(2)),
-                jurisdictionCode: `US-${selectedStateSpec.code}`,
-                statutoryDeadline: '2027-04-15'
-            };
-        }
-
-        // Self-Employment (SE) tax adjustment for LLC / Partnership / Individual
-        const seApplicable =
-            localProfile.includeSeTax &&
-            (localProfile.entityType === 'LLC' ||
-                localProfile.entityType === 'PARTNERSHIP' ||
-                localProfile.entityType === 'INDIVIDUAL');
-        const seTaxableBase = Math.min(grossIncome * 0.9235, 176100);
-        const seTaxUsd = seApplicable ? seTaxableBase * 0.153 * 0.5 : 0;
-        const seDeductionAdjustment = seTaxUsd * 0.5;
-
-        const postStdIncome = Math.max(
+    let netTaxableIncomeUsd = $derived(
+        Math.max(
             0,
-            grossIncome - stdDeduction - seDeductionAdjustment
-        );
-        const qbiDeductionUsd = isPassThroughQbiEligible ? postStdIncome * 0.2 : 0;
-        const taxableFederalIncome = Math.max(0, postStdIncome - qbiDeductionUsd);
-
-        const brackets =
-            IRS_2026_BRACKETS[localProfile.filingStatus] || IRS_2026_BRACKETS.SINGLE;
-        let remaining = taxableFederalIncome;
-        let prevLimit = 0;
-        let federalTaxUsd = 0;
-        let marginalRate = 0.10;
-
-        for (const b of brackets) {
-            if (taxableFederalIncome > prevLimit) {
-                const slice = Math.min(remaining, b.upTo - prevLimit);
-                if (slice > 0) {
-                    federalTaxUsd += slice * b.rate;
-                    remaining -= slice;
-                    marginalRate = b.rate;
-                }
-            }
-            prevLimit = b.upTo;
-            if (remaining <= 0) break;
-        }
-
-        const federalEffectivePct = Number(
-            ((federalTaxUsd / grossIncome) * 100).toFixed(2)
-        );
-        const seTaxEffectivePct = Number(((seTaxUsd / grossIncome) * 100).toFixed(2));
-        const rawComposite = Number(
-            (federalEffectivePct + seTaxEffectivePct + stateRatePct).toFixed(2)
-        );
-        const compositeEffectivePct = localProfile.useCustomOverride
-            ? Number(Number(localProfile.customOverrideRate).toFixed(2))
-            : Math.max(0, Math.min(50, rawComposite));
-
-        return {
-            standardDeduction: stdDeduction,
-            qbiDeductionPct: isPassThroughQbiEligible ? 20.0 : 0.0,
-            federalEffectivePct,
-            seTaxEffectivePct,
-            stateTaxPct: stateRatePct,
-            marginalBracketPct: Number((marginalRate * 100).toFixed(1)),
-            compositeEffectivePct,
-            jurisdictionCode: `US-${selectedStateSpec.code}`,
-            statutoryDeadline:
-                localProfile.entityType === 'S-CORP' ||
-                localProfile.entityType === 'PARTNERSHIP'
-                    ? '2027-03-15'
-                    : '2027-04-15'
-        };
-    });
-
-    let estLiability = $derived(
-        netGain * (taxBreakdown.compositeEffectivePct / 100.0)
+            grossTaxableProceedsUsd -
+                Number(hifoBundle.summary.totalMatchedCostBasisUsd || 0)
+        )
     );
 
-    let filteredTaxEvents = $derived.by(() => {
-        if (activeEventFilter === 'ALL') return ui.taxEvents;
-        return ui.taxEvents.filter((ev) => {
-            const raw = String(ev.rawEventType || ev.type || '').toUpperCase();
-            if (activeEventFilter === 'YIELD') {
-                return raw === 'YIELD' || ev.type === 'Epoch Reward';
-            }
-            if (activeEventFilter === 'DISPOSITION') {
-                return (
-                    raw === 'DEX_SWAP' ||
-                    raw === 'FIAT_OFFRAMP' ||
-                    raw === 'PASSTHROUGH_SETTLED' ||
-                    raw === 'OTC_SETTLEMENT'
-                );
-            }
-            if (activeEventFilter === 'BASIS') {
-                return raw === 'FIAT_ONRAMP' || ev.type === 'Fiat On-Ramp';
-            }
-            if (activeEventFilter === 'ESCROW') {
-                return raw === 'TAX_ESCROW_LP' || ev.type === 'Tax Escrow Auto-LP';
-            }
-            return true;
-        });
-    });
+    let estimatedTaxLiabilityUsd = $derived(
+        Number(
+            (
+                netTaxableIncomeUsd *
+                (rateCalculation.effectiveRatePct / 100.0)
+            ).toFixed(2)
+        )
+    );
 
-    async function syncKycState() {
-        if (!identity.isWalletConnected || !identity.activeAddress) return;
+    let canConfirmEscrowActivation = $derived(
+        escrowReserveMode === 'USDC_RESERVE' ||
+            impermanentLossAcknowledged ||
+            ui.isTutorialActive
+    );
+
+    function acknowledgeNonCpaDisclaimer() {
+        nonCpaAcknowledged = true;
+        showNonCpaNoticeDrawer = false;
+        if (browser) {
+            localStorage.setItem(NON_CPA_ACK_STORAGE_KEY, 'true');
+        }
+        ui.triggerMicroBadge(
+            'tax_profile_saved',
+            'NON-CPA NOTICE ACKNOWLEDGED ✓',
+            '#18C6A5'
+        );
+    }
+
+    async function syncTaxFortressData() {
+        if (!browser) return;
+        nonCpaAcknowledged =
+            localStorage.getItem(NON_CPA_ACK_STORAGE_KEY) === 'true';
+
+        const activeAddr =
+            identity.activeAddress || 'kaspa:sovereign-tax-fortress';
+        const localPii = await loadLocalEncryptedTaxPii(activeAddr);
+        if (localPii.legalName) legalName = localPii.legalName;
+        if (localPii.tinEin) tinEin = localPii.tinEin;
+        if (localPii.businessAddress)
+            businessAddress = localPii.businessAddress;
+
         try {
-            const res = await fetch(
-                `/api/treasury/kyc?wallet=${encodeURIComponent(identity.activeAddress)}`
+            const savedEscrowRaw = localStorage.getItem(
+                `perennia_tax_escrow_cfg_${activeAddr.toLowerCase()}`
             );
-            if (res.ok) {
-                const data = await res.json();
-                kycStatus = data.status || 'verified';
-                if (data.bankAccountLast4 && data.bankAccountLast4 !== 'UNLNK') {
-                    bankAccountLast4 = data.bankAccountLast4;
-                } else if (
-                    data.entity?.bankAccountLast4 &&
-                    data.entity.bankAccountLast4 !== 'UNLNK'
+            if (savedEscrowRaw) {
+                const parsedCfg = JSON.parse(savedEscrowRaw);
+                if (
+                    parsedCfg.mode === 'KAS_USDC_LP' ||
+                    parsedCfg.mode === 'USDC_RESERVE'
                 ) {
-                    bankAccountLast4 = data.entity.bankAccountLast4;
+                    escrowReserveMode = parsedCfg.mode;
+                }
+                if (typeof parsedCfg.enabled === 'boolean') {
+                    taxEscrowEnabled = parsedCfg.enabled;
+                }
+                if (typeof parsedCfg.ilAck === 'boolean') {
+                    impermanentLossAcknowledged = parsedCfg.ilAck;
                 }
             }
-        } catch (e) {
-            console.error('Failed to sync Zero-PII jurisdiction state', e);
+        } catch {
+            // Ignore local escrow preference parse error
         }
-    }
 
-    async function fetchLedgerEvents() {
-        if (!identity.isWalletConnected) return;
         try {
-            const res = await fetch('/api/user/tax-events');
-            if (res.ok) {
-                ui.taxEvents = await res.json();
-            }
-        } catch (e) {
-            console.error('Failed to fetch tax events', e);
-        }
-    }
+            const [eventsBundleRes, kycRes, hifoRes] = await Promise.all([
+                fetch('/api/user/tax-events?bundle=hifo'),
+                fetch('/api/treasury/kyc'),
+                fetch('/api/state/action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'GET_HIFO_TAX_LOTS',
+                        payload: {}
+                    })
+                })
+            ]);
 
-    async function syncEscrowState() {
-        if (!identity.isWalletConnected) return;
-        try {
-            const res = await fetch('/api/state');
-            if (res.ok) {
-                const state = await res.json();
-                if (state.taxFortress) {
-                    if (typeof state.taxFortress.escrowActive === 'boolean') {
-                        isEscrowActive = state.taxFortress.escrowActive;
+            if (kycRes.ok) {
+                const kycData = await kycRes.json().catch(() => ({}));
+                if (kycData?.jurisdiction) {
+                    countryCode =
+                        kycData.jurisdiction.countryCode || countryCode;
+                    stateRegion =
+                        kycData.jurisdiction.stateRegion || stateRegion;
+                    entityType = kycData.jurisdiction.entityType || entityType;
+                    filingStatus =
+                        kycData.jurisdiction.filingStatus || filingStatus;
+                }
+            }
+
+            if (eventsBundleRes.ok) {
+                const bundleData = await eventsBundleRes.json();
+                if (Array.isArray(bundleData)) {
+                    ui.taxEvents = bundleData;
+                } else if (bundleData && typeof bundleData === 'object') {
+                    if (Array.isArray(bundleData.events)) {
+                        ui.taxEvents = bundleData.events;
                     }
-                    if (!browser || !localStorage.getItem(getLocalStorageKey())) {
-                        if (state.taxFortress.countryCode)
-                            localProfile.countryCode = state.taxFortress.countryCode;
-                        if (state.taxFortress.stateRegion)
-                            localProfile.stateRegion = state.taxFortress.stateRegion;
-                        if (state.taxFortress.entityType)
-                            localProfile.entityType = state.taxFortress.entityType;
-                        if (state.taxFortress.filingStatus)
-                            localProfile.filingStatus = state.taxFortress.filingStatus;
+                    if (
+                        Array.isArray(bundleData.hifoLots) &&
+                        bundleData.hifoSummary
+                    ) {
+                        liveHifoBundle = {
+                            accountingMethod:
+                                bundleData.hifoSummary.accountingMethod ||
+                                'PASSIVE_HIFO_NO_WASH',
+                            lots: bundleData.hifoLots,
+                            disposalMatches: Array.isArray(
+                                bundleData.disposalMatches
+                            )
+                                ? bundleData.disposalMatches
+                                : [],
+                            summary: bundleData.hifoSummary
+                        };
                     }
                 }
             }
-        } catch (e) {
-            console.error('Failed to sync escrow state', e);
-        }
-    }
 
-    let ledgerInterval: ReturnType<typeof setInterval>;
-
-    onMount(() => {
-        loadLocalTaxProfile();
-        syncKycState();
-        fetchLedgerEvents();
-        syncEscrowState();
-        ledgerInterval = setInterval(fetchLedgerEvents, 10000);
-    });
-
-    onDestroy(() => {
-        if (ledgerInterval) clearInterval(ledgerInterval);
-    });
-
-    $effect(() => {
-        if (identity.activeAddress && browser) {
-            loadLocalTaxProfile();
-        }
-    });
-
-    function exportCSV() {
-        if (!browser) return;
-        const headers =
-            'Timestamp,Event_Category,Asset_Ticker,Quantity,USD_Proceeds_Or_Basis,Spot_Price_USD,Jurisdiction,Effective_Rate_Pct,Reference_Hash\n';
-        const rows = ui.taxEvents
-            .map(
-                (e) =>
-                    `"${e.timestamp}","${e.type}","${e.asset?.ticker || 'KAS'}",${Number(e.amount || 0).toFixed(8)},${Number(e.usdValueAtTime || 0).toFixed(2)},${Number(e.spotPriceAtExecution || 0).toFixed(4)},"${taxBreakdown.jurisdictionCode}",${taxBreakdown.compositeEffectivePct.toFixed(2)},"${e.txHash || ''}"`
-            )
-            .join('\n');
-        const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Perennia_2026_Tax_Ledger_${taxBreakdown.jurisdictionCode}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        ui.triggerMicroBadge('tax_fortress_header', 'CSV LEDGER EXPORTED ✓', '#18C6A5');
-    }
-
-    async function compileClientSide1099DaPdf() {
-        if (!browser) return;
-        isExporting = true;
-        try {
-            saveLocalTaxProfileToBrowser();
-            const taxYear = 2026;
-            const pdfDoc = await PDFDocument.create();
-            const page = pdfDoc.addPage([612, 792]);
-            const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
-            const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-            const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
-
-            const slateHeader = rgb(0.04, 0.05, 0.07);
-            const tealBrand = rgb(0.094, 0.776, 0.647);
-            const textDark = rgb(0.1, 0.12, 0.15);
-            const textMuted = rgb(0.4, 0.44, 0.5);
-
-            page.drawRectangle({
-                x: 0,
-                y: 706,
-                width: 612,
-                height: 86,
-                color: slateHeader
-            });
-
-            page.drawText(
-                'FORM 1099-DA & SCHEDULE D / FORM 8949 SELF-ASSESSED WORKSHEET',
-                {
-                    x: 36,
-                    y: 754,
-                    size: 13.5,
-                    font: fontBold,
-                    color: tealBrand
-                }
-            );
-            page.drawText(
-                `TAX YEAR ${taxYear} • ZERO-PII CLIENT-SIDE COMPILER • NON-CUSTODIAL PROTOCOL`,
-                {
-                    x: 36,
-                    y: 734,
-                    size: 8.5,
-                    font: fontMono,
-                    color: rgb(0.82, 0.86, 0.9)
-                }
-            );
-            page.drawText(
-                `Generated Locally in Browser: ${new Date().toISOString()} | Jurisdiction: ${taxBreakdown.jurisdictionCode}`,
-                {
-                    x: 36,
-                    y: 718,
-                    size: 7.5,
-                    font: fontMono,
-                    color: rgb(0.6, 0.66, 0.72)
-                }
-            );
-
-            // Left Column: Protocol Telemetry Info
-            page.drawText('PROTOCOL TELEMETRY SOURCE (NON-BROKER)', {
-                x: 36,
-                y: 682,
-                size: 9.5,
-                font: fontBold,
-                color: textDark
-            });
-            page.drawText('Perennia Sovereign Mining Pool & Smart Settlement Engine', {
-                x: 36,
-                y: 668,
-                size: 8.5,
-                font: fontReg,
-                color: textMuted
-            });
-            page.drawText(
-                `Sovereign Wallet: ${(identity.activeAddress || 'kaspa:unconnected').slice(0, 44)}...`,
-                {
-                    x: 36,
-                    y: 654,
-                    size: 8,
-                    font: fontMono,
-                    color: textMuted
-                }
-            );
-            page.drawText(
-                `Tax Escrow Auto-LP: ${isEscrowActive ? `ACTIVE (${taxBreakdown.compositeEffectivePct.toFixed(2)}% -> Maturing ${taxBreakdown.statutoryDeadline})` : 'DORMANT'}`,
-                {
-                    x: 36,
-                    y: 640,
-                    size: 8,
-                    font: fontMono,
-                    color: textDark
-                }
-            );
-
-            // Right Column: Local Taxpayer Identity (Never sent to server)
-            page.drawText('TAXPAYER LOCAL PROFILE (BROWSER-ONLY)', {
-                x: 320,
-                y: 682,
-                size: 9.5,
-                font: fontBold,
-                color: textDark
-            });
-            page.drawText(
-                `Name / Entity: ${localProfile.legalName.trim() || 'Self-Assessed Sovereign Miner'} (${localProfile.entityType})`,
-                {
-                    x: 320,
-                    y: 668,
-                    size: 8.5,
-                    font: fontReg,
-                    color: textDark
-                }
-            );
-            page.drawText(
-                `TIN / EIN (Local): ${localProfile.tin.trim() || 'XX-XXXXXXX (Local Only)'}`,
-                {
-                    x: 320,
-                    y: 654,
-                    size: 8,
-                    font: fontMono,
-                    color: textMuted
-                }
-            );
-            page.drawText(
-                `Address: ${(localProfile.address.trim() || `${taxBreakdown.jurisdictionCode} Sovereign Domicile`).slice(0, 46)}`,
-                {
-                    x: 320,
-                    y: 640,
-                    size: 8,
-                    font: fontReg,
-                    color: textMuted
-                }
-            );
-
-            // 2026 Jurisdiction Rate Breakdown Strip
-            page.drawRectangle({
-                x: 36,
-                y: 592,
-                width: 540,
-                height: 34,
-                color: rgb(0.95, 0.96, 0.98),
-                borderColor: rgb(0.82, 0.85, 0.9),
-                borderWidth: 1
-            });
-            page.drawText(
-                `2026 TAX ENGINE: Juris=${taxBreakdown.jurisdictionCode} | Filing=${localProfile.filingStatus} | StdDed=$${taxBreakdown.standardDeduction.toLocaleString()} | Sec.199A QBI=-${taxBreakdown.qbiDeductionPct.toFixed(0)}% | Fed=${taxBreakdown.federalEffectivePct.toFixed(2)}% | State=${taxBreakdown.stateTaxPct.toFixed(2)}% | Composite=${taxBreakdown.compositeEffectivePct.toFixed(2)}%`,
-                {
-                    x: 44,
-                    y: 606,
-                    size: 7.2,
-                    font: fontMono,
-                    color: textDark
-                }
-            );
-
-            // 4 Financial Summary Boxes
-            const boxes = [
-                {
-                    title: 'BOX 1f • GROSS PROCEEDS (YIELD + SWAPS)',
-                    value: `$${totalGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                    sub: `Mining Yield: $${yieldProceedsUsd.toFixed(2)} | Swaps/Fiat: $${dispositionProceedsUsd.toFixed(2)}`,
-                    x: 36,
-                    y: 528
-                },
-                {
-                    title: 'BOX 1g • VERIFIED FIAT ON-RAMP COST BASIS',
-                    value: `$${estCostBasis.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                    sub: `Net Taxable Gain: $${netGain.toFixed(2)} USD`,
-                    x: 312,
-                    y: 528
-                },
-                {
-                    title: `ESTIMATED 2026 LIABILITY (${taxBreakdown.compositeEffectivePct.toFixed(2)}%)`,
-                    value: `$${estLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                    sub: `${taxBreakdown.jurisdictionCode} • ${localProfile.entityType} (${localProfile.filingStatus})`,
-                    x: 36,
-                    y: 468
-                },
-                {
-                    title: 'TAX ESCROW AUTO-LP LOCKED (KAS/USDC)',
-                    value: `$${(isEscrowActive ? Math.max(totalEscrowLockedEventsUsd, estLiability) : totalEscrowLockedEventsUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                    sub: `Statutory Unfreeze Date: ${taxBreakdown.statutoryDeadline}`,
-                    x: 312,
-                    y: 468
-                }
-            ];
-
-            for (const b of boxes) {
-                page.drawRectangle({
-                    x: b.x,
-                    y: b.y,
-                    width: 264,
-                    height: 52,
-                    borderColor: rgb(0.8, 0.84, 0.88),
-                    borderWidth: 1
-                });
-                page.drawText(b.title, {
-                    x: b.x + 10,
-                    y: b.y + 37,
-                    size: 7.5,
-                    font: fontBold,
-                    color: textMuted
-                });
-                page.drawText(b.value, {
-                    x: b.x + 10,
-                    y: b.y + 18,
-                    size: 13,
-                    font: fontMono,
-                    color: textDark
-                });
-                page.drawText(b.sub, {
-                    x: b.x + 10,
-                    y: b.y + 6,
-                    size: 7,
-                    font: fontReg,
-                    color: textMuted
-                });
-            }
-
-            // Form 8949 / Schedule D Ledger Table
-            page.drawText(
-                'FORM 8949 / SCHEDULE D ITEMIZED EXECUTION LEDGER (MOST RECENT EVENTS)',
-                {
-                    x: 36,
-                    y: 444,
-                    size: 9.5,
-                    font: fontBold,
-                    color: textDark
-                }
-            );
-
-            let yCursor = 426;
-            page.drawText('TIMESTAMP', { x: 36, y: yCursor, size: 7.5, font: fontBold, color: textMuted });
-            page.drawText('CATEGORY', { x: 155, y: yCursor, size: 7.5, font: fontBold, color: textMuted });
-            page.drawText('ASSET', { x: 280, y: yCursor, size: 7.5, font: fontBold, color: textMuted });
-            page.drawText('AMOUNT', { x: 335, y: yCursor, size: 7.5, font: fontBold, color: textMuted });
-            page.drawText('USD VALUE', { x: 430, y: yCursor, size: 7.5, font: fontBold, color: textMuted });
-            page.drawText('REF HASH', { x: 515, y: yCursor, size: 7.5, font: fontBold, color: textMuted });
-
-            yCursor -= 13;
-            const rowsToRender = ui.taxEvents.slice(0, 24);
-            if (rowsToRender.length === 0) {
-                page.drawText(
-                    'No taxable execution events indexed yet for this wallet in 2026.',
-                    {
-                        x: 36,
-                        y: yCursor - 8,
-                        size: 8,
-                        font: fontMono,
-                        color: textMuted
-                    }
-                );
-            } else {
-                for (const ev of rowsToRender) {
-                    if (yCursor < 52) break;
-                    page.drawText(String(ev.timestamp || '').slice(0, 19), {
-                        x: 36,
-                        y: yCursor,
-                        size: 7.2,
-                        font: fontMono,
-                        color: textDark
-                    });
-                    page.drawText(String(ev.type || 'SETTLEMENT').slice(0, 20), {
-                        x: 155,
-                        y: yCursor,
-                        size: 7.2,
-                        font: fontMono,
-                        color: textDark
-                    });
-                    page.drawText(String(ev.asset?.ticker || 'KAS'), {
-                        x: 280,
-                        y: yCursor,
-                        size: 7.2,
-                        font: fontMono,
-                        color: textDark
-                    });
-                    page.drawText(Number(ev.amount || 0).toFixed(4), {
-                        x: 335,
-                        y: yCursor,
-                        size: 7.2,
-                        font: fontMono,
-                        color: textDark
-                    });
-                    page.drawText(`$${Number(ev.usdValueAtTime || 0).toFixed(2)}`, {
-                        x: 430,
-                        y: yCursor,
-                        size: 7.2,
-                        font: fontMono,
-                        color: textDark
-                    });
-                    page.drawText(String(ev.txHash || '').slice(0, 10), {
-                        x: 515,
-                        y: yCursor,
-                        size: 7.2,
-                        font: fontMono,
-                        color: textMuted
-                    });
-                    yCursor -= 13;
+            if (hifoRes.ok) {
+                const hData = await hifoRes.json();
+                if (
+                    hData.success &&
+                    hData.data &&
+                    Array.isArray(hData.data.lots) &&
+                    hData.data.lots.length > 0
+                ) {
+                    liveHifoBundle = hData.data;
                 }
             }
 
-            page.drawText(
-                'ZERO-PII ATTESTATION: Compiled 100% locally inside your browser via pdf-lib. Perennia never stores Legal Names, Addresses, or TINs on server storage.',
-                {
-                    x: 36,
-                    y: 26,
-                    size: 6.8,
-                    font: fontMono,
-                    color: textMuted
-                }
-            );
-
-            const pdfBytes = await pdfDoc.save();
-            const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Perennia_2026_1099DA_8949_${taxBreakdown.jurisdictionCode}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-            ui.triggerMicroBadge(
-                'tax_fortress_header',
-                '1099-DA / 8949 PDF COMPILED ✓',
-                '#18C6A5'
-            );
-        } catch (err: any) {
-            console.error('Client-side 1099-DA PDF compilation error:', err);
-            profileFeedback = {
-                type: 'error',
-                message: err.message || 'Failed to compile local 1099-DA PDF.'
-            };
-        } finally {
-            isExporting = false;
+            if (taxEscrowEnabled) {
+                escrowLpBalanceUsd = estimatedTaxLiabilityUsd;
+            }
+        } catch {
+            // Non-blocking sync
         }
     }
 
-    async function saveZeroPiiJurisdictionProfile(e?: Event) {
-        if (e) e.preventDefault();
+    async function handleSaveJurisdictionProfile(e: Event) {
+        e.preventDefault();
         isSavingProfile = true;
-        profileFeedback = null;
         try {
-            saveLocalTaxProfileToBrowser();
-            const res = await fetch('/api/treasury/kyc', {
+            const activeAddr =
+                identity.activeAddress || 'kaspa:sovereign-tax-fortress';
+            const localPii: LocalTaxPiiProfile = {
+                legalName: legalName.trim(),
+                tinEin: tinEin.trim(),
+                businessAddress: businessAddress.trim()
+            };
+            await saveLocalEncryptedTaxPii(activeAddr, localPii);
+            await fetch('/api/treasury/kyc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    walletAddress: identity.activeAddress,
-                    countryCode: localProfile.countryCode,
-                    stateRegion: localProfile.stateRegion,
-                    entityType: localProfile.entityType,
-                    filingStatus: localProfile.filingStatus,
-                    effectiveTaxRate: taxBreakdown.compositeEffectivePct,
-                    routingNumber: localProfile.routingNumber.trim() || undefined,
-                    accountNumber: localProfile.accountNumber.trim() || undefined
+                    walletAddress: activeAddr,
+                    countryCode,
+                    stateRegion,
+                    entityType,
+                    filingStatus,
+                    effectiveTaxRate: rateCalculation.effectiveRatePct
                 })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                profileFeedback = {
-                    type: 'error',
-                    message: data.message || data.error || 'Failed to sync jurisdiction telemetry.'
-                };
-                return;
-            }
-            if (data.bankAccountLast4) {
-                bankAccountLast4 = data.bankAccountLast4;
-            }
-            await operations.dispatchStateAction('UPDATE_TAX_FORTRESS', {
-                escrowActive: isEscrowActive,
-                withholdingRate: taxBreakdown.compositeEffectivePct,
-                jurisdictionCode: taxBreakdown.jurisdictionCode,
-                countryCode: localProfile.countryCode,
-                stateRegion: localProfile.stateRegion,
-                entityType: localProfile.entityType,
-                filingStatus: localProfile.filingStatus,
-                maturityDate: taxBreakdown.statutoryDeadline
-            });
-            kycStatus = 'verified';
-            localProfile.routingNumber = '';
-            localProfile.accountNumber = '';
-            profileFeedback = {
-                type: 'success',
-                message: `Zero-PII ${taxBreakdown.jurisdictionCode} (${localProfile.entityType}) profile saved (${taxBreakdown.compositeEffectivePct.toFixed(2)}% effective rate).`
-            };
+            }).catch(() => {});
             ui.triggerMicroBadge(
-                'tax_fortress_header',
-                `${taxBreakdown.jurisdictionCode} • ${taxBreakdown.compositeEffectivePct.toFixed(1)}% SAVED ✓`,
+                'tax_profile_saved',
+                `${rateCalculation.jurisdictionCode} (${rateCalculation.effectiveRatePct.toFixed(2)}%) SAVED ✓`,
                 '#18C6A5'
             );
             showJurisdictionDrawer = false;
-        } catch (err: any) {
-            profileFeedback = {
-                type: 'error',
-                message: err.message || 'Network routing failed.'
-            };
         } finally {
             isSavingProfile = false;
         }
     }
 
-    async function acceptEscrowTerms() {
-        isEscrowActive = true;
-        showEscrowLegal = false;
-        saveLocalTaxProfileToBrowser();
-        await operations.dispatchStateAction('UPDATE_TAX_FORTRESS', {
-            escrowActive: true,
-            withholdingRate: taxBreakdown.compositeEffectivePct,
-            jurisdictionCode: taxBreakdown.jurisdictionCode,
-            countryCode: localProfile.countryCode,
-            stateRegion: localProfile.stateRegion,
-            entityType: localProfile.entityType,
-            filingStatus: localProfile.filingStatus,
-            maturityDate: taxBreakdown.statutoryDeadline
-        });
-        ui.triggerMicroBadge(
-            'tax_fortress_header',
-            `ESCROW ARMED @ ${taxBreakdown.compositeEffectivePct.toFixed(1)}% ✓`,
-            '#18C6A5'
-        );
-    }
-
-    function triggerEscrowToggle() {
-        if (!isEscrowActive) {
-            showEscrowLegal = true;
+    function handleToggleTaxEscrow() {
+        if (taxEscrowEnabled) {
+            taxEscrowEnabled = false;
+            const activeAddr =
+                identity.activeAddress || 'kaspa:sovereign-tax-fortress';
+            if (browser) {
+                localStorage.setItem(
+                    `perennia_tax_escrow_cfg_${activeAddr.toLowerCase()}`,
+                    JSON.stringify({
+                        enabled: false,
+                        mode: escrowReserveMode,
+                        ilAck: impermanentLossAcknowledged
+                    })
+                );
+            }
+            ui.triggerMicroBadge(
+                'tax_escrow_card',
+                'TAX ESCROW PAUSED',
+                '#F59E0B'
+            );
         } else {
-            profileFeedback = {
-                type: 'error',
-                message: `Regulatory Lock-Up Active: Tax Escrow Auto-LP (${taxBreakdown.compositeEffectivePct.toFixed(2)}%) is timelocked until ${taxBreakdown.statutoryDeadline}.`
-            };
+            showEscrowModal = true;
         }
     }
+
+    async function confirmActivateTaxEscrowLp() {
+        if (!canConfirmEscrowActivation) return;
+        taxEscrowEnabled = true;
+        showEscrowModal = false;
+        // Exact live tax liability with zero hardcoded floor
+        escrowLpBalanceUsd = estimatedTaxLiabilityUsd;
+
+        if (!nonCpaAcknowledged) {
+            nonCpaAcknowledged = true;
+            if (browser) {
+                localStorage.setItem(NON_CPA_ACK_STORAGE_KEY, 'true');
+            }
+        }
+
+        const activeAddr =
+            identity.activeAddress || 'kaspa:sovereign-tax-fortress';
+        if (browser) {
+            localStorage.setItem(
+                `perennia_tax_escrow_cfg_${activeAddr.toLowerCase()}`,
+                JSON.stringify({
+                    enabled: true,
+                    mode: escrowReserveMode,
+                    ilAck: impermanentLossAcknowledged
+                })
+            );
+        }
+
+        ui.triggerMicroBadge(
+            'tax_escrow_card',
+            escrowReserveMode === 'USDC_RESERVE'
+                ? '100% USDC ESCROW ARMED ✓'
+                : '50/50 KAS/USDC LP ARMED ✓',
+            '#18C6A5'
+        );
+
+        await fetch('/api/state/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'SET_TAX_ESCROW_AUTO_LP',
+                payload: {
+                    enabled: true,
+                    escrowMode: escrowReserveMode,
+                    impermanentLossAcknowledged,
+                    effectiveTaxRate: rateCalculation.effectiveRatePct,
+                    jurisdictionCode: rateCalculation.jurisdictionCode
+                }
+            })
+        }).catch(() => {});
+    }
+
+    async function withdrawTaxEscrowLpNow() {
+        if (escrowLpBalanceUsd <= 0 && !taxEscrowEnabled) return;
+        isWithdrawingEscrowLp = true;
+        try {
+            const withdrawnUsd = escrowLpBalanceUsd;
+            escrowLpBalanceUsd = 0;
+            taxEscrowEnabled = false;
+            const activeAddr =
+                identity.activeAddress || 'kaspa:sovereign-tax-fortress';
+            if (browser) {
+                localStorage.setItem(
+                    `perennia_tax_escrow_cfg_${activeAddr.toLowerCase()}`,
+                    JSON.stringify({
+                        enabled: false,
+                        mode: escrowReserveMode,
+                        ilAck: impermanentLossAcknowledged
+                    })
+                );
+            }
+            if (withdrawnUsd > 0) {
+                const currentUsdc = treasury.getAsset('USDC').synthetic || 0;
+                treasury.updateAsset('USDC', {
+                    synthetic: currentUsdc + withdrawnUsd
+                });
+            }
+            ui.triggerMicroBadge(
+                'tax_escrow_card',
+                `WITHDREW $${withdrawnUsd.toFixed(2)} ESCROW ✓`,
+                '#18C6A5'
+            );
+        } finally {
+            isWithdrawingEscrowLp = false;
+        }
+    }
+
+    async function handleGenerate1099Pdf() {
+        isGeneratingPdf = true;
+        try {
+            await generate1099DaAnd8949Pdf({
+                walletAddress:
+                    identity.activeAddress || 'kaspa:sovereign-tax-fortress',
+                jurisdictionCode: rateCalculation.jurisdictionCode,
+                entityType,
+                filingStatus,
+                effectiveTaxRate: rateCalculation.effectiveRatePct,
+                grossProceedsUsd: grossTaxableProceedsUsd,
+                estimatedLiabilityUsd: estimatedTaxLiabilityUsd,
+                escrowLpStakedUsd: taxEscrowEnabled
+                    ? estimatedTaxLiabilityUsd
+                    : escrowLpBalanceUsd,
+                escrowReserveMode,
+                localPii: {
+                    legalName,
+                    tinEin,
+                    businessAddress
+                },
+                hifoBundle,
+                events: displayedEvents
+            });
+            ui.triggerMicroBadge(
+                'tax_export_btn',
+                '1099-DA / 8949 PDF COMPILED ✓',
+                '#18C6A5'
+            );
+        } finally {
+            isGeneratingPdf = false;
+        }
+    }
+
+    function handleExportHifoCsv() {
+        exportHifoTaxLedgerCsv({
+            walletAddress:
+                identity.activeAddress || 'kaspa:sovereign-tax-fortress',
+            jurisdictionCode: rateCalculation.jurisdictionCode,
+            effectiveTaxRate: rateCalculation.effectiveRatePct,
+            escrowReserveMode,
+            events: displayedEvents,
+            hifoBundle
+        });
+        ui.triggerMicroBadge('tax_export_btn', 'HIFO CSV EXPORTED ✓', '#18C6A5');
+    }
+
+    onMount(() => {
+        syncTaxFortressData();
+    });
 </script>
 
 <div
-    class="w-full h-full min-h-[calc(100dvh-9rem)] p-4 md:p-8 overflow-y-auto hide-scrollbar relative bg-app font-mono text-neutral-300"
     data-testid="tax-fortress-view"
+    class="w-full min-h-[calc(100dvh-9rem)] p-4 md:p-6 lg:p-8 font-mono text-white max-w-[1680px] mx-auto pb-24 flex flex-col gap-5"
 >
-    <div class="max-w-[1680px] mx-auto pb-24 relative z-10 flex flex-col gap-6">
+    <!-- ONE-TIME COOKIE-STYLE NON-CPA ACKNOWLEDGMENT BANNER -->
+    {#if !nonCpaAcknowledged || showNonCpaNoticeDrawer}
         <div
-            class="tactile-card bg-[#0a0d12] border border-white/15 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
-            style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), rgba(59, 130, 246, 0.08) 50%, transparent 72%);"
+            data-testid="non-cpa-disclaimer-banner"
+            transition:slide={{ duration: 160 }}
+            class="bg-[#11161f] border border-amber-500/45 rounded-2xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl"
+            style="background-image: radial-gradient(ellipse at left, rgba(245, 158, 11, 0.12), transparent 65%);"
         >
-            {#if ui.microBadges['tax_fortress_header']}
-                <div
-                    class="micro-confirm-badge absolute top-4 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
+            <div class="flex items-start sm:items-center gap-3">
+                <span
+                    class="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/45 text-amber-400 text-[8px] font-black uppercase tracking-widest shrink-0 mt-0.5 sm:mt-0"
                 >
-                    {ui.microBadges['tax_fortress_header'].label}
-                </div>
-            {/if}
-
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-white/10 pb-5">
-                <div class="flex flex-col gap-2">
-                    <div class="flex flex-wrap items-center gap-2.5">
-                        <h1 class="text-xl md:text-2xl font-black uppercase tracking-[0.18em] text-white">
-                            Tax Fortress v4
-                        </h1>
-                        <span class="px-2.5 py-1 bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] rounded-lg uppercase tracking-widest font-black flex items-center gap-1.5">
-                            <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] animate-pulse"></span>
-                            ZERO-PII BROWSER VAULT
-                        </span>
-                        <span
-                            class="px-2.5 py-1 bg-[#11161f] border border-white/10 text-white text-[9px] rounded-lg uppercase tracking-widest font-bold"
-                            data-testid="active-jurisdiction-badge"
-                        >
-                            {taxBreakdown.jurisdictionCode} • {localProfile.entityType} ({localProfile.filingStatus})
-                        </span>
-                        {#if localProfile.countryCode === 'US' && selectedStateSpec.noIncomeTax}
-                            <span
-                                class="px-2.5 py-1 bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[9px] rounded-lg uppercase tracking-widest font-bold"
-                                data-testid="state-tax-rate-badge"
-                            >
-                                0.0% STATE TAX ({selectedStateSpec.code})
-                            </span>
-                        {:else}
-                            <span
-                                class="px-2.5 py-1 bg-[#11161f] border border-amber-500/35 text-amber-400 text-[9px] rounded-lg uppercase tracking-widest font-bold"
-                                data-testid="state-tax-rate-badge"
-                            >
-                                {taxBreakdown.stateTaxPct.toFixed(2)}% STATE TAX
-                            </span>
-                        {/if}
-                        {#if bankAccountLast4}
-                            <span class="px-2.5 py-1 bg-[#11161f] border border-blue-500/35 text-blue-400 text-[9px] rounded-lg uppercase tracking-widest font-bold">
-                                BANK RAIL: *{bankAccountLast4}
-                            </span>
-                        {/if}
-                    </div>
-                    <p class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
-                        2026 IRS &amp; State Jurisdiction Engine • Sec. 199A 20% QBI Pass-Through • Client-Side 1099-DA &amp; Form 8949 PDF Compiler
-                    </p>
-                </div>
-
-                <div class="flex flex-wrap gap-2.5 w-full lg:w-auto">
+                    PROTOCOL NOTICE
+                </span>
+                <p class="text-[10px] text-neutral-300 leading-relaxed">
+                    {NON_CPA_PROTOCOL_DISCLAIMER}
+                </p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 self-end md:self-center">
+                {#if nonCpaAcknowledged}
                     <button
                         type="button"
-                        data-testid="configure-jurisdiction-btn"
-                        onclick={() => (showJurisdictionDrawer = !showJurisdictionDrawer)}
-                        class="tactile-btn flex-1 lg:flex-none px-4 py-3 text-neutral-200 hover:text-white border-white/15 text-[9px] font-black uppercase tracking-widest rounded-xl cursor-pointer"
+                        onclick={() => (showNonCpaNoticeDrawer = false)}
+                        class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer whitespace-nowrap"
                     >
-                        {showJurisdictionDrawer
-                            ? '[ Hide 2026 Jurisdiction Matrix ▴ ]'
-                            : '[ Configure 2026 Jurisdiction & Zero-PII Profile ]'}
+                        Close ✕
                     </button>
+                {:else}
                     <button
                         type="button"
-                        onclick={exportCSV}
-                        class="tactile-btn flex-1 lg:flex-none px-4 py-3 text-neutral-300 hover:text-white text-[9px] font-bold uppercase tracking-widest rounded-xl cursor-pointer flex items-center justify-center gap-2"
-                    >
-                        <span>Export Raw CSV ↓</span>
-                    </button>
-                    <button
-                        type="button"
-                        data-testid="generate-1099-pdf-btn"
-                        onclick={compileClientSide1099DaPdf}
-                        disabled={isExporting}
-                        class="tactile-btn flex-1 lg:flex-none px-5 py-3 border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase tracking-widest rounded-xl cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                        data-testid="acknowledge-non-cpa-btn"
+                        onclick={acknowledgeNonCpaDisclaimer}
+                        class="tactile-btn px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/50 cursor-pointer whitespace-nowrap"
                         style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                     >
-                        {#if isExporting}
-                            <span>Compiling Local PDF...</span>
-                        {:else}
-                            <span>Generate 1099-DA / 8949 PDF ↓</span>
-                        {/if}
+                        I Understand &amp; Acknowledge ✓
                     </button>
-                </div>
+                {/if}
             </div>
+        </div>
+    {/if}
 
-            {#if profileFeedback}
-                <div
-                    transition:fade={{ duration: 150 }}
-                    class="p-3.5 rounded-xl border text-[10px] font-mono font-bold uppercase tracking-widest flex items-center justify-between {profileFeedback.type === 'success' ? 'bg-[#11161f] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-red-950/25 border-red-500/45 text-red-400'}"
+    <div
+        class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl"
+    >
+        <div class="flex flex-col gap-1">
+            <div class="flex items-center gap-2.5 flex-wrap">
+                <span
+                    class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"
+                ></span>
+                <h1
+                    class="text-sm md:text-base font-black uppercase tracking-widest text-white"
                 >
-                    <span>{profileFeedback.message}</span>
+                    Zero-PII Tax Fortress &amp; Passive HIFO Cost-Basis Engine
+                </h1>
+                <span
+                    class="px-2.5 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase"
+                >
+                    {rateCalculation.jurisdictionCode} • {entityType}
+                </span>
+                {#if nonCpaAcknowledged}
                     <button
                         type="button"
-                        onclick={() => (profileFeedback = null)}
-                        class="text-neutral-400 hover:text-white cursor-pointer"
+                        onclick={() =>
+                            (showNonCpaNoticeDrawer = !showNonCpaNoticeDrawer)}
+                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 hover:border-amber-500/40 text-neutral-400 hover:text-amber-400 text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors"
+                        title="View Protocol Non-CPA Disclaimer"
                     >
-                        ✕
+                        [ⓘ Non-CPA Notice]
                     </button>
+                {/if}
+            </div>
+            <p class="text-[11px] text-neutral-400">
+                Automated fair-market USD cost-basis lot stamping at block
+                settlement, Passive HIFO lot matching, and 100% client-side Form
+                1099-DA / 8949 PDF compilation.
+            </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5 relative">
+            {#if ui.microBadges['tax_profile_saved'] || ui.microBadges['tax_export_btn']}
+                <div
+                    class="micro-confirm-badge absolute -top-4 right-2 z-40 px-3 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
+                >
+                    {(
+                        ui.microBadges['tax_profile_saved'] ||
+                        ui.microBadges['tax_export_btn']
+                    ).label}
                 </div>
             {/if}
-
-            <!-- 4 KPI CARDS -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col justify-between">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Gross Taxable Proceeds
-                        </span>
-                        <span class="text-[8px] text-[#18C6A5] uppercase">
-                            Yield + Swaps
-                        </span>
-                    </div>
-                    <div class="text-2xl font-mono font-black text-white tracking-tight mt-2 tabular-nums">
-                        ${totalGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                    <span class="text-[8px] text-neutral-400 mt-1">
-                        Mining Yield: ${yieldProceedsUsd.toFixed(2)} • Dispositions: ${dispositionProceedsUsd.toFixed(2)}
-                    </span>
-                </div>
-
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col justify-between">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Verified Cost Basis
-                        </span>
-                        <span class="text-[8px] text-blue-400 uppercase">
-                            Fiat On-Ramps
-                        </span>
-                    </div>
-                    <div class="text-2xl font-mono font-black text-blue-400 tracking-tight mt-2 tabular-nums">
-                        ${estCostBasis.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                    <span class="text-[8px] text-neutral-400 mt-1">
-                        Net Taxable Gain: <strong class="text-white">${netGain.toFixed(2)}</strong>
-                    </span>
-                </div>
-
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col justify-between">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            2026 Effective Tax Rate
-                        </span>
-                        <span
-                            class="px-2 py-0.5 rounded bg-[#0a0d12] border border-amber-500/35 text-amber-400 text-[8px] font-black"
-                            data-testid="effective-tax-rate-display"
-                        >
-                            {taxBreakdown.compositeEffectivePct.toFixed(2)}%
-                        </span>
-                    </div>
-                    <div class="text-2xl font-mono font-black text-amber-400 tracking-tight mt-2 tabular-nums">
-                        ${estLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                    <span class="text-[8px] text-neutral-400 mt-1">
-                        Fed: {taxBreakdown.federalEffectivePct.toFixed(1)}% • State: {taxBreakdown.stateTaxPct.toFixed(1)}%
-                        {#if taxBreakdown.qbiDeductionPct > 0}
-                            • QBI: -{taxBreakdown.qbiDeductionPct.toFixed(0)}%
-                        {/if}
-                    </span>
-                </div>
-
-                <div
-                    class="bg-[#11161f] border rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden transition-colors {isEscrowActive ? 'border-[#18C6A5]/50' : 'border-white/10'}"
-                    style="background-image: radial-gradient(ellipse at top right, {isEscrowActive ? 'rgba(24, 198, 165, 0.16)' : 'transparent'}, transparent 70%);"
+            <button
+                type="button"
+                data-testid="configure-jurisdiction-btn"
+                onclick={() =>
+                    (showJurisdictionDrawer = !showJurisdictionDrawer)}
+                class="tactile-btn px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white border-white/15 cursor-pointer"
+            >
+                {showJurisdictionDrawer
+                    ? 'Close Jurisdiction ▴'
+                    : '[ Configure Jurisdiction & Profile ]'}
+            </button>
+            <div class="flex items-center gap-2">
+                <button
+                    type="button"
+                    data-testid="generate-1099-pdf-btn"
+                    onclick={handleGenerate1099Pdf}
+                    disabled={isGeneratingPdf}
+                    class="tactile-btn px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
+                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
                 >
-                    <div class="flex justify-between items-start relative z-10">
-                        <div class="flex flex-col">
-                            <span class="text-[9px] font-bold uppercase tracking-widest {isEscrowActive ? 'text-[#18C6A5]' : 'text-neutral-400'}">
-                                Tax Escrow Auto-LP ({taxBreakdown.compositeEffectivePct.toFixed(1)}%)
-                            </span>
-                            <div class="text-2xl font-mono font-black {isEscrowActive ? 'text-white' : 'text-neutral-500'} tracking-tight mt-2 tabular-nums">
-                                ${(isEscrowActive ? Math.max(totalEscrowLockedEventsUsd, estLiability) : totalEscrowLockedEventsUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            aria-label="Toggle Escrow"
-                            data-testid="toggle-tax-escrow-btn"
-                            onclick={triggerEscrowToggle}
-                            class="w-11 h-6 rounded-full border transition-colors duration-300 relative {isEscrowActive ? 'bg-[#18C6A5]/20 border-[#18C6A5]/60' : 'bg-[#0a0d12] border-white/15'} cursor-pointer focus:outline-none shrink-0"
-                        >
-                            <div
-                                class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-all duration-300 shadow-sm {isEscrowActive ? 'bg-[#18C6A5] left-[22px]' : 'bg-neutral-500 left-[3px]'}"
-                            ></div>
-                        </button>
-                    </div>
-                    <span class="text-[8px] font-mono uppercase tracking-widest mt-1 {isEscrowActive ? 'text-[#18C6A5]' : 'text-neutral-500'}">
-                        {isEscrowActive
-                            ? `Locked in KAS/USDC LP until ${taxBreakdown.statutoryDeadline}`
-                            : `Click toggle to auto-escrow ${taxBreakdown.compositeEffectivePct.toFixed(1)}% of yields`}
+                    {isGeneratingPdf
+                        ? 'Compiling PDF...'
+                        : 'Generate 1099-DA / 8949 PDF ↓'}
+                </button>
+                <button
+                    type="button"
+                    data-testid="export-hifo-csv-btn"
+                    onclick={handleExportHifoCsv}
+                    class="tactile-btn px-3.5 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
+                >
+                    Export HIFO CSV ↓
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {#if showJurisdictionDrawer}
+        <form
+            data-testid="jurisdiction-config-form"
+            onsubmit={handleSaveJurisdictionProfile}
+            transition:slide={{ duration: 180 }}
+            class="bg-[#0a0d12] border border-[#18C6A5]/40 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5"
+            style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
+        >
+            <div
+                class="flex items-center justify-between border-b border-white/10 pb-3"
+            >
+                <div class="flex flex-col">
+                    <span
+                        class="text-xs font-black uppercase tracking-widest text-white"
+                    >
+                        Tax Authority, Entity Structure &amp; Zero-PII Local
+                        Vault
                     </span>
+                    <span class="text-[9px] text-neutral-400">
+                        All 50 US States + International Regimes • Sec. 199A 20%
+                        QBI Deduction Auto-Applied for Pass-Through Entities
+                    </span>
+                </div>
+                <span
+                    class="px-3 py-1 rounded-xl bg-[#11161f] border border-[#18C6A5]/40 text-xs font-black text-[#18C6A5]"
+                >
+                    Composite Rate: {rateCalculation.effectiveRatePct.toFixed(
+                        2
+                    )}%
+                </span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxCountrySelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Tax Authority / Country
+                    </label>
+                    <select
+                        id="taxCountrySelect"
+                        data-testid="tax-country-select"
+                        bind:value={countryCode}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    >
+                        {#each COUNTRY_TAX_MATRIX as c (c.code)}
+                            <option value={c.code}>{c.code} — {c.name}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxStateSelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        US State / Region
+                    </label>
+                    <select
+                        id="taxStateSelect"
+                        data-testid="tax-state-select"
+                        bind:value={stateRegion}
+                        disabled={countryCode !== 'US'}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none disabled:opacity-40"
+                    >
+                        {#each US_STATE_TAX_MATRIX as st (st.code)}
+                            <option value={st.code}>
+                                {st.code} — {st.name} ({st.ratePct.toFixed(2)}%)
+                            </option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxEntitySelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Entity Structure
+                    </label>
+                    <select
+                        id="taxEntitySelect"
+                        data-testid="tax-entity-select"
+                        bind:value={entityType}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    >
+                        {#each ENTITY_STRUCTURE_OPTIONS as ent (ent.id)}
+                            <option value={ent.id}>{ent.label}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxFilingSelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Filing Status
+                    </label>
+                    <select
+                        id="taxFilingSelect"
+                        data-testid="tax-filing-select"
+                        bind:value={filingStatus}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    >
+                        {#each FILING_STATUS_OPTIONS as fs (fs.id)}
+                            <option value={fs.id}>{fs.label}</option>
+                        {/each}
+                    </select>
                 </div>
             </div>
 
-            <!-- INLINE 2026 JURISDICTION & ZERO-PII CONFIGURATION MATRIX -->
-            {#if showJurisdictionDrawer}
-                <form
-                    onsubmit={saveZeroPiiJurisdictionProfile}
-                    transition:slide={{ duration: 180 }}
-                    class="bg-[#11161f] border border-white/15 rounded-2xl p-6 flex flex-col gap-5 mt-1"
-                    data-testid="jurisdiction-config-form"
-                >
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3.5">
-                        <div class="flex flex-col">
-                            <span class="text-xs font-black uppercase tracking-widest text-white">
-                                2026 Jurisdiction &amp; Zero-PII Tax Engine Configuration
-                            </span>
-                            <span class="text-[9px] text-neutral-400 mt-0.5">
-                                Legal Name, TIN/EIN, and Street Address stay 100% inside your browser's localStorage for PDF printing. Only anonymous jurisdiction rate telemetry is synced to Chronos.
-                            </span>
-                        </div>
-                        <span class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-[#18C6A5]/35 text-[#18C6A5] text-[8px] font-black uppercase shrink-0">
-                            NO CUSTODIAL BROKER PII
+            <div
+                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+            >
+                <div class="flex items-center gap-3">
+                    <input
+                        id="cpaOverrideToggle"
+                        type="checkbox"
+                        bind:checked={useCustomOverride}
+                        class="w-4 h-4 accent-[#18C6A5] cursor-pointer"
+                    />
+                    <label
+                        for="cpaOverrideToggle"
+                        class="text-[10px] font-bold uppercase tracking-wider text-neutral-200 cursor-pointer"
+                    >
+                        Enable CPA Custom Withholding Rate Override ({customOverrideRate.toFixed(
+                            1
+                        )}%)
+                    </label>
+                </div>
+                {#if useCustomOverride}
+                    <div class="flex items-center gap-3 flex-1 max-w-md">
+                        <input
+                            type="range"
+                            min="0"
+                            max="50"
+                            step="0.5"
+                            bind:value={customOverrideRate}
+                            class="w-full custom-range-slider cursor-pointer"
+                        />
+                        <span
+                            class="text-xs font-black text-[#18C6A5] w-14 text-right"
+                        >
+                            {customOverrideRate.toFixed(1)}%
                         </span>
                     </div>
+                {/if}
+            </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
-                        <div class="flex flex-col gap-1.5">
-                            <label for="taxCountrySelect" class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                                Country / Tax Authority
-                            </label>
-                            <select
-                                id="taxCountrySelect"
-                                data-testid="tax-country-select"
-                                bind:value={localProfile.countryCode}
-                                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none cursor-pointer"
-                            >
-                                {#each INTERNATIONAL_JURISDICTIONS as c (c.code)}
-                                    <option value={c.code}>{c.code} — {c.name}</option>
-                                {/each}
-                            </select>
-                        </div>
+            <div
+                class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#11161f] border border-amber-500/30 rounded-2xl p-4"
+            >
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="legalName"
+                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                    >
+                        Legal / Entity Name (Local AES-256-GCM Only)
+                    </label>
+                    <input
+                        id="legalName"
+                        type="text"
+                        bind:value={legalName}
+                        placeholder="Perennia Mining Holdings, LLC"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                    />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="tinEin"
+                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                    >
+                        Tax ID / EIN / SSN (Local Browser Only)
+                    </label>
+                    <input
+                        id="tinEin"
+                        type="text"
+                        bind:value={tinEin}
+                        placeholder="XX-XXXXXXX"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                    />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="businessAddress"
+                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                    >
+                        Domicile Address (Local PDF Stamp Only)
+                    </label>
+                    <input
+                        id="businessAddress"
+                        type="text"
+                        bind:value={businessAddress}
+                        placeholder="Richardson, TX 75080"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                    />
+                </div>
+            </div>
 
-                        {#if localProfile.countryCode === 'US'}
-                            <div class="flex flex-col gap-1.5">
-                                <label for="taxStateSelect" class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                                    US State (0.0% States Highlighted)
-                                </label>
-                                <select
-                                    id="taxStateSelect"
-                                    data-testid="tax-state-select"
-                                    bind:value={localProfile.stateRegion}
-                                    class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none cursor-pointer"
-                                >
-                                    {#each US_STATE_TAX_MATRIX as st (st.code)}
-                                        <option value={st.code}>
-                                            {st.code} — {st.name} ({st.ratePct.toFixed(2)}%{st.noIncomeTax ? ' • NO STATE TAX' : ''})
-                                        </option>
-                                    {/each}
-                                </select>
-                            </div>
-                        {:else}
-                            <div class="flex flex-col gap-1.5">
-                                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                                    International Regime Note
-                                </span>
-                                <div class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-[10px] text-[#18C6A5] font-mono">
-                                    {selectedCountrySpec.note}
-                                </div>
-                            </div>
-                        {/if}
+            <div class="flex justify-end gap-3">
+                <button
+                    type="button"
+                    onclick={() => (showJurisdictionDrawer = false)}
+                    class="tactile-btn px-5 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    data-testid="save-tax-profile-btn"
+                    disabled={isSavingProfile}
+                    class="tactile-btn px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/50 cursor-pointer"
+                >
+                    {isSavingProfile
+                        ? 'Saving...'
+                        : `Save ${rateCalculation.jurisdictionCode} Profile ✓`}
+                </button>
+            </div>
+        </form>
+    {/if}
 
-                        <div class="flex flex-col gap-1.5">
-                            <label for="entityType" class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                                Entity Structure (Sec. 199A / Corp)
-                            </label>
-                            <select
-                                id="entityType"
-                                data-testid="tax-entity-select"
-                                bind:value={localProfile.entityType}
-                                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none cursor-pointer"
-                            >
-                                <option value="LLC">LLC (20% Sec. 199A QBI Deduction)</option>
-                                <option value="S-CORP">S-Corp (20% QBI + SE Shield)</option>
-                                <option value="C-CORP">C-Corp (21.0% Flat Federal Rate)</option>
-                                <option value="PARTNERSHIP">Partnership (20% Sec. 199A QBI)</option>
-                                <option value="INDIVIDUAL">Individual / Sole Proprietor</option>
-                            </select>
-                        </div>
-
-                        <div class="flex flex-col gap-1.5">
-                            <label for="filingStatus" class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                                2026 IRS Filing Status
-                            </label>
-                            <select
-                                id="filingStatus"
-                                data-testid="tax-filing-status-select"
-                                bind:value={localProfile.filingStatus}
-                                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none cursor-pointer"
-                            >
-                                <option value="SINGLE">Single ($16,100 Std Deduction)</option>
-                                <option value="MFJ">Married Filing Jointly ($32,200 Std)</option>
-                                <option value="HOH">Head of Household ($24,150 Std)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center bg-[#0a0d12] border border-white/10 rounded-2xl p-4">
-                        <div class="lg:col-span-4 flex flex-col gap-1.5">
-                            <label for="annualIncome" class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                                Estimated Annual Baseline Income (USD)
-                            </label>
-                            <input
-                                id="annualIncome"
-                                data-testid="tax-income-input"
-                                type="number"
-                                step="5000"
-                                min="0"
-                                bind:value={localProfile.annualIncomeUsd}
-                                class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-white outline-none"
-                            />
-                        </div>
-
-                        <div class="lg:col-span-8 flex flex-col gap-2">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <div class="flex items-center gap-2.5">
-                                    <button
-                                        type="button"
-                                        data-testid="cpa-override-toggle"
-                                        onclick={() => {
-                                            localProfile.useCustomOverride = !localProfile.useCustomOverride;
-                                            if (localProfile.useCustomOverride) {
-                                                localProfile.customOverrideRate = taxBreakdown.compositeEffectivePct;
-                                            }
-                                        }}
-                                        class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase cursor-pointer {localProfile.useCustomOverride ? 'text-amber-400 border-amber-500/45' : 'text-neutral-400'}"
-                                    >
-                                        {localProfile.useCustomOverride ? '✓ CPA Custom Override Active' : '[ Enable CPA Custom Override ]'}
-                                    </button>
-                                    <span class="text-[9px] text-neutral-400">
-                                        {localProfile.useCustomOverride
-                                            ? `Manual Override: ${Number(localProfile.customOverrideRate).toFixed(1)}%`
-                                            : `Auto-Calculated 2026 Rate: ${taxBreakdown.compositeEffectivePct.toFixed(2)}%`}
-                                    </span>
-                                </div>
-                                <span class="text-[9px] font-mono text-[#18C6A5] font-bold">
-                                    Effective Withholding: {taxBreakdown.compositeEffectivePct.toFixed(2)}%
-                                </span>
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="50"
-                                step="0.1"
-                                data-testid="cpa-override-slider"
-                                value={localProfile.useCustomOverride ? localProfile.customOverrideRate : taxBreakdown.compositeEffectivePct}
-                                oninput={(e) => {
-                                    localProfile.useCustomOverride = true;
-                                    localProfile.customOverrideRate = parseFloat((e.currentTarget as HTMLInputElement).value) || 0;
-                                }}
-                                class="w-full custom-range-slider cursor-pointer"
-                            />
-                        </div>
-                    </div>
-
-                    <!-- Optional Local-Only PDF Printing Fields -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                        <div class="flex flex-col gap-1">
-                            <label for="legalName" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">
-                                Local PDF Legal / Entity Name (Browser Only)
-                            </label>
-                            <input
-                                id="legalName"
-                                type="text"
-                                bind:value={localProfile.legalName}
-                                placeholder="Perennia Holdings, LLC"
-                                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-1">
-                            <label for="tin" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">
-                                Local PDF TIN / EIN (Never Sent to Server)
-                            </label>
-                            <input
-                                id="tin"
-                                type="text"
-                                bind:value={localProfile.tin}
-                                placeholder="XX-XXXXXXX"
-                                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-1">
-                            <label for="address" class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">
-                                Local PDF Domicile Address (Browser Only)
-                            </label>
-                            <input
-                                id="address"
-                                type="text"
-                                bind:value={localProfile.address}
-                                placeholder="Richardson, TX 75080"
-                                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
-                            />
-                        </div>
-                    </div>
-
-                    <div class="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-white/10">
-                        <div class="text-[9px] text-neutral-400 font-mono">
-                            2026 Std Deduction: <strong class="text-white">${taxBreakdown.standardDeduction.toLocaleString()}</strong> •
-                            Marginal Bracket: <strong class="text-white">{taxBreakdown.marginalBracketPct}%</strong> •
-                            Statutory Deadline: <strong class="text-[#18C6A5]">{taxBreakdown.statutoryDeadline}</strong>
-                        </div>
-                        <div class="flex items-center gap-2.5">
-                            <button
-                                type="button"
-                                onclick={() => (showJurisdictionDrawer = false)}
-                                class="tactile-btn px-4 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                data-testid="save-tax-profile-btn"
-                                disabled={isSavingProfile}
-                                class="tactile-btn px-5 py-2.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
-                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
-                            >
-                                {isSavingProfile
-                                    ? 'Syncing Zero-PII Rate...'
-                                    : `Save ${taxBreakdown.jurisdictionCode} Profile (${taxBreakdown.compositeEffectivePct.toFixed(2)}%) ✓`}
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            {/if}
+    <!-- 4 SUMMARY TELEMETRY CARDS -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div
+            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
+        >
+            <span
+                class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+            >
+                Gross Taxable Proceeds (YTD)
+            </span>
+            <span class="text-2xl font-black text-white tabular-nums">
+                ${grossTaxableProceedsUsd.toFixed(2)}
+            </span>
+            <span class="text-[9px] text-neutral-500">
+                {displayedEvents.length} Verified Settlement &amp; Swap Events
+            </span>
         </div>
 
-        <!-- EXECUTION HISTORY TABLE -->
-        <div class="w-full border border-white/10 rounded-[28px] bg-[#0a0d12] overflow-hidden shadow-2xl flex-1 flex flex-col min-h-[480px]">
-            <div class="bg-[#11161f] border-b border-white/10 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div class="flex items-center gap-3">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
-                        Immutable Form 8949 / 1099-DA Execution Ledger
-                    </span>
-                    {#if identity.isWalletConnected}
-                        <div class="flex items-center gap-2 bg-[#0a0d12] border border-white/10 px-2.5 py-1 rounded-lg">
-                            <div class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] animate-pulse"></div>
-                            <span class="text-[8px] font-mono text-[#18C6A5] uppercase tracking-widest">
-                                Live WAL Indexing
-                            </span>
-                        </div>
-                    {/if}
-                </div>
+        <div
+            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
+        >
+            <span
+                class="text-[9px] font-bold uppercase tracking-widest text-blue-400"
+            >
+                Passive HIFO Cost-Basis Pool
+            </span>
+            <span class="text-2xl font-black text-blue-400 tabular-nums">
+                ${Number(hifoBundle.summary.openCostBasisUsd || 0).toFixed(2)}
+            </span>
+            <span class="text-[9px] text-neutral-400">
+                Matched 8949 Basis: ${Number(
+                    hifoBundle.summary.totalMatchedCostBasisUsd || 0
+                ).toFixed(2)} • Realized Gain: ${Number(
+                    hifoBundle.summary.netRealizedGainLossUsd || 0
+                ).toFixed(2)}
+            </span>
+        </div>
 
-                <div class="flex flex-wrap items-center gap-1.5">
-                    {#each [
-                        { id: 'ALL', label: `All (${ui.taxEvents.length})` },
-                        { id: 'YIELD', label: 'Mining Yield' },
-                        { id: 'DISPOSITION', label: 'Swaps & Off-Ramps' },
-                        { id: 'BASIS', label: 'On-Ramp Basis' },
-                        { id: 'ESCROW', label: 'Tax Escrow LP' }
-                    ] as tab (tab.id)}
+        <div
+            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
+        >
+            <div class="flex items-center justify-between">
+                <span
+                    class="text-[9px] font-bold uppercase tracking-widest text-[#18C6A5]"
+                >
+                    Effective Tax Rate ({rateCalculation.jurisdictionCode})
+                </span>
+                {#if rateCalculation.qbiDiscountApplied}
+                    <span
+                        class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold"
+                    >
+                        20% QBI APPLIED
+                    </span>
+                {/if}
+            </div>
+            <span
+                data-testid="effective-tax-rate-display"
+                class="text-2xl font-black text-[#18C6A5] tabular-nums"
+            >
+                {rateCalculation.effectiveRatePct.toFixed(2)}%
+            </span>
+            <span class="text-[9px] text-neutral-400">
+                Est. Tax Liability: <strong class="text-white"
+                    >${estimatedTaxLiabilityUsd.toFixed(2)} USD</strong
+                >
+            </span>
+        </div>
+
+        <!-- CARD 4: TAX ESCROW RESERVE (100% USDC VS 50/50 KAS/USDC AUTO-LP) -->
+        <div
+            class="tactile-card bg-[#0a0d12] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-5 flex flex-col justify-between gap-2 relative"
+        >
+            {#if ui.microBadges['tax_escrow_card']}
+                <div
+                    class="micro-confirm-badge absolute -top-3 right-3 px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
+                >
+                    {ui.microBadges['tax_escrow_card'].label}
+                </div>
+            {/if}
+            <div class="flex items-center justify-between gap-2">
+                <span
+                    class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                >
+                    {escrowReserveMode === 'USDC_RESERVE'
+                        ? 'Tax Escrow (100% USDC Reserve)'
+                        : 'Tax Escrow (50/50 KAS/USDC LP)'}
+                </span>
+                <button
+                    type="button"
+                    data-testid="toggle-tax-escrow-btn"
+                    aria-label="Toggle Tax Escrow Reserve"
+                    onclick={handleToggleTaxEscrow}
+                    class="w-10 h-5 rounded-full border transition-colors relative cursor-pointer shrink-0 {taxEscrowEnabled ? 'bg-[#18C6A5]/25 border-[#18C6A5]' : 'bg-[#11161f] border-white/15'}"
+                >
+                    <span
+                        class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all {taxEscrowEnabled ? 'bg-[#18C6A5] left-[22px]' : 'bg-neutral-500 left-1'}"
+                    ></span>
+                </button>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <span
+                    data-testid="tax-escrow-balance-display"
+                    class="text-xl font-black text-white tabular-nums"
+                >
+                    ${(taxEscrowEnabled
+                        ? estimatedTaxLiabilityUsd
+                        : escrowLpBalanceUsd
+                    ).toFixed(2)}
+                </span>
+                <div class="flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        onclick={() => (showEscrowModal = true)}
+                        class="tactile-btn px-2 py-1 rounded-lg text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                        [Mode]
+                    </button>
+                    {#if taxEscrowEnabled || escrowLpBalanceUsd > 0}
                         <button
                             type="button"
-                            onclick={() => (activeEventFilter = tab.id as any)}
-                            class="px-3 py-1.5 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer transition-colors {activeEventFilter === tab.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'bg-[#0a0d12] text-neutral-400 hover:text-white border border-white/5'}"
+                            data-testid="withdraw-tax-escrow-lp-btn"
+                            onclick={withdrawTaxEscrowLpNow}
+                            disabled={isWithdrawingEscrowLp}
+                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
                         >
-                            {tab.label}
+                            [Withdraw Now]
                         </button>
-                    {/each}
+                    {/if}
                 </div>
             </div>
+            <span class="text-[9px] text-neutral-400">
+                {#if taxEscrowEnabled}
+                    {escrowReserveMode === 'USDC_RESERVE'
+                        ? '100% USDC Stable Reserve • Zero Impermanent Loss'
+                        : '50/50 KAS/USDC Auto-LP • Earns Pool Fees (IL Risk)'}
+                {:else}
+                    Est. Reserve Target: ${estimatedTaxLiabilityUsd.toFixed(2)} USD
+                    ({rateCalculation.effectiveRatePct.toFixed(2)}%)
+                {/if}
+            </span>
+        </div>
+    </div>
 
-            <div class="flex-1 overflow-x-auto">
-                <table class="w-full text-left border-collapse whitespace-nowrap">
+    <div
+        class="bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl flex flex-col gap-4"
+    >
+        <div
+            class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3"
+        >
+            <div class="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    data-testid="tax-mode-executions-btn"
+                    onclick={() => (activeLedgerTab = 'EXECUTIONS')}
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'EXECUTIONS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
+                >
+                    01. Real-Time Execution Ledger ({displayedEvents.length})
+                </button>
+                <button
+                    type="button"
+                    data-testid="tax-mode-hifo-lots-btn"
+                    onclick={() => (activeLedgerTab = 'HIFO_LOTS')}
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'HIFO_LOTS' ? 'text-blue-400 border-blue-500/45' : 'text-neutral-400'}"
+                >
+                    02. Passive HIFO Cost-Basis Lots ({hifoBundle.lots.length})
+                </button>
+                <button
+                    type="button"
+                    data-testid="tax-mode-dispositions-btn"
+                    onclick={() => (activeLedgerTab = 'DISPOSITIONS')}
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'DISPOSITIONS' ? 'text-amber-400 border-amber-500/45' : 'text-neutral-400'}"
+                >
+                    03. Schedule D Matched Dispositions ({hifoBundle
+                        .disposalMatches.length})
+                </button>
+            </div>
+            <span class="text-[9px] text-neutral-400 uppercase">
+                Accounting: Passive HIFO (Highest Cost-Basis Consumed First)
+            </span>
+        </div>
+
+        {#if activeLedgerTab === 'EXECUTIONS'}
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
                     <thead>
-                        <tr class="border-b border-white/10 bg-[#0a0d12]">
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Timestamp</th>
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Event Classification</th>
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Asset</th>
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-right">Quantity</th>
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-right">USD Proceeds / Basis</th>
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500 text-right">Est. Withholding ({taxBreakdown.compositeEffectivePct.toFixed(1)}%)</th>
-                            <th class="py-3.5 px-6 text-[9px] font-bold uppercase tracking-widest text-neutral-500">Reference</th>
+                        <tr
+                            class="border-b border-white/10 text-[9px] uppercase tracking-widest text-neutral-400"
+                        >
+                            <th class="py-3 px-3">Timestamp</th>
+                            <th class="py-3 px-3">Event Type</th>
+                            <th class="py-3 px-3">Asset &amp; Qty</th>
+                            <th class="py-3 px-3">Spot FMV</th>
+                            <th class="py-3 px-3">Proceeds (USD)</th>
+                            <th class="py-3 px-3">HIFO Basis</th>
+                            <th class="py-3 px-3">Realized Gain/Loss</th>
+                            <th class="py-3 px-3 text-right">Audit Trail</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {#if !identity.isWalletConnected || filteredTaxEvents.length === 0}
-                            <tr>
-                                <td colspan="7" class="py-20 text-center bg-[#0a0d12]">
-                                    <div class="flex flex-col items-center justify-center gap-2">
-                                        <p class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest font-bold">
-                                            0 Matching Tax Events Indexed
-                                        </p>
-                                        <span class="text-[9px] text-neutral-600">
-                                            Epoch mining rewards, DEX swaps, fiat on/off-ramps, and Tax Escrow Auto-LP settlements appear here automatically.
-                                        </span>
-                                    </div>
+                    <tbody class="divide-y divide-white/5 text-[11px]">
+                        {#each displayedEvents as ev (ev.id)}
+                            <tr
+                                class="hover:bg-[#11161f]/60 transition-colors"
+                            >
+                                <td class="py-3 px-3 text-neutral-300"
+                                    >{ev.timestamp}</td
+                                >
+                                <td class="py-3 px-3 font-bold text-white"
+                                    >{ev.type}</td
+                                >
+                                <td class="py-3 px-3 font-bold text-[#18C6A5]">
+                                    {Number(ev.amount || 0).toLocaleString()}
+                                    {ev.asset?.ticker || 'KAS'}
+                                </td>
+                                <td class="py-3 px-3 text-neutral-300">
+                                    ${Number(
+                                        ev.spotPriceAtExecution || 0
+                                    ).toFixed(4)}
+                                </td>
+                                <td class="py-3 px-3 font-bold text-white">
+                                    ${Number(ev.usdValueAtTime || 0).toFixed(2)}
+                                </td>
+                                <td class="py-3 px-3 text-blue-400">
+                                    ${Number(
+                                        ev.costBasisUsd ??
+                                            ev.usdValueAtTime ??
+                                            0
+                                    ).toFixed(2)}
+                                </td>
+                                <td
+                                    class="py-3 px-3 font-bold {Number(
+                                        ev.realizedGainLossUsd || 0
+                                    ) >= 0
+                                        ? 'text-[#18C6A5]'
+                                        : 'text-amber-400'}"
+                                >
+                                    {Number(ev.realizedGainLossUsd || 0) >= 0
+                                        ? '+'
+                                        : ''}${Number(
+                                        ev.realizedGainLossUsd || 0
+                                    ).toFixed(2)}
+                                </td>
+                                <td class="py-3 px-3 text-right">
+                                    {#if ev.explorerUrl}
+                                        <a
+                                            href={ev.explorerUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="text-[10px] text-[#18C6A5] hover:underline"
+                                        >
+                                            Explorer ↗
+                                        </a>
+                                    {:else}
+                                        <span class="text-neutral-500"
+                                            >Internal</span
+                                        >
+                                    {/if}
                                 </td>
                             </tr>
-                        {:else}
-                            {#each filteredTaxEvents as event}
-                                {@const isBasis = event.rawEventType === 'FIAT_ONRAMP' || event.type === 'Fiat On-Ramp'}
-                                {@const isEscrow = event.rawEventType === 'TAX_ESCROW_LP' || event.type === 'Tax Escrow Auto-LP'}
-                                {@const estRowTax = isBasis || isEscrow ? 0 : Number(event.usdValueAtTime || 0) * (taxBreakdown.compositeEffectivePct / 100.0)}
-                                <tr class="border-b border-white/5 hover:bg-[#11161f]/70 transition-colors group">
-                                    <td class="py-3.5 px-6 font-mono text-[10px] text-neutral-400">{event.timestamp}</td>
-                                    <td class="py-3.5 px-6">
-                                        <span
-                                            class="px-2.5 py-1 rounded-md text-[8px] font-mono uppercase tracking-widest font-bold border {isEscrow ? 'bg-[#18C6A5]/10 border-[#18C6A5]/40 text-[#18C6A5]' : isBasis ? 'bg-blue-500/10 border-blue-500/40 text-blue-400' : 'bg-[#11161f] border-white/10 text-neutral-200'}"
-                                        >
-                                            {event.type}
-                                        </span>
-                                    </td>
-                                    <td class="py-3.5 px-6">
-                                        <div class="flex items-center gap-2">
-                                            <div
-                                                class="w-2 h-2 rounded-full"
-                                                style="background-color: {event.asset?.color || '#18C6A5'};"
-                                            ></div>
-                                            <span class="font-bold font-mono text-[11px] text-white">
-                                                {event.asset?.ticker || 'KAS'}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td class="py-3.5 px-6 text-right font-mono text-[11px] text-white tabular-nums">
-                                        {Number(event.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 6 })}
-                                    </td>
-                                    <td class="py-3.5 px-6 text-right font-mono text-[11px] text-neutral-200 tabular-nums">
-                                        ${Number(event.usdValueAtTime || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </td>
-                                    <td class="py-3.5 px-6 text-right font-mono text-[10px] {isEscrow ? 'text-[#18C6A5]' : isBasis ? 'text-blue-400' : 'text-amber-400'} tabular-nums">
-                                        {#if isEscrow}
-                                            LOCKED IN LP
-                                        {:else if isBasis}
-                                            COST BASIS
-                                        {:else}
-                                            ${estRowTax.toFixed(2)}
-                                        {/if}
-                                    </td>
-                                    <td class="py-3.5 px-6 font-mono text-[10px] text-[#18C6A5] select-all">
-                                        {event.txHash}
-                                    </td>
-                                </tr>
-                            {/each}
+                        {/each}
+                        {#if displayedEvents.length === 0}
+                            <tr>
+                                <td
+                                    colspan="8"
+                                    class="py-8 text-center text-[10px] uppercase tracking-widest text-neutral-500"
+                                >
+                                    No taxable execution events recorded yet for
+                                    this wallet.
+                                </td>
+                            </tr>
                         {/if}
                     </tbody>
                 </table>
             </div>
-        </div>
+        {:else if activeLedgerTab === 'HIFO_LOTS'}
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr
+                            class="border-b border-white/10 text-[9px] uppercase tracking-widest text-neutral-400"
+                        >
+                            <th class="py-3 px-3">HIFO Lot ID</th>
+                            <th class="py-3 px-3">Acquired (UTC)</th>
+                            <th class="py-3 px-3">Remaining / Initial</th>
+                            <th class="py-3 px-3">FMV Cost / Token</th>
+                            <th class="py-3 px-3">Remaining Cost Basis</th>
+                            <th class="py-3 px-3">Holding Period</th>
+                            <th class="py-3 px-3 text-right">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5 text-[11px]">
+                        {#each hifoBundle.lots as lot (lot.lotId)}
+                            <tr
+                                class="hover:bg-[#11161f]/60 transition-colors"
+                            >
+                                <td class="py-3 px-3 font-bold text-blue-400">
+                                    HIFO-{lot.lotId}
+                                </td>
+                                <td class="py-3 px-3 text-neutral-300">
+                                    {new Date(lot.acquiredAt).toLocaleString()}
+                                </td>
+                                <td class="py-3 px-3 text-white font-bold">
+                                    {Number(lot.remainingTokens || 0).toFixed(
+                                        2
+                                    )} / {Number(
+                                        lot.initialTokens || 0
+                                    ).toFixed(2)}
+                                    {lot.assetTicker}
+                                </td>
+                                <td class="py-3 px-3 text-[#18C6A5] font-bold">
+                                    ${Number(lot.fmvUsdPerToken || 0).toFixed(
+                                        4
+                                    )}
+                                </td>
+                                <td class="py-3 px-3 text-white font-bold">
+                                    ${Number(
+                                        lot.remainingCostBasisUsd || 0
+                                    ).toFixed(2)}
+                                </td>
+                                <td class="py-3 px-3 text-neutral-300">
+                                    {lot.holdingDays}d ({lot.isLongTerm
+                                        ? 'LONG-TERM >365D'
+                                        : 'SHORT-TERM'})
+                                </td>
+                                <td class="py-3 px-3 text-right">
+                                    <span
+                                        class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[9px] font-bold text-[#18C6A5]"
+                                    >
+                                        {lot.status}
+                                    </span>
+                                </td>
+                            </tr>
+                        {/each}
+                        {#if hifoBundle.lots.length === 0}
+                            <tr>
+                                <td
+                                    colspan="7"
+                                    class="py-8 text-center text-[10px] uppercase tracking-widest text-neutral-500"
+                                >
+                                    No open Passive HIFO cost-basis lots
+                                    recorded yet.
+                                </td>
+                            </tr>
+                        {/if}
+                    </tbody>
+                </table>
+            </div>
+        {:else}
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr
+                            class="border-b border-white/10 text-[9px] uppercase tracking-widest text-neutral-400"
+                        >
+                            <th class="py-3 px-3">Form 8949 Match ID</th>
+                            <th class="py-3 px-3">Matched HIFO Lot</th>
+                            <th class="py-3 px-3">Disposed Qty</th>
+                            <th class="py-3 px-3">Proceeds (USD)</th>
+                            <th class="py-3 px-3">Matched Cost Basis</th>
+                            <th class="py-3 px-3">Realized Gain / Loss</th>
+                            <th class="py-3 px-3 text-right">Schedule D Term</th
+                            >
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5 text-[11px]">
+                        {#each hifoBundle.disposalMatches as match (match.matchId)}
+                            <tr
+                                class="hover:bg-[#11161f]/60 transition-colors"
+                            >
+                                <td class="py-3 px-3 font-bold text-amber-400">
+                                    {match.matchId}
+                                </td>
+                                <td class="py-3 px-3 text-blue-400">
+                                    HIFO-{match.lotId}
+                                </td>
+                                <td class="py-3 px-3 font-bold text-white">
+                                    {Number(
+                                        match.disposedTokens || 0
+                                    ).toFixed(2)}
+                                    {match.assetTicker}
+                                </td>
+                                <td class="py-3 px-3 text-white">
+                                    ${Number(
+                                        match.grossProceedsUsd || 0
+                                    ).toFixed(2)}
+                                </td>
+                                <td class="py-3 px-3 text-blue-400">
+                                    ${Number(match.costBasisUsd || 0).toFixed(
+                                        2
+                                    )}
+                                </td>
+                                <td
+                                    class="py-3 px-3 font-bold {Number(
+                                        match.realizedGainLossUsd || 0
+                                    ) >= 0
+                                        ? 'text-[#18C6A5]'
+                                        : 'text-red-400'}"
+                                >
+                                    {Number(match.realizedGainLossUsd || 0) >=
+                                    0
+                                        ? '+'
+                                        : ''}${Number(
+                                        match.realizedGainLossUsd || 0
+                                    ).toFixed(2)}
+                                </td>
+                                <td
+                                    class="py-3 px-3 text-right text-neutral-300"
+                                >
+                                    {match.holdingPeriodDays}d ({match.isLongTerm
+                                        ? 'LONG-TERM'
+                                        : 'SHORT-TERM'})
+                                </td>
+                            </tr>
+                        {/each}
+                        {#if hifoBundle.disposalMatches.length === 0}
+                            <tr>
+                                <td
+                                    colspan="7"
+                                    class="py-8 text-center text-[10px] uppercase tracking-widest text-neutral-500"
+                                >
+                                    No Form 8949 matched dispositions recorded
+                                    yet.
+                                </td>
+                            </tr>
+                        {/if}
+                    </tbody>
+                </table>
+            </div>
+        {/if}
     </div>
 </div>
 
-{#if showEscrowLegal}
+<!-- TAX ESCROW RESERVE CONFIGURATION MODAL (MODE A: 100% USDC VS MODE B: 50/50 KAS/USDC AUTO-LP) -->
+{#if showEscrowModal}
     <div
-        class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#06080b]/95 backdrop-blur-sm font-mono"
-        transition:fade={{ duration: 180 }}
+        class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono"
+        transition:fade={{ duration: 150 }}
     >
         <div
-            class="absolute inset-0 w-full h-full cursor-default border-none"
-            onclick={() => (showEscrowLegal = false)}
-            role="presentation"
-        ></div>
-        <div
-            class="relative z-10 w-full max-w-[520px] bg-[#0a0d12] border border-white/15 rounded-[28px] shadow-2xl flex flex-col overflow-hidden"
+            class="w-full max-w-[580px] bg-[#0a0d12] border border-[#18C6A5]/50 rounded-[28px] p-6 shadow-2xl flex flex-col gap-4"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 65%);"
         >
-            <div class="px-6 pt-6 pb-4 border-b border-white/10 bg-[#11161f]">
-                <h3 class="text-white font-black tracking-widest text-sm mb-1 text-center uppercase">
-                    Dynamic Tax Escrow Auto-LP Agreement
-                </h3>
-                <span class="text-[9px] text-[#18C6A5] uppercase tracking-widest text-center block font-bold">
-                    {taxBreakdown.jurisdictionCode} • {localProfile.entityType} • {taxBreakdown.compositeEffectivePct.toFixed(2)}% Withholding Rate
-                </span>
+            <div
+                class="flex items-center justify-between border-b border-white/10 pb-3"
+            >
+                <div class="flex flex-col">
+                    <span
+                        class="text-xs font-black uppercase tracking-widest text-[#18C6A5]"
+                    >
+                        Configure Tax Escrow Reserve Mode
+                    </span>
+                    <span class="text-[9px] text-neutral-400 mt-0.5">
+                        Estimated Liability: ${estimatedTaxLiabilityUsd.toFixed(
+                            2
+                        )} USD ({rateCalculation.effectiveRatePct.toFixed(2)}%
+                        on ${netTaxableIncomeUsd.toFixed(2)} Net Taxable Income)
+                    </span>
+                </div>
+                <button
+                    type="button"
+                    onclick={() => (showEscrowModal = false)}
+                    class="text-neutral-400 hover:text-white text-xs cursor-pointer"
+                >
+                    ✕
+                </button>
             </div>
-            <div class="p-6 flex flex-col gap-4 text-neutral-300">
-                <p class="text-[11px] font-mono leading-relaxed">
-                    By activating this protocol, you authorize Perennia Chronos to dynamically intercept <span class="text-[#18C6A5] font-bold">{taxBreakdown.compositeEffectivePct.toFixed(2)}%</span> of settled mining yields generated within this command center.
-                </p>
-                <div class="bg-[#11161f] border border-white/10 p-4 rounded-xl shadow-inner">
-                    <ul class="text-[10px] uppercase tracking-wider font-bold flex flex-col gap-3 text-neutral-300">
-                        <li class="flex gap-2">
-                            <span class="text-[#18C6A5]">01.</span>
-                            <span>
-                                Withheld yields are paired 50/50 into a timelocked <strong class="text-white">KAS/USDC Tax Escrow LP</strong> position earning pool settlement fees while escrowed.
-                            </span>
-                        </li>
-                        <li class="flex gap-2">
-                            <span class="text-[#18C6A5]">02.</span>
-                            <span>
-                                <strong class="text-amber-400">STATUTORY MATURITY DATE:</strong> Escrowed LP liquidity unlocks on <strong class="text-white">{taxBreakdown.statutoryDeadline}</strong> ({localProfile.entityType} tax filing deadline).
-                            </span>
-                        </li>
-                        <li class="flex gap-2">
-                            <span class="text-[#18C6A5]">03.</span>
-                            <span>
-                                Every escrow lock-up is recorded as <strong class="text-[#18C6A5]">TAX_ESCROW_LP</strong> in your Form 1099-DA &amp; Form 8949 worksheet with zero PII stored on the server.
-                            </span>
-                        </li>
-                    </ul>
-                </div>
-                <div class="flex gap-3 pt-2">
-                    <button
-                        type="button"
-                        onclick={() => (showEscrowLegal = false)}
-                        class="tactile-btn flex-1 py-3.5 text-neutral-400 hover:text-white font-bold uppercase tracking-widest text-[10px] rounded-xl cursor-pointer"
+
+            <!-- MODE SELECTOR: MODE A (100% USDC) VS MODE B (50/50 KAS/USDC LP) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                    type="button"
+                    data-testid="escrow-mode-usdc-btn"
+                    onclick={() => (escrowReserveMode = 'USDC_RESERVE')}
+                    class="p-4 rounded-2xl text-left border transition-all cursor-pointer flex flex-col gap-1.5 {escrowReserveMode ===
+                    'USDC_RESERVE'
+                        ? 'bg-[#161d29] border-[#18C6A5] text-white shadow-lg'
+                        : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                >
+                    <div class="flex items-center justify-between">
+                        <span
+                            class="text-[9px] font-black uppercase text-[#18C6A5]"
+                            >MODE A • DEFAULT</span
+                        >
+                        <span
+                            class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-bold"
+                        >
+                            ZERO IL RISK
+                        </span>
+                    </div>
+                    <span class="text-xs font-black uppercase text-white">
+                        100% USDC Stable Reserve
+                    </span>
+                    <span class="text-[9px] text-neutral-300 leading-relaxed">
+                        Converts withheld tax into pure USDC so the exact dollar
+                        value is preserved with zero market volatility or
+                        impermanent loss.
+                    </span>
+                </button>
+
+                <button
+                    type="button"
+                    data-testid="escrow-mode-lp-btn"
+                    onclick={() => (escrowReserveMode = 'KAS_USDC_LP')}
+                    class="p-4 rounded-2xl text-left border transition-all cursor-pointer flex flex-col gap-1.5 {escrowReserveMode ===
+                    'KAS_USDC_LP'
+                        ? 'bg-[#161d29] border-amber-500 text-white shadow-lg'
+                        : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                >
+                    <div class="flex items-center justify-between">
+                        <span
+                            class="text-[9px] font-black uppercase text-amber-400"
+                            >MODE B • YIELD-BEARING</span
+                        >
+                        <span
+                            class="px-2 py-0.5 rounded bg-[#0a0d12] border border-amber-500/40 text-amber-400 text-[8px] font-bold"
+                        >
+                            IL &amp; VOLATILITY RISK
+                        </span>
+                    </div>
+                    <span class="text-xs font-black uppercase text-white">
+                        50/50 KAS/USDC Auto-LP
+                    </span>
+                    <span class="text-[9px] text-neutral-300 leading-relaxed">
+                        Pairs withheld tax into a 0-day lockup 50/50 KAS/USDC
+                        liquidity position to earn pool settlement fees (exposed
+                        to KAS price swings).
+                    </span>
+                </button>
+            </div>
+
+            {#if escrowReserveMode === 'KAS_USDC_LP'}
+                <div
+                    transition:slide={{ duration: 150 }}
+                    class="bg-amber-950/25 border border-amber-500/45 rounded-xl p-3.5 flex flex-col gap-2.5 text-[10px]"
+                >
+                    <span
+                        class="font-black uppercase tracking-wider text-amber-400"
                     >
-                        Decline
-                    </button>
-                    <button
-                        type="button"
-                        data-testid="confirm-tax-escrow-btn"
-                        onclick={acceptEscrowTerms}
-                        class="tactile-btn flex-[2] py-3.5 border-[#18C6A5]/50 text-[#18C6A5] font-black uppercase tracking-widest text-[10px] rounded-xl cursor-pointer"
-                        style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
+                        ⚠ Impermanent Loss &amp; Market Volatility Risk
+                        Disclosure
+                    </span>
+                    <p class="text-neutral-300 leading-relaxed text-[9px]">
+                        Routing tax reserves into a 50/50 KAS/USDC Liquidity
+                        Pool exposes half of your tax reserve to KAS market
+                        price fluctuations and AMM impermanent loss. If KAS
+                        declines in USD value prior to tax payment, your LP
+                        position value may be less than your estimated USD tax
+                        liability.
+                    </p>
+                    <label
+                        class="flex items-start gap-2.5 pt-1 cursor-pointer select-none text-white font-bold text-[9px]"
                     >
-                        Sign &amp; Execute Lock-Up ({taxBreakdown.compositeEffectivePct.toFixed(1)}%)
-                    </button>
+                        <input
+                            type="checkbox"
+                            data-testid="escrow-il-ack-checkbox"
+                            bind:checked={impermanentLossAcknowledged}
+                            class="mt-0.5 accent-amber-400 cursor-pointer"
+                        />
+                        <span>
+                            I understand and accept the Impermanent Loss and KAS
+                            market volatility risks of holding my tax escrow in
+                            a 50/50 KAS/USDC LP position.
+                        </span>
+                    </label>
                 </div>
+            {/if}
+
+            <!-- MANDATORY NON-CPA DISCLAIMER INSIDE MODAL -->
+            <div
+                class="bg-[#11161f] border border-white/10 rounded-xl p-3 text-[9px] text-neutral-400 leading-relaxed"
+            >
+                {NON_CPA_PROTOCOL_DISCLAIMER}
+            </div>
+
+            <div class="flex gap-3 pt-1">
+                <button
+                    type="button"
+                    onclick={() => (showEscrowModal = false)}
+                    class="tactile-btn flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    data-testid="confirm-tax-escrow-btn"
+                    onclick={confirmActivateTaxEscrowLp}
+                    disabled={!canConfirmEscrowActivation}
+                    class="tactile-btn flex-[1.6] py-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/50 cursor-pointer disabled:opacity-40"
+                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
+                >
+                    {escrowReserveMode === 'USDC_RESERVE'
+                        ? 'Activate 100% USDC Tax Escrow ✓'
+                        : 'Activate 50/50 KAS/USDC Tax Escrow LP ✓'}
+                </button>
             </div>
         </div>
     </div>
 {/if}
-
-<style>
-    .hide-scrollbar::-webkit-scrollbar {
-        display: none;
-    }
-    .hide-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-    }
-    .custom-range-slider {
-        -webkit-appearance: none;
-        appearance: none;
-        height: 6px;
-        background: #11161f;
-        border-radius: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        outline: none;
-    }
-    .custom-range-slider::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        height: 18px;
-        width: 18px;
-        border-radius: 50%;
-        background: #e4e4e7;
-        cursor: pointer;
-        border: 2px solid #18c6a5;
-        box-shadow: 0 0 10px rgba(24, 198, 165, 0.4);
-    }
-</style>

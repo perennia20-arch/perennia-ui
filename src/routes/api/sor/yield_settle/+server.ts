@@ -4,7 +4,7 @@ import { env } from '$env/dynamic/private';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { dbPool } from '$lib/server/db';
-import { executeOrQueueL1Dispatch } from '../l1_dispatch/+server';
+import { executeOrQueueL1Dispatch } from '$lib/server/l1Dispatcher';
 
 interface ResolvedBankRail {
     routingNumber: string;

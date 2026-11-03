@@ -9,7 +9,6 @@
     import { settingsStore } from '$lib/stores/settings.svelte';
     import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
-    import ColdVaultAirlock from '$lib/components/treasury/ColdVaultAirlock.svelte';
 
     let activeHoverSegment = $state<string | null>(null);
     let displayUnit = $state<'token' | 'usd'>('token');
@@ -29,6 +28,7 @@
     let activeDirectorTab = $state<
         'reconciliation' | 'fees' | 'buckets' | 'organization'
     >('reconciliation');
+
     let corporateReconciliation = $state<{
         nettingQueueLength: number;
         passthroughQueueLength: number;
@@ -40,6 +40,19 @@
         fppsSolvency: any;
         updatedAt: number;
     } | null>(null);
+
+    // Per-Token Cold Vault Rules & Admin Treasury Modulation State
+    let coldVaultRulesMap = $state<Record<string, any>>({});
+    let adminHotCeilingKas = $state(5000);
+    let adminMinRunwayKas = $state(250);
+    let adminFppsMaxFloatKas = $state(50);
+    let adminPoolFeePct = $state(1.0);
+    let adminOutflowBreaker = $state(false);
+    let adminColdKasAddress = $state('');
+    let adminHotBalanceKas = $state(0);
+    let adminRunwayHours = $state(0);
+    let isSavingAdminConfig = $state(false);
+
     let walletActivityEvents = $state<any[]>([]);
     let customNetworks = $state<Array<{ ticker: string; standard: string }>>([]);
     let userCustomTokens = $state<Record<string, any[]>>({
@@ -170,6 +183,90 @@
         }
         return sum;
     });
+
+    async function fetchColdVaultRulesAndSysConfig() {
+        if (!browser || !identity.isWalletConnected) return;
+        try {
+            const res = await fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'GET_USER_COLD_VAULT_RULES',
+                    payload: {}
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.data) {
+                    if (
+                        data.data.rulesByAsset &&
+                        typeof data.data.rulesByAsset === 'object'
+                    ) {
+                        coldVaultRulesMap = data.data.rulesByAsset;
+                    }
+                    if (data.data.nodeAirlock) {
+                        const na = data.data.nodeAirlock;
+                        adminHotBalanceKas = Number(na.hotBalanceKas || 0);
+                        adminHotCeilingKas = Number(
+                            na.hotCeilingKas ?? adminHotCeilingKas
+                        );
+                        adminMinRunwayKas = Number(
+                            na.minRunwayKas ?? adminMinRunwayKas
+                        );
+                        adminFppsMaxFloatKas = Number(
+                            na.fppsMaxFloatKas ?? adminFppsMaxFloatKas
+                        );
+                        adminPoolFeePct = Number(
+                            na.poolFeeRatePct ?? adminPoolFeePct
+                        );
+                        adminOutflowBreaker = Boolean(
+                            na.outflowBreakerTripped ?? na.lowRunwayBreakerTripped
+                        );
+                        adminColdKasAddress = String(
+                            na.coldVaultAddress || adminColdKasAddress
+                        );
+                        adminRunwayHours = Number(
+                            na.runwayHoursRemaining || 0
+                        );
+                    }
+                }
+            }
+        } catch {
+            // Ignore transient fetch error
+        }
+    }
+
+    async function saveAdminTreasuryConfig() {
+        if (!identity.isCorporateAdmin) return;
+        isSavingAdminConfig = true;
+        try {
+            const res = await fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'UPDATE_SYSTEM_TREASURY_CONFIG',
+                    payload: {
+                        hotCeilingKas: Number(adminHotCeilingKas),
+                        minRunwayKas: Number(adminMinRunwayKas),
+                        fppsMaxFloatKas: Number(adminFppsMaxFloatKas),
+                        poolFeeRatePct: Number(adminPoolFeePct),
+                        outflowBreakerTripped: adminOutflowBreaker,
+                        coldKasAddress: adminColdKasAddress.trim()
+                    }
+                })
+            });
+            if (res.ok) {
+                ui.triggerMicroBadge(
+                    'corp_reconcile_sync',
+                    'TREASURY CEILINGS UPDATED ✓',
+                    '#18C6A5'
+                );
+                await fetchColdVaultRulesAndSysConfig();
+            }
+        } finally {
+            isSavingAdminConfig = false;
+        }
+    }
 
     function bindDerivedAddresses() {
         const wallets = identity.sovereignKeys;
@@ -399,7 +496,6 @@
         treasury.updateAsset(net, {
             address: derivedAddr
         });
-
         if (sym === net || result.isNativeChain) {
             const existingAsset = treasury.getAsset(sym);
             treasury.updateAsset(sym, {
@@ -462,7 +558,6 @@
             targetAutoOpenNetwork = net;
             targetAutoOpenToken = sym;
         }
-
         if (identity.isWalletConnected) {
             fetch('/api/state/action', {
                 method: 'POST',
@@ -487,16 +582,10 @@
                 })
             }).catch(() => {});
         }
-
         isAllNetworksDrawerOpen = true;
         searchResults = [];
         networkSearchQuery = '';
-        ui.triggerMicroBadge(
-            'treasury_search',
-            `+${sym} ADDED ✓`,
-            '#18C6A5'
-        );
-
+        ui.triggerMicroBadge('treasury_search', `+${sym} ADDED ✓`, '#18C6A5');
         if (routeIntent === 'pay') {
             ui.routeToDexSwap(sym, sym === 'KAS' ? 'USDC' : 'KAS', '');
         } else if (routeIntent === 'receive') {
@@ -651,7 +740,6 @@
             }
         }
         searchResults = Array.from(resultsMap.values());
-
         if (
             query.length >= 2 &&
             query.length <= 12 &&
@@ -690,7 +778,7 @@
                         }
                     }
                 } catch {
-                    // Ignore background discovery timeout
+                    // Ignore discovery error
                 }
             }, 260);
         }
@@ -725,9 +813,8 @@
                     }
                 }
             } catch {
-                // Continue to DEXScreener & Kasplex fallback
+                // Continue
             }
-
             const dsRes = await fetch(
                 `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`
             );
@@ -842,7 +929,7 @@
                     }
                 }
             } catch {
-                // Ignore Kasplex lookup timeout
+                // Ignore
             }
             if (externalResults.length > 0) {
                 searchResults = [...externalResults, ...searchResults];
@@ -880,7 +967,7 @@
                         })
                     });
                 } catch {
-                    // Ignore background preference sync error
+                    // Ignore preference sync error
                 }
             }, 1500);
         }
@@ -906,7 +993,7 @@
                 if (Array.isArray(data.customNetworks))
                     customNetworks = data.customNetworks;
             } catch {
-                // Ignore malformed local preferences
+                // Ignore corrupt local state
             }
         }
         try {
@@ -972,7 +1059,7 @@
                 }
             }
         } catch {
-            // Ignore remote preference fetch error
+            // Ignore remote state load error
         }
         bindDerivedAddresses();
         hasLoadedLocalState = true;
@@ -1022,7 +1109,7 @@
                 }
             }
         } catch {
-            // Ignore ledger poll error
+            // Ignore ledger fetch error
         }
     }
 
@@ -1038,7 +1125,7 @@
                 }
             }
         } catch {
-            // Ignore activity poll error
+            // Ignore activity fetch error
         }
     }
 
@@ -1161,7 +1248,7 @@
                 }
             }
         } catch {
-            // Ignore Kasplex balance poll timeout
+            // Ignore KRC-20 fetch error
         }
     }
 
@@ -1221,7 +1308,7 @@
                 fetchKrc20OnChainBalances(kasAddr);
             }
         } catch {
-            // Ignore multi-chain inventory poll error
+            // Ignore omni-chain fetch error
         }
     }
 
@@ -1230,6 +1317,7 @@
         fetchSyntheticLedger();
         fetchWalletActivity();
         fetchOmniChainInventory();
+        fetchColdVaultRulesAndSysConfig();
     }
 
     let refreshInterval: ReturnType<typeof setInterval>;
@@ -1249,12 +1337,14 @@
             fetchOmniChainInventory();
             fetchSyntheticLedger();
             fetchWalletActivity();
+            fetchColdVaultRulesAndSysConfig();
         }
         refreshInterval = setInterval(() => {
             if (identity.isWalletConnected) {
                 fetchOmniChainInventory();
                 fetchSyntheticLedger();
                 fetchWalletActivity();
+                fetchColdVaultRulesAndSysConfig();
             }
         }, 12000);
     });
@@ -1294,6 +1384,7 @@
             </button>
         </div>
     {/if}
+
     <div
         class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-6 transition-opacity duration-500 {!identity.isWalletConnected ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative"
     >
@@ -1313,7 +1404,7 @@
                     </span>
                     <span class="text-[9px] text-neutral-400">
                         {identity.isVaultUnlocked
-                            ? 'Sovereign Vault unlocked for client-side L1 transfers, KRC-20 inscriptions, and UTXO compounding.'
+                            ? 'Sovereign Vault unlocked for client-side L1 transfers, KRC-20 inscriptions, UTXO compounding, and per-token Cold Storage auto-sweeps.'
                             : 'Unlock your vault password to sign multi-chain L1 transactions or withdraw funds.'}
                     </span>
                 </div>
@@ -1331,13 +1422,18 @@
             {/if}
         </div>
 
-        <ColdVaultAirlock />
-
         {#if identity.isCorporateAdmin}
             <div
                 class="tactile-card bg-[#0a0d12] border border-white/15 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
                 style="background-image: radial-gradient(ellipse at top right, rgba(245, 158, 11, 0.12), rgba(24, 198, 165, 0.08) 45%, transparent 70%);"
             >
+                {#if ui.microBadges['corp_reconcile_sync']}
+                    <div
+                        class="micro-confirm-badge absolute top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
+                    >
+                        {ui.microBadges['corp_reconcile_sync'].label}
+                    </div>
+                {/if}
                 <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
                     <div class="flex items-center gap-3">
                         <div class="w-9 h-9 rounded-xl bg-[#11161f] border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs">
@@ -1353,7 +1449,7 @@
                                 </span>
                             </div>
                             <span class="text-[9px] font-mono text-neutral-400 mt-0.5">
-                                Order-Book Netting Queue • Protocol Fee Reserves • LP Bucket Skew • Corporate Estate Organization
+                                Order-Book Netting Queue • Protocol Fee Reserves • LP Bucket Skew • Live Treasury Ceiling Modulation
                             </span>
                         </div>
                     </div>
@@ -1364,7 +1460,12 @@
                                 fetchOmniChainInventory();
                                 fetchSyntheticLedger();
                                 fetchWalletActivity();
-                                ui.triggerMicroBadge('corp_reconcile_sync', 'RECONCILED ✓', '#18C6A5');
+                                fetchColdVaultRulesAndSysConfig();
+                                ui.triggerMicroBadge(
+                                    'corp_reconcile_sync',
+                                    'RECONCILED ✓',
+                                    '#18C6A5'
+                                );
                             }}
                             class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-mono font-bold uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
                         >
@@ -1372,13 +1473,15 @@
                         </button>
                         <button
                             type="button"
-                            onclick={() => (isDirectorConsoleOpen = !isDirectorConsoleOpen)}
+                            onclick={() =>
+                                (isDirectorConsoleOpen = !isDirectorConsoleOpen)}
                             class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
                         >
                             {isDirectorConsoleOpen ? 'Collapse ▴' : 'Expand ▾'}
                         </button>
                     </div>
                 </div>
+
                 {#if isDirectorConsoleOpen}
                     <div transition:slide class="flex flex-col gap-5">
                         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1388,23 +1491,28 @@
                                 </span>
                                 <div class="flex items-baseline justify-between mt-1.5">
                                     <span class="text-lg font-mono font-black text-white tabular-nums">
-                                        {corporateReconciliation?.nettingQueueLength ?? 0} Orders
+                                        {corporateReconciliation?.nettingQueueLength ??
+                                            0} Orders
                                     </span>
                                     <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
-                                        +{corporateReconciliation?.passthroughQueueLength ?? 0} Pass-Through
+                                        +{corporateReconciliation?.passthroughQueueLength ??
+                                            0} Pass-Through
                                     </span>
                                 </div>
                             </div>
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
-                                    Unhedged Delta Exposure
+                                    Hot Dispatcher Balance / Cap
                                 </span>
                                 <div class="flex items-baseline justify-between mt-1.5">
-                                    <span class="text-lg font-mono font-black {(corporateReconciliation?.unhedgedDeltaKas ?? 0) < 0 ? 'text-amber-400' : 'text-[#18C6A5]'} tabular-nums">
-                                        {(corporateReconciliation?.unhedgedDeltaKas ?? 0).toFixed(2)} KAS
+                                    <span class="text-lg font-mono font-black text-white tabular-nums">
+                                        {adminHotBalanceKas.toLocaleString(
+                                            undefined,
+                                            { maximumFractionDigits: 2 }
+                                        )} KAS
                                     </span>
-                                    <span class="text-[8px] font-mono text-neutral-400 uppercase">
-                                        {corporateReconciliation?.hedgeStatus?.cexConfigured ? 'MEXC ARMED' : 'LP SKEW GUARD'}
+                                    <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
+                                        Cap: {adminHotCeilingKas.toLocaleString()}
                                     </span>
                                 </div>
                             </div>
@@ -1417,7 +1525,7 @@
                                         ${totalAccumulatedFeesUsd.toFixed(2)}
                                     </span>
                                     <span class="text-[8px] font-mono text-neutral-400 uppercase">
-                                        Auto-2.5x LP @ ≥$5
+                                        Pool Fee: {adminPoolFeePct.toFixed(2)}%
                                     </span>
                                 </div>
                             </div>
@@ -1427,19 +1535,25 @@
                                 </span>
                                 <div class="flex items-baseline justify-between mt-1.5">
                                     <span class="text-lg font-mono font-black text-white tabular-nums">
-                                        {(corporateReconciliation?.fppsSolvency?.availableHeadroomKas ?? 50).toFixed(2)} KAS
+                                        {(
+                                            corporateReconciliation?.fppsSolvency
+                                                ?.availableHeadroomKas ??
+                                            adminFppsMaxFloatKas
+                                        ).toFixed(2)} KAS
                                     </span>
                                     <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
-                                        Factor: {((corporateReconciliation?.fppsSolvency?.elasticStreamingFactor ?? 1) * 100).toFixed(0)}%
+                                        Runway: {adminRunwayHours.toFixed(1)}h
                                     </span>
                                 </div>
                             </div>
                         </div>
+
                         <div class="flex flex-wrap items-center justify-between gap-2 bg-[#11161f] p-1.5 rounded-2xl border border-white/10">
                             <div class="flex flex-wrap items-center gap-1.5">
                                 <button
                                     type="button"
-                                    onclick={() => (activeDirectorTab = 'reconciliation')}
+                                    onclick={() =>
+                                        (activeDirectorTab = 'reconciliation')}
                                     class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'reconciliation' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     Order-Book Reconciliation
@@ -1453,23 +1567,26 @@
                                 </button>
                                 <button
                                     type="button"
-                                    onclick={() => (activeDirectorTab = 'buckets')}
+                                    onclick={() =>
+                                        (activeDirectorTab = 'buckets')}
                                     class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'buckets' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     LP Bucket Coverage &amp; Skew
                                 </button>
                                 <button
                                     type="button"
-                                    onclick={() => (activeDirectorTab = 'organization')}
+                                    onclick={() =>
+                                        (activeDirectorTab = 'organization')}
                                     class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'organization' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
-                                    Corporate Vault Organization
+                                    Ceilings &amp; Vault Organization
                                 </button>
                             </div>
                             <span class="text-[8px] font-mono text-neutral-500 uppercase px-2">
                                 22:00 UTC Settlement in {operations.formatEpochCountdown()}
                             </span>
                         </div>
+
                         {#if activeDirectorTab === 'reconciliation'}
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                                 <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
@@ -1477,7 +1594,13 @@
                                         Live Netting Queue &amp; Solvency Ledger
                                     </span>
                                     <span class="text-[9px] font-mono text-neutral-400">
-                                        L1 Blocks Won: {(corporateReconciliation?.fppsSolvency?.l1BlocksWonKas ?? 0).toFixed(2)} KAS | Streamed: {(corporateReconciliation?.fppsSolvency?.externalStreamedKas ?? 0).toFixed(4)} KAS
+                                        L1 Blocks Won: {(
+                                            corporateReconciliation?.fppsSolvency
+                                                ?.l1BlocksWonKas ?? 0
+                                        ).toFixed(2)} KAS | Streamed: {(
+                                            corporateReconciliation?.fppsSolvency
+                                                ?.externalStreamedKas ?? 0
+                                        ).toFixed(4)} KAS
                                     </span>
                                 </div>
                                 {#if corporateReconciliation?.recentNettingOrders && corporateReconciliation.recentNettingOrders.length > 0}
@@ -1497,22 +1620,34 @@
                                                 {#each corporateReconciliation.recentNettingOrders as ord}
                                                     <tr class="border-b border-white/5 hover:bg-[#0a0d12]/60">
                                                         <td class="py-2 px-3 text-neutral-300">
-                                                            {String(ord.wallet || '').slice(0, 16)}...
+                                                            {String(
+                                                                ord.wallet || ''
+                                                            ).slice(0, 16)}...
                                                         </td>
                                                         <td class="py-2 px-3 text-[#18C6A5] font-bold">
                                                             {ord.direction}
                                                         </td>
                                                         <td class="py-2 px-3 text-white">
-                                                            {ord.target_asset || 'USDC'}
+                                                            {ord.target_asset ||
+                                                                'USDC'}
                                                         </td>
                                                         <td class="py-2 px-3 text-right text-white tabular-nums">
-                                                            {Number(ord.amount_kas || 0).toFixed(4)}
+                                                            {Number(
+                                                                ord.amount_kas ||
+                                                                    0
+                                                            ).toFixed(4)}
                                                         </td>
                                                         <td class="py-2 px-3 text-right text-neutral-300 tabular-nums">
-                                                            {Number(ord.estimated_output || 0).toFixed(6)}
+                                                            {Number(
+                                                                ord.estimated_output ||
+                                                                    0
+                                                            ).toFixed(6)}
                                                         </td>
                                                         <td class="py-2 px-3 text-right text-amber-400 tabular-nums">
-                                                            ${Number(ord.fee_captured_usd || 0).toFixed(4)}
+                                                            ${Number(
+                                                                ord.fee_captured_usd ||
+                                                                    0
+                                                            ).toFixed(4)}
                                                         </td>
                                                     </tr>
                                                 {/each}
@@ -1529,10 +1664,17 @@
                             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
                                 {#each Object.entries(corporateReconciliation?.accumulatedFees || { KAS: 0, USDC: 0, BTC: 0, ETH: 0, SOL: 0 }) as [sym, feeAmt]}
                                     {@const assetObj = treasury.getAsset(sym)}
-                                    {@const usdVal = (Number(feeAmt) || 0) * (assetObj.spotPrice || (sym === 'USDC' || sym === 'USDT' ? 1 : 0))}
+                                    {@const usdVal =
+                                        (Number(feeAmt) || 0) *
+                                        (assetObj.spotPrice ||
+                                            (sym === 'USDC' || sym === 'USDT'
+                                                ? 1
+                                                : 0))}
                                     <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
                                         <div class="flex items-center justify-between">
-                                            <span class="text-[10px] font-black text-white">{sym}</span>
+                                            <span class="text-[10px] font-black text-white"
+                                                >{sym}</span
+                                            >
                                             <span class="text-[8px] font-mono text-[#18C6A5]">
                                                 ${usdVal.toFixed(2)}
                                             </span>
@@ -1560,55 +1702,156 @@
                                         </div>
                                         <div class="grid grid-cols-3 gap-2 text-[9px] font-mono">
                                             <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
-                                                <span class="text-[8px] text-neutral-500 block uppercase">Weight</span>
-                                                <span class="text-white font-bold">{bucket.weightPct.toFixed(1)}%</span>
+                                                <span class="text-[8px] text-neutral-500 block uppercase"
+                                                    >Weight</span
+                                                >
+                                                <span class="text-white font-bold"
+                                                    >{bucket.weightPct.toFixed(
+                                                        1
+                                                    )}%</span
+                                                >
                                             </div>
                                             <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
-                                                <span class="text-[8px] text-neutral-500 block uppercase">LP Coverage</span>
-                                                <span class="text-[#18C6A5] font-bold">{bucket.lpCoveragePct.toFixed(0)}%</span>
+                                                <span class="text-[8px] text-neutral-500 block uppercase"
+                                                    >LP Coverage</span
+                                                >
+                                                <span class="text-[#18C6A5] font-bold"
+                                                    >{bucket.lpCoveragePct.toFixed(
+                                                        0
+                                                    )}%</span
+                                                >
                                             </div>
                                             <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
-                                                <span class="text-[8px] text-neutral-500 block uppercase">Spread Floor</span>
-                                                <span class="text-amber-400 font-bold">{bucket.effectiveSpreadFloorPct.toFixed(2)}%</span>
+                                                <span class="text-[8px] text-neutral-500 block uppercase"
+                                                    >Spread Floor</span
+                                                >
+                                                <span class="text-amber-400 font-bold"
+                                                    >{bucket.effectiveSpreadFloorPct.toFixed(
+                                                        2
+                                                    )}%</span
+                                                >
                                             </div>
                                         </div>
                                         <div class="flex justify-between text-[9px] font-mono text-neutral-400">
-                                            <span>Pending: {bucket.pendingKas.toFixed(2)} KAS (${bucket.pendingUsd.toFixed(2)})</span>
-                                            <span>LP Cap: {bucket.lpAvailableKasCapacity.toFixed(1)} KAS</span>
+                                            <span
+                                                >Pending: {bucket.pendingKas.toFixed(
+                                                    2
+                                                )} KAS (${bucket.pendingUsd.toFixed(
+                                                    2
+                                                )})</span
+                                            >
+                                            <span
+                                                >LP Cap: {bucket.lpAvailableKasCapacity.toFixed(
+                                                    1
+                                                )} KAS</span
+                                            >
                                         </div>
                                     </div>
                                 {/each}
                             </div>
                         {:else if activeDirectorTab === 'organization'}
-                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                                <div class="flex flex-col gap-1">
-                                    <span class="text-[10px] font-black uppercase tracking-widest text-white">
-                                        Corporate Multi-Chain Vault Organization
-                                    </span>
-                                    <span class="text-[9px] text-neutral-400 leading-relaxed">
-                                        Reorder active corporate chain rows, toggle secondary network visibility, or inspect individual wallet layouts using SysAdmin target mode.
-                                    </span>
+                            <div class="flex flex-col gap-4 bg-[#11161f] border border-white/10 rounded-2xl p-4">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[10px] font-mono">
+                                    <div class="flex flex-col gap-1">
+                                        <label
+                                            for="treasuryHotCeilingInput"
+                                            class="text-[8px] font-bold uppercase text-neutral-400"
+                                        >
+                                            Hot Dispatcher Ceiling (KAS)
+                                        </label>
+                                        <input
+                                            id="treasuryHotCeilingInput"
+                                            type="number"
+                                            min="50"
+                                            bind:value={adminHotCeilingKas}
+                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                                        />
+                                    </div>
+                                    <div class="flex flex-col gap-1">
+                                        <label
+                                            for="treasuryMinRunwayInput"
+                                            class="text-[8px] font-bold uppercase text-neutral-400"
+                                        >
+                                            Min Runway Alert (KAS)
+                                        </label>
+                                        <input
+                                            id="treasuryMinRunwayInput"
+                                            type="number"
+                                            min="0"
+                                            bind:value={adminMinRunwayKas}
+                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                                        />
+                                    </div>
+                                    <div class="flex flex-col gap-1">
+                                        <label
+                                            for="treasuryFppsFloatInput"
+                                            class="text-[8px] font-bold uppercase text-neutral-400"
+                                        >
+                                            FPPS House Float Cap (KAS)
+                                        </label>
+                                        <input
+                                            id="treasuryFppsFloatInput"
+                                            type="number"
+                                            min="1"
+                                            bind:value={adminFppsMaxFloatKas}
+                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                                        />
+                                    </div>
+                                    <div class="flex flex-col gap-1">
+                                        <label
+                                            for="treasuryPoolFeeInput"
+                                            class="text-[8px] font-bold uppercase text-neutral-400"
+                                        >
+                                            Pool Fee Rate (%)
+                                        </label>
+                                        <input
+                                            id="treasuryPoolFeeInput"
+                                            type="number"
+                                            step="0.05"
+                                            min="0"
+                                            max="25"
+                                            bind:value={adminPoolFeePct}
+                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-[#18C6A5] font-bold outline-none"
+                                        />
+                                    </div>
                                 </div>
-                                <div class="flex flex-wrap items-center gap-2 shrink-0">
+                                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-white/10">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onclick={() => {
+                                                isOrganizing = !isOrganizing;
+                                                isAllNetworksDrawerOpen = true;
+                                            }}
+                                            class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {isOrganizing ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
+                                        >
+                                            {isOrganizing
+                                                ? 'Finish Drag Reorder ✓'
+                                                : 'Drag-Order Chains'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onclick={() => {
+                                                isManagingNetworks =
+                                                    !isManagingNetworks;
+                                                isAllNetworksDrawerOpen = true;
+                                            }}
+                                            class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
+                                        >
+                                            {isManagingNetworks
+                                                ? 'Done Toggling ✓'
+                                                : 'Toggle Active Chains'}
+                                        </button>
+                                    </div>
                                     <button
                                         type="button"
-                                        onclick={() => {
-                                            isOrganizing = !isOrganizing;
-                                            isAllNetworksDrawerOpen = true;
-                                        }}
-                                        class="tactile-btn px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {isOrganizing ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
+                                        onclick={saveAdminTreasuryConfig}
+                                        disabled={isSavingAdminConfig}
+                                        class="tactile-btn px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
                                     >
-                                        {isOrganizing ? 'Finish Drag Reorder ✓' : 'Drag-Order Chains'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onclick={() => {
-                                            isManagingNetworks = !isManagingNetworks;
-                                            isAllNetworksDrawerOpen = true;
-                                        }}
-                                        class="tactile-btn px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
-                                    >
-                                        {isManagingNetworks ? 'Done Toggling ✓' : 'Toggle Active Chains'}
+                                        {isSavingAdminConfig
+                                            ? 'Saving Treasury Ceilings...'
+                                            : 'Save Treasury Ceilings & Fee Rate ✓'}
                                     </button>
                                 </div>
                             </div>
@@ -1631,8 +1874,10 @@
                         </span>
                         <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
                             ${treasury.totalVaultValue.toLocaleString('en-US', {
-                                minimumFractionDigits: settingsStore.fiatDecimals,
-                                maximumFractionDigits: settingsStore.fiatDecimals
+                                minimumFractionDigits:
+                                    settingsStore.fiatDecimals,
+                                maximumFractionDigits:
+                                    settingsStore.fiatDecimals
                             })}
                         </span>
                     </div>
@@ -1673,8 +1918,10 @@
                         </span>
                         <span class="text-xs font-mono font-black text-[#18C6A5] tabular-nums">
                             ${totalOnChainUsd.toLocaleString(undefined, {
-                                minimumFractionDigits: settingsStore.fiatDecimals,
-                                maximumFractionDigits: settingsStore.fiatDecimals
+                                minimumFractionDigits:
+                                    settingsStore.fiatDecimals,
+                                maximumFractionDigits:
+                                    settingsStore.fiatDecimals
                             })}
                         </span>
                     </div>
@@ -1684,8 +1931,10 @@
                         </span>
                         <span class="text-xs font-mono font-black text-amber-400 tabular-nums">
                             ${totalBatchQueueUsd.toLocaleString(undefined, {
-                                minimumFractionDigits: settingsStore.fiatDecimals,
-                                maximumFractionDigits: settingsStore.fiatDecimals
+                                minimumFractionDigits:
+                                    settingsStore.fiatDecimals,
+                                maximumFractionDigits:
+                                    settingsStore.fiatDecimals
                             })}
                         </span>
                     </div>
@@ -1695,16 +1944,28 @@
                         </span>
                         <span class="text-xs font-mono font-black text-blue-400 tabular-nums">
                             ${totalStakedLpUsd.toLocaleString(undefined, {
-                                minimumFractionDigits: settingsStore.fiatDecimals,
-                                maximumFractionDigits: settingsStore.fiatDecimals
+                                minimumFractionDigits:
+                                    settingsStore.fiatDecimals,
+                                maximumFractionDigits:
+                                    settingsStore.fiatDecimals
                             })}
                         </span>
                     </div>
                 </div>
             </div>
             <div class="absolute right-[-40px] top-[-40px] w-64 h-64 opacity-30 pointer-events-none hidden lg:block">
-                <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
-                    <circle cx="18" cy="18" r="15.915" fill="none" stroke="#161d29" stroke-width="2.5"></circle>
+                <svg
+                    viewBox="0 0 36 36"
+                    class="w-full h-full transform -rotate-90"
+                >
+                    <circle
+                        cx="18"
+                        cy="18"
+                        r="15.915"
+                        fill="none"
+                        stroke="#161d29"
+                        stroke-width="2.5"
+                    ></circle>
                     {#each ringSegments as segment}
                         <circle
                             cx="18"
@@ -1712,7 +1973,9 @@
                             r="15.915"
                             fill="none"
                             stroke={segment.theme.hex}
-                            stroke-width={activeHoverSegment === segment.ticker ? '4' : '2.5'}
+                            stroke-width={activeHoverSegment === segment.ticker
+                                ? '4'
+                                : '2.5'}
                             stroke-dasharray={segment.dasharray}
                             stroke-dashoffset={segment.dashoffset}
                             class="transition-all duration-300"
@@ -1739,8 +2002,12 @@
             isManagingNetworks={false}
             isOrganizing={false}
             isNetworkSelected={true}
-            autoOpenToken={targetAutoOpenNetwork === 'KAS' ? targetAutoOpenToken : targetedSubAssetsMap['KAS'] || null}
+            autoOpenToken={targetAutoOpenNetwork === 'KAS'
+                ? targetAutoOpenToken
+                : targetedSubAssetsMap['KAS'] || null}
             ledgerEvents={walletActivityEvents}
+            {coldVaultRulesMap}
+            onRefreshColdVaultRules={fetchColdVaultRulesAndSysConfig}
         />
 
         <div class="flex flex-col gap-4 w-full relative">
@@ -1749,12 +2016,23 @@
             >
                 <button
                     type="button"
-                    onclick={() => (isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen)}
+                    onclick={() =>
+                        (isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen)}
                     class="flex items-center gap-4 w-full lg:w-auto text-left bg-transparent border-none cursor-pointer"
                 >
                     <div class="w-10 h-10 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center text-[#18C6A5] shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        <svg
+                            class="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="1.5"
+                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                            />
                         </svg>
                     </div>
                     <div class="flex flex-col">
@@ -1762,7 +2040,7 @@
                             Sovereign Multi-Chain Derivations
                         </span>
                         <span class="text-[9px] text-neutral-500 mt-0.5">
-                            Universal Multi-Chain Token Search &amp; Key Matrix
+                            Universal Multi-Chain Token Search, Cold Storage Drawers &amp; Key Matrix
                         </span>
                     </div>
                 </button>
@@ -1785,8 +2063,18 @@
                             placeholder="Search chains or add Web3 token (PEPE, ONDO)..."
                             class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-8 text-xs font-mono text-white outline-none transition-colors"
                         />
-                        <svg class="absolute left-3 top-3 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        <svg
+                            class="absolute left-3 top-3 w-3.5 h-3.5 text-neutral-500 pointer-events-none"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                            />
                         </svg>
                         {#if searchResults.length > 0}
                             <div
@@ -1806,10 +2094,16 @@
                                                             class="w-5 h-5 object-contain"
                                                             alt={result.symbol}
                                                             onerror={(e) =>
-                                                                ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                                                ((
+                                                                    e.currentTarget as HTMLImageElement
+                                                                ).style.display =
+                                                                    'none')}
                                                         />
                                                     {:else}
-                                                        <span class="text-xs font-black" style="color: {result.hex}">
+                                                        <span
+                                                            class="text-xs font-black"
+                                                            style="color: {result.hex}"
+                                                        >
                                                             {result.symbol[0]}
                                                         </span>
                                                     {/if}
@@ -1828,28 +2122,39 @@
                                             </div>
                                             {#if result.price > 0}
                                                 <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums shrink-0">
-                                                    ${result.price < 0.01 ? result.price.toFixed(8) : result.price.toFixed(4)}
+                                                    ${result.price < 0.01
+                                                        ? result.price.toFixed(8)
+                                                        : result.price.toFixed(4)}
                                                 </span>
                                             {/if}
                                         </div>
                                         <div class="grid grid-cols-3 gap-1.5 pt-1">
                                             <button
                                                 type="button"
-                                                onclick={() => selectSearchResult(result, 'pay')}
+                                                onclick={() =>
+                                                    selectSearchResult(
+                                                        result,
+                                                        'pay'
+                                                    )}
                                                 class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white cursor-pointer"
                                             >
                                                 YOU PAY
                                             </button>
                                             <button
                                                 type="button"
-                                                onclick={() => selectSearchResult(result, 'receive')}
+                                                onclick={() =>
+                                                    selectSearchResult(
+                                                        result,
+                                                        'receive'
+                                                    )}
                                                 class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
                                             >
                                                 YOU RECEIVE
                                             </button>
                                             <button
                                                 type="button"
-                                                onclick={() => selectSearchResult(result)}
+                                                onclick={() =>
+                                                    selectSearchResult(result)}
                                                 class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer"
                                             >
                                                 + ADD TO WALLET
@@ -1871,7 +2176,8 @@
                         type="button"
                         onclick={() => {
                             isManagingNetworks = !isManagingNetworks;
-                            if (isManagingNetworks) isAllNetworksDrawerOpen = true;
+                            if (isManagingNetworks)
+                                isAllNetworksDrawerOpen = true;
                         }}
                         class="tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
                     >
@@ -1879,6 +2185,7 @@
                     </button>
                 </div>
             </div>
+
             {#if isAllNetworksDrawerOpen}
                 <div transition:slide class="w-full flex flex-col gap-4">
                     {#if networkSearchQuery.trim().length > 1 && !isGlobalSearching}
@@ -1895,13 +2202,16 @@
                                 Search Web3 Indexer
                             </button>
                             {#if globalSearchError}
-                                <span class="text-amber-400 text-[9px]">{globalSearchError}</span>
+                                <span class="text-amber-400 text-[9px]"
+                                    >{globalSearchError}</span
+                                >
                             {/if}
                         </div>
                     {/if}
                     {#each visibleSecondaryNetworks as net (net.ticker)}
                         <div
-                            draggable={isOrganizing && autoActiveNetworks.includes(net.ticker)}
+                            draggable={isOrganizing &&
+                                autoActiveNetworks.includes(net.ticker)}
                             ondragstart={(e) => handleDragStart(e, net.ticker)}
                             ondragover={(e) => handleDragOver(e, net.ticker)}
                             ondrop={handleDrop}
@@ -1911,23 +2221,36 @@
                             <NetworkRow
                                 asset={treasury.getAsset(net.ticker) as any}
                                 subAssets={getDynamicSubAssets(net.ticker)}
-                                selectedTokens={getDynamicSelectedTokens(net.ticker)}
-                                onToggleToken={(s: string) => toggleTokenSelection(net.ticker, s)}
-                                onDeleteToken={(s: string) => deleteTokenFromNetwork(net.ticker, s)}
+                                selectedTokens={getDynamicSelectedTokens(
+                                    net.ticker
+                                )}
+                                onToggleToken={(s: string) =>
+                                    toggleTokenSelection(net.ticker, s)}
+                                onDeleteToken={(s: string) =>
+                                    deleteTokenFromNetwork(net.ticker, s)}
                                 standardLabel={net.standard}
                                 searchQuery={networkSearchQuery}
                                 {activeHoverSegment}
-                                onHover={(v: string | null) => (activeHoverSegment = v)}
+                                onHover={(v: string | null) =>
+                                    (activeHoverSegment = v)}
                                 {displayUnit}
                                 {timeframe}
                                 fiatDecimals={settingsStore.fiatDecimals}
                                 tokenDecimals={settingsStore.tokenDecimals}
                                 {isManagingNetworks}
                                 {isOrganizing}
-                                isNetworkSelected={autoActiveNetworks.includes(net.ticker)}
-                                onNetworkToggle={() => toggleNetworkVisibility(net.ticker)}
-                                autoOpenToken={targetAutoOpenNetwork === net.ticker ? targetAutoOpenToken : targetedSubAssetsMap[net.ticker] || null}
+                                isNetworkSelected={autoActiveNetworks.includes(
+                                    net.ticker
+                                )}
+                                onNetworkToggle={() =>
+                                    toggleNetworkVisibility(net.ticker)}
+                                autoOpenToken={targetAutoOpenNetwork ===
+                                net.ticker
+                                    ? targetAutoOpenToken
+                                    : targetedSubAssetsMap[net.ticker] || null}
                                 ledgerEvents={walletActivityEvents}
+                                {coldVaultRulesMap}
+                                onRefreshColdVaultRules={fetchColdVaultRulesAndSysConfig}
                             />
                         </div>
                     {/each}

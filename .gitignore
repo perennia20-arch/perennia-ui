@@ -6,3 +6,12 @@ build/
 dist/
 .DS_Store
 @
+
+.env*
+repomix*.xml
+*.log
+*.pem
+*.key
+
+playwright-report/
+audit-activity.mjs

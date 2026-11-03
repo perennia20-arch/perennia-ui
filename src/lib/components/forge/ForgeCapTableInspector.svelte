@@ -7,6 +7,7 @@
         KASPA_UNSPENDABLE_BURN_ADDRESS,
         validateKaspaBech32mAddress,
         deriveDeterministicKaspaAddress,
+        compileSilverScriptProofOfLockVault,
         type KasplexProtocolInfo
     } from '$lib/stores/transaction.svelte';
 
@@ -39,8 +40,9 @@
     let inspectedToken = $state<any | null>(null);
     let inspectError = $state('');
     let mintRecipientAddress = $state('');
+    let expandedVestingSilRows = $state<Record<string, boolean>>({});
 
-    // Deliverable L2: Proof-of-Lock Supply Gauge & Vesting Schedule Telemetry
+    // Proof-of-Lock Supply Gauge & Vesting Schedule Telemetry
     let tokenomicsBundle = $state<{
         vestingSchedules: any[];
         monetaryPolicy: any | null;
@@ -57,8 +59,9 @@
         };
     } | null>(null);
 
-    // Deliverable L5: Retroactive KRC-20 Ecosystem Upgrade Foundry
+    // Retroactive KRC-20 / KCC-20 Ecosystem Upgrade Foundry
     let showRetroUpgradeFoundry = $state(false);
+    let retroTokenStandard = $state<'KRC-20' | 'KCC-20'>('KCC-20');
     let retroBurnRateBps = $state(50);
     let retroVestingLabel = $state('Team & Community Proof-of-Lock Vault');
     let retroVestingAddress = $state('');
@@ -69,6 +72,7 @@
     let retroMineableFunded = $state(2_500_000);
     let retroMineableDaily = $state(10_000);
     let isApplyingRetroUpgrade = $state(false);
+    let showRetroSilPreview = $state(false);
     let retroStatusBanner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 
     $effect(() => {
@@ -94,7 +98,27 @@
         return Math.min(100, Math.max(0, (mintedNum / maxNum) * 100));
     });
 
-    // Proof-of-Lock Supply Breakdown Percentages
+    let retroCompiledVault = $derived.by(() => {
+        const cleanTick = (inspectedToken?.tick || mintSearchTicker || 'NACHO')
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z]/g, '');
+        const resolvedBeneficiary =
+            retroVestingAddress.trim() ||
+            identity.activeAddress ||
+            deriveDeterministicKaspaAddress(`${cleanTick}_retro_vesting`);
+        return compileSilverScriptProofOfLockVault({
+            ticker: cleanTick || 'NACHO',
+            tokenStandard: retroTokenStandard,
+            label: retroVestingLabel,
+            beneficiaryAddress: resolvedBeneficiary,
+            totalAllocation: Math.max(0, Number(retroVestingAmount || 0)),
+            decimals: Number(inspectedToken?.dec ?? 8),
+            cliffDays: Math.max(0, Number(retroCliffDays || 0)),
+            linearDays: Math.max(0, Number(retroLinearDays || 0))
+        });
+    });
+
     let supplyGaugeMetrics = $derived.by(() => {
         const totalMax = inspectedToken
             ? parseKasplexUnits(inspectedToken.max, inspectedToken.dec)
@@ -110,7 +134,6 @@
         const burned = Number(summary?.burnedSupply || 0);
         const circulatingUnlocked = Math.max(0, mintedTotal - totalLocked - burned);
         const dailyUnlock = Number(summary?.daily2200UtcUnlockRate || 0);
-
         const safeDenom = Math.max(1, totalMax);
         return {
             totalMax,
@@ -127,6 +150,45 @@
             burnedPct: Math.min(100, (burned / safeDenom) * 100)
         };
     });
+
+    function resolveVestingCovenantDetails(vs: any) {
+        if (vs.covenantAddress && vs.silverscriptSource) {
+            return {
+                covenantAddress: String(vs.covenantAddress),
+                silverscriptSource: String(vs.silverscriptSource),
+                kcc20StateCommitment: String(
+                    vs.kcc20StateCommitment || vs.vprogStateRoot || ''
+                ),
+                tokenStandard: String(vs.tokenStandard || 'KRC-20')
+            };
+        }
+        const compiled = compileSilverScriptProofOfLockVault({
+            ticker: String(vs.tokenTicker || inspectedToken?.tick || mintSearchTicker || 'NACHO'),
+            tokenStandard: vs.tokenStandard === 'KCC-20' ? 'KCC-20' : 'KRC-20',
+            label: String(vs.label || 'Genesis Tranche'),
+            beneficiaryAddress: String(vs.beneficiaryAddress || ''),
+            totalAllocation: Number(vs.totalAllocated || 0),
+            cliffDays: Number(vs.cliffDays || 0),
+            linearDays: Number(vs.linearDays || 0)
+        });
+        return {
+            covenantAddress: compiled.covenantAddress,
+            silverscriptSource: compiled.silverscriptSource,
+            kcc20StateCommitment: String(
+                vs.kcc20StateCommitment ||
+                    vs.vprogStateRoot ||
+                    compiled.kcc20State.stateRootHex
+            ),
+            tokenStandard: compiled.tokenStandard
+        };
+    }
+
+    function toggleVestingSilDrawer(vestingId: string) {
+        expandedVestingSilRows = {
+            ...expandedVestingSilRows,
+            [vestingId]: !expandedVestingSilRows[vestingId]
+        };
+    }
 
     async function fetchKasplexTokenTelemetry(rawTicker: string) {
         const clean = rawTicker.trim().toUpperCase();
@@ -210,7 +272,7 @@
                 }
             }
         } catch {
-            // Non-blocking if no Forge tokenomics registered yet
+            // Ignore offline telemetry fetch error
         }
     }
 
@@ -267,12 +329,12 @@
             retroVestingAddress.trim() ||
             identity.activeAddress ||
             deriveDeterministicKaspaAddress(`${cleanTick}_retro_vesting`);
-
         isApplyingRetroUpgrade = true;
         try {
             const maxSup = inspectedToken
                 ? parseKasplexUnits(inspectedToken.max, inspectedToken.dec)
                 : 28_700_000_000;
+            const compiled = retroCompiledVault;
             const res = await fetch('/api/state/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -280,6 +342,7 @@
                     action: 'RETROACTIVE_FORGE_UPGRADE',
                     payload: {
                         ticker: cleanTick,
+                        tokenStandard: retroTokenStandard,
                         maxSupply: maxSup,
                         isRetroactiveUpgrade: true,
                         protocolFeeKas: 1.5,
@@ -288,6 +351,14 @@
                                 ? [
                                       {
                                           address: resolvedLockAddr,
+                                          covenantAddress: compiled.covenantAddress,
+                                          silverscriptSource: compiled.silverscriptSource,
+                                          redeemScriptHex: compiled.redeemScriptHex,
+                                          kcc20StateCommitment:
+                                              compiled.kcc20State.stateRootHex,
+                                          vprogStateRoot:
+                                              compiled.kcc20State.stateRootHex,
+                                          tokenStandard: retroTokenStandard,
                                           amount: retroVestingAmount,
                                           label: retroVestingLabel,
                                           cliffDays: retroCliffDays,
@@ -327,7 +398,7 @@
                 }
                 retroStatusBanner = {
                     type: 'success',
-                    message: `✓ Retroactive Ecosystem Upgrade bound to ${cleanTick} (${retroBurnRateBps} bps 22:00 UTC Auto-Burn + ${retroVestingAmount.toLocaleString()} Proof-of-Lock + Mineable Hashrate Vault).`
+                    message: `✓ Retroactive ${retroTokenStandard} SilverScript Upgrade bound to ${cleanTick} (Vault: ${compiled.covenantAddress.slice(0, 22)}... • ${retroBurnRateBps} bps 22:00 UTC Auto-Burn + ${retroVestingAmount.toLocaleString()} Proof-of-Lock).`
                 };
                 ui.triggerMicroBadge(
                     'forge_header_badge',
@@ -362,7 +433,6 @@
 
 <div class="flex flex-col gap-6" in:fade={{ duration: 150 }}>
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <!-- LEFT COLUMN: MINTER & TICKER SEARCH -->
         <div
             class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
@@ -370,14 +440,14 @@
             <div class="flex items-center justify-between border-b border-white/10 pb-4">
                 <div class="flex flex-col">
                     <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-white">
-                        Mode 02 • KRC-20 Minter &amp; Live Cap-Table Inspector
+                        Mode 02 • KRC-20 Minter &amp; Inspector
                     </h2>
                     <span class="text-[10px] text-neutral-400 mt-0.5">
-                        Inspect Kasplex supply, verify Proof-of-Lock vesting schedules &amp; upgrade existing KRC-20 communities.
+                        Inspect live Kasplex supply, verify `kaspa:p...` SilverScript Proof-of-Lock vesting vaults, and mint tokens directly to your vault.
                     </span>
                 </div>
                 <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[9px] font-bold uppercase">
-                    "op": "mint"
+                    KASPLEX LIVE
                 </span>
             </div>
 
@@ -386,7 +456,7 @@
                     for="krc20MintSearch"
                     class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
                 >
-                    Query Deployed KRC-20 Ticker
+                    Query Deployed KRC-20 / KCC-20 Ticker
                 </label>
                 <div class="flex flex-col sm:flex-row gap-2.5">
                     <input
@@ -439,13 +509,13 @@
                     for="mintRecipient"
                     class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
                 >
-                    Destination Sovereign Vault Address (Optional Override)
+                    Destination Sovereign Vault Address (Supports `kaspa:q...` P2PK &amp; `kaspa:p...` P2SH)
                 </label>
                 <input
                     id="mintRecipient"
                     type="text"
                     bind:value={mintRecipientAddress}
-                    placeholder={identity.activeAddress || 'kaspa:qp...'}
+                    placeholder={identity.activeAddress || 'kaspa:qp... or kaspa:p...'}
                     class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none"
                 />
             </div>
@@ -479,7 +549,6 @@
             </div>
         </div>
 
-        <!-- RIGHT COLUMN: ON-CHAIN TELEMETRY & VERIFIABLE "PROOF-OF-LOCK" SUPPLY GAUGE -->
         <div
             data-testid="krc20-inspector-card"
             class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
@@ -548,14 +617,13 @@
                         </div>
                     </div>
 
-                    <!-- DELIVERABLE L2: VERIFIABLE "PROOF-OF-LOCK" SUPPLY GAUGE -->
                     <div
                         data-testid="proof-of-lock-supply-gauge"
                         class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3"
                     >
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                                🔒 Verifiable "PROOF-OF-LOCK" Supply Gauge
+                                🔒 Proof-of-Lock Supply Gauge
                             </span>
                             <span class="text-[8px] font-mono text-neutral-400 uppercase">
                                 22:00 UTC Daily Release: +{supplyGaugeMetrics.dailyUnlock.toLocaleString(undefined, { maximumFractionDigits: 2 })} {inspectedToken.tick}/d
@@ -570,7 +638,7 @@
                             <div
                                 class="h-full bg-blue-500 transition-all duration-500"
                                 style="width: {supplyGaugeMetrics.lockedPct}%;"
-                                title="Locked Vesting & Vault Supply"
+                                title="Locked SilverScript Vesting & Vault Supply"
                             ></div>
                             <div
                                 class="h-full bg-amber-500 transition-all duration-500"
@@ -614,30 +682,70 @@
                         {#if tokenomicsBundle?.vestingSchedules && tokenomicsBundle.vestingSchedules.length > 0}
                             <div class="border-t border-white/10 pt-2.5 flex flex-col gap-1.5">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
-                                    Active 22:00 UTC Timelock Vesting Covenants ({tokenomicsBundle.vestingSchedules.length})
+                                    Active 22:00 UTC SilverScript Vesting Covenants ({tokenomicsBundle.vestingSchedules.length})
                                 </span>
-                                <div class="flex flex-col gap-1.5 max-h-[140px] overflow-y-auto pr-1 hide-scrollbar">
+                                <div class="flex flex-col gap-2 max-h-[210px] overflow-y-auto pr-1 hide-scrollbar">
                                     {#each tokenomicsBundle.vestingSchedules as vs (vs.vestingId)}
+                                        {@const covDetails = resolveVestingCovenantDetails(vs)}
+                                        {@const isSilExpanded = Boolean(expandedVestingSilRows[vs.vestingId])}
                                         <div
                                             data-testid="vesting-covenant-row"
-                                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2 flex items-center justify-between text-[9px] font-mono"
+                                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2.5 flex flex-col gap-1.5 text-[9px] font-mono"
                                         >
-                                            <div class="flex flex-col">
-                                                <span class="font-bold text-white">
-                                                    {vs.label} ({vs.cliffDays}D Cliff / {vs.linearDays}D Linear)
-                                                </span>
-                                                <span class="text-[8px] text-neutral-400">
-                                                    {String(vs.beneficiaryAddress || '').slice(0, 22)}... • Root: {String(vs.vprogStateRoot || '').slice(0, 10)}...
-                                                </span>
+                                            <div class="flex items-center justify-between gap-2">
+                                                <div class="flex flex-col">
+                                                    <div class="flex items-center gap-1.5">
+                                                        <span class="font-bold text-white">
+                                                            {vs.label} ({vs.cliffDays}D Cliff / {vs.linearDays}D Linear)
+                                                        </span>
+                                                        <span class="px-1.5 py-0.5 rounded bg-[#11161f] border border-blue-500/35 text-[7px] text-blue-400 uppercase font-bold">
+                                                            {covDetails.tokenStandard}
+                                                        </span>
+                                                    </div>
+                                                    <span class="text-[8px] text-neutral-400">
+                                                        Beneficiary: {String(vs.beneficiaryAddress || '').slice(0, 22)}...
+                                                    </span>
+                                                </div>
+                                                <div class="flex flex-col items-end">
+                                                    <span class="text-blue-400 font-bold">
+                                                        {Number(vs.remainingLocked ?? vs.totalAllocated ?? 0).toLocaleString()} Locked
+                                                    </span>
+                                                    <span class="text-[8px] text-[#18C6A5]">
+                                                        +{Number(vs.dailyUnlockRate || 0).toFixed(1)}/d @ 22:00 UTC
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div class="flex flex-col items-end">
-                                                <span class="text-blue-400 font-bold">
-                                                    {Number(vs.remainingLocked ?? vs.totalAllocated ?? 0).toLocaleString()} Locked
+                                            <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5 text-[8px]">
+                                                <span
+                                                    data-testid="vesting-covenant-p2sh-address"
+                                                    class="text-[#18C6A5] truncate max-w-[240px] select-all"
+                                                    title={covDetails.covenantAddress}
+                                                >
+                                                    Vault: {covDetails.covenantAddress.slice(0, 26)}...
                                                 </span>
-                                                <span class="text-[8px] text-[#18C6A5]">
-                                                    +{Number(vs.dailyUnlockRate || 0).toFixed(1)}/d @ 22:00 UTC
-                                                </span>
+                                                <div class="flex items-center gap-2">
+                                                    <span
+                                                        data-testid="vesting-covenant-kcc20-root"
+                                                        class="text-neutral-400"
+                                                        title={covDetails.kcc20StateCommitment}
+                                                    >
+                                                        KCC-20 Root: {covDetails.kcc20StateCommitment.slice(0, 10)}...
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onclick={() => toggleVestingSilDrawer(vs.vestingId)}
+                                                        class="px-1.5 py-0.5 rounded bg-[#11161f] border border-blue-500/40 text-blue-400 font-bold uppercase cursor-pointer"
+                                                    >
+                                                        {isSilExpanded ? '[Hide .sil]' : '[View .sil]'}
+                                                    </button>
+                                                </div>
                                             </div>
+                                            {#if isSilExpanded}
+                                                <pre
+                                                    transition:slide={{ duration: 140 }}
+                                                    class="mt-1 bg-[#11161f] border border-white/10 rounded p-2 text-[8px] text-[#18C6A5] overflow-x-auto select-all"
+                                                >{covDetails.silverscriptSource}</pre>
+                                            {/if}
                                         </div>
                                     {/each}
                                 </div>
@@ -665,14 +773,13 @@
                         Enter a Ticker &amp; Click [Inspect On-Chain Supply]
                     </span>
                     <span class="text-[10px] text-neutral-500 max-w-sm">
-                        Live supply progress, Proof-of-Lock vesting covenants, burned supply, and daily 22:00 UTC unlock schedules will populate here.
+                        Live supply progress, `kaspa:p...` SilverScript Proof-of-Lock vesting covenants, KCC-20 state roots, and daily 22:00 UTC unlock schedules will populate here.
                     </span>
                 </div>
             {/if}
         </div>
     </div>
 
-    <!-- DELIVERABLE L5: RETROACTIVE KRC-20 ECOSYSTEM UPGRADE FOUNDRY -->
     {#if showRetroUpgradeFoundry}
         <div
             data-testid="retroactive-upgrade-foundry-card"
@@ -683,13 +790,13 @@
             <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
                 <div class="flex flex-col">
                     <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">
-                        DELIVERABLE L5 • RETROACTIVE KRC-20 ECOSYSTEM UPGRADE FOUNDRY
+                        Retroactive KRC-20 / KCC-20 SilverScript Ecosystem Upgrade
                     </span>
                     <h3 class="text-sm md:text-base font-black uppercase tracking-wider text-white mt-0.5">
                         Upgrade Existing Mainnet Ticker ({inspectedToken?.tick || mintSearchTicker || 'NACHO'})
                     </h3>
                     <span class="text-[10px] text-neutral-400">
-                        Attach a 22:00 UTC Buyback-and-Burn Sink, Proof-of-Lock Team Vesting Covenant, or Proof-of-Hashrate Mining Vault to an already-deployed KRC-20 community.
+                        Attach a 22:00 UTC Buyback-and-Burn Sink, `kaspa:p...` SilverScript Proof-of-Lock Team Vesting Covenant, or Proof-of-Hashrate Mining Vault to an already-deployed community.
                     </span>
                 </div>
                 <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold uppercase">
@@ -729,9 +836,18 @@
                 </div>
 
                 <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
-                    <span class="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                        2. Proof-of-Lock Team Vesting Covenant
-                    </span>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-blue-400">
+                            2. SilverScript Vesting Covenant
+                        </span>
+                        <button
+                            type="button"
+                            onclick={() => (showRetroSilPreview = !showRetroSilPreview)}
+                            class="text-[8px] font-mono text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                        >
+                            {showRetroSilPreview ? '[Hide .sil]' : '[View .sil]'}
+                        </button>
+                    </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div class="flex flex-col gap-1">
                             <span class="text-[8px] text-neutral-400 uppercase">Amount to Lock</span>
@@ -760,6 +876,9 @@
                             </div>
                         </div>
                     </div>
+                    <span class="text-[8px] font-mono text-[#18C6A5] truncate" title={retroCompiledVault.covenantAddress}>
+                        P2SH Vault: {retroCompiledVault.covenantAddress.slice(0, 28)}...
+                    </span>
                 </div>
 
                 <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
@@ -789,6 +908,13 @@
                 </div>
             </div>
 
+            {#if showRetroSilPreview}
+                <pre
+                    transition:slide={{ duration: 150 }}
+                    class="bg-[#11161f] border border-blue-500/35 rounded-2xl p-3.5 text-[9px] font-mono text-[#18C6A5] overflow-x-auto select-all"
+                >{retroCompiledVault.silverscriptSource}</pre>
+            {/if}
+
             <button
                 type="button"
                 data-testid="submit-retroactive-upgrade-btn"
@@ -798,8 +924,8 @@
                 style="background-image: radial-gradient(ellipse at center, rgba(245, 158, 11, 0.2), transparent 70%);"
             >
                 {isApplyingRetroUpgrade
-                    ? 'Binding Retroactive Covenants...'
-                    : `Bind 22:00 UTC Auto-Burn, Proof-of-Lock & Mining Vault to ${inspectedToken?.tick || mintSearchTicker || 'KRC-20'} →`}
+                    ? 'Binding Retroactive SilverScript Covenants...'
+                    : `Bind 22:00 UTC Auto-Burn, SilverScript Proof-of-Lock & Mining Vault to ${inspectedToken?.tick || mintSearchTicker || 'KRC-20'} →`}
             </button>
         </div>
     {/if}

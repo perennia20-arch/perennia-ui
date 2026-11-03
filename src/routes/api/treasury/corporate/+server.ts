@@ -1,487 +1,511 @@
 import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import { redis } from '$lib/server/redis';
-import { perenniaKMS } from '$lib/server/kms';
 import { env } from '$env/dynamic/private';
+import {
+    isWalletMasterAdmin,
+    normalizeKaspaAddressStrict,
+    perenniaKMS
+} from '$lib/server/kms';
 
-const rustBackendUrl =
-    env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '192.168.0.12'}:8002`;
+const FEE_TRACKED_TICKERS = [
+    'KAS',
+    'USDC',
+    'USDT',
+    'BTC',
+    'ETH',
+    'SOL',
+    'SILO',
+    'XRP',
+    'DOGE',
+    'POL',
+    'AVAX',
+    'ARB',
+    'BASE'
+] as const;
 
-export const GET: RequestHandler = async ({ url }: RequestEvent) => {
-    const kasAddr = url.searchParams.get('kas');
-    const btcAddr = url.searchParams.get('btc');
-    const ethAddr = url.searchParams.get('eth');
-    const solAddr = url.searchParams.get('sol');
-    const dogeAddr = url.searchParams.get('doge');
-    const xrpAddr = url.searchParams.get('xrp');
-    const polAddr = url.searchParams.get('pol');
-    const avaxAddr = url.searchParams.get('avax');
-    const suiAddr = url.searchParams.get('sui');
-    const trxAddr = url.searchParams.get('trx');
-    const zecAddr = url.searchParams.get('zec');
-    const isCorporateView = url.searchParams.get('corporate') === 'true';
+async function fetchKaspaBalance(address: string): Promise<number> {
+    const formatted = normalizeKaspaAddressStrict(address);
+    if (!formatted || formatted.length < 60) return 0;
 
-    const corporateAddrs = await perenniaKMS.getCorporateAddresses();
-    const finalKas =
-        isCorporateView && corporateAddrs.KAS && !corporateAddrs.KAS.includes('Awaiting')
-            ? corporateAddrs.KAS
-            : kasAddr;
-    const finalBtc =
-        isCorporateView && corporateAddrs.BTC && !corporateAddrs.BTC.includes('Awaiting')
-            ? corporateAddrs.BTC
-            : btcAddr;
-    const finalEth =
-        isCorporateView && corporateAddrs.ETH && !corporateAddrs.ETH.includes('Awaiting')
-            ? corporateAddrs.ETH
-            : ethAddr;
-    const finalSol =
-        isCorporateView && corporateAddrs.SOL && !corporateAddrs.SOL.includes('Awaiting')
-            ? corporateAddrs.SOL
-            : solAddr;
+    const cacheKey = `treasury:balance:${formatted.toLowerCase()}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
 
-    const btcTargets = Array.from(
-        new Set(
-            [finalBtc].filter(
-                (a): a is string =>
-                    typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting')
-            )
-        )
-    );
-    const ethTargets = Array.from(
-        new Set(
-            [finalEth].filter(
-                (a): a is string =>
-                    typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting')
-            )
-        )
-    );
-    const solTargets = Array.from(
-        new Set(
-            [finalSol].filter(
-                (a): a is string =>
-                    typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting')
-            )
-        )
-    );
-    const kasTargets = Array.from(
-        new Set(
-            [finalKas].filter(
-                (a): a is string =>
-                    typeof a === 'string' && a.trim() !== '' && !a.includes('Awaiting')
-            )
-        )
-    );
-
-    let kasBalance = 0;
-    let btcBalance = 0;
-    let ethBalance = 0;
-    let solBalance = 0;
-    let dogeBalance = 0;
-    let xrpBalance = 0;
-    let polBalance = 0;
-    let avaxBalance = 0;
-    let suiBalance = 0;
-    let trxBalance = 0;
-    let zecBalance = 0;
-    let reconciliation: any = null;
+    const rustBackendUrl =
+        env.RUST_BACKEND_URL ||
+        `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
 
     try {
-        for (const targetKas of kasTargets) {
-            const formattedKas = targetKas.startsWith('kaspa:')
-                ? targetKas
-                : `kaspa:${targetKas}`;
-            const cacheKey = `treasury:balance:${formattedKas.toLowerCase()}`;
-            let localKasBal = 0;
-            try {
-                const cached = await redis.get(cacheKey);
-                if (cached !== null && cached !== undefined) {
-                    localKasBal = parseFloat(cached);
-                }
-            } catch (err) {
-                console.warn('Redis read bypass:', err);
+        const rustRes = await fetch(
+            `${rustBackendUrl}/v1/balance?address=${encodeURIComponent(formatted)}`,
+            { signal: AbortSignal.timeout(3500) }
+        );
+        if (rustRes.ok) {
+            const data = await rustRes.json();
+            const bal = Number(data?.balanceKas ?? data?.balance ?? 0);
+            if (Number.isFinite(bal) && bal >= 0) {
+                await redis
+                    .set(cacheKey, String(bal), 'EX', 15)
+                    .catch(() => {});
+                return bal;
             }
-            if (localKasBal === 0) {
-                let fetched = false;
+        }
+    } catch {
+        // Fall through to KASPA_REST_URL
+    }
+
+    try {
+        const restUrl = (
+            env.KASPA_REST_URL || 'https://api.kaspa.org'
+        ).replace(/\/+$/, '');
+        const res = await fetch(
+            `${restUrl}/addresses/${encodeURIComponent(formatted)}/balance`,
+            { signal: AbortSignal.timeout(4000) }
+        );
+        if (res.ok) {
+            const data = await res.json();
+            const bal = (Number(data?.balance) || 0) / 1e8;
+            if (Number.isFinite(bal) && bal >= 0) {
+                await redis
+                    .set(cacheKey, String(bal), 'EX', 15)
+                    .catch(() => {});
+                return bal;
+            }
+        }
+    } catch {
+        // Ignore upstream timeout
+    }
+
+    return 0;
+}
+
+async function fetchEvmNativeBalance(
+    chain: 'ETH' | 'POL' | 'AVAX',
+    address: string
+): Promise<number> {
+    const clean = address.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(clean)) return 0;
+
+    const cacheKey = `treasury:balance:${chain}:${clean.toLowerCase()}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    const rpcUrl =
+        chain === 'POL'
+            ? env.POL_RPC_URL || 'https://polygon-bor-rpc.publicnode.com'
+            : chain === 'AVAX'
+              ? env.AVAX_RPC_URL ||
+                'https://avalanche-c-chain-rpc.publicnode.com'
+              : env.ETH_RPC_URL || 'https://ethereum-rpc.publicnode.com';
+
+    try {
+        const res = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'eth_getBalance',
+                params: [clean, 'latest']
+            }),
+            signal: AbortSignal.timeout(4000)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data?.result && typeof data.result === 'string') {
+                const wei = BigInt(data.result);
+                const bal = Number(wei) / 1e18;
+                if (Number.isFinite(bal) && bal >= 0) {
+                    await redis
+                        .set(cacheKey, String(bal), 'EX', 20)
+                        .catch(() => {});
+                    return bal;
+                }
+            }
+        }
+    } catch {
+        // Ignore RPC timeout
+    }
+    return 0;
+}
+
+async function fetchBitcoinBalance(address: string): Promise<number> {
+    const clean = address.trim();
+    if (!clean || clean.includes('Awaiting')) return 0;
+
+    const cacheKey = `treasury:balance:BTC:${clean}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    try {
+        const res = await fetch(
+            `https://mempool.space/api/address/${encodeURIComponent(clean)}`,
+            { signal: AbortSignal.timeout(4000) }
+        );
+        if (res.ok) {
+            const data = await res.json();
+            const funded = Number(data?.chain_stats?.funded_txo_sum || 0);
+            const spent = Number(data?.chain_stats?.spent_txo_sum || 0);
+            const bal = Math.max(0, funded - spent) / 1e8;
+            await redis.set(cacheKey, String(bal), 'EX', 20).catch(() => {});
+            return bal;
+        }
+    } catch {
+        // Ignore mempool.space timeout
+    }
+    return 0;
+}
+
+async function fetchSolanaBalance(address: string): Promise<number> {
+    const clean = address.trim();
+    if (!clean || clean.includes('Awaiting') || clean.length < 32) return 0;
+
+    const cacheKey = `treasury:balance:SOL:${clean}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    const rpcUrl = env.SOL_RPC_URL || 'https://solana-rpc.publicnode.com';
+    try {
+        const res = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getBalance',
+                params: [clean]
+            }),
+            signal: AbortSignal.timeout(4000)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const lamports = Number(data?.result?.value || 0);
+            const bal = lamports / 1e9;
+            await redis.set(cacheKey, String(bal), 'EX', 20).catch(() => {});
+            return bal;
+        }
+    } catch {
+        // Ignore Solana RPC timeout
+    }
+    return 0;
+}
+
+async function fetchXrplBalance(address: string): Promise<number> {
+    const clean = address.trim();
+    if (!clean || !clean.startsWith('r')) return 0;
+
+    const cacheKey = `treasury:balance:XRP:${clean}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    try {
+        const res = await fetch('https://xrplcluster.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                method: 'account_info',
+                params: [
+                    {
+                        account: clean,
+                        ledger_index: 'validated'
+                    }
+                ]
+            }),
+            signal: AbortSignal.timeout(4000)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const drops = Number(
+                data?.result?.account_data?.Balance || 0
+            );
+            const bal = drops / 1e6;
+            await redis.set(cacheKey, String(bal), 'EX', 20).catch(() => {});
+            return bal;
+        }
+    } catch {
+        // Ignore XRPL timeout
+    }
+    return 0;
+}
+
+async function fetchSuiBalance(address: string): Promise<number> {
+    const clean = address.trim();
+    if (!/^0x[0-9a-fA-F]{60,64}$/.test(clean)) return 0;
+
+    const cacheKey = `treasury:balance:SUI:${clean.toLowerCase()}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    try {
+        const res = await fetch('https://fullnode.mainnet.sui.io:443', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'suix_getBalance',
+                params: [clean, '0x2::sui::SUI']
+            }),
+            signal: AbortSignal.timeout(4000)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const mist = Number(data?.result?.totalBalance || 0);
+            const bal = mist / 1e9;
+            await redis.set(cacheKey, String(bal), 'EX', 20).catch(() => {});
+            return bal;
+        }
+    } catch {
+        // Ignore Sui RPC timeout
+    }
+    return 0;
+}
+
+async function fetchTronBalance(address: string): Promise<number> {
+    const clean = address.trim();
+    if (!clean.startsWith('T') || clean.length !== 34) return 0;
+
+    const cacheKey = `treasury:balance:TRX:${clean}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    try {
+        const res = await fetch(
+            `https://api.trongrid.io/v1/accounts/${encodeURIComponent(clean)}`,
+            { signal: AbortSignal.timeout(4000) }
+        );
+        if (res.ok) {
+            const data = await res.json();
+            const sun = Number(data?.data?.[0]?.balance || 0);
+            const bal = sun / 1e6;
+            await redis.set(cacheKey, String(bal), 'EX', 20).catch(() => {});
+            return bal;
+        }
+    } catch {
+        // Ignore TronGrid timeout
+    }
+    return 0;
+}
+
+async function fetchBlockchairBalance(
+    chain: 'dogecoin' | 'zcash',
+    ticker: 'DOGE' | 'ZEC',
+    address: string
+): Promise<number> {
+    const clean = address.trim();
+    if (!clean || clean.includes('Awaiting')) return 0;
+
+    const cacheKey = `treasury:balance:${ticker}:${clean}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached !== null) {
+        const parsed = parseFloat(cached);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+
+    try {
+        const res = await fetch(
+            `https://api.blockchair.com/${chain}/dashboards/address/${encodeURIComponent(clean)}`,
+            { signal: AbortSignal.timeout(4000) }
+        );
+        if (res.ok) {
+            const data = await res.json();
+            const sats = Number(
+                data?.data?.[clean]?.address?.balance || 0
+            );
+            const bal = sats / 1e8;
+            await redis.set(cacheKey, String(bal), 'EX', 30).catch(() => {});
+            return bal;
+        }
+    } catch {
+        // Ignore Blockchair timeout
+    }
+    return 0;
+}
+
+export const GET: RequestHandler = async ({ url, cookies }: RequestEvent) => {
+    const sessionId = cookies.get('perennia_session');
+    if (!sessionId) {
+        return json(
+            { error: 'UNAUTHORIZED: Active Sovereign session required.' },
+            { status: 401 }
+        );
+    }
+
+    const sessionWallet = await redis.get(`session:${sessionId}`);
+    if (!sessionWallet) {
+        return json({ error: 'SESSION_EXPIRED' }, { status: 401 });
+    }
+
+    const isDirector = isWalletMasterAdmin(sessionWallet);
+    const includeCorporateReconciliation =
+        isDirector && url.searchParams.get('corporate') === 'true';
+
+    const corpHot = await perenniaKMS.getCorporateAddresses();
+
+    const kasAddr =
+        url.searchParams.get('kas')?.trim() ||
+        normalizeKaspaAddressStrict(sessionWallet) ||
+        corpHot.KAS;
+    const btcAddr = url.searchParams.get('btc')?.trim() || '';
+    const ethAddr = url.searchParams.get('eth')?.trim() || '';
+    const solAddr = url.searchParams.get('sol')?.trim() || '';
+    const dogeAddr = url.searchParams.get('doge')?.trim() || '';
+    const xrpAddr = url.searchParams.get('xrp')?.trim() || '';
+    const polAddr = url.searchParams.get('pol')?.trim() || ethAddr;
+    const avaxAddr = url.searchParams.get('avax')?.trim() || ethAddr;
+    const suiAddr = url.searchParams.get('sui')?.trim() || '';
+    const trxAddr = url.searchParams.get('trx')?.trim() || '';
+    const zecAddr = url.searchParams.get('zec')?.trim() || '';
+
+    const [
+        kasBal,
+        btcBal,
+        ethBal,
+        solBal,
+        dogeBal,
+        xrpBal,
+        polBal,
+        avaxBal,
+        suiBal,
+        trxBal,
+        zecBal
+    ] = await Promise.all([
+        kasAddr && !kasAddr.includes('Awaiting')
+            ? fetchKaspaBalance(kasAddr)
+            : Promise.resolve(0),
+        btcAddr ? fetchBitcoinBalance(btcAddr) : Promise.resolve(0),
+        ethAddr ? fetchEvmNativeBalance('ETH', ethAddr) : Promise.resolve(0),
+        solAddr ? fetchSolanaBalance(solAddr) : Promise.resolve(0),
+        dogeAddr
+            ? fetchBlockchairBalance('dogecoin', 'DOGE', dogeAddr)
+            : Promise.resolve(0),
+        xrpAddr ? fetchXrplBalance(xrpAddr) : Promise.resolve(0),
+        polAddr ? fetchEvmNativeBalance('POL', polAddr) : Promise.resolve(0),
+        avaxAddr ? fetchEvmNativeBalance('AVAX', avaxAddr) : Promise.resolve(0),
+        suiAddr ? fetchSuiBalance(suiAddr) : Promise.resolve(0),
+        trxAddr ? fetchTronBalance(trxAddr) : Promise.resolve(0),
+        zecAddr
+            ? fetchBlockchairBalance('zcash', 'ZEC', zecAddr)
+            : Promise.resolve(0)
+    ]);
+
+    const assets = [
+        { symbol: 'KAS', address: kasAddr, balance: kasBal },
+        { symbol: 'BTC', address: btcAddr, balance: btcBal },
+        { symbol: 'ETH', address: ethAddr, balance: ethBal },
+        { symbol: 'SOL', address: solAddr, balance: solBal },
+        { symbol: 'DOGE', address: dogeAddr, balance: dogeBal },
+        { symbol: 'XRP', address: xrpAddr, balance: xrpBal },
+        { symbol: 'POL', address: polAddr, balance: polBal },
+        { symbol: 'AVAX', address: avaxAddr, balance: avaxBal },
+        { symbol: 'SUI', address: suiAddr, balance: suiBal },
+        { symbol: 'TRX', address: trxAddr, balance: trxBal },
+        { symbol: 'ZEC', address: zecAddr, balance: zecBal }
+    ];
+
+    let reconciliation: any = null;
+
+    if (includeCorporateReconciliation) {
+        const feeKeys = FEE_TRACKED_TICKERS.map(
+            (t) => `perennia:fees:batch_accumulated:${t}`
+        );
+
+        const [
+            nettingLen,
+            passthroughLen,
+            rawNettingOrders,
+            feeValues,
+            nettingProfitStr,
+            unhedgedDeltaStr,
+            hedgeStatusRaw,
+            fppsSolvencyRaw
+        ] = await Promise.all([
+            redis.llen('perennia:sor:netting_queue').catch(() => 0),
+            redis
+                .llen('perennia:sor:third_party_passthrough_queue')
+                .catch(() => 0),
+            redis
+                .lrange('perennia:sor:netting_queue', 0, 24)
+                .catch(() => [] as string[]),
+            redis.mget(...feeKeys).catch(() => [] as (string | null)[]),
+            redis.get('perennia:treasury:netting_profit_usd').catch(() => '0'),
+            redis.get('perennia:treasury:unhedged_delta_kas').catch(() => '0'),
+            redis.get('perennia:treasury:hedge_status').catch(() => null),
+            redis.get('perennia:pool:fpps_solvency').catch(() => null)
+        ]);
+
+        const accumulatedFees: Record<string, number> = {};
+        FEE_TRACKED_TICKERS.forEach((ticker, idx) => {
+            const val = parseFloat(String(feeValues?.[idx] || '0'));
+            accumulatedFees[ticker] =
+                Number.isFinite(val) && val > 0 ? Number(val.toFixed(8)) : 0;
+        });
+
+        const recentNettingOrders = (rawNettingOrders || [])
+            .map((raw) => {
                 try {
-                    const localRes = await fetch(
-                        `${rustBackendUrl}/v1/balance?address=${formattedKas}`,
-                        {
-                            signal: AbortSignal.timeout(2000)
-                        }
-                    );
-                    if (localRes.ok) {
-                        const localData = await localRes.json();
-                        localKasBal = localData.balanceKas || localData.balance || 0;
-                        fetched = true;
-                    }
+                    return JSON.parse(raw);
                 } catch {
-                    // Fallback to public explorer below
+                    return null;
                 }
-                if (!fetched) {
-                    try {
-                        const publicRes = await fetch(
-                            `https://api.kaspa.org/addresses/${formattedKas}/balance`
-                        );
-                        if (publicRes.ok) {
-                            const publicData = await publicRes.json();
-                            localKasBal = (publicData.balance || 0) / 100_000_000;
-                            fetched = true;
-                        }
-                    } catch (e) {
-                        console.error('Kaspa Public API Error:', e);
-                    }
-                }
-                if (fetched && localKasBal > 0) {
-                    try {
-                        await redis.set(cacheKey, localKasBal.toString(), 'EX', 15);
-                    } catch {
-                        // Ignore Redis cache write error
-                    }
-                }
-            }
-            kasBalance += localKasBal;
-        }
+            })
+            .filter(Boolean);
 
-        for (const targetBtc of btcTargets) {
+        let hedgeStatus = null;
+        if (hedgeStatusRaw) {
             try {
-                const res = await fetch(`https://mempool.space/api/address/${targetBtc}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const sats =
-                        (data.chain_stats?.funded_txo_sum || 0) -
-                        (data.chain_stats?.spent_txo_sum || 0);
-                    btcBalance += sats / 100_000_000;
-                }
+                hedgeStatus = JSON.parse(hedgeStatusRaw);
             } catch {
-                // Non-fatal
+                hedgeStatus = null;
             }
         }
 
-        for (const targetEth of ethTargets) {
+        let fppsSolvency = null;
+        if (fppsSolvencyRaw) {
             try {
-                const res = await fetch('https://ethereum-rpc.publicnode.com', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        method: 'eth_getBalance',
-                        params: [targetEth, 'latest'],
-                        id: 1
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result) {
-                        const wei = BigInt(data.result);
-                        ethBalance += Number(wei / 1000000000n) / 1000000000;
-                    }
-                }
+                fppsSolvency = JSON.parse(fppsSolvencyRaw);
             } catch {
-                // Non-fatal
+                fppsSolvency = null;
             }
         }
 
-        for (const targetSol of solTargets) {
-            try {
-                const res = await fetch('https://api.mainnet-beta.solana.com', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: 1,
-                        method: 'getBalance',
-                        params: [targetSol]
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result && data.result.value !== undefined) {
-                        solBalance += data.result.value / 1e9;
-                    }
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (dogeAddr && !dogeAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch(
-                    `https://api.blockcypher.com/v1/doge/main/addrs/${dogeAddr}/balance`
-                );
-                if (res.ok) {
-                    const data = await res.json();
-                    dogeBalance += (data.final_balance || 0) / 100_000_000;
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (xrpAddr && !xrpAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch(
-                    `https://data.ripple.com/v2/accounts/${xrpAddr}/balances`
-                );
-                if (res.ok) {
-                    const data = await res.json();
-                    const xrpEntry = (data.balances || []).find(
-                        (b: any) => b.currency === 'XRP'
-                    );
-                    if (xrpEntry) xrpBalance += parseFloat(xrpEntry.value || '0');
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (polAddr && !polAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch('https://polygon-bor-rpc.publicnode.com', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        method: 'eth_getBalance',
-                        params: [polAddr, 'latest'],
-                        id: 1
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result)
-                        polBalance += Number(BigInt(data.result) / 1000000000n) / 1000000000;
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (avaxAddr && !avaxAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch('https://avalanche-c-chain-rpc.publicnode.com', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        method: 'eth_getBalance',
-                        params: [avaxAddr, 'latest'],
-                        id: 1
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result)
-                        avaxBalance += Number(BigInt(data.result) / 1000000000n) / 1000000000;
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (suiAddr && !suiAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch('https://fullnode.mainnet.sui.io', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: 1,
-                        method: 'suix_getBalance',
-                        params: [suiAddr, '0x2::sui::SUI']
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result?.totalBalance)
-                        suiBalance += parseFloat(data.result.totalBalance) / 1e9;
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (trxAddr && !trxAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch(
-                    `https://api.trongrid.io/v1/accounts/${trxAddr}`
-                );
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.data && data.data.length > 0)
-                        trxBalance += (data.data[0].balance || 0) / 1_000_000;
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (zecAddr && !zecAddr.includes('Awaiting')) {
-            try {
-                const res = await fetch(
-                    `https://api.blockchair.com/zcash/dashboards/address/${zecAddr}`
-                );
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.data && data.data[zecAddr])
-                        zecBalance +=
-                            (data.data[zecAddr].address?.balance || 0) / 100_000_000;
-                }
-            } catch {
-                // Non-fatal
-            }
-        }
-
-        if (isCorporateView) {
-            const assetSymbols = [
-                'KAS',
-                'USDC',
-                'USDT',
-                'BTC',
-                'ETH',
-                'SOL',
-                'DOGE',
-                'XRP',
-                'POL',
-                'AVAX',
-                'SUI',
-                'TRX',
-                'ZEC',
-                'ARB'
-            ];
-            const syntheticFees: Record<string, number> = {};
-            for (const sym of assetSymbols) {
-                try {
-                    const feeStr = await redis.get(
-                        `perennia:fees:batch_accumulated:${sym}`
-                    );
-                    syntheticFees[sym] = feeStr ? parseFloat(feeStr) : 0;
-                } catch {
-                    syntheticFees[sym] = 0;
-                }
-            }
-
-            kasBalance += syntheticFees['KAS'] || 0;
-            btcBalance += syntheticFees['BTC'] || 0;
-            ethBalance += syntheticFees['ETH'] || 0;
-            solBalance += syntheticFees['SOL'] || 0;
-            dogeBalance += syntheticFees['DOGE'] || 0;
-            xrpBalance += syntheticFees['XRP'] || 0;
-            polBalance += syntheticFees['POL'] || 0;
-            avaxBalance += syntheticFees['AVAX'] || 0;
-            suiBalance += syntheticFees['SUI'] || 0;
-            trxBalance += syntheticFees['TRX'] || 0;
-            zecBalance += syntheticFees['ZEC'] || 0;
-
-            try {
-                const [
-                    nettingQueueLen,
-                    rawQueuePreview,
-                    passthroughQueueLen,
-                    nettingProfitStr,
-                    unhedgedDeltaStr,
-                    hedgeStatusRaw,
-                    fppsSolvencyRaw
-                ] = await Promise.all([
-                    redis.llen('perennia:sor:netting_queue'),
-                    redis.lrange('perennia:sor:netting_queue', 0, 19),
-                    redis.llen('perennia:sor:third_party_passthrough_queue'),
-                    redis.get('perennia:treasury:netting_profit_usd'),
-                    redis.get('perennia:treasury:unhedged_delta_kas'),
-                    redis.get('perennia:treasury:hedge_status'),
-                    redis.get('perennia:pool:fpps_solvency')
-                ]);
-
-                const recentNettingOrders = (rawQueuePreview || [])
-                    .map((item) => {
-                        try {
-                            return JSON.parse(item);
-                        } catch {
-                            return null;
-                        }
-                    })
-                    .filter(Boolean);
-
-                reconciliation = {
-                    nettingQueueLength: Number(nettingQueueLen || 0),
-                    passthroughQueueLength: Number(passthroughQueueLen || 0),
-                    recentNettingOrders,
-                    accumulatedFees: syntheticFees,
-                    nettingProfitUsd: nettingProfitStr
-                        ? parseFloat(nettingProfitStr) || 0
-                        : 0,
-                    unhedgedDeltaKas: unhedgedDeltaStr
-                        ? parseFloat(unhedgedDeltaStr) || 0
-                        : 0,
-                    hedgeStatus: hedgeStatusRaw ? JSON.parse(hedgeStatusRaw) : null,
-                    fppsSolvency: fppsSolvencyRaw ? JSON.parse(fppsSolvencyRaw) : null,
-                    updatedAt: Date.now()
-                };
-            } catch (recErr) {
-                console.warn('Corporate reconciliation telemetry read warning:', recErr);
-            }
-        }
-    } catch (e) {
-        console.error('Treasury Multi-Chain API Hydration Error:', e);
+        reconciliation = {
+            nettingQueueLength: Number(nettingLen || 0),
+            passthroughQueueLength: Number(passthroughLen || 0),
+            recentNettingOrders,
+            accumulatedFees,
+            nettingProfitUsd: parseFloat(String(nettingProfitStr || '0')) || 0,
+            unhedgedDeltaKas: parseFloat(String(unhedgedDeltaStr || '0')) || 0,
+            hedgeStatus,
+            fppsSolvency,
+            updatedAt: Date.now()
+        };
     }
 
     return json({
-        assets: [
-            {
-                symbol: 'KAS',
-                address: finalKas || 'Awaiting Configuration',
-                balance: kasBalance
-            },
-            {
-                symbol: 'BTC',
-                address: finalBtc || 'Awaiting Configuration',
-                balance: btcBalance
-            },
-            {
-                symbol: 'ETH',
-                address: finalEth || 'Awaiting Configuration',
-                balance: ethBalance
-            },
-            {
-                symbol: 'SOL',
-                address: finalSol || 'Awaiting Configuration',
-                balance: solBalance
-            },
-            {
-                symbol: 'DOGE',
-                address: dogeAddr || 'Awaiting Configuration',
-                balance: dogeBalance
-            },
-            {
-                symbol: 'XRP',
-                address: xrpAddr || 'Awaiting Configuration',
-                balance: xrpBalance
-            },
-            {
-                symbol: 'POL',
-                address: polAddr || 'Awaiting Configuration',
-                balance: polBalance
-            },
-            {
-                symbol: 'AVAX',
-                address: avaxAddr || 'Awaiting Configuration',
-                balance: avaxBalance
-            },
-            {
-                symbol: 'SUI',
-                address: suiAddr || 'Awaiting Configuration',
-                balance: suiBalance
-            },
-            {
-                symbol: 'TRX',
-                address: trxAddr || 'Awaiting Configuration',
-                balance: trxBalance
-            },
-            {
-                symbol: 'ZEC',
-                address: zecAddr || 'Awaiting Configuration',
-                balance: zecBalance
-            }
-        ],
+        success: true,
+        assets,
         reconciliation
     });
 };

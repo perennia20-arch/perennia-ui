@@ -24,9 +24,9 @@ class OperationsStore {
     computeFallbackSecondsTo2200Utc(): number {
         const nowSecs = Math.floor(Date.now() / 1000);
         const dayStart = nowSecs - (nowSecs % 86400);
-        const todayBell = dayStart + 22 * 3600;
-        const nextBell = nowSecs >= todayBell ? todayBell + 86400 : todayBell;
-        return Math.max(0, nextBell - nowSecs);
+        const todaySettlement = dayStart + 22 * 3600;
+        const nextSettlement = nowSecs >= todaySettlement ? todaySettlement + 86400 : todaySettlement;
+        return Math.max(0, nextSettlement - nowSecs);
     }
     tickEpochClock() {
         if (this.epochTelemetry?.nextEpochBellTs && this.epochTelemetry.nextEpochBellTs > 0) {
@@ -68,14 +68,14 @@ class OperationsStore {
         if (!browser) return '16:00 CT';
         try {
             const now = new Date();
-            const utcBellDate = new Date(
+            const utcSettlementDate = new Date(
                 Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 22, 0, 0)
             );
             return new Intl.DateTimeFormat(undefined, {
                 hour: '2-digit',
                 minute: '2-digit',
                 timeZoneName: 'short'
-            }).format(utcBellDate);
+            }).format(utcSettlementDate);
         } catch {
             return '16:00 CT';
         }
@@ -133,7 +133,7 @@ class OperationsStore {
         if (!epochData || typeof epochData !== 'object') return;
         this.epochTelemetry = {
             anchorUtcHour: epochData.anchorUtcHour ?? 22,
-            anchorLabel: epochData.anchorLabel ?? '22:00 UTC (00:00 JST / 16:00 CT)',
+            anchorLabel: epochData.anchorLabel ?? '22:00 UTC Global Settlement',
             currentEpochBellTs: Number(epochData.currentEpochBellTs || 0),
             nextEpochBellTs: Number(epochData.nextEpochBellTs || 0),
             secondsRemaining: Number(epochData.secondsRemaining || 0),

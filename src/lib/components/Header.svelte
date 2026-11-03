@@ -1,9 +1,7 @@
 <script lang="ts">
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
-
     let showToast = $state(false);
-
     function copyAddress() {
         if (!identity.activeAddress) {
             ui.showWalletModal = true;
@@ -16,17 +14,15 @@
         }, 2000);
     }
 </script>
-
 <header class="w-full h-24 px-8 flex justify-between items-center bg-[#06080b]/95 border-b border-white/10 z-50">
     <div class="flex items-center gap-4">
         <div class="w-10 h-10 rounded-xl bg-[#11161f] flex items-center justify-center border border-white/10">
             <span class="text-[#18C6A5] font-black text-xl">P</span>
         </div>
         <span class="text-white font-mono font-bold tracking-widest uppercase">
-            Perennia <span class="text-neutral-500 text-xs">v4</span>
+            PERENNIA
         </span>
     </div>
-
     <div class="flex items-center gap-6">
         {#if identity.isCorporateAdmin}
             <div class="flex items-center gap-2">
@@ -47,7 +43,6 @@
                 {/if}
             </div>
         {/if}
-
         <div class="relative flex flex-col items-end">
             <button
                 type="button"

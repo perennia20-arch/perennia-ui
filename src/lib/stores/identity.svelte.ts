@@ -2,11 +2,6 @@ import { browser } from '$app/environment';
 import { ui } from '$lib/stores/ui.svelte';
 import { operations } from '$lib/stores/operations.svelte';
 
-export const MASTER_ADMIN_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
-
-const DEV_ADMIN_BYPASS = false;
-
 class IdentityStore {
     isWalletConnected = $state(false);
     activeAddress = $state<string | null>(null);
@@ -18,44 +13,30 @@ class IdentityStore {
     pendingTransactionDetails = $state<any>(null);
     isVaultUnlocked = $state(false);
     forgePublicEnabled = $state(false);
+    masterTreasuryAddress = $state<string>('');
+    serverVerifiedAdmin = $state<boolean>(false);
 
-    get isCorporateAdmin() {
+    get isCorporateAdmin(): boolean {
+        if (this.serverVerifiedAdmin) return true;
+        if (!this.activeAddress || !this.masterTreasuryAddress) return false;
         return (
-            DEV_ADMIN_BYPASS ||
-            Boolean(
-                this.activeAddress &&
-                    this.activeAddress.trim().toLowerCase() ===
-                        MASTER_ADMIN_ADDRESS.toLowerCase()
-            )
-        );
-    }
-
-    get isLocalOrLanHost(): boolean {
-        if (!browser || typeof window === 'undefined') return false;
-        const host = window.location.hostname.trim().toLowerCase();
-        return (
-            host === 'localhost' ||
-            host === '127.0.0.1' ||
-            host === '192.168.50.100' ||
-            host.startsWith('192.168.50.')
+            this.normalizeKaspaAddress(this.activeAddress) ===
+            this.normalizeKaspaAddress(this.masterTreasuryAddress)
         );
     }
 
     get canAccessForge(): boolean {
-        return Boolean(
-            this.forgePublicEnabled ||
-                this.isCorporateAdmin ||
-                this.isLocalOrLanHost
-        );
+        return Boolean(this.forgePublicEnabled || this.isCorporateAdmin);
     }
 
-    get isReadOnlySession() {
+    get isReadOnlySession(): boolean {
         return this.isWalletConnected && !this.isVaultUnlocked;
     }
 
     normalizeKaspaAddress(addr: string | null | undefined): string | null {
         if (!addr) return null;
         const clean = addr.trim().toLowerCase();
+        if (!clean) return null;
         if (clean.startsWith('kaspa:')) return clean;
         return `kaspa:${clean}`;
     }
@@ -75,6 +56,37 @@ class IdentityStore {
             .join('');
     }
 
+    async syncServerAdminClearance(): Promise<void> {
+        if (!browser) return;
+        try {
+            const [meRes, fiatRes] = await Promise.all([
+                fetch('/api/auth/me'),
+                fetch('/api/fiat/offramp')
+            ]);
+            if (meRes.ok) {
+                const meData = await meRes.json();
+                if (typeof meData.isCorporateAdmin === 'boolean') {
+                    this.serverVerifiedAdmin = meData.isCorporateAdmin;
+                }
+                if (meData.masterTreasuryAddress) {
+                    this.masterTreasuryAddress =
+                        this.normalizeKaspaAddress(meData.masterTreasuryAddress) || '';
+                }
+            }
+            if (fiatRes.ok) {
+                const fiatData = await fiatRes.json();
+                if (fiatData.masterTreasuryKasAddress) {
+                    this.masterTreasuryAddress =
+                        this.normalizeKaspaAddress(
+                            fiatData.masterTreasuryKasAddress
+                        ) || this.masterTreasuryAddress;
+                }
+            }
+        } catch {
+            // Ignore transient network errors during clearance sync
+        }
+    }
+
     authorizeSovereignVault(vaultPayload: any) {
         this.sovereignKeys = vaultPayload.wallets;
         this.activeAddress = this.normalizeKaspaAddress(
@@ -91,6 +103,7 @@ class IdentityStore {
             );
         }
         this.isWalletConnected = true;
+        this.syncServerAdminClearance();
         ui.checkFirstTimeTutorialPrompt();
     }
 
@@ -113,6 +126,7 @@ class IdentityStore {
                     this.sovereignKeys = parsed.wallets;
                     this.activeAddress = vaultKaspaAddr;
                     this.activeWalletType = 'sovereign';
+                    this.syncServerAdminClearance();
                     if (unlockedInTab) {
                         this.isVaultUnlocked = true;
                         this.isWalletConnected = true;
@@ -136,6 +150,7 @@ class IdentityStore {
         if (normalizedAuth) {
             this.activeAddress = normalizedAuth;
             this.activeWalletType = 'sovereign';
+            this.syncServerAdminClearance();
             if (unlockedInTab) {
                 this.isVaultUnlocked = true;
                 this.isWalletConnected = true;
@@ -167,6 +182,7 @@ class IdentityStore {
         this.isVaultUnlocked = false;
         this.isVaultUnlockPending = false;
         this.pendingTransactionDetails = null;
+        this.serverVerifiedAdmin = false;
         operations.purge();
         if (browser) {
             sessionStorage.removeItem('perennia_active_wallet_type');

@@ -1,126 +1,309 @@
 import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
+import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
-import crypto from 'node:crypto';
-import { Buffer } from 'node:buffer';
+import {
+    isWalletMasterAdmin,
+    resolveMasterTreasuryKasAddressOptional,
+    normalizeKaspaAddressStrict,
+    normalizeKaspaBase32Strict,
+    perenniaKMS
+} from '$lib/server/kms';
 
-const MASTER_ADMIN_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
-
-function normalizeKaspaBase32(addr: string): string {
-    return addr.trim().toLowerCase().replace(/^kaspa:/i, '').trim();
+function resolveStratumTierEndpoint(hashrateTh: number): {
+    tier: number;
+    externalPort: number;
+    internalPort: number;
+    initialDifficulty: number;
+    stratumUrl: string;
+} {
+    const host = (env.PUBLIC_STRATUM_HOST || 'pool.perennia.io').trim();
+    if (hashrateTh > 10.0) {
+        return {
+            tier: 3,
+            externalPort: 3334,
+            internalPort: 6553,
+            initialDifficulty: 1024.0,
+            stratumUrl: `stratum+tcp://${host}:3334`
+        };
+    }
+    if (hashrateTh >= 1.0) {
+        return {
+            tier: 2,
+            externalPort: 3333,
+            internalPort: 6552,
+            initialDifficulty: 256.0,
+            stratumUrl: `stratum+tcp://${host}:3333`
+        };
+    }
+    return {
+        tier: 1,
+        externalPort: 3332,
+        internalPort: 6551,
+        initialDifficulty: 1.0,
+        stratumUrl: `stratum+tcp://${host}:3332`
+    };
 }
 
-async function isAuthorizedDirector(
+async function ensureWorkerProfilesSchema() {
+    await dbPool.query(`
+        CREATE TABLE IF NOT EXISTS worker_profiles (
+            worker_id VARCHAR(255) PRIMARY KEY,
+            wallet_address VARCHAR(255) NOT NULL,
+            worker_name VARCHAR(128) NOT NULL DEFAULT 'Rig01',
+            hardware_model VARCHAR(128) NOT NULL DEFAULT 'IceRiver KS',
+            current_hashrate DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            valid_shares BIGINT NOT NULL DEFAULT 0,
+            rejected_shares BIGINT NOT NULL DEFAULT 0,
+            blocks_found BIGINT NOT NULL DEFAULT 0,
+            stratum_port INTEGER NOT NULL DEFAULT 3332,
+            last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
+}
+
+async function hasDirectorClearance(
     request: Request,
-    cookies: RequestEvent['cookies']
+    sessionWallet: string | null
 ): Promise<boolean> {
     const authHeader = request.headers.get('authorization') || '';
-    if (env.PERENNIA_ADMIN_KEY && authHeader.startsWith('Bearer ')) {
-        const expected = Buffer.from(`Bearer ${env.PERENNIA_ADMIN_KEY}`);
-        const provided = Buffer.from(authHeader);
-        if (
-            expected.length === provided.length &&
-            crypto.timingSafeEqual(expected, provided)
-        ) {
-            return true;
+    if (authHeader.startsWith('Bearer ')) {
+        try {
+            if (perenniaKMS.verifyMasterAdminKey(authHeader)) {
+                return true;
+            }
+        } catch {
+            // Fall through to session check
         }
     }
-
-    const sessionId = cookies.get('perennia_session');
-    if (!sessionId) return false;
-
-    const sessionWallet = await redis.get(`session:${sessionId}`);
-    if (!sessionWallet) return false;
-
-    const cleanSession = normalizeKaspaBase32(sessionWallet);
-    const cleanMaster = normalizeKaspaBase32(
-        env.MASTER_ADMIN_ADDRESS || MASTER_ADMIN_ADDRESS
-    );
-
-    return cleanSession === cleanMaster;
+    return isWalletMasterAdmin(sessionWallet);
 }
 
-export const GET: RequestHandler = async ({ request, cookies }: RequestEvent) => {
-    const authorized = await isAuthorizedDirector(request, cookies);
-    if (!authorized) {
-        return json(
-            { error: 'FORBIDDEN: Master Director clearance required.' },
-            { status: 403 }
-        );
+export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
+    const sessionId = cookies.get('perennia_session');
+    const sessionWallet = sessionId
+        ? await redis.get(`session:${sessionId}`).catch(() => null)
+        : null;
+
+    const requestedWallet = url.searchParams.get('wallet') || sessionWallet || '';
+    const cleanWallet = normalizeKaspaBase32Strict(requestedWallet);
+
+    const boundCoinbaseRaw =
+        (await redis.get('perennia:stratum:mining_address').catch(() => null)) ||
+        (env.PERENNIA_HOT_KAS_ADDRESS || '').trim() ||
+        resolveMasterTreasuryKasAddressOptional() ||
+        '';
+    const poolCoinbaseAddress = boundCoinbaseRaw
+        ? normalizeKaspaAddressStrict(boundCoinbaseRaw)
+        : null;
+
+    let workers: any[] = [];
+    if (cleanWallet && sessionWallet) {
+        const cleanSession = normalizeKaspaBase32Strict(sessionWallet);
+        const isDirector = isWalletMasterAdmin(sessionWallet);
+        if (cleanWallet === cleanSession || isDirector) {
+            try {
+                await ensureWorkerProfilesSchema();
+                const res = await dbPool.query(
+                    `SELECT worker_id, wallet_address, worker_name, hardware_model,
+                            current_hashrate, valid_shares, rejected_shares,
+                            blocks_found, stratum_port, last_seen
+                     FROM worker_profiles
+                     WHERE LOWER(REPLACE(TRIM(wallet_address), 'kaspa:', '')) = $1
+                     ORDER BY last_seen DESC NULLS LAST`,
+                    [cleanWallet]
+                );
+                workers = res.rows;
+            } catch {
+                workers = [];
+            }
+        }
     }
 
-    try {
-        const boundAddress = await redis.get('perennia:stratum:mining_address');
-        return json({
-            kaspaAddress:
-                boundAddress ||
-                env.PERENNIA_TREASURY_KAS_ADDRESS ||
-                MASTER_ADMIN_ADDRESS
-        });
-    } catch {
-        return json(
-            { error: 'STRATUM REDIS ERROR: CANNOT READ MINING ADDRESS' },
-            { status: 500 }
-        );
-    }
+    return json({
+        online: Boolean(poolCoinbaseAddress),
+        poolCoinbaseAddress,
+        tiers: [
+            resolveStratumTierEndpoint(0.4),
+            resolveStratumTierEndpoint(4.0),
+            resolveStratumTierEndpoint(20.0)
+        ],
+        workers
+    });
 };
 
-export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) => {
-    const authorized = await isAuthorizedDirector(request, cookies);
-    if (!authorized) {
+export const POST: RequestHandler = async ({
+    request,
+    cookies
+}: RequestEvent) => {
+    const sessionId = cookies.get('perennia_session');
+    const sessionWallet = sessionId
+        ? await redis.get(`session:${sessionId}`).catch(() => null)
+        : null;
+
+    const isDirector = await hasDirectorClearance(request, sessionWallet);
+
+    if (!sessionWallet && !isDirector) {
         return json(
             {
-                error: 'FORBIDDEN: Only the Master Director may rebind the Stratum coinbase address.'
+                error: 'UNAUTHORIZED: Active Sovereign session required to bind Stratum workers.'
             },
-            { status: 403 }
+            { status: 401 }
         );
     }
 
     try {
-        const body = await request.json();
-        const { kaspaAddress } = body;
+        const body = await request.json().catch(() => ({}));
+        const action = String(body.action || 'BIND_WORKER')
+            .trim()
+            .toUpperCase();
 
-        if (!kaspaAddress || typeof kaspaAddress !== 'string') {
-            return json({ error: 'INVALID PAYLOAD: MISSING ADDRESS' }, { status: 400 });
-        }
+        if (
+            action === 'SET_POOL_COINBASE' ||
+            action === 'REBIND_COINBASE_WALLET'
+        ) {
+            if (!isDirector) {
+                return json(
+                    {
+                        error: 'FORBIDDEN: Only the Master Treasury Director may rebind the Stratum pool coinbase address.'
+                    },
+                    { status: 403 }
+                );
+            }
 
-        const cleanAddress = kaspaAddress.trim().toLowerCase();
-        if (!cleanAddress.startsWith('kaspa:')) {
-            return json(
-                { error: 'INVALID FORMAT: MISSING "kaspa:" PREFIX' },
-                { status: 400 }
+            const rawCoinbase = String(
+                body.miningAddress || body.coinbaseAddress || body.wallet || ''
+            ).trim();
+            const cleanCoinbase = normalizeKaspaBase32Strict(rawCoinbase);
+            if (!cleanCoinbase || cleanCoinbase.length < 55) {
+                return json(
+                    {
+                        error: 'INVALID_KASPA_ADDRESS: Provide a valid Bech32m Kaspa address for the Stratum coinbase wallet.'
+                    },
+                    { status: 400 }
+                );
+            }
+
+            const prefixedCoinbase = normalizeKaspaAddressStrict(cleanCoinbase);
+            await redis.set(
+                'perennia:stratum:mining_address',
+                prefixedCoinbase
             );
-        }
-        if (cleanAddress.length < 60) {
-            return json(
-                { error: 'INVALID FORMAT: ADDRESS LENGTH INCORRECT' },
-                { status: 400 }
-            );
-        }
 
-        try {
-            await redis.set('perennia:stratum:mining_address', cleanAddress);
-        } catch (redisErr) {
-            console.warn('Redis unreachable for stratum bind', redisErr);
-            return json(
-                { error: 'STRATUM REDIS ERROR: CANNOT BIND MINING ADDRESS' },
-                { status: 500 }
-            );
-        }
+            await dbPool
+                .query(
+                    `UPDATE system_treasury_config
+                     SET cold_kas_address = $1,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE config_id = 'PRIMARY'`,
+                    [prefixedCoinbase]
+                )
+                .catch(() => {});
 
-        return json(
-            {
+            return json({
                 success: true,
-                kaspaAddress: cleanAddress,
-                message: 'STRATUM SUCCESSFULLY BOUND'
-            },
-            { status: 200 }
+                action: 'SET_POOL_COINBASE',
+                poolCoinbaseAddress: prefixedCoinbase
+            });
+        }
+
+        const rawWallet = String(
+            body.wallet || body.walletAddress || sessionWallet || ''
+        ).trim();
+        const cleanWallet = normalizeKaspaBase32Strict(rawWallet);
+        if (!cleanWallet || cleanWallet.length < 55) {
+            return json(
+                {
+                    error: 'INVALID_KASPA_ADDRESS: Valid Kaspa miner payout address is required.'
+                },
+                { status: 400 }
+            );
+        }
+
+        if (
+            !isDirector &&
+            sessionWallet &&
+            cleanWallet !== normalizeKaspaBase32Strict(sessionWallet)
+        ) {
+            return json(
+                {
+                    error: 'FORBIDDEN: Cannot bind a Stratum worker to another miner wallet.'
+                },
+                { status: 403 }
+            );
+        }
+
+        const prefixedWallet = normalizeKaspaAddressStrict(cleanWallet);
+        const rawWorkerName = String(
+            body.workerName || body.name || 'Rig01'
+        ).trim();
+        const sanitizedWorkerName =
+            rawWorkerName.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) ||
+            'Rig01';
+        const hardwareModel =
+            String(
+                body.hardwareModel || body.hardwareType || 'IceRiver KS'
+            )
+                .trim()
+                .slice(0, 80) || 'IceRiver KS';
+        const estimatedHashrateTh = Math.max(
+            0,
+            Number(body.estimatedHashrateTh ?? body.hashRate ?? 0.4)
         );
+
+        const tierSpec = resolveStratumTierEndpoint(estimatedHashrateTh);
+        const workerId = `${prefixedWallet}.${sanitizedWorkerName}`;
+
+        await ensureWorkerProfilesSchema();
+        await dbPool.query(
+            `INSERT INTO worker_profiles
+             (worker_id, wallet_address, worker_name, hardware_model, current_hashrate, stratum_port, last_seen)
+             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+             ON CONFLICT (worker_id) DO UPDATE SET
+                wallet_address = EXCLUDED.wallet_address,
+                worker_name = EXCLUDED.worker_name,
+                hardware_model = EXCLUDED.hardware_model,
+                stratum_port = EXCLUDED.stratum_port,
+                last_seen = CURRENT_TIMESTAMP`,
+            [
+                workerId,
+                prefixedWallet,
+                sanitizedWorkerName,
+                hardwareModel,
+                estimatedHashrateTh * 1e12,
+                tierSpec.externalPort
+            ]
+        );
+
+        await redis
+            .set(
+                `stratum:worker:${cleanWallet}.${sanitizedWorkerName.toLowerCase()}`,
+                JSON.stringify({
+                    workerId,
+                    walletAddress: prefixedWallet,
+                    workerName: sanitizedWorkerName,
+                    hardwareModel,
+                    tier: tierSpec.tier,
+                    stratumUrl: tierSpec.stratumUrl,
+                    boundAt: new Date().toISOString()
+                }),
+                'EX',
+                60 * 60 * 24 * 30
+            )
+            .catch(() => {});
+
+        return json({
+            success: true,
+            workerId,
+            walletAddress: prefixedWallet,
+            workerName: sanitizedWorkerName,
+            hardwareModel,
+            ...tierSpec
+        });
     } catch (err: any) {
-        console.error('Stratum Binding API Error:', err);
+        console.error('Stratum Bind Fault:', err);
         return json(
-            { error: 'CRITICAL BACKEND FAULT. STRATUM OFFLINE.' },
+            { error: err?.message || 'Failed to bind Stratum worker.' },
             { status: 500 }
         );
     }

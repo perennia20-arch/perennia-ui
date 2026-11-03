@@ -73,6 +73,32 @@ function sanitizeTransactionForWrpc(rawTx: any) {
     return cloned;
 }
 
+async function broadcastViaLocalRustNode(
+    tx: any,
+    rustBackendUrl: string
+): Promise<string> {
+    const sanitized = sanitizeTransactionForRest(tx);
+    const endpoint = `${rustBackendUrl.replace(/\/+$/, '')}/v1/broadcast`;
+    const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sanitized),
+        signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(
+            `Local Rust gRPC broadcast rejected (${res.status}): ${errText}`
+        );
+    }
+    const data = await res.json();
+    const txId = data.transactionId || data.id;
+    if (!txId) {
+        throw new Error('Local Rust gRPC node returned no transactionId');
+    }
+    return String(txId);
+}
+
 async function broadcastViaWrpc(tx: any, wrpcUrl: string): Promise<string> {
     const cleanTx = sanitizeTransactionForWrpc(tx);
     return new Promise((resolve, reject) => {
@@ -158,7 +184,7 @@ async function finalizeBroadcastAccounting(
     const prefixedWallet = `kaspa:${cleanWallet}`;
     const pendingSwapKey = `perennia:pending_swap:${cleanWallet}`;
     let promotedSwap = false;
-    let swapOrder: any = null;
+    let swapOrder: any | null = null;
     try {
         const promotedRaw = await redis.eval(
             LUA_PROMOTE_PENDING_SWAP,
@@ -174,7 +200,7 @@ async function finalizeBroadcastAccounting(
                 swapOrder = null;
             }
             console.log(
-                `🟢 [Sovereign Broadcast Hook] Promoted pending swap for ${prefixedWallet} (TX: ${transactionId}) into Dark Pool netting queue.`
+                `🟢 [Sovereign Broadcast Hook] Promoted pending swap for ${prefixedWallet} (TX: ${transactionId}) into Liquidity Pool netting queue.`
             );
         }
     } catch (redisErr) {
@@ -246,17 +272,24 @@ export async function POST({ request, cookies }: RequestEvent) {
     if (!tx || !Array.isArray(tx.inputs) || !Array.isArray(tx.outputs)) {
         return json({ error: 'MALFORMED_TRANSACTION_PAYLOAD' }, { status: 400 });
     }
+
+    const rustBackendUrl =
+        env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
     const kaspaRestUrl = env.KASPA_REST_URL || 'https://api.kaspa.org';
     const wrpcUrl =
         env.KASPA_WRPC_URL ||
         (env.KASPA_NODE_IP ? `ws://${env.KASPA_NODE_IP}:18110` : '');
+
     let transactionId = '';
     let lastError = '';
+
     try {
-        transactionId = await broadcastViaRest(tx, kaspaRestUrl);
-    } catch (restErr: any) {
-        lastError = restErr.message || 'REST broadcast failed';
-        console.warn(`⚠️ [Perennia Proxy] REST broadcast failed (${lastError}). Checking wRPC fallback...`);
+        transactionId = await broadcastViaLocalRustNode(tx, rustBackendUrl);
+    } catch (grpcErr: any) {
+        lastError = grpcErr.message || 'Local Rust gRPC broadcast failed';
+        console.warn(
+            `⚠️ [Perennia Proxy] Local Rust gRPC broadcast failed (${lastError}). Checking local wRPC / REST fallback...`
+        );
         if (wrpcUrl) {
             try {
                 transactionId = await broadcastViaWrpc(tx, wrpcUrl);
@@ -264,12 +297,29 @@ export async function POST({ request, cookies }: RequestEvent) {
                 lastError = `${lastError} | wRPC: ${wrpcErr.message}`;
             }
         }
+        if (!transactionId) {
+            try {
+                transactionId = await broadcastViaRest(tx, kaspaRestUrl);
+            } catch (restErr: any) {
+                lastError = `${lastError} | REST: ${restErr.message}`;
+            }
+        }
     }
+
     if (!transactionId) {
-        console.error('❌ [Perennia Proxy] Broadcast failed across all transports:', lastError);
-        return json({ error: lastError || 'Node rejected transaction broadcast' }, { status: 422 });
+        console.error(
+            '❌ [Perennia Proxy] Broadcast failed across all transports:',
+            lastError
+        );
+        return json(
+            { error: lastError || 'Node rejected transaction broadcast' },
+            { status: 422 }
+        );
     }
-    const outputAmountSompi = Number(tx.outputs[0]?.amount ?? tx.outputs[0]?.value ?? 0);
+
+    const outputAmountSompi = Number(
+        tx.outputs[0]?.amount ?? tx.outputs[0]?.value ?? 0
+    );
     const outputAmountKas = outputAmountSompi / 1e8;
     const { promotedSwap } = await finalizeBroadcastAccounting(
         sessionWallet,

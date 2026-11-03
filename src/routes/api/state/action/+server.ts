@@ -1,12 +1,19 @@
-import { json, type RequestEvent } from '@sveltejs/kit';
+import { json, type RequestEvent, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { redis } from '$lib/server/redis';
 import { dbPool } from '$lib/server/db';
+import {
+    isWalletMasterAdmin,
+    normalizeKaspaBase32Strict,
+    resolveMasterTreasuryKasAddressOptional
+} from '$lib/server/kms';
+import {
+    executeOrQueueL1Dispatch,
+    computeReservoirHmac
+} from '$lib/server/l1Dispatcher';
 import { blake2b } from '@noble/hashes/blake2.js';
 import crypto from 'node:crypto';
 
-const MASTER_ADMIN_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
 const KASPA_BURN_ADDRESS =
     'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
 const KASPA_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -22,13 +29,27 @@ const GATED_FORGE_ACTIONS = new Set([
     'FUND_MINEABLE_KRC20_VAULT'
 ]);
 
-function normalizeKaspaBase32(addr: string): string {
-    return String(addr || '')
-        .trim()
-        .toLowerCase()
-        .replace(/^kaspa:/i, '')
-        .trim();
-}
+const LUA_ATOMIC_DEBIT_TOKEN_LEDGER = `
+local asset = ARGV[1]
+local req = tonumber(ARGV[2])
+local primary = tonumber(redis.call('HGET', KEYS[1], asset) or '0')
+if primary >= req then
+    redis.call('HINCRBYFLOAT', KEYS[1], asset, -req)
+    return {1, tostring(0)}
+end
+if asset == 'KAS' then
+    local unassigned = tonumber(redis.call('HGET', KEYS[1], 'Unassigned KAS') or '0')
+    if (primary + unassigned) >= req then
+        local from_unassigned = req - primary
+        if primary > 0 then
+            redis.call('HSET', KEYS[1], 'KAS', '0')
+        end
+        redis.call('HINCRBYFLOAT', KEYS[1], 'Unassigned KAS', -from_unassigned)
+        return {1, tostring(from_unassigned)}
+    end
+end
+return {0, tostring(0)}
+`;
 
 function isLocalOrLanRequest(url: URL, request: Request): boolean {
     const hostCandidates = [
@@ -38,7 +59,6 @@ function isLocalOrLanRequest(url: URL, request: Request): boolean {
     ]
         .map((h) => h.split(':')[0].trim().toLowerCase())
         .filter(Boolean);
-
     return hostCandidates.some(
         (h) =>
             h === 'localhost' ||
@@ -67,7 +87,7 @@ async function isForgePubliclyUnlocked(): Promise<boolean> {
             );
         }
     } catch {
-        // Fallback to stealth lock if Redis check fails
+        // Ignore Redis error
     }
     return false;
 }
@@ -243,7 +263,6 @@ function compileServerSilverScriptVault(params: {
             ? Math.floor(params.anchorTimestampSec)
             : CANONICAL_GENESIS_ANCHOR_EPOCH_SEC;
     const cliffTimestamp = baseAnchorSec + cliffDays * 86_400;
-
     let beneficiaryPubkeyBytes: Uint8Array = new Uint8Array(32);
     let ownerScheme = KASPA_ADDR_VERSION_P2PK_SCHNORR;
     let normalizedBeneficiary = String(params.beneficiaryAddress || '')
@@ -267,7 +286,6 @@ function compileServerSilverScriptVault(params: {
             beneficiaryPubkeyBytes
         );
     }
-
     const beneficiaryPubkeyHex = bytesToHex(beneficiaryPubkeyBytes);
     const silverscriptSource = [
         `pragma silverscript ^1.0.0;`,
@@ -303,7 +321,6 @@ function compileServerSilverScriptVault(params: {
         `    }`,
         `}`
     ].join('\n');
-
     const silAstDigest = new Uint8Array(
         blake2b(new TextEncoder().encode(silverscriptSource), {
             dkLen: 32
@@ -331,7 +348,6 @@ function compileServerSilverScriptVault(params: {
         scriptHashBytes
     );
     const covenantSpkHex = `a9${scriptHashHex}87`;
-
     const extSeed = `${cleanTicker}:${params.charterSha256Hex || 'PERENNIA_KCC20_CHARTER_V1'}`;
     const extension32 = new Uint8Array(
         blake2b(new TextEncoder().encode(extSeed), { dkLen: 32 })
@@ -361,7 +377,6 @@ function compileServerSilverScriptVault(params: {
             { dkLen: 32 }
         )
     );
-
     return {
         contractName: 'ProofOfLockVault',
         ticker: cleanTicker,
@@ -407,9 +422,41 @@ function containsForbiddenPrivateKey(obj: unknown): boolean {
     return false;
 }
 
-async function ensureForgeTablesExist() {
+async function ensureStateAuxiliaryTables() {
     const client = await dbPool.connect();
     try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS system_treasury_config (
+                config_id VARCHAR(64) PRIMARY KEY DEFAULT 'PRIMARY',
+                hot_ceiling_kas DOUBLE PRECISION NOT NULL DEFAULT 5000.0,
+                min_runway_kas DOUBLE PRECISION NOT NULL DEFAULT 250.0,
+                fpps_max_float_kas DOUBLE PRECISION NOT NULL DEFAULT 50.0,
+                pool_fee_rate DOUBLE PRECISION NOT NULL DEFAULT 0.01,
+                outflow_breaker_tripped BOOLEAN NOT NULL DEFAULT FALSE,
+                cold_kas_address VARCHAR(255) NOT NULL DEFAULT '',
+                cold_btc_address VARCHAR(255) NOT NULL DEFAULT '',
+                cold_eth_address VARCHAR(255) NOT NULL DEFAULT '',
+                cold_sol_address VARCHAR(255) NOT NULL DEFAULT '',
+                updated_by VARCHAR(255) NOT NULL DEFAULT 'SYSTEM_BOOT',
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_cold_vault_rules (
+                wallet_address VARCHAR(255) NOT NULL,
+                asset_ticker VARCHAR(32) NOT NULL,
+                network VARCHAR(32) NOT NULL DEFAULT 'KAS',
+                cold_destination_address VARCHAR(255) NOT NULL,
+                vault_label VARCHAR(128) NOT NULL DEFAULT 'Perennia Cold Vault',
+                overflow_ceiling DOUBLE PRECISION NOT NULL DEFAULT 500.0,
+                auto_sweep_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                last_sweep_txid VARCHAR(128),
+                last_sweep_amount DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                last_sweep_at TIMESTAMP WITH TIME ZONE,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (wallet_address, asset_ticker)
+            );
+        `);
         await client.query(`
             CREATE TABLE IF NOT EXISTS forge_vesting_schedules (
                 vesting_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -438,24 +485,6 @@ async function ensureForgeTablesExist() {
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
-        `);
-        await client.query(
-            `ALTER TABLE forge_vesting_schedules ADD COLUMN IF NOT EXISTS covenant_address VARCHAR(255) NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_vesting_schedules ADD COLUMN IF NOT EXISTS silverscript_source TEXT NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_vesting_schedules ADD COLUMN IF NOT EXISTS redeem_script_hex TEXT NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_vesting_schedules ADD COLUMN IF NOT EXISTS kcc20_state_commitment VARCHAR(128) NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_vesting_schedules ADD COLUMN IF NOT EXISTS token_standard VARCHAR(32) NOT NULL DEFAULT 'KRC-20';`
-        );
-        await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_forge_vesting_ticker ON forge_vesting_schedules (token_ticker, status);
         `);
         await client.query(`
             CREATE TABLE IF NOT EXISTS forge_monetary_policies (
@@ -486,21 +515,6 @@ async function ensureForgeTablesExist() {
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        await client.query(
-            `ALTER TABLE forge_monetary_policies ADD COLUMN IF NOT EXISTS token_standard VARCHAR(32) NOT NULL DEFAULT 'KRC-20';`
-        );
-        await client.query(
-            `ALTER TABLE forge_monetary_policies ADD COLUMN IF NOT EXISTS kcc20_covenant_id VARCHAR(128) NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_monetary_policies ADD COLUMN IF NOT EXISTS kcc20_state_root VARCHAR(128) NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_monetary_policies ADD COLUMN IF NOT EXISTS silverscript_charter_source TEXT NOT NULL DEFAULT '';`
-        );
-        await client.query(
-            `ALTER TABLE forge_monetary_policies ADD COLUMN IF NOT EXISTS covenant_vault_address VARCHAR(255) NOT NULL DEFAULT '';`
-        );
         await client.query(`
             CREATE TABLE IF NOT EXISTS forge_mineable_vaults (
                 vault_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -526,11 +540,114 @@ async function ensureForgeTablesExist() {
     }
 }
 
+async function queryLiveHotWalletAirlockTelemetry() {
+    await ensureStateAuxiliaryTables().catch(() => {});
+    const defaultColdKas = resolveMasterTreasuryKasAddressOptional() || '';
+    const hotSignerAddress = (
+        env.PERENNIA_HOT_KAS_ADDRESS ||
+        env.PERENNIA_TREASURY_KAS_ADDRESS ||
+        defaultColdKas
+    ).trim();
+
+    const cfgRes = await dbPool
+        .query(
+            `SELECT * FROM system_treasury_config WHERE config_id = 'PRIMARY' LIMIT 1`
+        )
+        .catch(() => ({ rows: [] as any[] }));
+    const cfg = cfgRes.rows[0] || {};
+    const hotCeilingKas = Number(cfg.hot_ceiling_kas ?? 5000.0);
+    const minRunwayKas = Number(cfg.min_runway_kas ?? 250.0);
+    const fppsMaxFloatKas = Number(cfg.fpps_max_float_kas ?? 50.0);
+    const poolFeeRate = Number(cfg.pool_fee_rate ?? 0.01);
+    const outflowBreakerTripped = Boolean(cfg.outflow_breaker_tripped);
+    const coldKasAddress = String(cfg.cold_kas_address || defaultColdKas);
+
+    let hotBalanceKas = 0;
+    if (hotSignerAddress && hotSignerAddress.startsWith('kaspa:')) {
+        const cachedStr = await redis
+            .get(`treasury:balance:${hotSignerAddress.toLowerCase()}`)
+            .catch(() => null);
+        if (cachedStr) {
+            const parsed = parseFloat(cachedStr);
+            if (Number.isFinite(parsed) && parsed >= 0) {
+                hotBalanceKas = parsed;
+            }
+        }
+        if (hotBalanceKas <= 0) {
+            try {
+                const kaspaRestUrl = (
+                    env.KASPA_REST_URL || 'https://api.kaspa.org'
+                ).replace(/\/+$/, '');
+                const balRes = await fetch(
+                    `${kaspaRestUrl}/addresses/${encodeURIComponent(hotSignerAddress)}/balance`,
+                    { signal: AbortSignal.timeout(3500) }
+                );
+                if (balRes.ok) {
+                    const balData = await balRes.json();
+                    hotBalanceKas = (Number(balData?.balance) || 0) / 1e8;
+                }
+            } catch {
+                hotBalanceKas = 0;
+            }
+        }
+    }
+
+    const outflowRes = await dbPool
+        .query(
+            `SELECT COALESCE(SUM(amount_tokens), 0.0) AS outflow_24h
+             FROM l1_payout_queue
+             WHERE asset_ticker = 'KAS'
+               AND status = 'DISPATCHED_ONCHAIN'
+               AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'`
+        )
+        .catch(() => ({ rows: [{ outflow_24h: 0 }] }));
+    const trailing24hOutflowKas = Number(outflowRes.rows[0]?.outflow_24h || 0);
+    const hourlyBurn = Math.max(0, trailing24hOutflowKas / 24.0);
+    const runwayHoursRemaining =
+        hourlyBurn > 0.01
+            ? Number((hotBalanceKas / hourlyBurn).toFixed(1))
+            : hotBalanceKas > 0
+              ? Number(
+                    (
+                        hotBalanceKas /
+                        Math.max(0.4, minRunwayKas / 24.0)
+                    ).toFixed(1)
+                )
+              : 0;
+
+    const lowRunwayBreakerTripped =
+        outflowBreakerTripped ||
+        (minRunwayKas > 0 && hotBalanceKas > 0 && hotBalanceKas < minRunwayKas);
+
+    return {
+        hotSignerAddress,
+        coldVaultAddress: coldKasAddress,
+        coldBtcAddress: String(cfg.cold_btc_address || env.PERENNIA_COLD_BTC_ADDRESS || ''),
+        coldEthAddress: String(cfg.cold_eth_address || env.PERENNIA_COLD_ETH_ADDRESS || ''),
+        coldSolAddress: String(cfg.cold_sol_address || env.PERENNIA_COLD_SOL_ADDRESS || ''),
+        hotBalanceKas: Number(hotBalanceKas.toFixed(4)),
+        hotCeilingKas,
+        minRunwayKas,
+        fppsMaxFloatKas,
+        poolFeeRate,
+        poolFeeRatePct: Number((poolFeeRate * 100).toFixed(2)),
+        runwayHoursRemaining,
+        trailing24hOutflowKas,
+        lowRunwayBreakerTripped,
+        outflowBreakerTripped,
+        status: outflowBreakerTripped
+            ? 'PAUSED_BY_DIRECTOR'
+            : lowRunwayBreakerTripped
+              ? 'LOW_RUNWAY_ALERT'
+              : 'ARMED_NOMINAL'
+    };
+}
+
 async function queryForgeBundleFromPostgres(
     tickerOpt?: string | null,
     includeAllMineableVaults = true
 ) {
-    await ensureForgeTablesExist();
+    await ensureStateAuxiliaryTables();
     const client = await dbPool.connect();
     try {
         const vestingSchedules: any[] = [];
@@ -613,6 +730,7 @@ async function queryForgeBundleFromPostgres(
                     status: r.status
                 });
             }
+
             const polRes = await client.query(
                 `SELECT * FROM forge_monetary_policies WHERE token_ticker = $1 LIMIT 1`,
                 [cleanTicker]
@@ -638,9 +756,7 @@ async function queryForgeBundleFromPostgres(
                     dailyEmissionRate: Number(p.daily_emission_rate || 0),
                     halvingIntervalDays: Number(p.halving_interval_days || 365),
                     reserveLockedTokens: Number(p.reserve_locked_tokens || 0),
-                    reserveEmittedTokens: Number(
-                        p.reserve_emitted_tokens || 0
-                    ),
+                    reserveEmittedTokens: Number(p.reserve_emitted_tokens || 0),
                     remainingReserveTokens: reserveLockedSupply,
                     zeroRugLpPct: Number(p.zero_rug_lp_pct || 0),
                     zeroRugLockDays: Number(p.zero_rug_lock_days || 365),
@@ -654,6 +770,7 @@ async function queryForgeBundleFromPostgres(
                     anchorTxHash: p.anchor_tx_hash
                 };
             }
+
             const mvRes = await client.query(
                 `SELECT * FROM forge_mineable_vaults WHERE token_ticker = $1 LIMIT 1`,
                 [cleanTicker]
@@ -681,6 +798,7 @@ async function queryForgeBundleFromPostgres(
                 };
             }
         }
+
         if (includeAllMineableVaults) {
             const allRes = await client.query(
                 `SELECT * FROM forge_mineable_vaults WHERE status = 'ACTIVE' AND remaining_vault_tokens > 0 ORDER BY remaining_vault_tokens DESC LIMIT 100`
@@ -707,6 +825,7 @@ async function queryForgeBundleFromPostgres(
                 });
             }
         }
+
         const miningVaultLockedSupply = Number(
             mineableVault?.remainingVaultTokens || 0
         );
@@ -734,7 +853,11 @@ async function queryForgeBundleFromPostgres(
     }
 }
 
-export async function POST({ request, cookies, url }: RequestEvent) {
+export const POST: RequestHandler = async ({
+    request,
+    cookies,
+    url
+}: RequestEvent) => {
     const sessionId = cookies.get('perennia_session');
     if (!sessionId) {
         return json({ error: 'UNAUTHORIZED_STATE_ACTION' }, { status: 401 });
@@ -756,15 +879,10 @@ export async function POST({ request, cookies, url }: RequestEvent) {
             );
         }
 
-        const sessionWallet = sessionWalletRaw;
-        let cleanWallet = normalizeKaspaBase32(sessionWallet);
-        const masterAdminClean = normalizeKaspaBase32(
-            env.MASTER_ADMIN_ADDRESS || MASTER_ADMIN_ADDRESS
-        );
-        const isCorpAdmin = cleanWallet === masterAdminClean;
-
+        let cleanWallet = normalizeKaspaBase32Strict(sessionWalletRaw);
+        const isCorpAdmin = isWalletMasterAdmin(sessionWalletRaw);
         if (isCorpAdmin && payload.targetWallet) {
-            cleanWallet = normalizeKaspaBase32(payload.targetWallet);
+            cleanWallet = normalizeKaspaBase32Strict(payload.targetWallet);
         }
         const prefixedWallet = `kaspa:${cleanWallet}`;
         const action = String(payload.action || '').toUpperCase();
@@ -792,6 +910,21 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                 },
                 { status: 200 }
             );
+        }
+
+        if (
+            action === 'UPDATE_SYSTEM_TREASURY_CONFIG' ||
+            action === 'UPDATE_BOOTSTRAP_FLOAT_CAPS'
+        ) {
+            if (!isCorpAdmin) {
+                return json(
+                    {
+                        success: false,
+                        error: 'FORBIDDEN: Only the Master Treasury Director may modulate system treasury ceilings or float caps.'
+                    },
+                    { status: 403 }
+                );
+            }
         }
 
         if (GATED_FORGE_ACTIONS.has(action)) {
@@ -848,6 +981,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
         const rustBackendUrl =
             env.RUST_BACKEND_URL ||
             `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
+
         try {
             const rustRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
                 method: 'POST',
@@ -868,7 +1002,450 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                 return json(data, { status: 200 });
             }
         } catch {
-            // Fallback to direct PostgreSQL / Redis execution below
+            // Fall through to direct PostgreSQL handling when Rust node is unreachable
+        }
+
+        if (
+            action === 'GET_SYSTEM_TREASURY_CONFIG' ||
+            action === 'UPDATE_SYSTEM_TREASURY_CONFIG'
+        ) {
+            await ensureStateAuxiliaryTables();
+            if (action === 'UPDATE_SYSTEM_TREASURY_CONFIG') {
+                const curRes = await dbPool.query(
+                    `SELECT * FROM system_treasury_config WHERE config_id = 'PRIMARY' LIMIT 1`
+                );
+                const cur = curRes.rows[0] || {};
+                const hotCeilingKas = Math.max(
+                    50,
+                    Number(reqPayload.hotCeilingKas ?? cur.hot_ceiling_kas ?? 5000)
+                );
+                const minRunwayKas = Math.max(
+                    0,
+                    Number(reqPayload.minRunwayKas ?? cur.min_runway_kas ?? 250)
+                );
+                const fppsMaxFloatKas = Math.max(
+                    1,
+                    Number(
+                        reqPayload.fppsMaxFloatKas ?? cur.fpps_max_float_kas ?? 50
+                    )
+                );
+                const poolFeeRate = Math.min(
+                    0.25,
+                    Math.max(
+                        0,
+                        Number(
+                            reqPayload.poolFeeRate ??
+                                (reqPayload.poolFeeRatePct !== undefined
+                                    ? Number(reqPayload.poolFeeRatePct) / 100
+                                    : cur.pool_fee_rate ?? 0.01)
+                        )
+                    )
+                );
+                const outflowBreakerTripped = Boolean(
+                    reqPayload.outflowBreakerTripped ??
+                        reqPayload.lowRunwayBreakerTripped ??
+                        cur.outflow_breaker_tripped ??
+                        false
+                );
+                const coldKasAddress = String(
+                    reqPayload.coldKasAddress ??
+                        cur.cold_kas_address ??
+                        resolveMasterTreasuryKasAddressOptional() ??
+                        ''
+                ).trim();
+                const coldBtcAddress = String(
+                    reqPayload.coldBtcAddress ?? cur.cold_btc_address ?? ''
+                ).trim();
+                const coldEthAddress = String(
+                    reqPayload.coldEthAddress ?? cur.cold_eth_address ?? ''
+                ).trim();
+                const coldSolAddress = String(
+                    reqPayload.coldSolAddress ?? cur.cold_sol_address ?? ''
+                ).trim();
+
+                await dbPool.query(
+                    `INSERT INTO system_treasury_config
+                     (config_id, hot_ceiling_kas, min_runway_kas, fpps_max_float_kas, pool_fee_rate, outflow_breaker_tripped, cold_kas_address, cold_btc_address, cold_eth_address, cold_sol_address, updated_by, updated_at)
+                     VALUES ('PRIMARY', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+                     ON CONFLICT (config_id) DO UPDATE SET
+                        hot_ceiling_kas = EXCLUDED.hot_ceiling_kas,
+                        min_runway_kas = EXCLUDED.min_runway_kas,
+                        fpps_max_float_kas = EXCLUDED.fpps_max_float_kas,
+                        pool_fee_rate = EXCLUDED.pool_fee_rate,
+                        outflow_breaker_tripped = EXCLUDED.outflow_breaker_tripped,
+                        cold_kas_address = EXCLUDED.cold_kas_address,
+                        cold_btc_address = EXCLUDED.cold_btc_address,
+                        cold_eth_address = EXCLUDED.cold_eth_address,
+                        cold_sol_address = EXCLUDED.cold_sol_address,
+                        updated_by = EXCLUDED.updated_by,
+                        updated_at = CURRENT_TIMESTAMP`,
+                    [
+                        hotCeilingKas,
+                        minRunwayKas,
+                        fppsMaxFloatKas,
+                        poolFeeRate,
+                        outflowBreakerTripped,
+                        coldKasAddress,
+                        coldBtcAddress,
+                        coldEthAddress,
+                        coldSolAddress,
+                        prefixedWallet
+                    ]
+                );
+            }
+
+            const nodeAirlock = await queryLiveHotWalletAirlockTelemetry();
+            const floatRes = await dbPool
+                .query(
+                    `SELECT * FROM fiat_float_ledger WHERE ledger_id IN ('BOOTSTRAP_PRIMARY', 'PRIMARY_FLOAT') ORDER BY updated_at DESC LIMIT 1`
+                )
+                .catch(() => ({ rows: [] as any[] }));
+            return json(
+                {
+                    success: true,
+                    data: {
+                        nodeAirlock,
+                        fiatFloat: floatRes.rows[0] || null
+                    }
+                },
+                { status: 200 }
+            );
+        }
+
+        if (
+            action === 'GET_USER_COLD_VAULT_RULES' ||
+            action === 'GET_COLD_VAULT_AIRLOCK'
+        ) {
+            await ensureStateAuxiliaryTables();
+            const rowsRes = await dbPool.query(
+                `SELECT asset_ticker, network, cold_destination_address, vault_label,
+                        overflow_ceiling, auto_sweep_enabled, last_sweep_txid,
+                        last_sweep_amount, last_sweep_at, updated_at
+                 FROM user_cold_vault_rules
+                 WHERE wallet_address = $1 OR wallet_address = $2
+                 ORDER BY asset_ticker ASC`,
+                [prefixedWallet, cleanWallet]
+            );
+            const rulesByAsset: Record<string, any> = {};
+            const rules: any[] = [];
+            for (const r of rowsRes.rows) {
+                const ticker = String(r.asset_ticker || 'KAS').toUpperCase();
+                const entry = {
+                    assetTicker: ticker,
+                    network: String(r.network || ticker).toUpperCase(),
+                    coldDestinationAddress: String(
+                        r.cold_destination_address || ''
+                    ),
+                    vaultLabel: String(
+                        r.vault_label || 'Perennia Cold Vault'
+                    ),
+                    overflowCeiling: Number(r.overflow_ceiling ?? 500),
+                    autoSweepEnabled: Boolean(r.auto_sweep_enabled),
+                    lastSweepTxid: r.last_sweep_txid || null,
+                    lastSweepAmount: Number(r.last_sweep_amount || 0),
+                    lastSweepAt: r.last_sweep_at
+                        ? new Date(r.last_sweep_at).toISOString()
+                        : null,
+                    updatedAt: r.updated_at
+                        ? new Date(r.updated_at).toISOString()
+                        : null
+                };
+                rulesByAsset[ticker] = entry;
+                rules.push(entry);
+            }
+            const nodeAirlock = await queryLiveHotWalletAirlockTelemetry();
+            return json(
+                {
+                    success: true,
+                    data: {
+                        rulesByAsset,
+                        rules,
+                        clientVault: rulesByAsset['KAS'] || null,
+                        nodeAirlock
+                    }
+                },
+                { status: 200 }
+            );
+        }
+
+        if (
+            action === 'SAVE_USER_COLD_VAULT_RULE' ||
+            action === 'REGISTER_COLD_VAULT_AIRLOCK' ||
+            action === 'SAVE_COLD_VAULT_AIRLOCK'
+        ) {
+            await ensureStateAuxiliaryTables();
+            const ticker = String(
+                reqPayload.assetTicker || reqPayload.ticker || 'KAS'
+            )
+                .trim()
+                .toUpperCase();
+            const network = String(reqPayload.network || ticker)
+                .trim()
+                .toUpperCase();
+            const coldDest = String(
+                reqPayload.coldDestinationAddress ||
+                    reqPayload.coldKaspaAddress ||
+                    ''
+            ).trim();
+            if (coldDest.length < 12) {
+                return json(
+                    {
+                        success: false,
+                        error: `Invalid Cold Wallet destination address for ${ticker}.`
+                    },
+                    { status: 400 }
+                );
+            }
+            if (network === 'KAS') {
+                try {
+                    decodeKaspaAddressVersionAndHash(coldDest);
+                } catch (err: any) {
+                    return json(
+                        {
+                            success: false,
+                            error: `INVALID_KASPA_ADDRESS: ${err.message}`
+                        },
+                        { status: 400 }
+                    );
+                }
+            }
+            const vaultLabel = String(
+                reqPayload.vaultLabel ||
+                    reqPayload.cardLabel ||
+                    'Perennia Cold Vault'
+            ).trim();
+            const overflowCeiling = Math.max(
+                0.0001,
+                Number(
+                    reqPayload.overflowCeiling ??
+                        reqPayload.overflowThresholdKas ??
+                        500
+                )
+            );
+            const autoSweepEnabled = reqPayload.autoSweepEnabled !== false;
+
+            await dbPool.query(
+                `INSERT INTO user_cold_vault_rules
+                 (wallet_address, asset_ticker, network, cold_destination_address, vault_label, overflow_ceiling, auto_sweep_enabled, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                 ON CONFLICT (wallet_address, asset_ticker) DO UPDATE SET
+                    network = EXCLUDED.network,
+                    cold_destination_address = EXCLUDED.cold_destination_address,
+                    vault_label = EXCLUDED.vault_label,
+                    overflow_ceiling = EXCLUDED.overflow_ceiling,
+                    auto_sweep_enabled = EXCLUDED.auto_sweep_enabled,
+                    updated_at = CURRENT_TIMESTAMP`,
+                [
+                    prefixedWallet,
+                    ticker,
+                    network,
+                    coldDest,
+                    vaultLabel,
+                    overflowCeiling,
+                    autoSweepEnabled
+                ]
+            );
+
+            return json(
+                {
+                    success: true,
+                    data: {
+                        assetTicker: ticker,
+                        network,
+                        coldDestinationAddress: coldDest,
+                        vaultLabel,
+                        overflowCeiling,
+                        autoSweepEnabled
+                    }
+                },
+                { status: 200 }
+            );
+        }
+
+        if (action === 'DELETE_USER_COLD_VAULT_RULE') {
+            await ensureStateAuxiliaryTables();
+            const ticker = String(
+                reqPayload.assetTicker || reqPayload.ticker || 'KAS'
+            )
+                .trim()
+                .toUpperCase();
+            await dbPool.query(
+                `DELETE FROM user_cold_vault_rules WHERE (wallet_address = $1 OR wallet_address = $2) AND asset_ticker = $3`,
+                [prefixedWallet, cleanWallet, ticker]
+            );
+            return json(
+                {
+                    success: true,
+                    data: { deletedAssetTicker: ticker }
+                },
+                { status: 200 }
+            );
+        }
+
+        if (
+            action === 'SWEEP_TOKEN_TO_COLD_VAULT_NOW' ||
+            action === 'SWEEP_TO_COLD_VAULT_NOW' ||
+            action === 'WITHDRAW_SYNTHETIC_ASSET'
+        ) {
+            await ensureStateAuxiliaryTables();
+            const ticker = String(
+                reqPayload.assetTicker ||
+                    reqPayload.ticker ||
+                    reqPayload.asset ||
+                    'KAS'
+            )
+                .trim()
+                .toUpperCase();
+            const amount = Number(
+                reqPayload.amount ??
+                    reqPayload.amountTokens ??
+                    reqPayload.amountKas ??
+                    0
+            );
+            if (!Number.isFinite(amount) || amount <= 0) {
+                return json(
+                    {
+                        success: false,
+                        error: 'Sweep/withdrawal amount must be greater than 0.'
+                    },
+                    { status: 400 }
+                );
+            }
+
+            let destination = String(
+                reqPayload.coldDestinationAddress ||
+                    reqPayload.coldKaspaAddress ||
+                    reqPayload.destination ||
+                    reqPayload.destinationAddress ||
+                    ''
+            ).trim();
+
+            if (!destination) {
+                const ruleRes = await dbPool.query(
+                    `SELECT cold_destination_address FROM user_cold_vault_rules
+                     WHERE (wallet_address = $1 OR wallet_address = $2) AND asset_ticker = $3
+                     LIMIT 1`,
+                    [prefixedWallet, cleanWallet, ticker]
+                );
+                destination = String(
+                    ruleRes.rows[0]?.cold_destination_address || ''
+                ).trim();
+            }
+
+            if (!destination) {
+                return json(
+                    {
+                        success: false,
+                        error: `Save a Cold Storage destination address for ${ticker} before sweeping.`
+                    },
+                    { status: 400 }
+                );
+            }
+
+            const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
+            const debitRes = (await redis.eval(
+                LUA_ATOMIC_DEBIT_TOKEN_LEDGER,
+                1,
+                userLedgerKey,
+                ticker,
+                amount.toString()
+            )) as [number, string];
+
+            if (!debitRes || Number(debitRes[0]) !== 1) {
+                return json(
+                    {
+                        success: false,
+                        error: `INSUFFICIENT_BALANCE: Insufficient ${ticker} in batch settlement queue to sweep ${amount.toFixed(4)} ${ticker}.`
+                    },
+                    { status: 400 }
+                );
+            }
+
+            const fromUnassigned = parseFloat(debitRes[1] || '0') || 0;
+            if (fromUnassigned > 1e-9 && ticker === 'KAS') {
+                const resRow = await dbPool.query(
+                    `SELECT streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
+                     FROM yield_reservoirs
+                     WHERE wallet_address = $1 OR wallet_address = $2
+                     LIMIT 1`,
+                    [prefixedWallet, cleanWallet]
+                );
+                if (resRow.rows.length > 0) {
+                    const r = resRow.rows[0];
+                    const nextStream = Math.max(
+                        0,
+                        Number(r.streaming_balance_kas || 0) - fromUnassigned
+                    );
+                    const totalY = Number(r.total_yield_kas || 0);
+                    const newHmac = computeReservoirHmac(
+                        prefixedWallet,
+                        nextStream,
+                        totalY,
+                        r.lp_tokens
+                    );
+                    await dbPool.query(
+                        `UPDATE yield_reservoirs
+                         SET streaming_balance_kas = $3,
+                             row_hmac_sig = $4,
+                             last_updated = CURRENT_TIMESTAMP
+                         WHERE wallet_address = $1 OR wallet_address = $2`,
+                        [prefixedWallet, cleanWallet, nextStream, newHmac]
+                    );
+                }
+            }
+
+            try {
+                const dispatchRes = await executeOrQueueL1Dispatch({
+                    wallet: prefixedWallet,
+                    destinationAddress: destination,
+                    asset: ticker,
+                    amount,
+                    sourceType:
+                        action === 'WITHDRAW_SYNTHETIC_ASSET'
+                            ? 'ledger_withdrawal'
+                            : 'cold_airlock_sweep'
+                });
+
+                await dbPool
+                    .query(
+                        `UPDATE user_cold_vault_rules
+                         SET last_sweep_txid = $3,
+                             last_sweep_amount = $4,
+                             last_sweep_at = CURRENT_TIMESTAMP,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE (wallet_address = $1 OR wallet_address = $2) AND asset_ticker = $5`,
+                        [
+                            prefixedWallet,
+                            cleanWallet,
+                            dispatchRes.txHash,
+                            amount,
+                            ticker
+                        ]
+                    )
+                    .catch(() => {});
+
+                return json(
+                    {
+                        success: true,
+                        transaction_id: dispatchRes.txHash,
+                        data: dispatchRes
+                    },
+                    { status: 200 }
+                );
+            } catch (dispatchErr: any) {
+                await redis
+                    .hincrbyfloat(userLedgerKey, ticker, amount)
+                    .catch(() => {});
+                return json(
+                    {
+                        success: false,
+                        error:
+                            dispatchErr?.message ||
+                            `Failed to dispatch ${ticker} to Cold Vault.`
+                    },
+                    { status: 503 }
+                );
+            }
         }
 
         if (action === 'ADD_CUSTOM_TOKEN' || action === 'REMOVE_CUSTOM_TOKEN') {
@@ -900,13 +1477,11 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                     typeof existingRes.rows[0].layout_state === 'object'
                         ? existingRes.rows[0].layout_state
                         : { workers: [], sectors: [], customTokens: [] };
-
                 const currentCustom: any[] = Array.isArray(
                     stateObj.customTokens
                 )
                     ? stateObj.customTokens
                     : [];
-
                 if (action === 'REMOVE_CUSTOM_TOKEN') {
                     stateObj.customTokens = currentCustom.filter(
                         (t) =>
@@ -946,14 +1521,12 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                     );
                     stateObj.customTokens = [...filtered, tokenEntry];
                 }
-
                 await client.query(
                     `INSERT INTO user_command_centers (wallet_address, layout_state, last_updated)
                      VALUES ($1, $2, CURRENT_TIMESTAMP)
                      ON CONFLICT (wallet_address) DO UPDATE SET layout_state = EXCLUDED.layout_state, last_updated = CURRENT_TIMESTAMP`,
                     [prefixedWallet, stateObj]
                 );
-
                 return json(
                     {
                         success: true,
@@ -1003,7 +1576,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
             action === 'REGISTER_FORGE_TOKENOMICS' ||
             action === 'RETROACTIVE_FORGE_UPGRADE'
         ) {
-            await ensureForgeTablesExist();
+            await ensureStateAuxiliaryTables();
             const isRetro =
                 action === 'RETROACTIVE_FORGE_UPGRADE' ||
                 Boolean(reqPayload.isRetroactiveUpgrade);
@@ -1051,6 +1624,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                     )
                     .catch(() => {});
             }
+
             const client = await dbPool.connect();
             let insertedVestingCount = 0;
             try {
@@ -1118,6 +1692,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                         const kcc20StateCommitment =
                             String(row.kcc20StateCommitment || '').trim() ||
                             compiledVault.kcc20StateRootHex;
+
                         await client.query(
                             `INSERT INTO forge_vesting_schedules
                              (token_ticker, beneficiary_address, creator_address, label, total_allocated,
@@ -1153,6 +1728,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                         insertedVestingCount++;
                     }
                 }
+
                 if (reqPayload.monetaryPolicy) {
                     const mp = reqPayload.monetaryPolicy;
                     const burnRateBps = Math.max(
@@ -1255,6 +1831,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                         ]
                     );
                 }
+
                 if (reqPayload.mineableVault) {
                     const mv = reqPayload.mineableVault;
                     const enabled = mv.enabled !== false;
@@ -1309,6 +1886,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
             } finally {
                 client.release();
             }
+
             const bundle = await queryForgeBundleFromPostgres(rawTicker, true);
             return json(
                 {
@@ -1327,6 +1905,7 @@ export async function POST({ request, cookies, url }: RequestEvent) {
                 { status: 200 }
             );
         }
+
         return json(
             { error: 'Rust state engine rejected the action.' },
             { status: 500 }
@@ -1335,4 +1914,4 @@ export async function POST({ request, cookies, url }: RequestEvent) {
         console.error('🔴 State Action Fault:', e);
         return json({ error: 'Failed to process action' }, { status: 500 });
     }
-}
+};

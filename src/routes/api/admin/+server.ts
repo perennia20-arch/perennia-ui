@@ -3,13 +3,23 @@ import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
 import crypto from 'node:crypto';
-import { Buffer } from 'node:buffer';
-import { buildExplorerTxUrl } from '../sor/l1_dispatch/+server';
-
-const MASTER_ADMIN_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+import {
+    getKycMasterKeyStrict,
+    decryptBankRailRecordStrict,
+    resolveMasterTreasuryKasAddress,
+    resolveMasterTreasuryKasAddressOptional,
+    isWalletMasterAdmin,
+    normalizeKaspaBase32Strict,
+    perenniaKMS
+} from '$lib/server/kms';
+import {
+    buildExplorerTxUrl,
+    computeReservoirHmac
+} from '$lib/server/l1Dispatcher';
 
 const ALLOWED_TABLES = [
+    'system_treasury_config',
+    'user_cold_vault_rules',
     'worker_profiles',
     'yield_reservoirs',
     'micro_shares',
@@ -26,8 +36,18 @@ const ALLOWED_TABLES = [
     'fiat_payout_queue',
     'fiat_bank_rails',
     'fiat_onramp_orders',
+    'fiat_float_ledger',
+    'fiat_post_trade_sweeps',
     'l1_payout_queue',
-    'rwa_oracle_feeds'
+    'rwa_oracle_feeds',
+    'forge_vesting_schedules',
+    'forge_monetary_policies',
+    'forge_mineable_vaults',
+    'idempotent_payout_batches',
+    'client_cold_vault_registry',
+    'treasury_airlock_sweeps',
+    'hifo_tax_lots',
+    'hifo_disposal_matches'
 ] as const;
 
 const LUA_CLAMPED_FEE_REVERSAL = `
@@ -38,85 +58,11 @@ redis.call('SET', KEYS[1], tostring(next_val))
 return tostring(next_val)
 `;
 
-function normalizeKaspaBase32(addr: string): string {
-    return addr.trim().toLowerCase().replace(/^kaspa:/i, '').trim();
-}
-
-function getMasterKeyStrict(): string {
-    const isProd = process.env.NODE_ENV === 'production';
-    const configured = (env.KYC_MASTER_KEY || '').trim();
-    if (isProd && !configured) {
-        throw new Error(
-            'CRITICAL_SECURITY_LOCKDOWN: KYC_MASTER_KEY environment variable is required in production.'
-        );
-    }
-    return configured || 'perennia_sovereign_rail_cipher_key';
-}
-
-function deriveCipherKey(masterKey: string): Buffer {
-    const raw = String(masterKey || 'perennia_sovereign_rail_cipher_key');
-    return Buffer.from(raw).length === 32
-        ? Buffer.from(raw)
-        : crypto.createHash('sha256').update(raw).digest();
-}
-
-function decryptBankRailPayload(encryptedPayload: string): {
-    routingNumber: string;
-    accountNumber: string;
-    bankLabel: string;
-    accountType: string;
-    payoutMethod: string;
-} | null {
-    const masterKey = getMasterKeyStrict();
-    const isProd = process.env.NODE_ENV === 'production';
-    const candidateKeys = isProd
-        ? [masterKey]
-        : [
-              masterKey,
-              'perennia_sovereign_rail_cipher_key',
-              '12345678901234567890123456789012'
-          ];
-    for (const keyCandidate of candidateKeys) {
-        try {
-            const parts = String(encryptedPayload || '').split(':');
-            if (parts.length !== 3) continue;
-            const [ivHex, authTagHex, encryptedHex] = parts;
-            const keyBuf = deriveCipherKey(keyCandidate);
-            const decipher = crypto.createDecipheriv(
-                'aes-256-gcm',
-                keyBuf,
-                Buffer.from(ivHex, 'hex')
-            );
-            decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-            let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-            decrypted += decipher.final('utf8');
-            const parsed = JSON.parse(decrypted);
-            const routingNumber = String(
-                parsed.routingNumber || parsed.routing || ''
-            ).trim();
-            const accountNumber = String(
-                parsed.accountNumber || parsed.account || ''
-            ).trim();
-            if (routingNumber && accountNumber) {
-                return {
-                    routingNumber,
-                    accountNumber,
-                    bankLabel: String(
-                        parsed.bankLabel || 'Primary Operating Account'
-                    ).trim(),
-                    accountType: String(parsed.accountType || 'CHECKING').toUpperCase(),
-                    payoutMethod: String(parsed.payoutMethod || 'ACH').toUpperCase()
-                };
-            }
-        } catch {
-        }
-    }
-    return null;
-}
-
 async function resolveDecryptedBankRailForWallet(walletRaw: string) {
-    const cleanWallet = normalizeKaspaBase32(walletRaw);
+    getKycMasterKeyStrict();
+    const cleanWallet = normalizeKaspaBase32Strict(walletRaw);
     const prefixedWallet = `kaspa:${cleanWallet}`;
+
     try {
         const dbRes = await dbPool.query(
             `SELECT bank_label, account_type, payout_method, bank_last4, encrypted_rail_payload, updated_at
@@ -128,7 +74,9 @@ async function resolveDecryptedBankRailForWallet(walletRaw: string) {
         );
         if (dbRes.rows.length > 0) {
             const row = dbRes.rows[0];
-            const dec = decryptBankRailPayload(String(row.encrypted_rail_payload || ''));
+            const dec = decryptBankRailRecordStrict(
+                String(row.encrypted_rail_payload || '')
+            );
             if (dec) {
                 return {
                     walletAddress: prefixedWallet,
@@ -145,9 +93,11 @@ async function resolveDecryptedBankRailForWallet(walletRaw: string) {
         // Fallback to Redis
     }
 
-    const cachedRail = await redis.get(`perennia:fiat:bank_rail:${cleanWallet}`);
+    const cachedRail = await redis
+        .get(`perennia:fiat:bank_rail:${cleanWallet}`)
+        .catch(() => null);
     if (cachedRail) {
-        const dec = decryptBankRailPayload(cachedRail);
+        const dec = decryptBankRailRecordStrict(cachedRail);
         if (dec) {
             return {
                 walletAddress: prefixedWallet,
@@ -167,7 +117,9 @@ async function resolveDecryptedBankRailForWallet(walletRaw: string) {
             [prefixedWallet, cleanWallet]
         );
         if (kycRes.rows.length > 0 && kycRes.rows[0].bank_data_hash) {
-            const dec = decryptBankRailPayload(String(kycRes.rows[0].bank_data_hash));
+            const dec = decryptBankRailRecordStrict(
+                String(kycRes.rows[0].bank_data_hash)
+            );
             if (dec) {
                 return {
                     walletAddress: prefixedWallet,
@@ -183,6 +135,7 @@ async function resolveDecryptedBankRailForWallet(walletRaw: string) {
     } catch {
         // Ignore KYC lookup error
     }
+
     return null;
 }
 
@@ -190,17 +143,15 @@ async function verifyDirectorClearance(
     request: Request,
     cookies: RequestEvent['cookies']
 ): Promise<{ authorized: boolean; adminWallet: string }> {
+    const masterAddress = resolveMasterTreasuryKasAddress();
     const authHeader = request.headers.get('authorization') || '';
-    if (env.PERENNIA_ADMIN_KEY && authHeader.startsWith('Bearer ')) {
-        const expected = Buffer.from(`Bearer ${env.PERENNIA_ADMIN_KEY}`);
-        const provided = Buffer.from(authHeader);
-        if (
-            expected.length === provided.length &&
-            crypto.timingSafeEqual(expected, provided)
-        ) {
-            return { authorized: true, adminWallet: MASTER_ADMIN_ADDRESS };
+
+    if (authHeader.startsWith('Bearer ')) {
+        if (perenniaKMS.verifyMasterAdminKey(authHeader)) {
+            return { authorized: true, adminWallet: masterAddress };
         }
     }
+
     const sessionId = cookies.get('perennia_session');
     if (!sessionId) {
         return { authorized: false, adminWallet: '' };
@@ -209,19 +160,50 @@ async function verifyDirectorClearance(
     if (!sessionWallet) {
         return { authorized: false, adminWallet: '' };
     }
-    const cleanSession = normalizeKaspaBase32(sessionWallet);
-    const cleanMaster = normalizeKaspaBase32(
-        env.MASTER_ADMIN_ADDRESS || MASTER_ADMIN_ADDRESS
-    );
-    if (cleanSession === cleanMaster) {
+
+    if (isWalletMasterAdmin(sessionWallet)) {
+        const cleanSession = normalizeKaspaBase32Strict(sessionWallet);
         return { authorized: true, adminWallet: `kaspa:${cleanSession}` };
     }
+
     return { authorized: false, adminWallet: '' };
 }
 
 async function ensureAdminAuxiliaryTables() {
     const client = await dbPool.connect();
     try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS system_treasury_config (
+                config_id VARCHAR(64) PRIMARY KEY DEFAULT 'PRIMARY',
+                hot_ceiling_kas DOUBLE PRECISION NOT NULL DEFAULT 5000.0,
+                min_runway_kas DOUBLE PRECISION NOT NULL DEFAULT 250.0,
+                fpps_max_float_kas DOUBLE PRECISION NOT NULL DEFAULT 50.0,
+                pool_fee_rate DOUBLE PRECISION NOT NULL DEFAULT 0.01,
+                outflow_breaker_tripped BOOLEAN NOT NULL DEFAULT FALSE,
+                cold_kas_address VARCHAR(255) NOT NULL DEFAULT '',
+                cold_btc_address VARCHAR(255) NOT NULL DEFAULT '',
+                cold_eth_address VARCHAR(255) NOT NULL DEFAULT '',
+                cold_sol_address VARCHAR(255) NOT NULL DEFAULT '',
+                updated_by VARCHAR(255) NOT NULL DEFAULT 'SYSTEM_BOOT',
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_cold_vault_rules (
+                wallet_address VARCHAR(255) NOT NULL,
+                asset_ticker VARCHAR(32) NOT NULL,
+                network VARCHAR(32) NOT NULL DEFAULT 'KAS',
+                cold_destination_address VARCHAR(255) NOT NULL,
+                vault_label VARCHAR(128) NOT NULL DEFAULT 'Perennia Cold Vault',
+                overflow_ceiling DOUBLE PRECISION NOT NULL DEFAULT 500.0,
+                auto_sweep_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                last_sweep_txid VARCHAR(128),
+                last_sweep_amount DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                last_sweep_at TIMESTAMP WITH TIME ZONE,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (wallet_address, asset_ticker)
+            );
+        `);
         await client.query(`
             CREATE TABLE IF NOT EXISTS whitelisted_wallets (
                 wallet_address VARCHAR(255) PRIMARY KEY,
@@ -243,13 +225,10 @@ async function ensureAdminAuxiliaryTables() {
             );
         `);
         await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_silo_staking_wallet ON silo_staking_positions (wallet_address, status);
-        `);
-        await client.query(`
             CREATE TABLE IF NOT EXISTS fiat_payout_queue (
                 payout_id VARCHAR(80) PRIMARY KEY,
                 wallet_address VARCHAR(255) NOT NULL,
-                source_type VARCHAR(40) NOT NULL,
+                source_type VARCHAR(64) NOT NULL,
                 source_asset VARCHAR(20) NOT NULL,
                 amount_crypto DOUBLE PRECISION NOT NULL,
                 gross_usd DOUBLE PRECISION NOT NULL,
@@ -263,12 +242,6 @@ async function ensureAdminAuxiliaryTables() {
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
-        `);
-        await client.query(`
-            ALTER TABLE fiat_payout_queue ADD COLUMN IF NOT EXISTS trace_id VARCHAR(128);
-        `);
-        await client.query(`
-            ALTER TABLE fiat_payout_queue ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
         `);
         await client.query(`
             CREATE TABLE IF NOT EXISTS fiat_bank_rails (
@@ -285,8 +258,8 @@ async function ensureAdminAuxiliaryTables() {
             CREATE TABLE IF NOT EXISTS fiat_onramp_orders (
                 order_id VARCHAR(80) PRIMARY KEY,
                 wallet_address VARCHAR(255) NOT NULL,
-                payment_rail VARCHAR(40) NOT NULL DEFAULT 'SOVEREIGN_WIRE_ACH',
-                settlement_target VARCHAR(32) NOT NULL DEFAULT 'LEDGER_KAS',
+                payment_rail VARCHAR(64) NOT NULL DEFAULT 'SOVEREIGN_WIRE_ACH',
+                settlement_target VARCHAR(64) NOT NULL DEFAULT 'LEDGER_KAS',
                 fiat_amount_usd DOUBLE PRECISION NOT NULL,
                 fee_usd DOUBLE PRECISION NOT NULL,
                 net_usd_converted DOUBLE PRECISION NOT NULL,
@@ -295,7 +268,7 @@ async function ensureAdminAuxiliaryTables() {
                 delivered_kas DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 wire_memo VARCHAR(80) NOT NULL,
                 tx_hash VARCHAR(255),
-                status VARCHAR(40) NOT NULL DEFAULT 'AWAITING_WIRE_RECEIPT',
+                status VARCHAR(64) NOT NULL DEFAULT 'AWAITING_WIRE_RECEIPT',
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
@@ -319,27 +292,6 @@ async function ensureAdminAuxiliaryTables() {
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        await client.query(`
-            ALTER TABLE tax_ledger_events ADD COLUMN IF NOT EXISTS tx_hash VARCHAR(255);
-        `);
-        await client.query(`
-            ALTER TABLE tax_ledger_events ADD COLUMN IF NOT EXISTS payout_address VARCHAR(255);
-        `);
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS worker_profiles (
-                worker_identity VARCHAR(255) PRIMARY KEY,
-                wallet_address VARCHAR(255) NOT NULL DEFAULT '',
-                worker_name VARCHAR(128) NOT NULL DEFAULT 'Rig',
-                hashrate_ths DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-                valid_shares BIGINT NOT NULL DEFAULT 0,
-                rejected_shares BIGINT NOT NULL DEFAULT 0,
-                acceptance_pct DOUBLE PRECISION NOT NULL DEFAULT 100.0,
-                blocks_found BIGINT NOT NULL DEFAULT 0,
-                last_share_ts BIGINT NOT NULL DEFAULT 0,
-                status VARCHAR(32) NOT NULL DEFAULT 'online',
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
     } finally {
         client.release();
     }
@@ -347,9 +299,10 @@ async function ensureAdminAuxiliaryTables() {
 
 export const GET: RequestHandler = async ({ request, cookies, url }: RequestEvent) => {
     try {
-        getMasterKeyStrict();
+        getKycMasterKeyStrict();
+        resolveMasterTreasuryKasAddress();
     } catch (keyErr: any) {
-        return json({ error: keyErr.message }, { status: 500 });
+        return json({ error: keyErr.message }, { status: 503 });
     }
 
     const clearance = await verifyDirectorClearance(request, cookies);
@@ -368,7 +321,9 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
     if (requestedTable) {
         if (!ALLOWED_TABLES.includes(requestedTable as any)) {
             return json(
-                { error: `Table "${requestedTable}" is not authorized in the Director matrix.` },
+                {
+                    error: `Table "${requestedTable}" is not authorized in the Director matrix.`
+                },
                 { status: 400 }
             );
         }
@@ -392,6 +347,7 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
                 });
             }
         } catch {
+            // Fall back to direct Postgres query
         }
 
         let client;
@@ -429,6 +385,7 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
             stratumBoundAddr,
             fppsSolvencyRaw,
             hedgeStatusRaw,
+            airlockStatusRaw,
             nettingProfitStr,
             unhedgedDeltaStr
         ] = await Promise.all([
@@ -439,6 +396,7 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
             redis.get('perennia:stratum:mining_address'),
             redis.get('perennia:pool:fpps_solvency'),
             redis.get('perennia:treasury:hedge_status'),
+            redis.get('perennia:treasury:airlock_status'),
             redis.get('perennia:treasury:netting_profit_usd'),
             redis.get('perennia:treasury:unhedged_delta_kas')
         ]);
@@ -452,7 +410,6 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
                 }
             })
             .filter(Boolean);
-
         const passthroughQueue = (rawPassthroughQueue || [])
             .map((item) => {
                 try {
@@ -469,45 +426,57 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
         let l1Payouts: any[] = [];
         let whitelistedWallets: any[] = [];
         let commandCenters: any[] = [];
-
+        let systemConfig: any = null;
         let client;
+
         try {
             client = await dbPool.connect();
-            const [fiatRes, onrampRes, bankRailsRes, l1Res, wlRes, ccRes] =
-                await Promise.all([
-                    client.query(
-                        `SELECT * FROM fiat_payout_queue ORDER BY created_at DESC LIMIT 100`
-                    ),
-                    client.query(
-                        `SELECT * FROM fiat_onramp_orders ORDER BY created_at DESC LIMIT 100`
-                    ),
-                    client.query(
-                        `SELECT wallet_address, bank_label, account_type, payout_method, bank_last4, updated_at
-                         FROM fiat_bank_rails
-                         ORDER BY updated_at DESC
-                         LIMIT 200`
-                    ),
-                    client.query(
-                        `SELECT * FROM l1_payout_queue ORDER BY created_at DESC LIMIT 100`
-                    ),
-                    client.query(
-                        `SELECT * FROM whitelisted_wallets ORDER BY created_at DESC LIMIT 200`
-                    ),
-                    client.query(
-                        `SELECT wallet_address, last_updated,
-                                jsonb_array_length(COALESCE(layout_state->'workers', '[]'::jsonb)) AS worker_count,
-                                jsonb_array_length(COALESCE(layout_state->'sectors', '[]'::jsonb)) AS sector_count
-                         FROM user_command_centers
-                         ORDER BY last_updated DESC NULLS LAST
-                         LIMIT 200`
-                    )
-                ]);
+            const [
+                fiatRes,
+                onrampRes,
+                bankRailsRes,
+                l1Res,
+                wlRes,
+                ccRes,
+                sysCfgRes
+            ] = await Promise.all([
+                client.query(
+                    `SELECT * FROM fiat_payout_queue ORDER BY created_at DESC LIMIT 100`
+                ),
+                client.query(
+                    `SELECT * FROM fiat_onramp_orders ORDER BY created_at DESC LIMIT 100`
+                ),
+                client.query(
+                    `SELECT wallet_address, bank_label, account_type, payout_method, bank_last4, updated_at
+                     FROM fiat_bank_rails
+                     ORDER BY updated_at DESC
+                     LIMIT 200`
+                ),
+                client.query(
+                    `SELECT * FROM l1_payout_queue ORDER BY created_at DESC LIMIT 100`
+                ),
+                client.query(
+                    `SELECT * FROM whitelisted_wallets ORDER BY created_at DESC LIMIT 200`
+                ),
+                client.query(
+                    `SELECT wallet_address, last_updated,
+                            jsonb_array_length(COALESCE(layout_state->'workers', '[]'::jsonb)) AS worker_count,
+                            jsonb_array_length(COALESCE(layout_state->'sectors', '[]'::jsonb)) AS sector_count
+                     FROM user_command_centers
+                     ORDER BY last_updated DESC NULLS LAST
+                     LIMIT 200`
+                ),
+                client.query(
+                    `SELECT * FROM system_treasury_config WHERE config_id = 'PRIMARY' LIMIT 1`
+                )
+            ]);
             fiatPayouts = fiatRes.rows;
             fiatOnrampOrders = onrampRes.rows;
             fiatBankRails = bankRailsRes.rows;
             l1Payouts = l1Res.rows;
             whitelistedWallets = wlRes.rows;
             commandCenters = ccRes.rows;
+            systemConfig = sysCfgRes.rows[0] || null;
         } catch {
             fiatPayouts = (rawFiatQueueRedis || [])
                 .map((item) => {
@@ -536,6 +505,11 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
             elapsedSeconds: number;
             remainingSeconds: number;
         }[] = [];
+        let activeStrikeCounters: {
+            key: string;
+            strikes: number;
+            maxStrikes: number;
+        }[] = [];
         try {
             const shieldRes = await fetch(`${rustBackendUrl}/v1/admin/shield`, {
                 headers: { Authorization: `Bearer ${internalToken}` },
@@ -546,17 +520,26 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
                 if (Array.isArray(shieldData.bannedIps)) {
                     bannedIps = shieldData.bannedIps;
                 }
+                if (Array.isArray(shieldData.activeStrikeCounters)) {
+                    activeStrikeCounters = shieldData.activeStrikeCounters;
+                }
             }
         } catch {
+            // Ignore shield fetch timeout
         }
+
+        const defaultStratumAddr =
+            stratumBoundAddr ||
+            env.PERENNIA_HOT_KAS_ADDRESS ||
+            env.PERENNIA_TREASURY_KAS_ADDRESS ||
+            resolveMasterTreasuryKasAddressOptional() ||
+            '';
 
         return json({
             adminWallet: clearance.adminWallet,
             allowedTables: ALLOWED_TABLES,
-            stratumMiningAddress:
-                stratumBoundAddr ||
-                env.PERENNIA_TREASURY_KAS_ADDRESS ||
-                MASTER_ADMIN_ADDRESS,
+            stratumMiningAddress: defaultStratumAddr,
+            systemConfig,
             nettingQueue,
             passthroughQueue,
             fiatPayouts,
@@ -566,15 +549,21 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
             whitelistedWallets,
             commandCenters,
             bannedIps,
+            activeStrikeCounters,
             nettingProfitUsd: nettingProfitStr ? parseFloat(nettingProfitStr) || 0 : 0,
             unhedgedDeltaKas: unhedgedDeltaStr ? parseFloat(unhedgedDeltaStr) || 0 : 0,
             fppsSolvency: fppsSolvencyRaw ? JSON.parse(fppsSolvencyRaw) : null,
             hedgeStatus: hedgeStatusRaw ? JSON.parse(hedgeStatusRaw) : null,
+            airlockStatus: airlockStatusRaw ? JSON.parse(airlockStatusRaw) : null,
             timestamp: Date.now()
         });
     } catch (err: any) {
         return json(
-            { error: err.message || 'Failed to load Director control plane telemetry.' },
+            {
+                error:
+                    err.message ||
+                    'Failed to load Director control plane telemetry.'
+            },
             { status: 500 }
         );
     }
@@ -582,9 +571,10 @@ export const GET: RequestHandler = async ({ request, cookies, url }: RequestEven
 
 export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) => {
     try {
-        getMasterKeyStrict();
+        getKycMasterKeyStrict();
+        resolveMasterTreasuryKasAddress();
     } catch (keyErr: any) {
-        return json({ error: keyErr.message }, { status: 500 });
+        return json({ error: keyErr.message }, { status: 503 });
     }
 
     const clearance = await verifyDirectorClearance(request, cookies);
@@ -604,6 +594,51 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
         const action = String(body.action || '').toUpperCase();
         await ensureAdminAuxiliaryTables().catch(() => {});
 
+        if (action === 'UNQUARANTINE_WALLET') {
+            const rawWallet = String(body.wallet || '').trim();
+            const cleanWallet = normalizeKaspaBase32Strict(rawWallet);
+            if (!cleanWallet) {
+                return json({ error: 'Missing wallet to unquarantine.' }, { status: 400 });
+            }
+            const prefixedWallet = `kaspa:${cleanWallet}`;
+            const rowRes = await dbPool.query(
+                `SELECT streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
+                 FROM yield_reservoirs
+                 WHERE wallet_address = $1 OR wallet_address = $2
+                 LIMIT 1`,
+                [prefixedWallet, cleanWallet]
+            );
+            if (rowRes.rows.length === 0) {
+                return json({ error: 'Wallet reservoir not found.' }, { status: 404 });
+            }
+            const r = rowRes.rows[0];
+            const sKas = Number(r.streaming_balance_kas || 0);
+            const tKas = Math.max(Number(r.total_yield_kas || 0), sKas);
+            const newHmac = computeReservoirHmac(
+                prefixedWallet,
+                sKas,
+                tKas,
+                r.lp_tokens
+            );
+            await dbPool.query(
+                `UPDATE yield_reservoirs
+                 SET quarantined = FALSE,
+                     quarantine_reason = NULL,
+                     quarantined_at = NULL,
+                     total_yield_kas = $3,
+                     verified_onchain_credits_kas = GREATEST(verified_onchain_credits_kas, $3),
+                     row_hmac_sig = $4,
+                     last_updated = CURRENT_TIMESTAMP
+                 WHERE wallet_address = $1 OR wallet_address = $2`,
+                [prefixedWallet, cleanWallet, tKas, newHmac]
+            );
+            return json({
+                success: true,
+                action: 'UNQUARANTINE_WALLET',
+                wallet: prefixedWallet
+            });
+        }
+
         if (action === 'FORCE_EPOCH_BELL') {
             await redis.set('perennia:chronos:last_epoch_bell_ts', '0');
             await redis.set('perennia:chronos:force_bell_now', '1');
@@ -622,9 +657,12 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                     epochTelemetry = rustData.epochTelemetry || null;
                 }
             } catch {
+                // Fall back to cached telemetry
             }
             if (!epochTelemetry) {
-                const rawEpoch = await redis.get('perennia:settlement:epoch_telemetry');
+                const rawEpoch = await redis.get(
+                    'perennia:settlement:epoch_telemetry'
+                );
                 if (rawEpoch) {
                     try {
                         epochTelemetry = JSON.parse(rawEpoch);
@@ -661,7 +699,9 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                     );
                 }
                 const row = existing.rows[0];
-                const cleanWallet = normalizeKaspaBase32(String(row.wallet_address || ''));
+                const cleanWallet = normalizeKaspaBase32Strict(
+                    String(row.wallet_address || '')
+                );
                 const prefixedWallet = `kaspa:${cleanWallet}`;
                 const assetTicker = String(row.asset_ticker || 'KAS').toUpperCase();
                 const amountTokens = Math.max(0, Number(row.amount_tokens || 0));
@@ -669,9 +709,15 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                 const spotPrice = Math.max(0, Number(row.spot_price || 0));
 
                 if (action === 'CONFIRM_L1_PAYOUT') {
-                    const resolvedTxHash =
-                        String(body.txHash || '').trim() ||
-                        `0x${crypto.randomBytes(32).toString('hex')}`;
+                    const resolvedTxHash = String(body.txHash || '').trim();
+                    if (!resolvedTxHash) {
+                        return json(
+                            {
+                                error: 'TX_HASH_REQUIRED: Provide the verified on-chain transaction hash to confirm an L1 payout.'
+                            },
+                            { status: 400 }
+                        );
+                    }
                     const explorerUrl = buildExplorerTxUrl(assetTicker, resolvedTxHash);
                     await client.query(
                         `UPDATE l1_payout_queue
@@ -820,7 +866,7 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                     totalDispatchedUsd += netUsd;
                     settledRecords.push({
                         payoutId: pid,
-                        wallet: normalizeKaspaBase32(wAddr),
+                        wallet: normalizeKaspaBase32Strict(wAddr),
                         traceId,
                         netFiatUsd: netUsd
                     });
@@ -828,7 +874,6 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
             } finally {
                 if (client) client.release();
             }
-
             for (const rec of settledRecords) {
                 await redis.publish(
                     'telemetry:updates',
@@ -878,7 +923,7 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
         if (action === 'ADD_WHITELIST') {
             const rawWallet = String(body.wallet || '').trim();
             const label = String(body.label || 'Director Whitelisted').trim();
-            const clean = normalizeKaspaBase32(rawWallet);
+            const clean = normalizeKaspaBase32Strict(rawWallet);
             if (clean.length < 55) {
                 return json({ error: 'Invalid Kaspa wallet address.' }, { status: 400 });
             }
@@ -908,7 +953,7 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
 
         if (action === 'REMOVE_WHITELIST') {
             const rawWallet = String(body.wallet || '').trim();
-            const clean = normalizeKaspaBase32(rawWallet);
+            const clean = normalizeKaspaBase32Strict(rawWallet);
             const prefixed = `kaspa:${clean}`;
             let client;
             try {
@@ -1068,8 +1113,7 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
             } finally {
                 if (client) client.release();
             }
-
-            const cleanWallet = normalizeKaspaBase32(walletAddress);
+            const cleanWallet = normalizeKaspaBase32Strict(walletAddress);
             await redis.publish(
                 'telemetry:updates',
                 JSON.stringify({
@@ -1119,14 +1163,18 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                         { status: 400 }
                     );
                 }
-                const cleanWallet = normalizeKaspaBase32(String(row.wallet_address || ''));
+                const cleanWallet = normalizeKaspaBase32Strict(
+                    String(row.wallet_address || '')
+                );
                 const sourceAsset = String(row.source_asset || 'KAS').toUpperCase();
                 const amountCrypto = Math.max(0, Number(row.amount_crypto || 0));
                 const grossUsd = Math.max(0, Number(row.gross_usd || 0));
                 const feeUsd = Math.max(0, Number(row.fee_usd || 0));
                 if (!cleanWallet || amountCrypto <= 0) {
                     return json(
-                        { error: 'Invalid wallet or crypto amount on fiat payout record.' },
+                        {
+                            error: 'Invalid wallet or crypto amount on fiat payout record.'
+                        },
                         { status: 400 }
                     );
                 }
@@ -1205,7 +1253,9 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                         { status: 400 }
                     );
                 }
-                const cleanWallet = normalizeKaspaBase32(String(row.wallet_address || ''));
+                const cleanWallet = normalizeKaspaBase32Strict(
+                    String(row.wallet_address || '')
+                );
                 const prefixedWallet = `kaspa:${cleanWallet}`;
                 if (action === 'CANCEL_FIAT_ONRAMP') {
                     await client.query(
@@ -1220,8 +1270,14 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                         try {
                             const parsed = JSON.parse(rawSession);
                             parsed.status = 'CANCELLED';
-                            await redis.set(sessionKey, JSON.stringify(parsed), 'EX', 86400);
+                            await redis.set(
+                                sessionKey,
+                                JSON.stringify(parsed),
+                                'EX',
+                                86400
+                            );
                         } catch {
+                            // Ignore session cache error
                         }
                     }
                     await redis.publish(
@@ -1243,21 +1299,34 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
 
                 const fiatAmountUsd = Math.max(0, Number(row.fiat_amount_usd || 0));
                 const feeUsd = Math.max(0, Number(row.fee_usd || 0));
-                const netUsdConverted = Math.max(0, Number(row.net_usd_converted || 0));
-                const lockedSpot = Math.max(0, Number(row.locked_spot_price || 0.12));
+                const netUsdConverted = Math.max(
+                    0,
+                    Number(row.net_usd_converted || 0)
+                );
+                const lockedSpot = Math.max(0, Number(row.locked_spot_price || 0));
                 const liveSpotStr = await redis.get('oracle:spot:KAS_USDC');
                 const liveSpot = liveSpotStr ? parseFloat(liveSpotStr) || 0 : 0;
-                const executionSpot =
-                    liveSpot > 0 ? liveSpot : lockedSpot > 0 ? lockedSpot : 0.12;
-                const deliveredKas = Number((netUsdConverted / executionSpot).toFixed(4));
+                const executionSpot = liveSpot > 0 ? liveSpot : lockedSpot;
+                if (executionSpot <= 0) {
+                    return json(
+                        {
+                            error: 'ORACLE_HALT: Live KAS/USDC spot price is unavailable and order has no locked spot price. Zero fake prices permitted.'
+                        },
+                        { status: 503 }
+                    );
+                }
+                const deliveredKas = Number(
+                    (netUsdConverted / executionSpot).toFixed(4)
+                );
                 const settlementTarget =
                     String(
-                        body.settlementTarget || row.settlement_target || 'LEDGER_KAS'
+                        body.settlementTarget ||
+                            row.settlement_target ||
+                            'LEDGER_KAS'
                     ).toUpperCase() === 'L1_KAS'
                         ? 'L1_KAS'
                         : 'LEDGER_KAS';
                 let resolvedTxHash = String(body.txHash || '').trim();
-
                 if (settlementTarget === 'L1_KAS') {
                     const rustRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
                         method: 'POST',
@@ -1297,7 +1366,6 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                         resolvedTxHash = `LEDGER-ONRAMP-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
                     }
                 }
-
                 await client.query(
                     `UPDATE fiat_onramp_orders
                      SET status = 'COMPLETED',
@@ -1309,10 +1377,34 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                     [orderId, deliveredKas, resolvedTxHash, settlementTarget]
                 );
                 await client.query(
-                    `INSERT INTO tax_ledger_events (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution, tx_hash)
-                     VALUES ($1, 'KAS', 'FIAT_ONRAMP', $2, $3, $4, $5)`,
-                    [cleanWallet, fiatAmountUsd, deliveredKas, executionSpot, resolvedTxHash]
+                    `INSERT INTO tax_ledger_events (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution, tx_hash, cost_basis_usd, realized_gain_loss_usd, holding_period)
+                     VALUES ($1, 'KAS', 'FIAT_ONRAMP', $2, $3, $4, $5, $2, 0.0, 'SHORT_TERM')`,
+                    [
+                        cleanWallet,
+                        fiatAmountUsd,
+                        deliveredKas,
+                        executionSpot,
+                        resolvedTxHash
+                    ]
                 );
+                const unitBasisUsd =
+                    deliveredKas > 0 ? fiatAmountUsd / deliveredKas : executionSpot;
+                const sompiAcquired = Math.round(deliveredKas * 1e8);
+                await client
+                    .query(
+                        `INSERT INTO hifo_tax_lots
+                         (wallet_address, asset_ticker, kas_sompi, initial_tokens, remaining_sompi, remaining_tokens, fmv_usd_per_token, total_cost_basis_usd, source_event_type, source_tx_hash, status)
+                         VALUES ($1, 'KAS', $2, $3, $2, $3, $4, $5, 'FIAT_ONRAMP', $6, 'OPEN')`,
+                        [
+                            cleanWallet,
+                            sompiAcquired,
+                            deliveredKas,
+                            unitBasisUsd,
+                            fiatAmountUsd,
+                            resolvedTxHash
+                        ]
+                    )
+                    .catch(() => {});
                 await redis.rpush(
                     'perennia:sor:netting_queue',
                     JSON.stringify({
@@ -1341,7 +1433,12 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                     status: 'COMPLETED',
                     updatedAt: new Date().toISOString()
                 };
-                await redis.set(sessionKey, JSON.stringify(updatedSession), 'EX', 86400);
+                await redis.set(
+                    sessionKey,
+                    JSON.stringify(updatedSession),
+                    'EX',
+                    86400
+                );
                 await redis.publish(
                     'telemetry:updates',
                     JSON.stringify({
@@ -1393,12 +1490,16 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                 }
             }
             if (!matchedOrder && body.wallet) {
-                const targetClean = normalizeKaspaBase32(String(body.wallet));
-                const targetTicker = String(body.targetAsset || '').trim().toUpperCase();
+                const targetClean = normalizeKaspaBase32Strict(String(body.wallet));
+                const targetTicker = String(body.targetAsset || '')
+                    .trim()
+                    .toUpperCase();
                 for (const itemStr of rawQueue) {
                     try {
                         const parsed = JSON.parse(itemStr);
-                        const itemClean = normalizeKaspaBase32(String(parsed.wallet || ''));
+                        const itemClean = normalizeKaspaBase32Strict(
+                            String(parsed.wallet || '')
+                        );
                         const itemTicker = String(parsed.target_asset || '')
                             .trim()
                             .toUpperCase();
@@ -1428,7 +1529,9 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                 estimated_output: Number(body.estimatedOutput || 0),
                 spot_price: Number(body.spotPrice || 0)
             };
-            const cleanWallet = normalizeKaspaBase32(String(effectiveOrder.wallet || ''));
+            const cleanWallet = normalizeKaspaBase32Strict(
+                String(effectiveOrder.wallet || '')
+            );
             const prefixedWallet = `kaspa:${cleanWallet}`;
             const targetAsset = String(effectiveOrder.target_asset || 'CUSTOM')
                 .trim()
@@ -1441,23 +1544,41 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                             Number(effectiveOrder.upfront_fee_kas || 0)
                 )
             );
-            const upfrontFeeKas = Math.max(0, Number(effectiveOrder.upfront_fee_kas || 0));
+            const upfrontFeeKas = Math.max(
+                0,
+                Number(effectiveOrder.upfront_fee_kas || 0)
+            );
             const estimatedOutput = Math.max(
                 0,
                 Number(effectiveOrder.estimated_output || 0)
             );
             const spotPrice = Math.max(0, Number(effectiveOrder.spot_price || 0));
+            const kasSpotStr = await redis.get('oracle:spot:KAS_USDC');
+            const kasSpot = kasSpotStr ? parseFloat(kasSpotStr) || 0 : 0;
 
             if (action === 'CONFIRM_PASSTHROUGH_FILL') {
+                if (spotPrice <= 0 && kasSpot <= 0) {
+                    return json(
+                        {
+                            error: 'ORACLE_HALT: Live KAS/USDC spot price is unavailable and order has no execution spot price.'
+                        },
+                        { status: 503 }
+                    );
+                }
                 const resolvedTxHash =
                     String(body.txHash || '').trim() ||
                     `PT-FILL-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
-                const kasSpotStr = await redis.get('oracle:spot:KAS_USDC');
-                const kasSpot = kasSpotStr ? parseFloat(kasSpotStr) || 0.12 : 0.12;
                 const grossUsd =
                     spotPrice > 0 && estimatedOutput > 0
                         ? estimatedOutput * spotPrice
                         : grossKas * kasSpot;
+                const resolvedUnitSpot =
+                    spotPrice > 0
+                        ? spotPrice
+                        : estimatedOutput > 0
+                          ? grossUsd / estimatedOutput
+                          : kasSpot;
+                const finalQty = estimatedOutput > 0 ? estimatedOutput : grossKas;
                 let client;
                 try {
                     client = await dbPool.connect();
@@ -1469,17 +1590,33 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                     );
                     if (cleanWallet) {
                         await client.query(
-                            `INSERT INTO tax_ledger_events (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution, tx_hash)
-                             VALUES ($1, $2, 'PASSTHROUGH_SETTLED', $3, $4, $5, $6)`,
+                            `INSERT INTO tax_ledger_events (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution, tx_hash, cost_basis_usd, realized_gain_loss_usd, holding_period)
+                             VALUES ($1, $2, 'PASSTHROUGH_SETTLED', $3, $4, $5, $6, $3, 0.0, 'SHORT_TERM')`,
                             [
                                 cleanWallet,
                                 targetAsset,
                                 grossUsd,
-                                estimatedOutput > 0 ? estimatedOutput : grossKas,
-                                spotPrice > 0 ? spotPrice : kasSpot,
+                                finalQty,
+                                resolvedUnitSpot,
                                 resolvedTxHash
                             ]
                         );
+                        await client
+                            .query(
+                                `INSERT INTO hifo_tax_lots
+                                 (wallet_address, asset_ticker, kas_sompi, initial_tokens, remaining_sompi, remaining_tokens, fmv_usd_per_token, total_cost_basis_usd, source_event_type, source_tx_hash, status)
+                                 VALUES ($1, $2, $3, $4, $3, $4, $5, $6, 'PASSTHROUGH_SETTLED', $7, 'OPEN')`,
+                                [
+                                    cleanWallet,
+                                    targetAsset,
+                                    Math.round(finalQty * 1e8),
+                                    finalQty,
+                                    resolvedUnitSpot,
+                                    grossUsd,
+                                    resolvedTxHash
+                                ]
+                            )
+                            .catch(() => {});
                     }
                 } finally {
                     if (client) client.release();
@@ -1525,15 +1662,14 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
                         )
                         .catch(() => {});
                 }
-                const kasSpotStr = await redis.get('oracle:spot:KAS_USDC');
-                const kasSpot = kasSpotStr ? parseFloat(kasSpotStr) || 0.12 : 0.12;
+                const refundSpot = kasSpot > 0 ? kasSpot : spotPrice;
                 let client;
                 try {
                     client = await dbPool.connect();
                     await client.query(
                         `INSERT INTO tax_ledger_events (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution)
                          VALUES ($1, 'KAS', 'PASSTHROUGH_REFUND', $2, $3, $4)`,
-                        [cleanWallet, grossKas * kasSpot, grossKas, kasSpot]
+                        [cleanWallet, grossKas * refundSpot, grossKas, refundSpot]
                     );
                 } finally {
                     if (client) client.release();
@@ -1559,14 +1695,19 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
         }
 
         if (action === 'POP_PASSTHROUGH_QUEUE') {
-            const popped = await redis.lpop('perennia:sor:third_party_passthrough_queue');
+            const popped = await redis.lpop(
+                'perennia:sor:third_party_passthrough_queue'
+            );
             return json({
                 success: true,
                 popped: popped ? JSON.parse(popped) : null
             });
         }
 
-        return json({ error: `Unsupported Director action: ${action}` }, { status: 400 });
+        return json(
+            { error: `Unsupported Director action: ${action}` },
+            { status: 400 }
+        );
     } catch (err: any) {
         return json(
             { error: err.message || 'Director action execution failed.' },

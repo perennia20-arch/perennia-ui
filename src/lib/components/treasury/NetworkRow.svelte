@@ -1,16 +1,21 @@
 <script lang="ts">
-    import { slide } from 'svelte/transition';
+    import { slide, fade } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
     import QRCode from 'qrcode';
     import { identity } from '$lib/stores/identity.svelte';
-    import { treasury } from '$lib/stores/treasury.svelte';
+    import { treasury, DEFAULT_ECOSYSTEM_TICKER } from '$lib/stores/treasury.svelte';
     import { ui } from '$lib/stores/ui.svelte';
     import {
         txState,
         getChainExplorerTxUrl,
         getChainExplorerAddressUrl
     } from '$lib/stores/transaction.svelte';
+    import {
+        validateColdVaultAddressForChain,
+        parseMultiChainColdVaultQrPayload,
+        scanVideoFrameForQrPayload
+    } from '$lib/crypto/pluggableSigner';
 
     let {
         asset,
@@ -31,7 +36,31 @@
         isNetworkSelected = true,
         onNetworkToggle = () => {},
         autoOpenToken = null,
-        ledgerEvents = []
+        ledgerEvents = [],
+        coldVaultRulesMap = {},
+        onRefreshColdVaultRules = async () => {}
+    }: {
+        asset: any;
+        subAssets?: any[];
+        selectedTokens?: string[];
+        onToggleToken?: (symbol: string) => void;
+        onDeleteToken?: (symbol: string) => void;
+        standardLabel?: string;
+        searchQuery?: string;
+        activeHoverSegment?: string | null;
+        onHover?: (val: string | null) => void;
+        displayUnit?: 'token' | 'usd';
+        timeframe?: string;
+        fiatDecimals?: number;
+        tokenDecimals?: number;
+        isManagingNetworks?: boolean;
+        isOrganizing?: boolean;
+        isNetworkSelected?: boolean;
+        onNetworkToggle?: () => void;
+        autoOpenToken?: string | null;
+        ledgerEvents?: any[];
+        coldVaultRulesMap?: Record<string, any>;
+        onRefreshColdVaultRules?: () => Promise<void>;
     } = $props();
 
     let isMainOpen = $state(false);
@@ -41,15 +70,18 @@
 
     let expandedSubToken = $state<string | null>(null);
     let qrCodeUrl = $state('');
-    let activeRoutingTab = $state<'none' | 'deposit' | 'withdraw' | 'history'>('none');
+    let activeRoutingTab = $state<
+        'none' | 'deposit' | 'withdraw' | 'cold_vault' | 'history'
+    >('none');
     let isSubRoutingVisible = $state(false);
-
     let sendDestination = $state('');
     let sendAmount = $state('');
     let selectedSendTokenTicker = $state<string>('');
     let withdrawalSourceMode = $state<'auto' | 'onchain' | 'ledger'>('auto');
     let isDispatchingWithdrawal = $state(false);
-    let awaitingVaultWithdrawalSource = $state<'ledger' | 'onchain' | 'compound' | null>(null);
+    let awaitingVaultWithdrawalSource = $state<
+        'ledger' | 'onchain' | 'compound' | null
+    >(null);
     let pendingWithdrawAmount = $state(0);
     let pendingWithdrawTicker = $state('KAS');
     let withdrawalFeedback = $state<{
@@ -59,10 +91,25 @@
         explorerUrl?: string;
     } | null>(null);
 
+    // Per-Token Cold Storage Auto-Sweep State
+    let coldDestinationInput = $state('');
+    let coldVaultLabelInput = $state('Perennia Cold Vault');
+    let coldOverflowCeilingInput = $state(500);
+    let coldAutoSweepEnabled = $state(true);
+    let coldSweepNowAmount = $state('');
+    let isSavingColdRule = $state(false);
+    let isSweepingColdNow = $state(false);
+    let lastHydratedColdTicker = $state('');
+
+    // Webcam QR Scanner State for Cold Vault Destination
+    let isCameraScanningColdQr = $state(false);
+    let coldQrVideoElement = $state<HTMLVideoElement | null>(null);
+    let activeColdMediaStream: MediaStream | null = null;
+    let coldQrScanTimer: ReturnType<typeof setInterval> | null = null;
+
     let utxoCount = $state<number>(0);
     let isFetchingUtxos = $state(false);
     let isCompoundingUtxos = $state(false);
-
     let l1Transactions = $state<
         {
             txId: string;
@@ -75,7 +122,11 @@
 
     $effect(() => {
         if (!selectedSendTokenTicker) {
-            selectedSendTokenTicker = (asset.ticker || asset.symbol || 'KAS').toUpperCase();
+            selectedSendTokenTicker = (
+                asset.ticker ||
+                asset.symbol ||
+                'KAS'
+            ).toUpperCase();
         }
     });
 
@@ -99,17 +150,79 @@
         return {
             ticker: target,
             network: rootTicker,
-            onChain: Number(regAsset.onChain || subMatch?.onChain || subMatch?.balance || 0),
+            onChain: Number(
+                regAsset.onChain || subMatch?.onChain || subMatch?.balance || 0
+            ),
             synthetic: Number(regAsset.synthetic || subMatch?.synthetic || 0),
             contract: subMatch?.contract || regAsset.contract,
             isSubToken: true
         };
     });
 
+    let activeTokenColdRule = $derived(
+        coldVaultRulesMap?.[activeSendAssetObj.ticker] || null
+    );
+
+    let rootTokenColdRule = $derived(
+        coldVaultRulesMap?.[(asset.ticker || asset.symbol || 'KAS').toUpperCase()] ||
+            null
+    );
+
+    $effect(() => {
+        const currentTicker = activeSendAssetObj.ticker;
+        const savedRule = coldVaultRulesMap?.[currentTicker];
+        if (currentTicker !== lastHydratedColdTicker) {
+            lastHydratedColdTicker = currentTicker;
+            if (savedRule) {
+                coldDestinationInput = savedRule.coldDestinationAddress || '';
+                coldVaultLabelInput =
+                    savedRule.vaultLabel || 'Perennia Cold Vault';
+                coldOverflowCeilingInput = Number(
+                    savedRule.overflowCeiling ?? 500
+                );
+                coldAutoSweepEnabled = savedRule.autoSweepEnabled !== false;
+            } else {
+                coldDestinationInput = '';
+                coldVaultLabelInput = `${currentTicker} Cold Storage Vault`;
+                coldOverflowCeilingInput =
+                    currentTicker === 'BTC'
+                        ? 0.05
+                        : currentTicker === 'ETH'
+                          ? 0.5
+                          : currentTicker === 'SOL'
+                            ? 10
+                            : 500;
+                coldAutoSweepEnabled = true;
+            }
+        } else if (savedRule && !coldDestinationInput.trim()) {
+            coldDestinationInput = savedRule.coldDestinationAddress || '';
+            coldVaultLabelInput = savedRule.vaultLabel || 'Perennia Cold Vault';
+            coldOverflowCeilingInput = Number(savedRule.overflowCeiling ?? 500);
+            coldAutoSweepEnabled = savedRule.autoSweepEnabled !== false;
+        }
+    });
+
+    let coldAddressValidation = $derived(
+        coldDestinationInput.trim()
+            ? validateColdVaultAddressForChain(
+                  activeSendAssetObj.ticker,
+                  coldDestinationInput.trim(),
+                  activeSendAssetObj.network
+              )
+            : {
+                  valid: false,
+                  normalized: '',
+                  network: activeSendAssetObj.network,
+                  error: undefined
+              }
+    );
+
     let filteredLedgerHistory = $derived.by(() => {
         const tickerUpper = (asset.ticker || asset.symbol || 'KAS').toUpperCase();
         const subTickers = new Set<string>(
-            (subAssets || []).map((s: any) => String(s.symbol || '').toUpperCase())
+            (subAssets || []).map((s: any) =>
+                String(s.symbol || '').toUpperCase()
+            )
         );
         return (ledgerEvents || []).filter((ev: any) => {
             const evTicker = (ev.asset?.ticker || '').toUpperCase();
@@ -170,7 +283,9 @@
             }
         }
         const dateStamp = new Date().toISOString().slice(0, 10);
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([rows.join('\n')], {
+            type: 'text/csv;charset=utf-8;'
+        });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -223,8 +338,262 @@
         );
     }
 
+    async function saveTokenColdVaultRule() {
+        withdrawalFeedback = null;
+        if (!coldAddressValidation.valid) {
+            withdrawalFeedback = {
+                type: 'error',
+                message:
+                    coldAddressValidation.error ||
+                    `Enter a valid ${activeSendAssetObj.ticker} (${activeSendAssetObj.network}) Cold Storage address.`
+            };
+            return;
+        }
+        isSavingColdRule = true;
+        try {
+            const res = await fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'SAVE_USER_COLD_VAULT_RULE',
+                    payload: {
+                        assetTicker: activeSendAssetObj.ticker,
+                        network: activeSendAssetObj.network,
+                        coldDestinationAddress: coldAddressValidation.normalized,
+                        vaultLabel:
+                            coldVaultLabelInput.trim() || 'Perennia Cold Vault',
+                        overflowCeiling: Math.max(
+                            0.0001,
+                            Number(coldOverflowCeilingInput || 500)
+                        ),
+                        autoSweepEnabled: coldAutoSweepEnabled
+                    }
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(
+                    data.error ||
+                        `Failed to save ${activeSendAssetObj.ticker} Cold Vault rule.`
+                );
+            }
+            coldDestinationInput = coldAddressValidation.normalized;
+            withdrawalFeedback = {
+                type: 'success',
+                message: `✓ ${activeSendAssetObj.ticker} Cold Vault Armed (${coldAddressValidation.normalized.slice(0, 18)}... • Auto-Sweep @ ≥${coldOverflowCeilingInput} ${activeSendAssetObj.ticker})`
+            };
+            ui.triggerMicroBadge(
+                `asset_${asset.ticker}`,
+                `${activeSendAssetObj.ticker} COLD VAULT ARMED ✓`,
+                asset.hex || '#18C6A5'
+            );
+            await onRefreshColdVaultRules();
+        } catch (err: any) {
+            withdrawalFeedback = {
+                type: 'error',
+                message:
+                    err.message || 'Failed to save Cold Storage configuration.'
+            };
+        } finally {
+            isSavingColdRule = false;
+        }
+    }
+
+    async function triggerImmediateTokenColdSweep() {
+        withdrawalFeedback = null;
+        if (!coldAddressValidation.valid) {
+            withdrawalFeedback = {
+                type: 'error',
+                message: `Bind a valid ${activeSendAssetObj.ticker} Cold Storage address before executing a sweep.`
+            };
+            return;
+        }
+        const amt = parseFloat(coldSweepNowAmount);
+        if (isNaN(amt) || amt <= 0) {
+            withdrawalFeedback = {
+                type: 'error',
+                message: `Enter a valid ${activeSendAssetObj.ticker} amount greater than 0 to sweep.`
+            };
+            return;
+        }
+
+        const targetInfo = activeSendAssetObj;
+        const ledgerBal = Number(targetInfo.synthetic || 0);
+        const onChainBal = Number(targetInfo.onChain || 0);
+
+        if (ledgerBal >= amt) {
+            isSweepingColdNow = true;
+            try {
+                const res = await fetch('/api/state/action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'SWEEP_TOKEN_TO_COLD_VAULT_NOW',
+                        payload: {
+                            assetTicker: targetInfo.ticker,
+                            network: targetInfo.network,
+                            coldDestinationAddress:
+                                coldAddressValidation.normalized,
+                            amount: amt
+                        }
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) {
+                    throw new Error(
+                        data.error ||
+                            `Failed to sweep ${targetInfo.ticker} to Cold Vault.`
+                    );
+                }
+                const txHash =
+                    data.transaction_id || data.data?.txHash || '';
+                const explorerUrl =
+                    data.data?.explorerUrl ||
+                    getChainExplorerTxUrl(targetInfo.ticker, txHash);
+                coldSweepNowAmount = '';
+                const currentSyn = Number(
+                    treasury.getAsset(targetInfo.ticker).synthetic || 0
+                );
+                treasury.updateAsset(targetInfo.ticker, {
+                    synthetic: Math.max(0, currentSyn - amt)
+                });
+                withdrawalFeedback = {
+                    type: 'success',
+                    message: `✓ Swept ${amt.toFixed(4)} ${targetInfo.ticker} to Cold Vault (${coldAddressValidation.normalized.slice(0, 18)}...)`,
+                    txHash,
+                    explorerUrl
+                };
+                ui.triggerMicroBadge(
+                    `asset_${asset.ticker}`,
+                    `SWEPT ${targetInfo.ticker} TO COLD ✓`,
+                    asset.hex || '#18C6A5'
+                );
+                await onRefreshColdVaultRules();
+            } catch (err: any) {
+                withdrawalFeedback = {
+                    type: 'error',
+                    message: err.message || 'Hot-to-Cold sweep failed.'
+                };
+            } finally {
+                isSweepingColdNow = false;
+            }
+            return;
+        }
+
+        if (onChainBal >= amt) {
+            txState.lastTxId = '';
+            txState.lastExplorerUrl = '';
+            isDispatchingWithdrawal = true;
+            awaitingVaultWithdrawalSource = 'onchain';
+            pendingWithdrawAmount = amt;
+            pendingWithdrawTicker = targetInfo.ticker;
+            const actionType =
+                targetInfo.ticker === 'KAS'
+                    ? 'SEND_KAS'
+                    : targetInfo.network === 'KAS' &&
+                        targetInfo.ticker !== 'KAS'
+                      ? 'SEND_KRC20'
+                      : 'SEND_L1';
+            identity.requestVaultAuthorization({
+                actionType,
+                payAsset: targetInfo.ticker,
+                network: targetInfo.network,
+                contractAddress: targetInfo.contract,
+                payAmount: amt.toString(),
+                destinationAddress: coldAddressValidation.normalized
+            });
+            coldSweepNowAmount = '';
+            return;
+        }
+
+        withdrawalFeedback = {
+            type: 'error',
+            message: `Insufficient ${targetInfo.ticker} balance to sweep ${amt}. Batch Queue: ${ledgerBal.toFixed(4)} ${targetInfo.ticker} | On-Chain L1: ${onChainBal.toFixed(4)} ${targetInfo.ticker}.`
+        };
+    }
+
+    async function startColdQrCameraScanner() {
+        withdrawalFeedback = null;
+        if (!browser || !navigator.mediaDevices?.getUserMedia) {
+            withdrawalFeedback = {
+                type: 'error',
+                message:
+                    'CAMERA_UNAVAILABLE: Browser camera access is not available on this device.'
+            };
+            return;
+        }
+        try {
+            activeColdMediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' },
+                audio: false
+            });
+            isCameraScanningColdQr = true;
+            setTimeout(() => {
+                if (coldQrVideoElement && activeColdMediaStream) {
+                    coldQrVideoElement.srcObject = activeColdMediaStream;
+                    coldQrVideoElement.play().catch(() => {});
+                }
+            }, 80);
+
+            coldQrScanTimer = setInterval(async () => {
+                if (!coldQrVideoElement || !isCameraScanningColdQr) return;
+                try {
+                    const detectedRaw = await scanVideoFrameForQrPayload(
+                        coldQrVideoElement
+                    );
+                    if (detectedRaw) {
+                        const parsed = parseMultiChainColdVaultQrPayload(
+                            detectedRaw,
+                            activeSendAssetObj.ticker,
+                            activeSendAssetObj.network
+                        );
+                        coldDestinationInput = parsed.coldDestinationAddress;
+                        if (parsed.cardLabel) {
+                            coldVaultLabelInput = parsed.cardLabel;
+                        }
+                        stopColdQrCameraScanner();
+                        withdrawalFeedback = {
+                            type: 'success',
+                            message: `✓ Scanned ${activeSendAssetObj.ticker} Cold Vault QR: ${parsed.coldDestinationAddress.slice(0, 22)}...`
+                        };
+                    }
+                } catch (scanErr: any) {
+                    stopColdQrCameraScanner();
+                    withdrawalFeedback = {
+                        type: 'error',
+                        message: scanErr.message || 'QR scan failed.'
+                    };
+                }
+            }, 450);
+        } catch (err: any) {
+            stopColdQrCameraScanner();
+            withdrawalFeedback = {
+                type: 'error',
+                message: `CAMERA_ACCESS_DENIED: ${err.message || 'Unable to open camera stream.'}`
+            };
+        }
+    }
+
+    function stopColdQrCameraScanner() {
+        isCameraScanningColdQr = false;
+        if (coldQrScanTimer) {
+            clearInterval(coldQrScanTimer);
+            coldQrScanTimer = null;
+        }
+        if (activeColdMediaStream) {
+            for (const track of activeColdMediaStream.getTracks()) {
+                track.stop();
+            }
+            activeColdMediaStream = null;
+        }
+    }
+
     async function refreshKasUtxos() {
-        if (asset.ticker !== 'KAS' || !identity.isWalletConnected || !identity.activeAddress)
+        if (
+            asset.ticker !== 'KAS' ||
+            !identity.isWalletConnected ||
+            !identity.activeAddress
+        )
             return;
         isFetchingUtxos = true;
         try {
@@ -237,14 +606,18 @@
                 utxoCount = list.length;
             }
         } catch {
-            // Ignore UTXO count error
+            // Ignore UTXO count fetch error
         } finally {
             isFetchingUtxos = false;
         }
     }
 
     async function fetchKasL1History() {
-        if (asset.ticker !== 'KAS' || !asset.address || asset.address.includes('Awaiting'))
+        if (
+            asset.ticker !== 'KAS' ||
+            !asset.address ||
+            asset.address.includes('Awaiting')
+        )
             return;
         isFetchingHistory = true;
         try {
@@ -278,7 +651,9 @@
                                     inp.previous_outpoint_address || ''
                                 ).toLowerCase();
                                 if (inAddr === cleanMyAddr) {
-                                    debitedSompi += Number(inp.previous_outpoint_amount || 0);
+                                    debitedSompi += Number(
+                                        inp.previous_outpoint_amount || 0
+                                    );
                                 }
                             }
                         }
@@ -305,9 +680,9 @@
     }
 
     function handleSseRefresh() {
-        if (isMainOpen && asset.ticker === 'KAS' && identity.isWalletConnected) {
+        if (asset.ticker === 'KAS' && identity.isWalletConnected) {
             refreshKasUtxos();
-            if (activeRoutingTab === 'history') {
+            if (isMainOpen && activeRoutingTab === 'history') {
                 fetchKasL1History();
             }
         }
@@ -321,6 +696,7 @@
     });
 
     onDestroy(() => {
+        stopColdQrCameraScanner();
         if (browser) {
             window.removeEventListener('perennia:yield_update', handleSseRefresh);
             window.removeEventListener('perennia:fiat_event', handleSseRefresh);
@@ -328,9 +704,11 @@
     });
 
     $effect(() => {
-        if (isMainOpen && asset.ticker === 'KAS' && identity.isWalletConnected) {
+        if (asset.ticker === 'KAS' && identity.isWalletConnected) {
             refreshKasUtxos();
-            fetchKasL1History();
+            if (isMainOpen) {
+                fetchKasL1History();
+            }
         }
     });
 
@@ -374,12 +752,10 @@
             pendingWithdrawAmount = 0;
             isDispatchingWithdrawal = false;
             isCompoundingUtxos = false;
-
             if (txState.lastTxId) {
                 const resolvedExplorerUrl =
                     txState.lastExplorerUrl ||
                     getChainExplorerTxUrl(tickerUsed, txState.lastTxId);
-
                 if (sourceUsed === 'compound') {
                     withdrawalFeedback = {
                         type: 'success',
@@ -431,15 +807,18 @@
     async function initiateSend() {
         withdrawalFeedback = null;
         const parsedAmount = parseFloat(sendAmount);
-        if (!sendDestination || !sendAmount || isNaN(parsedAmount) || parsedAmount <= 0)
+        if (
+            !sendDestination ||
+            !sendAmount ||
+            isNaN(parsedAmount) ||
+            parsedAmount <= 0
+        )
             return;
-
         const targetInfo = activeSendAssetObj;
         const targetTicker = targetInfo.ticker;
         const targetNetwork = targetInfo.network;
         const onChainBal = Number(targetInfo.onChain || 0);
         const ledgerBal = Number(targetInfo.synthetic || 0);
-
         const preferOnChain =
             withdrawalSourceMode === 'onchain' ||
             (withdrawalSourceMode === 'auto' && onChainBal >= parsedAmount);
@@ -448,7 +827,6 @@
             (withdrawalSourceMode === 'auto' &&
                 onChainBal < parsedAmount &&
                 ledgerBal >= parsedAmount);
-
         if (preferOnChain && onChainBal >= parsedAmount) {
             txState.lastTxId = '';
             txState.lastExplorerUrl = '';
@@ -456,14 +834,12 @@
             awaitingVaultWithdrawalSource = 'onchain';
             pendingWithdrawAmount = parsedAmount;
             pendingWithdrawTicker = targetTicker;
-
             const actionType =
                 targetTicker === 'KAS'
                     ? 'SEND_KAS'
                     : targetNetwork === 'KAS' && targetTicker !== 'KAS'
                       ? 'SEND_KRC20'
                       : 'SEND_L1';
-
             identity.requestVaultAuthorization({
                 actionType,
                 payAsset: targetTicker,
@@ -474,15 +850,16 @@
             });
             return;
         }
-
-        if ((preferLedger || withdrawalSourceMode === 'ledger') && ledgerBal >= parsedAmount) {
+        if (
+            (preferLedger || withdrawalSourceMode === 'ledger') &&
+            ledgerBal >= parsedAmount
+        ) {
             txState.lastTxId = '';
             txState.lastExplorerUrl = '';
             isDispatchingWithdrawal = true;
             awaitingVaultWithdrawalSource = 'ledger';
             pendingWithdrawAmount = parsedAmount;
             pendingWithdrawTicker = targetTicker;
-
             identity.requestVaultAuthorization({
                 actionType: 'WITHDRAW_SYNTHETIC',
                 payAsset: targetTicker,
@@ -492,8 +869,6 @@
             });
             return;
         }
-
-        // Allow client-side L1 signing even if public indexer balance cache hasn't hydrated yet
         if (withdrawalSourceMode === 'onchain') {
             txState.lastTxId = '';
             txState.lastExplorerUrl = '';
@@ -501,14 +876,12 @@
             awaitingVaultWithdrawalSource = 'onchain';
             pendingWithdrawAmount = parsedAmount;
             pendingWithdrawTicker = targetTicker;
-
             const actionType =
                 targetTicker === 'KAS'
                     ? 'SEND_KAS'
                     : targetNetwork === 'KAS' && targetTicker !== 'KAS'
                       ? 'SEND_KRC20'
                       : 'SEND_L1';
-
             identity.requestVaultAuthorization({
                 actionType,
                 payAsset: targetTicker,
@@ -519,7 +892,6 @@
             });
             return;
         }
-
         withdrawalFeedback = {
             type: 'error',
             message: `Insufficient ${targetTicker} balance in selected source. On-Chain L1: ${onChainBal.toFixed(6)} ${targetTicker} | In Batch Settlement Queue: ${ledgerBal.toFixed(6)} ${targetTicker}.`
@@ -548,7 +920,12 @@
         }
     });
 
-    function generateSparkline(seed: string, delta: number, width = 64, height = 24) {
+    function generateSparkline(
+        seed: string,
+        delta: number,
+        width = 64,
+        height = 24
+    ) {
         let hash = 0;
         const seedStr = seed || 'KAS';
         for (let i = 0; i < seedStr.length; i++)
@@ -562,7 +939,10 @@
             const progress = i / segments;
             const baseY = (height / 2) * (1 - progress) + endY * progress;
             const noiseStr = Math.sin(hash + i).toString();
-            const noise = (parseFloat(noiseStr.substring(noiseStr.length - 2)) / 100 - 0.5) * 8;
+            const noise =
+                (parseFloat(noiseStr.substring(noiseStr.length - 2)) / 100 -
+                    0.5) *
+                8;
             const damp = Math.sin(progress * Math.PI);
             const y = baseY + noise * damp;
             points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
@@ -587,7 +967,11 @@
 
     function copyNativeAddress(e: Event, address: string) {
         e.stopPropagation();
-        if (typeof navigator !== 'undefined' && address && !address.includes('Awaiting')) {
+        if (
+            typeof navigator !== 'undefined' &&
+            address &&
+            !address.includes('Awaiting')
+        ) {
             navigator.clipboard.writeText(address);
             ui.triggerMicroBadge(
                 `asset_${asset.ticker}`,
@@ -599,15 +983,22 @@
 
     function openQuickAction(
         e: Event,
-        tab: 'deposit' | 'withdraw' | 'history',
+        tab: 'deposit' | 'withdraw' | 'cold_vault' | 'history',
         overrideTicker?: string
     ) {
         e.stopPropagation();
         withdrawalFeedback = null;
+        if (tab !== 'cold_vault') {
+            stopColdQrCameraScanner();
+        }
         if (overrideTicker) {
             selectedSendTokenTicker = overrideTicker.toUpperCase();
         } else {
-            selectedSendTokenTicker = (asset.ticker || asset.symbol || 'KAS').toUpperCase();
+            selectedSendTokenTicker = (
+                asset.ticker ||
+                asset.symbol ||
+                'KAS'
+            ).toUpperCase();
         }
         if (activeRoutingTab === tab && isMainOpen && !overrideTicker) {
             activeRoutingTab = 'none';
@@ -627,12 +1018,15 @@
     function getDestinationPlaceholder(ticker: string, network: string): string {
         const clean = ticker.toUpperCase();
         const net = network.toUpperCase();
-        if (clean === 'KAS' || net === 'KAS') return 'kaspa:qp...';
+        if (clean === 'KAS' || net === 'KAS')
+            return 'kaspa:qp... or kaspa:p... (SilverScript P2SH)';
         if (clean === 'BTC' || net === 'BTC') return 'bc1q... or 1...';
         if (clean === 'SOL' || net === 'SOL') return 'Solana base58 address...';
         if (clean === 'XRP' || net === 'XRP') return 'r...';
         if (
-            ['ETH', 'USDC', 'USDT', 'POL', 'AVAX', 'ARB', 'BASE'].includes(clean) ||
+            ['ETH', 'USDC', 'USDT', 'POL', 'AVAX', 'ARB', 'BASE'].includes(
+                clean
+            ) ||
             ['ETH', 'POL', 'AVAX', 'ARB', 'BASE'].includes(net)
         ) {
             return '0x...';
@@ -670,6 +1064,7 @@
                 if (!isMainOpen) {
                     expandedSubToken = null;
                     activeRoutingTab = 'none';
+                    stopColdQrCameraScanner();
                 }
             }
         }}
@@ -679,14 +1074,20 @@
     >
         <div class="flex items-center gap-4 shrink-0">
             {#if isOrganizing && isNetworkSelected}
-                <div class="text-neutral-600 flex flex-col gap-1 pr-1 pointer-events-none" transition:slide={{ axis: 'x' }}>
+                <div
+                    class="text-neutral-600 flex flex-col gap-1 pr-1 pointer-events-none"
+                    transition:slide={{ axis: 'x' }}
+                >
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                 </div>
             {/if}
             <div class="w-12 h-12 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden self-start mt-1">
-                <div class="absolute inset-0 opacity-[0.14]" style="background-color: {asset.hex}"></div>
+                <div
+                    class="absolute inset-0 opacity-[0.14]"
+                    style="background-color: {asset.hex}"
+                ></div>
                 {#if (asset.icon && (asset.icon.startsWith('/') || asset.icon.startsWith('http'))) || (asset.imgUrl && (asset.imgUrl.startsWith('/') || asset.imgUrl.startsWith('http')))}
                     <img
                         src={asset.icon || asset.imgUrl}
@@ -695,11 +1096,15 @@
                         style="filter: drop-shadow(0 0 4px {asset.hex}40);"
                     />
                 {:else}
-                    <span class="text-xl font-bold relative z-10" style="color: {asset.hex}">
+                    <span
+                        class="text-xl font-bold relative z-10"
+                        style="color: {asset.hex}"
+                    >
                         {(asset.symbol || asset.ticker || 'TOK').slice(0, 3)}
                     </span>
                 {/if}
             </div>
+
             <div class="flex flex-col gap-1.5">
                 <div class="flex flex-wrap items-center gap-2">
                     <span class="text-sm md:text-base font-bold uppercase tracking-widest text-white">
@@ -708,12 +1113,45 @@
                     <span class="text-[8px] font-mono uppercase tracking-widest bg-[#11161f] border border-white/10 text-neutral-400 px-2 py-0.5 rounded-md hidden xl:block">
                         {asset.badge || asset.type}
                     </span>
+                    {#if rootTokenColdRule?.autoSweepEnabled && rootTokenColdRule?.coldDestinationAddress}
+                        <span
+                            data-testid="cold-vault-active-badge-{asset.ticker || asset.symbol}"
+                            class="text-[8px] font-mono font-bold uppercase bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] px-2 py-0.5 rounded-md"
+                        >
+                            COLD AUTO-SWEEP ≥{rootTokenColdRule.overflowCeiling}
+                        </span>
+                    {/if}
+
                     {#if !isManagingNetworks && !isOrganizing}
-                        <div class="flex flex-wrap items-center gap-1.5 ml-1" onclick={(e) => e.stopPropagation()}>
+                        <div
+                            class="flex flex-wrap items-center gap-1.5 ml-1"
+                            onclick={(e) => e.stopPropagation()}
+                        >
+                            <button
+                                type="button"
+                                data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    const tick = (
+                                        asset.ticker ||
+                                        asset.symbol ||
+                                        'KAS'
+                                    ).toUpperCase();
+                                    ui.openFiatModal(
+                                        tick,
+                                        tick === DEFAULT_ECOSYSTEM_TICKER,
+                                        '250'
+                                    );
+                                }}
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-widest cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
+                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
+                            >
+                                [+ Buy with USD]
+                            </button>
                             <button
                                 type="button"
                                 onclick={(e) => openQuickAction(e, 'deposit')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Receive QR]
                             </button>
@@ -721,15 +1159,23 @@
                                 type="button"
                                 data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}"
                                 onclick={(e) => openQuickAction(e, 'withdraw')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Send / Withdraw L1]
                             </button>
                             <button
                                 type="button"
+                                data-testid="cold-vault-btn-{asset.ticker || asset.symbol}"
+                                onclick={(e) => openQuickAction(e, 'cold_vault')}
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
+                            >
+                                [Cold Vault]
+                            </button>
+                            <button
+                                type="button"
                                 data-testid="activity-btn-{asset.ticker || asset.symbol}"
                                 onclick={(e) => openQuickAction(e, 'history')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Activity]
                             </button>
@@ -738,18 +1184,23 @@
                                     type="button"
                                     onclick={initiateCompoundKasUtxos}
                                     disabled={isCompoundingUtxos || utxoCount < 2}
-                                    class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer disabled:opacity-40 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}"
+                                    class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer disabled:opacity-40 whitespace-nowrap {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}"
                                     title="Consolidate multiple Kaspa L1 UTXOs into a single output"
                                 >
-                                    {isCompoundingUtxos ? '[Compounding...]' : `[Compound UTXOs (${utxoCount})]`}
+                                    {isCompoundingUtxos
+                                        ? '[Compounding...]'
+                                        : `[Compound UTXOs (${utxoCount})]`}
                                 </button>
                             {/if}
                             <a
-                                href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)}
+                                href={getExplorerUrl(
+                                    asset.symbol || asset.ticker,
+                                    asset.address
+                                )}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 data-testid="explorer-link-{asset.ticker || asset.symbol}"
-                                class="text-[8px] uppercase tracking-widest font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors px-1.5"
+                                class="text-[8px] uppercase tracking-widest font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors px-1.5 whitespace-nowrap"
                             >
                                 Explorer ↗
                             </a>
@@ -762,15 +1213,30 @@
                             minimumFractionDigits: fiatDecimals,
                             maximumFractionDigits: fiatDecimals
                         })}
-                        <span class="{(asset.delta || 0) >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">
-                            {(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(asset.delta || 0).toFixed(2)}%
+                        <span
+                            class={(asset.delta || 0) >= 0
+                                ? 'text-[#18C6A5]'
+                                : 'text-red-400'}
+                        >
+                            {(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(
+                                asset.delta || 0
+                            ).toFixed(2)}%
                         </span>
                     </span>
-                    <svg class="w-16 h-4 opacity-70" viewBox="0 0 64 24" preserveAspectRatio="none">
+                    <svg
+                        class="w-16 h-4 opacity-70"
+                        viewBox="0 0 64 24"
+                        preserveAspectRatio="none"
+                    >
                         <path
-                            d={generateSparkline(asset.symbol || asset.ticker, asset.delta)}
+                            d={generateSparkline(
+                                asset.symbol || asset.ticker,
+                                asset.delta
+                            )}
                             fill="none"
-                            stroke={(asset.delta || 0) >= 0 ? '#18C6A5' : '#ef4444'}
+                            stroke={(asset.delta || 0) >= 0
+                                ? '#18C6A5'
+                                : '#ef4444'}
                             stroke-width="1.5"
                             stroke-linecap="round"
                             stroke-linejoin="round"
@@ -797,7 +1263,9 @@
                             minimumFractionDigits: tokenDecimals,
                             maximumFractionDigits: tokenDecimals
                         })}
-                        <span class="text-xs font-mono text-neutral-400">{asset.symbol || asset.ticker}</span>
+                        <span class="text-xs font-mono text-neutral-400"
+                            >{asset.symbol || asset.ticker}</span
+                        >
                     </span>
                     <span class="text-[10px] font-mono text-neutral-400 tracking-wider tabular-nums flex flex-wrap items-center justify-end gap-1.5">
                         {#if asset.synthetic > 0}
@@ -805,16 +1273,23 @@
                                 class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase"
                                 data-testid="batch-queue-badge-{asset.ticker || asset.symbol}"
                             >
-                                +{asset.synthetic.toLocaleString(undefined, { maximumFractionDigits: 4 })} In Batch Settlement Queue
+                                +{asset.synthetic.toLocaleString(undefined, {
+                                    maximumFractionDigits: 4
+                                })} In Batch Settlement Queue
                             </span>
                         {/if}
                         {#if asset.stakedBalance > 0}
                             <span class="text-blue-400">
-                                ({asset.stakedBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} LP)
+                                ({asset.stakedBalance.toLocaleString(
+                                    undefined,
+                                    { maximumFractionDigits: 2 }
+                                )} LP)
                             </span>
                         {/if}
                         <span>
-                            ≈ ${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, {
+                            ≈ ${(
+                                (asset.onChain || 0) * (asset.spotPrice || 0)
+                            ).toLocaleString(undefined, {
                                 minimumFractionDigits: fiatDecimals,
                                 maximumFractionDigits: fiatDecimals
                             })} L1
@@ -825,7 +1300,9 @@
                         class="text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[#18C6A5]"
                         data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}"
                     >
-                        ${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, {
+                        ${(
+                            (asset.onChain || 0) * (asset.spotPrice || 0)
+                        ).toLocaleString(undefined, {
                             minimumFractionDigits: fiatDecimals,
                             maximumFractionDigits: fiatDecimals
                         })}
@@ -836,14 +1313,18 @@
                                 class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase"
                                 data-testid="batch-queue-badge-{asset.ticker || asset.symbol}"
                             >
-                                +${((asset.synthetic || 0) * (asset.spotPrice || 0)).toFixed(2)} In Batch Settlement Queue
+                                +${(
+                                    (asset.synthetic || 0) *
+                                    (asset.spotPrice || 0)
+                                ).toFixed(2)} In Batch Settlement Queue
                             </span>
                         {/if}
                         <span>
                             ≈ {(asset.onChain || 0).toLocaleString(undefined, {
                                 minimumFractionDigits: tokenDecimals,
                                 maximumFractionDigits: tokenDecimals
-                            })} {asset.symbol || asset.ticker}
+                            })}
+                            {asset.symbol || asset.ticker}
                         </span>
                     </span>
                 {/if}
@@ -870,11 +1351,14 @@
         </div>
     </div>
 
-    {#if isMainOpen && !isManagingNetworks && !isOrganizing}
-        <div transition:slide class="px-4 md:px-5 pb-4 md:pb-5 relative z-0 -mt-1">
+    {#if isMainOpen && !isManagingNetworks && !isOrganizing && (activeRoutingTab !== 'none' || filteredSubAssets.length > 0 || withdrawalFeedback)}
+        <div
+            transition:slide
+            class="px-4 md:px-5 pb-4 md:pb-5 relative z-0 -mt-1"
+        >
             {#if withdrawalFeedback && activeRoutingTab === 'none'}
                 <div
-                    class="mb-3 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-teal-950/20 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/20 border-red-500/40 text-red-400'}"
+                    class="mb-3 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-teal-950/20 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/25 border-red-500/40 text-red-400'}"
                 >
                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest break-all">
                         {withdrawalFeedback.message}
@@ -892,78 +1376,11 @@
                 </div>
             {/if}
 
-            <div transition:slide class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2 mb-4">
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col justify-center gap-2.5 shadow-inner">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
-                            Explorer Parity &amp; Settlement Breakdown
-                        </span>
-                        {#if asset.ticker === 'KAS'}
-                            <span class="text-[8px] font-mono text-neutral-400">
-                                {isFetchingUtxos ? 'Scanning UTXOs...' : `${utxoCount} L1 UTXO${utxoCount === 1 ? '' : 's'}`}
-                            </span>
-                        {:else}
-                            <a
-                                href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="text-[8px] font-mono text-[#18C6A5] hover:underline uppercase"
-                            >
-                                Verify L1 Address ↗
-                            </a>
-                        {/if}
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-mono text-neutral-300 font-bold">
-                            On-Chain L1 Balance
-                        </span>
-                        <span class="text-[10px] font-mono font-bold text-white">
-                            {(asset.onChain || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {asset.symbol || asset.ticker}
-                        </span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-mono text-neutral-400">
-                            In Batch Settlement Queue
-                        </span>
-                        <span class="text-[10px] font-mono font-bold text-amber-400">
-                            {(asset.synthetic || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {asset.symbol || asset.ticker}
-                        </span>
-                    </div>
-                </div>
-
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col justify-center gap-2.5 shadow-inner">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
-                            LP Staking &amp; Signing Authority
-                        </span>
-                        {#if asset.ticker === 'KAS'}
-                            <button
-                                type="button"
-                                onclick={initiateCompoundKasUtxos}
-                                disabled={isCompoundingUtxos || utxoCount < 2}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer disabled:opacity-35 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-500'}"
-                            >
-                                {isCompoundingUtxos ? 'Compounding...' : `1-Click Compound (${utxoCount})`}
-                            </button>
-                        {/if}
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-mono text-neutral-400">Active LP Staked</span>
-                        <span class="text-[10px] font-mono font-bold text-[#18C6A5]">
-                            {(asset.stakedBalance || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {asset.symbol || asset.ticker}
-                        </span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-mono text-neutral-400">Client-Side L1 Signer</span>
-                        <span class="text-[10px] font-mono font-medium {identity.isVaultUnlocked ? 'text-[#18C6A5]' : 'text-amber-400'}">
-                            {identity.isVaultUnlocked ? '11-Chain Sovereign Vault Ready' : 'Password Required to Sign'}
-                        </span>
-                    </div>
-                </div>
-            </div>
-
             {#if activeRoutingTab !== 'none'}
-                <div transition:slide class="bg-[#11161f] border border-white/10 rounded-[20px] p-5 flex flex-col shadow-inner w-full gap-5 mb-4 mt-1">
+                <div
+                    transition:slide
+                    class="bg-[#11161f] border border-white/10 rounded-[20px] p-5 flex flex-col shadow-inner w-full gap-5 mb-3 mt-1"
+                >
                     <div class="flex items-center justify-between border-b border-white/10 pb-3">
                         <div class="flex flex-wrap gap-5">
                             <button
@@ -971,6 +1388,7 @@
                                 onclick={() => {
                                     activeRoutingTab = 'deposit';
                                     withdrawalFeedback = null;
+                                    stopColdQrCameraScanner();
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'deposit' ? 'text-[#18C6A5]' : 'text-neutral-500 hover:text-white'}"
                             >
@@ -981,6 +1399,7 @@
                                 onclick={() => {
                                     activeRoutingTab = 'withdraw';
                                     withdrawalFeedback = null;
+                                    stopColdQrCameraScanner();
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'withdraw' ? 'text-amber-400' : 'text-neutral-500 hover:text-white'}"
                             >
@@ -988,10 +1407,23 @@
                             </button>
                             <button
                                 type="button"
+                                data-testid="drawer-cold-vault-tab-{asset.ticker || asset.symbol}"
+                                onclick={() => {
+                                    activeRoutingTab = 'cold_vault';
+                                    withdrawalFeedback = null;
+                                }}
+                                class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5]' : 'text-neutral-500 hover:text-white'}"
+                            >
+                                Cold Storage Auto-Sweep
+                            </button>
+                            <button
+                                type="button"
                                 onclick={() => {
                                     activeRoutingTab = 'history';
                                     withdrawalFeedback = null;
-                                    if (asset.ticker === 'KAS') fetchKasL1History();
+                                    stopColdQrCameraScanner();
+                                    if (asset.ticker === 'KAS')
+                                        fetchKasL1History();
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'history' ? 'text-blue-400' : 'text-neutral-500 hover:text-white'}"
                             >
@@ -1000,7 +1432,10 @@
                         </div>
                         <button
                             type="button"
-                            onclick={() => (activeRoutingTab = 'none')}
+                            onclick={() => {
+                                activeRoutingTab = 'none';
+                                stopColdQrCameraScanner();
+                            }}
                             class="text-neutral-500 hover:text-white text-xs cursor-pointer"
                         >
                             ✕
@@ -1011,7 +1446,8 @@
                         <div class="flex flex-col md:flex-row items-center justify-between gap-6">
                             <div class="flex flex-col justify-center w-full md:w-2/3">
                                 <span class="text-[10px] uppercase tracking-widest font-bold text-neutral-400 mb-2">
-                                    Inbound Sovereign L1 Route ({asset.symbol || asset.ticker})
+                                    Inbound Sovereign L1 Route ({asset.symbol ||
+                                        asset.ticker})
                                 </span>
                                 <span
                                     class="text-xs md:text-sm font-mono break-all leading-relaxed mb-5 select-all bg-[#0a0d12] p-3.5 rounded-xl border border-white/10"
@@ -1022,13 +1458,19 @@
                                 <div class="flex flex-wrap items-center gap-2.5">
                                     <button
                                         type="button"
-                                        onclick={(e) => copyNativeAddress(e, asset.address)}
+                                        onclick={(e) =>
+                                            copyNativeAddress(e, asset.address)}
                                         class="tactile-btn w-fit px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white cursor-pointer"
                                     >
-                                        {asset.address?.includes('Awaiting') ? 'Unlock Vault to Derive Address' : 'Copy Sovereign Address'}
+                                        {asset.address?.includes('Awaiting')
+                                            ? 'Unlock Vault to Derive Address'
+                                            : 'Copy Sovereign Address'}
                                     </button>
                                     <a
-                                        href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)}
+                                        href={getExplorerUrl(
+                                            asset.symbol || asset.ticker,
+                                            asset.address
+                                        )}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         class="tactile-btn w-fit px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/35"
@@ -1048,7 +1490,8 @@
                                 {:else}
                                     <button
                                         type="button"
-                                        onclick={() => (ui.showWalletModal = true)}
+                                        onclick={() =>
+                                            (ui.showWalletModal = true)}
                                         class="flex flex-col items-center justify-center text-neutral-400 hover:text-white gap-2 cursor-pointer"
                                     >
                                         <span class="text-[9px] uppercase tracking-widest font-mono font-bold text-center">
@@ -1063,7 +1506,8 @@
                             {#if filteredSubAssets.length > 0}
                                 <div class="flex flex-col gap-1.5">
                                     <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
-                                        Select Asset on {asset.name} ({asset.ticker}) Network
+                                        Select Asset on {asset.name} ({asset.ticker})
+                                        Network
                                     </span>
                                     <div class="flex flex-wrap gap-2 bg-[#0a0d12] p-1.5 rounded-xl border border-white/10">
                                         <button
@@ -1082,47 +1526,55 @@
                                             <button
                                                 type="button"
                                                 onclick={() =>
-                                                    (selectedSendTokenTicker = String(
-                                                        sub.symbol
-                                                    ).toUpperCase())}
+                                                    (selectedSendTokenTicker =
+                                                        String(
+                                                            sub.symbol
+                                                        ).toUpperCase())}
                                                 class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === String(sub.symbol).toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
                                             >
-                                                {sub.symbol} ({standardLabel || 'Token'})
+                                                {sub.symbol} ({standardLabel ||
+                                                    'Token'})
                                             </button>
                                         {/each}
                                     </div>
                                 </div>
                             {/if}
-
                             <div class="flex flex-col gap-1.5">
                                 <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
-                                    {activeSendAssetObj.ticker} Transfer / Settlement Source
+                                    {activeSendAssetObj.ticker} Transfer / Settlement
+                                    Source
                                 </span>
                                 <div class="grid grid-cols-3 gap-2 bg-[#0a0d12] p-1 rounded-xl border border-white/10">
                                     <button
                                         type="button"
-                                        onclick={() => (withdrawalSourceMode = 'auto')}
+                                        onclick={() =>
+                                            (withdrawalSourceMode = 'auto')}
                                         class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'auto' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-400 hover:text-white'}"
                                     >
                                         Auto Route
                                     </button>
                                     <button
                                         type="button"
-                                        onclick={() => (withdrawalSourceMode = 'onchain')}
+                                        onclick={() =>
+                                            (withdrawalSourceMode = 'onchain')}
                                         class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'onchain' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-400 hover:text-white'}"
                                     >
-                                        On-Chain L1 ({activeSendAssetObj.onChain.toFixed(4)})
+                                        On-Chain L1 ({activeSendAssetObj.onChain.toFixed(
+                                            4
+                                        )})
                                     </button>
                                     <button
                                         type="button"
-                                        onclick={() => (withdrawalSourceMode = 'ledger')}
+                                        onclick={() =>
+                                            (withdrawalSourceMode = 'ledger')}
                                         class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'ledger' ? 'bg-[#161d29] text-amber-400 border border-amber-500/30' : 'text-neutral-400 hover:text-white'}"
                                     >
-                                        Batch Queue ({activeSendAssetObj.synthetic.toFixed(4)})
+                                        Batch Queue ({activeSendAssetObj.synthetic.toFixed(
+                                            4
+                                        )})
                                     </button>
                                 </div>
                             </div>
-
                             {#if withdrawalFeedback}
                                 <div
                                     data-testid="withdrawal-feedback-{asset.ticker || asset.symbol}"
@@ -1144,7 +1596,6 @@
                                     {/if}
                                 </div>
                             {/if}
-
                             <div class="flex flex-col gap-1.5">
                                 <label
                                     for="destAddr_{asset.ticker}"
@@ -1165,7 +1616,6 @@
                                     class="w-full bg-[#0a0d12] border border-white/10 focus:border-white/25 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none transition-colors"
                                 />
                             </div>
-
                             <div class="flex flex-col gap-1.5">
                                 <label
                                     for="sendAmt_{asset.ticker}"
@@ -1185,29 +1635,44 @@
                                     <button
                                         type="button"
                                         onclick={() => {
-                                            if (withdrawalSourceMode === 'ledger') {
+                                            if (
+                                                withdrawalSourceMode ===
+                                                'ledger'
+                                            ) {
                                                 sendAmount = (
-                                                    activeSendAssetObj.synthetic || 0
+                                                    activeSendAssetObj.synthetic ||
+                                                    0
                                                 ).toString();
-                                            } else if (withdrawalSourceMode === 'onchain') {
+                                            } else if (
+                                                withdrawalSourceMode ===
+                                                'onchain'
+                                            ) {
                                                 const feeBuf =
-                                                    activeSendAssetObj.ticker === 'KAS' ? 0.005 : 0;
+                                                    activeSendAssetObj.ticker ===
+                                                    'KAS'
+                                                        ? 0.005
+                                                        : 0;
                                                 sendAmount = Math.max(
                                                     0,
-                                                    (activeSendAssetObj.onChain || 0) - feeBuf
+                                                    (activeSendAssetObj.onChain ||
+                                                        0) - feeBuf
                                                 ).toString();
                                             } else {
                                                 const maxSource =
-                                                    activeSendAssetObj.onChain > 0
+                                                    activeSendAssetObj.onChain >
+                                                    0
                                                         ? Math.max(
                                                               0,
                                                               activeSendAssetObj.onChain -
-                                                                  (activeSendAssetObj.ticker === 'KAS'
+                                                                  (activeSendAssetObj.ticker ===
+                                                                  'KAS'
                                                                       ? 0.005
                                                                       : 0)
                                                           )
                                                         : activeSendAssetObj.synthetic;
-                                                sendAmount = (maxSource || 0).toString();
+                                                sendAmount = (
+                                                    maxSource || 0
+                                                ).toString();
                                             }
                                         }}
                                         class="tactile-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white px-3 py-1.5 rounded-lg cursor-pointer"
@@ -1216,12 +1681,14 @@
                                     </button>
                                 </div>
                             </div>
-
                             <button
                                 type="button"
                                 data-testid="submit-l1-transfer-btn-{asset.ticker || asset.symbol}"
                                 onclick={initiateSend}
-                                disabled={!sendDestination || !sendAmount || parseFloat(sendAmount) <= 0 || isDispatchingWithdrawal}
+                                disabled={!sendDestination ||
+                                    !sendAmount ||
+                                    parseFloat(sendAmount) <= 0 ||
+                                    isDispatchingWithdrawal}
                                 class="tactile-btn w-full py-4 mt-1 text-white text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 style="
                                     border-color: {asset.hex}50;
@@ -1231,15 +1698,345 @@
                                 {#if isDispatchingWithdrawal}
                                     Awaiting Sovereign Vault Signature...
                                 {:else}
-                                    Authorize &amp; Broadcast {activeSendAssetObj.ticker} L1 Transfer
+                                    Authorize &amp; Broadcast {activeSendAssetObj.ticker}
+                                    L1 Transfer
                                 {/if}
                             </button>
+                        </div>
+                    {:else if activeRoutingTab === 'cold_vault'}
+                        <div
+                            data-testid="cold-vault-drawer-{activeSendAssetObj.ticker}"
+                            class="flex flex-col w-full gap-4"
+                            in:fade={{ duration: 150 }}
+                        >
+                            {#if filteredSubAssets.length > 0}
+                                <div class="flex flex-col gap-1.5">
+                                    <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
+                                        Configure Cold Storage Auto-Sweep for Asset on {asset.name}
+                                    </span>
+                                    <div class="flex flex-wrap gap-2 bg-[#0a0d12] p-1.5 rounded-xl border border-white/10">
+                                        <button
+                                            type="button"
+                                            onclick={() =>
+                                                (selectedSendTokenTicker = (
+                                                    asset.ticker ||
+                                                    asset.symbol ||
+                                                    'KAS'
+                                                ).toUpperCase())}
+                                            class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === (asset.ticker || asset.symbol || 'KAS').toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                        >
+                                            {asset.ticker} (Native L1)
+                                        </button>
+                                        {#each filteredSubAssets as sub (sub.symbol)}
+                                            <button
+                                                type="button"
+                                                onclick={() =>
+                                                    (selectedSendTokenTicker =
+                                                        String(
+                                                            sub.symbol
+                                                        ).toUpperCase())}
+                                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === String(sub.symbol).toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                            >
+                                                {sub.symbol} ({standardLabel ||
+                                                    'Token'})
+                                            </button>
+                                        {/each}
+                                    </div>
+                                </div>
+                            {/if}
+
+                            {#if withdrawalFeedback}
+                                <div
+                                    data-testid="cold-vault-feedback-{activeSendAssetObj.ticker}"
+                                    class="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-teal-950/20 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/20 border-red-500/40 text-red-400'}"
+                                >
+                                    <span class="text-[10px] font-mono font-bold uppercase tracking-widest break-all">
+                                        {withdrawalFeedback.message}
+                                    </span>
+                                    {#if withdrawalFeedback.explorerUrl && withdrawalFeedback.explorerUrl !== '#'}
+                                        <a
+                                            href={withdrawalFeedback.explorerUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
+                                        >
+                                            Verify TX ↗
+                                        </a>
+                                    {/if}
+                                </div>
+                            {/if}
+
+                            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                                <div class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
+                                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                                        <div class="flex flex-col">
+                                            <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                                                {activeSendAssetObj.ticker} Cold Storage Auto-Sweep (Perennia Cold Vault / Hardware Vault)
+                                            </span>
+                                            <span class="text-[8px] font-mono text-neutral-400">
+                                                Automatically sweeps excess settled {activeSendAssetObj.ticker} above your ceiling directly to cold storage
+                                            </span>
+                                        </div>
+                                        {#if activeTokenColdRule?.lastSweepTxid}
+                                            <a
+                                                href={getChainExplorerTxUrl(
+                                                    activeSendAssetObj.ticker,
+                                                    activeTokenColdRule.lastSweepTxid
+                                                )}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="text-[8px] font-mono text-[#18C6A5] hover:underline uppercase"
+                                            >
+                                                Last Sweep TX ↗
+                                            </a>
+                                        {/if}
+                                    </div>
+
+                                    {#if isCameraScanningColdQr}
+                                        <div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-3 flex flex-col items-center gap-2">
+                                            <div class="flex items-center justify-between w-full text-[9px] font-mono">
+                                                <span class="text-[#18C6A5] font-bold uppercase">
+                                                    ● Scanning {activeSendAssetObj.ticker} Cold Vault QR...
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onclick={stopColdQrCameraScanner}
+                                                    class="text-neutral-400 hover:text-white cursor-pointer"
+                                                >
+                                                    [Stop Camera ✕]
+                                                </button>
+                                            </div>
+                                            <video
+                                                bind:this={coldQrVideoElement}
+                                                class="w-full max-w-[300px] h-[200px] object-cover rounded-lg border border-white/15 bg-black"
+                                                playsinline
+                                            ></video>
+                                        </div>
+                                    {/if}
+
+                                    <div class="flex flex-col gap-1.5">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <label
+                                                for="coldDest_{activeSendAssetObj.ticker}"
+                                                class="text-[9px] uppercase tracking-widest font-bold text-neutral-300"
+                                            >
+                                                Cold Wallet Destination Address ({activeSendAssetObj.network})
+                                            </label>
+                                            <div class="flex items-center gap-1.5">
+                                                {#if asset.address && !asset.address.includes('Awaiting')}
+                                                    <button
+                                                        type="button"
+                                                        onclick={() => {
+                                                            coldDestinationInput =
+                                                                asset.address;
+                                                            coldVaultLabelInput = `Perennia Sovereign ${activeSendAssetObj.ticker} Vault`;
+                                                        }}
+                                                        class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-blue-400 border-blue-500/35 cursor-pointer"
+                                                        title="Bind your derived Perennia Sovereign L1 address"
+                                                    >
+                                                        [Use My L1 Address]
+                                                    </button>
+                                                {/if}
+                                                <button
+                                                    type="button"
+                                                    data-testid="cold-vault-scan-qr-btn-{activeSendAssetObj.ticker}"
+                                                    onclick={() =>
+                                                        isCameraScanningColdQr
+                                                            ? stopColdQrCameraScanner()
+                                                            : startColdQrCameraScanner()}
+                                                    class="tactile-btn px-2.5 py-0.5 rounded text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                                                >
+                                                    {isCameraScanningColdQr
+                                                        ? '[Close Camera]'
+                                                        : '[Scan QR]'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <input
+                                            id="coldDest_{activeSendAssetObj.ticker}"
+                                            data-testid="cold-vault-dest-input-{activeSendAssetObj.ticker}"
+                                            type="text"
+                                            bind:value={coldDestinationInput}
+                                            placeholder={getDestinationPlaceholder(
+                                                activeSendAssetObj.ticker,
+                                                activeSendAssetObj.network
+                                            )}
+                                            spellcheck="false"
+                                            class="w-full bg-[#11161f] border {coldDestinationInput.trim() ? (coldAddressValidation.valid ? 'border-[#18C6A5]/50' : 'border-red-500/50') : 'border-white/10'} rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
+                                        />
+                                        {#if coldDestinationInput.trim() && !coldAddressValidation.valid}
+                                            <span class="text-[8px] font-mono text-red-400">
+                                                ✕ {coldAddressValidation.error}
+                                            </span>
+                                        {:else if coldDestinationInput.trim() && coldAddressValidation.valid}
+                                            <span class="text-[8px] font-mono text-[#18C6A5]">
+                                                ✓ Valid {coldAddressValidation.addressType ||
+                                                    activeSendAssetObj.network} Destination
+                                            </span>
+                                        {/if}
+                                    </div>
+
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div class="flex flex-col gap-1">
+                                            <label
+                                                for="coldLabel_{activeSendAssetObj.ticker}"
+                                                class="text-[8px] uppercase tracking-widest font-bold text-neutral-400"
+                                            >
+                                                Cold Vault Label
+                                            </label>
+                                            <input
+                                                id="coldLabel_{activeSendAssetObj.ticker}"
+                                                type="text"
+                                                bind:value={coldVaultLabelInput}
+                                                placeholder="Perennia Cold Vault"
+                                                class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
+                                            />
+                                        </div>
+                                        <div class="flex flex-col gap-1">
+                                            <label
+                                                for="coldCeiling_{activeSendAssetObj.ticker}"
+                                                class="text-[8px] uppercase tracking-widest font-bold text-neutral-400"
+                                            >
+                                                Hot Balance Ceiling ({activeSendAssetObj.ticker})
+                                            </label>
+                                            <input
+                                                id="coldCeiling_{activeSendAssetObj.ticker}"
+                                                data-testid="cold-vault-ceiling-input-{activeSendAssetObj.ticker}"
+                                                type="number"
+                                                min="0.0001"
+                                                step="any"
+                                                bind:value={coldOverflowCeilingInput}
+                                                class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-[#18C6A5] outline-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center justify-between bg-[#11161f] border border-white/10 rounded-xl p-3">
+                                        <div class="flex flex-col">
+                                            <span class="text-[10px] font-bold uppercase text-white">
+                                                Auto-Sweep Above {coldOverflowCeilingInput} {activeSendAssetObj.ticker}
+                                            </span>
+                                            <span class="text-[8px] font-mono text-neutral-400">
+                                                Automatically dispatches settled {activeSendAssetObj.ticker} above your ceiling to Cold Storage
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            data-testid="cold-vault-autosweep-toggle-{activeSendAssetObj.ticker}"
+                                            aria-label="Toggle Auto Sweep"
+                                            onclick={() =>
+                                                (coldAutoSweepEnabled =
+                                                    !coldAutoSweepEnabled)}
+                                            class="w-10 h-5 rounded-full border transition-colors relative cursor-pointer {coldAutoSweepEnabled ? 'bg-[#18C6A5]/20 border-[#18C6A5]/60' : 'bg-[#0a0d12] border-white/15'}"
+                                        >
+                                            <div
+                                                class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full transition-all {coldAutoSweepEnabled ? 'bg-[#18C6A5] left-[20px]' : 'bg-neutral-500 left-[3px]'}"
+                                            ></div>
+                                        </button>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        data-testid="cold-vault-save-rule-btn-{activeSendAssetObj.ticker}"
+                                        onclick={saveTokenColdVaultRule}
+                                        disabled={isSavingColdRule ||
+                                            !coldAddressValidation.valid}
+                                        class="tactile-btn w-full py-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                                        style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
+                                    >
+                                        {isSavingColdRule
+                                            ? 'Saving Cold Vault Rule...'
+                                            : `Save ${activeSendAssetObj.ticker} Cold Vault Rule ✓`}
+                                    </button>
+                                </div>
+
+                                <div class="lg:col-span-5 bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
+                                    <span class="text-[10px] font-black uppercase tracking-widest text-white border-b border-white/10 pb-2.5">
+                                        1-Click Immediate Cold Sweep ({activeSendAssetObj.ticker})
+                                    </span>
+                                    <p class="text-[9px] text-neutral-400 leading-relaxed">
+                                        Immediately dispatch {activeSendAssetObj.ticker} from your Batch Settlement Queue ({activeSendAssetObj.synthetic.toFixed(
+                                            4
+                                        )} {activeSendAssetObj.ticker}) or On-Chain L1 balance ({activeSendAssetObj.onChain.toFixed(
+                                            4
+                                        )} {activeSendAssetObj.ticker}) directly to your saved Cold Wallet address.
+                                    </p>
+                                    <div class="flex items-center justify-between text-[9px] font-mono">
+                                        <span class="text-neutral-400 uppercase font-bold">
+                                            Amount to Sweep
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            {#if activeSendAssetObj.synthetic > 0}
+                                                <button
+                                                    type="button"
+                                                    onclick={() =>
+                                                        (coldSweepNowAmount =
+                                                            activeSendAssetObj.synthetic.toFixed(
+                                                                4
+                                                            ))}
+                                                    class="text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                                                >
+                                                    [MAX Queue: {activeSendAssetObj.synthetic.toFixed(
+                                                        2
+                                                    )}]
+                                                </button>
+                                            {/if}
+                                            {#if activeSendAssetObj.onChain > 0}
+                                                <button
+                                                    type="button"
+                                                    onclick={() => {
+                                                        const feeBuf =
+                                                            activeSendAssetObj.ticker ===
+                                                            'KAS'
+                                                                ? 0.005
+                                                                : 0;
+                                                        coldSweepNowAmount =
+                                                            Math.max(
+                                                                0,
+                                                                activeSendAssetObj.onChain -
+                                                                    feeBuf
+                                                            ).toFixed(4);
+                                                    }}
+                                                    class="text-blue-400 hover:underline uppercase cursor-pointer"
+                                                >
+                                                    [MAX L1: {activeSendAssetObj.onChain.toFixed(
+                                                        2
+                                                    )}]
+                                                </button>
+                                            {/if}
+                                        </div>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        data-testid="cold-vault-sweep-amount-input-{activeSendAssetObj.ticker}"
+                                        bind:value={coldSweepNowAmount}
+                                        placeholder="100.00"
+                                        class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none"
+                                    />
+                                    <button
+                                        type="button"
+                                        data-testid="cold-vault-sweep-now-btn-{activeSendAssetObj.ticker}"
+                                        onclick={triggerImmediateTokenColdSweep}
+                                        disabled={isSweepingColdNow ||
+                                            isDispatchingWithdrawal ||
+                                            !coldAddressValidation.valid}
+                                        class="tactile-btn w-full py-3.5 rounded-xl border-amber-500/45 text-amber-400 text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                                        style="background-image: radial-gradient(ellipse at center, rgba(245, 158, 11, 0.16), transparent 70%);"
+                                    >
+                                        {isSweepingColdNow ||
+                                        isDispatchingWithdrawal
+                                            ? `Sweeping ${activeSendAssetObj.ticker} to Cold Storage...`
+                                            : `[Sweep to Cold Wallet Now →]`}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     {:else if activeRoutingTab === 'history'}
                         <div class="flex flex-col gap-4">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <span class="text-[10px] font-black uppercase tracking-widest text-white">
-                                    Live {asset.ticker} On-Chain Payouts &amp; Explorer Links
+                                    Live {asset.ticker} On-Chain Payouts &amp; Explorer
+                                    Links
                                 </span>
                                 <div class="flex flex-wrap items-center gap-1.5">
                                     <button
@@ -1265,26 +2062,35 @@
                                             disabled={isFetchingHistory}
                                             class="tactile-btn px-3 py-1 rounded-lg text-[8px] font-mono uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer"
                                         >
-                                            {isFetchingHistory ? 'Syncing...' : 'Refresh ↻'}
+                                            {isFetchingHistory
+                                                ? 'Syncing...'
+                                                : 'Refresh ↻'}
                                         </button>
                                     {/if}
                                 </div>
                             </div>
-
                             {#if filteredLedgerHistory.length === 0 && l1Transactions.length === 0}
                                 <div class="py-8 text-center border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/60">
                                     <span class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">
-                                        No recorded {asset.ticker} settlements or L1 payouts yet.
+                                        No recorded {asset.ticker} settlements or
+                                        L1 payouts yet.
                                     </span>
                                 </div>
                             {:else}
                                 <div class="flex flex-col gap-2 max-h-[280px] overflow-y-auto hide-scrollbar">
                                     {#each filteredLedgerHistory as ev}
-                                        {@const evTicker = (ev.asset?.ticker || asset.ticker || 'KAS').toUpperCase()}
+                                        {@const evTicker = (
+                                            ev.asset?.ticker ||
+                                            asset.ticker ||
+                                            'KAS'
+                                        ).toUpperCase()}
                                         {@const txRef = String(ev.txHash || '')}
                                         {@const explorerLink =
                                             ev.explorerUrl ||
-                                            getChainExplorerTxUrl(evTicker, txRef)}
+                                            getChainExplorerTxUrl(
+                                                evTicker,
+                                                txRef
+                                            )}
                                         <a
                                             href={explorerLink}
                                             target="_blank"
@@ -1302,20 +2108,26 @@
                                                     </span>
                                                 </div>
                                                 <span class="text-[9px] font-mono text-[#18C6A5] mt-1">
-                                                    TX / Ref: {txRef.length > 24 ? `${txRef.slice(0, 14)}...${txRef.slice(-8)}` : txRef} ↗
+                                                    TX / Ref: {txRef.length > 24
+                                                        ? `${txRef.slice(0, 14)}...${txRef.slice(-8)}`
+                                                        : txRef} ↗
                                                 </span>
                                             </div>
                                             <div class="flex flex-col items-end">
                                                 <span class="text-xs font-mono font-bold text-white tabular-nums">
-                                                    +{Number(ev.amount || 0).toFixed(6)} {evTicker}
+                                                    +{Number(
+                                                        ev.amount || 0
+                                                    ).toFixed(6)}
+                                                    {evTicker}
                                                 </span>
                                                 <span class="text-[9px] font-mono text-[#18C6A5] tabular-nums">
-                                                    ${Number(ev.usdValueAtTime || 0).toFixed(2)} • Explorer ↗
+                                                    ${Number(
+                                                        ev.usdValueAtTime || 0
+                                                    ).toFixed(2)} • Explorer ↗
                                                 </span>
                                             </div>
                                         </a>
                                     {/each}
-
                                     {#if asset.ticker === 'KAS'}
                                         {#each l1Transactions as tx (tx.txId)}
                                             <a
@@ -1337,14 +2149,22 @@
                                                         </span>
                                                     </div>
                                                     <span class="text-[9px] font-mono text-[#18C6A5] mt-1">
-                                                        TXID: {tx.txId.slice(0, 16)}...{tx.txId.slice(-8)} ↗
+                                                        TXID: {tx.txId.slice(
+                                                            0,
+                                                            16
+                                                        )}...{tx.txId.slice(-8)} ↗
                                                     </span>
                                                 </div>
                                                 <div class="flex flex-col items-end">
                                                     <span
                                                         class="text-xs font-mono font-bold tabular-nums {tx.direction === 'INBOUND' ? 'text-[#18C6A5]' : 'text-white'}"
                                                     >
-                                                        {tx.direction === 'INBOUND' ? '+' : '-'}{tx.amountKas.toFixed(4)} KAS
+                                                        {tx.direction ===
+                                                        'INBOUND'
+                                                            ? '+'
+                                                            : '-'}{tx.amountKas.toFixed(
+                                                            4
+                                                        )} KAS
                                                     </span>
                                                     <span class="text-[9px] font-mono text-neutral-400">
                                                         kas.fyi ↗
@@ -1363,12 +2183,18 @@
             {#if filteredSubAssets.length > 0}
                 <div class="flex flex-col gap-2 pt-1">
                     {#each filteredSubAssets as token}
+                        {@const subColdRule =
+                            coldVaultRulesMap?.[
+                                String(token.symbol || '').toUpperCase()
+                            ] || null}
                         <div class="bg-[#11161f] hover:bg-[#161d29] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-6 md:ml-10">
                             <div
                                 class="flex flex-wrap items-center justify-between p-3.5 cursor-pointer select-none gap-3"
                                 onclick={() => {
                                     expandedSubToken =
-                                        expandedSubToken === token.symbol ? null : token.symbol;
+                                        expandedSubToken === token.symbol
+                                            ? null
+                                            : token.symbol;
                                 }}
                                 role="button"
                                 tabindex="0"
@@ -1384,14 +2210,16 @@
                                                 class="w-5 h-5 object-contain"
                                                 alt={token.symbol}
                                                 onerror={(e) =>
-                                                    ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                                    ((
+                                                        e.currentTarget as HTMLImageElement
+                                                    ).style.display = 'none')}
                                             />
                                         {:else}
                                             <span>{token.symbol[0]}</span>
                                         {/if}
                                     </div>
                                     <div class="flex flex-col">
-                                        <div class="flex items-center gap-2">
+                                        <div class="flex flex-wrap items-center gap-2">
                                             <span class="text-xs font-bold tracking-wider text-white">
                                                 {token.symbol}
                                             </span>
@@ -1400,13 +2228,54 @@
                                                     {token.badge}
                                                 </span>
                                             {/if}
+                                            {#if subColdRule?.autoSweepEnabled && subColdRule?.coldDestinationAddress}
+                                                <span class="text-[8px] bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold">
+                                                    COLD ≥{subColdRule.overflowCeiling}
+                                                </span>
+                                            {/if}
+                                            <button
+                                                type="button"
+                                                data-testid="buy-with-usd-btn-{token.symbol}"
+                                                onclick={(e) => {
+                                                    e.stopPropagation();
+                                                    const subTick = String(
+                                                        token.symbol || 'SILO'
+                                                    ).toUpperCase();
+                                                    ui.openFiatModal(
+                                                        subTick,
+                                                        subTick ===
+                                                            DEFAULT_ECOSYSTEM_TICKER,
+                                                        '250'
+                                                    );
+                                                }}
+                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap"
+                                            >
+                                                [+ Buy with USD]
+                                            </button>
                                             <button
                                                 type="button"
                                                 onclick={(e) =>
-                                                    openQuickAction(e, 'withdraw', token.symbol)}
-                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
+                                                    openQuickAction(
+                                                        e,
+                                                        'withdraw',
+                                                        token.symbol
+                                                    )}
+                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap"
                                             >
                                                 [Send / Withdraw {token.symbol}]
+                                            </button>
+                                            <button
+                                                type="button"
+                                                data-testid="cold-vault-btn-{token.symbol}"
+                                                onclick={(e) =>
+                                                    openQuickAction(
+                                                        e,
+                                                        'cold_vault',
+                                                        token.symbol
+                                                    )}
+                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap"
+                                            >
+                                                [Cold Vault]
                                             </button>
                                             <button
                                                 type="button"
@@ -1428,22 +2297,39 @@
                                 </div>
                                 <div class="flex flex-col items-end">
                                     <span class="text-xs font-mono font-bold text-white tabular-nums">
-                                        {(token.onChain ?? token.balance ?? 0).toLocaleString(undefined, {
+                                        {(
+                                            token.onChain ??
+                                            token.balance ??
+                                            0
+                                        ).toLocaleString(undefined, {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 6
-                                        })} {token.symbol}
-                                        <span class="text-[9px] text-neutral-400">L1</span>
+                                        })}
+                                        {token.symbol}
+                                        <span class="text-[9px] text-neutral-400"
+                                            >L1</span
+                                        >
                                     </span>
                                     <span class="text-[9px] font-mono text-neutral-400 tabular-nums flex items-center gap-1.5">
                                         {#if (token.synthetic ?? 0) > 0}
                                             <span class="text-amber-400">
-                                                (+{Number(token.synthetic).toFixed(4)} In Batch Settlement Queue)
+                                                (+{Number(
+                                                    token.synthetic
+                                                ).toFixed(4)} In Batch Settlement Queue)
                                             </span>
                                         {/if}
                                         <span>
-                                            ≈ ${(((token.onChain ?? token.balance ?? 0) + (token.synthetic ?? 0)) * (token.price || 0)).toLocaleString(undefined, {
-                                                minimumFractionDigits: fiatDecimals,
-                                                maximumFractionDigits: fiatDecimals
+                                            ≈ ${(
+                                                ((token.onChain ??
+                                                    token.balance ??
+                                                    0) +
+                                                    (token.synthetic ?? 0)) *
+                                                (token.price || 0)
+                                            ).toLocaleString(undefined, {
+                                                minimumFractionDigits:
+                                                    fiatDecimals,
+                                                maximumFractionDigits:
+                                                    fiatDecimals
                                             })}
                                         </span>
                                     </span>

@@ -1,8 +1,11 @@
-import { json, type RequestHandler } from '@sveltejs/kit';
+import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
 
-export const RWA_FEED_IDS: Record<string, string> = {
+const RWA_SPOT_TTL_SECS = 60;
+const RWA_CHANGE_TTL_SECS = 300;
+
+const RWA_FEED_IDS: Record<string, string> = {
     SPY: '0x19e09bb805456ada3979a7d1cbb4b6d63babc3a0f8e8a9509f68afa5c4c11cd5',
     QQQ: '0x9695e2b96ea7b38596fb62eefb1e5f2b670b6c0f8236d9b1b12c38f0a4b2a9d2',
     NVDA: '0xb1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593',
@@ -17,7 +20,7 @@ export const RWA_FEED_IDS: Record<string, string> = {
     USTB: '0xe393449f6aff8a4b6d3e1165a7c9ebec103685f3b41e60db4277b5b6d10e7326'
 };
 
-export const ASSET_CLASSES: Record<string, string> = {
+const ASSET_CLASSES: Record<string, string> = {
     SPY: 'EQUITY',
     QQQ: 'EQUITY',
     NVDA: 'EQUITY',
@@ -34,6 +37,7 @@ export const ASSET_CLASSES: Record<string, string> = {
 
 let dynamicFeedIdCache: Record<string, string> | null = null;
 let lastFeedDiscoveryMs = 0;
+let schemaBootstrapped = false;
 
 function normalizeHexId(id: string): string {
     return id.trim().toLowerCase().replace(/^0x/, '');
@@ -46,7 +50,16 @@ async function resolvePythHermesFeedMap(): Promise<Record<string, string>> {
     }
     const map: Record<string, string> = { ...RWA_FEED_IDS };
     try {
-        const discoveryTickers = ['QQQ', 'NVDA', 'TSLA', 'AMD', 'TSM', 'AVGO', 'XLE', 'USTB'];
+        const discoveryTickers = [
+            'QQQ',
+            'NVDA',
+            'TSLA',
+            'AMD',
+            'TSM',
+            'AVGO',
+            'XLE',
+            'USTB'
+        ];
         await Promise.allSettled(
             discoveryTickers.map(async (ticker) => {
                 const q = ticker === 'USTB' ? 'IB01' : ticker;
@@ -59,7 +72,9 @@ async function resolvePythHermesFeedMap(): Promise<Record<string, string>> {
                 if (!Array.isArray(list)) return;
                 for (const entry of list) {
                     const base = String(entry?.attributes?.base || '').toUpperCase();
-                    const quote = String(entry?.attributes?.quote_currency || '').toUpperCase();
+                    const quote = String(
+                        entry?.attributes?.quote_currency || ''
+                    ).toUpperCase();
                     const idStr = String(entry?.id || '').trim();
                     if (
                         idStr &&
@@ -77,12 +92,12 @@ async function resolvePythHermesFeedMap(): Promise<Record<string, string>> {
         dynamicFeedIdCache = map;
         lastFeedDiscoveryMs = now;
     } catch {
-        // Retain static Pyth v2 feed IDs if discovery endpoint times out
     }
     return map;
 }
 
 async function ensureRwaOracleTable() {
+    if (schemaBootstrapped) return;
     const client = await dbPool.connect();
     try {
         await client.query(`
@@ -99,13 +114,42 @@ async function ensureRwaOracleTable() {
         await client.query(`
             ALTER TABLE rwa_oracle_feeds ADD COLUMN IF NOT EXISTS change_24h_pct DOUBLE PRECISION NOT NULL DEFAULT 0.0;
         `);
+        await client.query(`
+            DELETE FROM rwa_oracle_feeds a
+            USING rwa_oracle_feeds b
+            WHERE a.id < b.id AND a.ticker = b.ticker;
+        `);
+        await client.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_rwa_oracle_feeds_ticker_unique ON rwa_oracle_feeds (ticker);
+        `);
+        schemaBootstrapped = true;
     } finally {
         client.release();
     }
 }
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ url }: RequestEvent) => {
     try {
+        const forceRefresh = url.searchParams.get('refresh') === 'true';
+        if (!forceRefresh) {
+            try {
+                const cachedJson = await redis.get('oracle:spot:rwa_prices_json');
+                if (cachedJson) {
+                    const parsedCached = JSON.parse(cachedJson);
+                    if (Array.isArray(parsedCached) && parsedCached.length > 0) {
+                        return json({
+                            success: true,
+                            count: parsedCached.length,
+                            source: 'redis_cache',
+                            assets: parsedCached
+                        });
+                    }
+                }
+            } catch {
+                // Fall through to live Pyth / DB resolution if cache parse fails
+            }
+        }
+
         await ensureRwaOracleTable().catch(() => {});
         const feedMap = await resolvePythHermesFeedMap();
         const params = new URLSearchParams();
@@ -113,8 +157,7 @@ export const GET: RequestHandler = async () => {
             params.append('ids[]', feedId);
         }
         params.append('ignore_invalid_price_ids', 'true');
-
-        const url = `https://hermes.pyth.network/v2/updates/price/latest?${params.toString()}`;
+        const hermesUrl = `https://hermes.pyth.network/v2/updates/price/latest?${params.toString()}`;
         const resolvedByTicker = new Map<
             string,
             {
@@ -127,9 +170,8 @@ export const GET: RequestHandler = async () => {
                 oracleSource: string;
             }
         >();
-
         try {
-            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const res = await fetch(hermesUrl, { signal: AbortSignal.timeout(8000) });
             if (res.ok) {
                 const data = await res.json();
                 const parsedArray = Array.isArray(data?.parsed) ? data.parsed : [];
@@ -177,21 +219,35 @@ export const GET: RequestHandler = async () => {
                 }
             }
         } catch {
-            // Fall through to Redis / PostgreSQL WAL recovery of previously verified Pyth quotes
         }
 
         const pipe = redis.pipeline();
         for (const [ticker, item] of resolvedByTicker.entries()) {
-            pipe.set(`oracle:spot:${ticker}_USDC`, String(item.spotPrice));
-            pipe.set(`oracle:change24h:${ticker}_USDC`, String(item.change24h));
+            pipe.set(
+                `oracle:spot:${ticker}_USDC`,
+                String(item.spotPrice),
+                'EX',
+                RWA_SPOT_TTL_SECS
+            );
+            pipe.set(
+                `oracle:change24h:${ticker}_USDC`,
+                String(item.change24h),
+                'EX',
+                RWA_CHANGE_TTL_SECS
+            );
             try {
                 await dbPool.query(
                     `INSERT INTO rwa_oracle_feeds (ticker, asset_class, price_usd, change_24h_pct, oracle_source, updated_at)
-                     VALUES ($1, $2, $3, $4, 'PYTH_HERMES', CURRENT_TIMESTAMP)`,
+                     VALUES ($1, $2, $3, $4, 'PYTH_HERMES', CURRENT_TIMESTAMP)
+                     ON CONFLICT (ticker) DO UPDATE SET
+                        asset_class = EXCLUDED.asset_class,
+                        price_usd = EXCLUDED.price_usd,
+                        change_24h_pct = EXCLUDED.change_24h_pct,
+                        oracle_source = EXCLUDED.oracle_source,
+                        updated_at = CURRENT_TIMESTAMP`,
                     [ticker, item.assetClass, item.spotPrice, item.change24h]
                 );
             } catch {
-                // Ignore WAL write error if DB is busy
             }
         }
 
@@ -219,7 +275,9 @@ export const GET: RequestHandler = async () => {
                     const dbFallback = await dbPool.query(
                         `SELECT price_usd, change_24h_pct, updated_at
                          FROM rwa_oracle_feeds
-                         WHERE ticker = $1 AND price_usd > 0
+                         WHERE ticker = $1
+                           AND price_usd > 0
+                           AND updated_at >= CURRENT_TIMESTAMP - INTERVAL '15 minutes'
                          ORDER BY updated_at DESC
                          LIMIT 1`,
                         [ticker]
@@ -229,8 +287,18 @@ export const GET: RequestHandler = async () => {
                         const p = Number(row.price_usd || 0);
                         const d = Number(row.change_24h_pct || 0);
                         if (p > 0) {
-                            pipe.set(`oracle:spot:${ticker}_USDC`, String(p));
-                            pipe.set(`oracle:change24h:${ticker}_USDC`, String(d));
+                            pipe.set(
+                                `oracle:spot:${ticker}_USDC`,
+                                String(p),
+                                'EX',
+                                RWA_SPOT_TTL_SECS
+                            );
+                            pipe.set(
+                                `oracle:change24h:${ticker}_USDC`,
+                                String(d),
+                                'EX',
+                                RWA_CHANGE_TTL_SECS
+                            );
                             resolvedByTicker.set(ticker, {
                                 ticker,
                                 assetClass: ASSET_CLASSES[ticker] || 'RWA',
@@ -243,7 +311,6 @@ export const GET: RequestHandler = async () => {
                         }
                     }
                 } catch {
-                    // Ignore DB lookup fault
                 }
             }
         }
@@ -253,18 +320,22 @@ export const GET: RequestHandler = async () => {
             return json(
                 {
                     success: false,
-                    error: 'ORACLE_HALT: Pyth Hermes RWA Oracle feeds are unreachable and no verified quotes exist in WAL. Zero hardcoded prices permitted.'
+                    error: 'ORACLE_HALT: Pyth Hermes RWA Oracle feeds are unreachable and no verified quotes exist within the 15-minute freshness window. Zero hardcoded prices permitted.'
                 },
                 { status: 503 }
             );
         }
-
-        pipe.set('oracle:spot:rwa_prices_json', JSON.stringify(parsedPrices), 'EX', 60);
+        pipe.set(
+            'oracle:spot:rwa_prices_json',
+            JSON.stringify(parsedPrices),
+            'EX',
+            RWA_SPOT_TTL_SECS
+        );
         await pipe.exec().catch(() => {});
-
         return json({
             success: true,
             count: parsedPrices.length,
+            source: 'pyth_hermes_live',
             assets: parsedPrices
         });
     } catch (error: any) {

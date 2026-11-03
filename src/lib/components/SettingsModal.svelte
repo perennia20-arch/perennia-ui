@@ -3,10 +3,11 @@
     import { browser } from '$app/environment';
     import { settingsStore } from '$lib/stores/settings.svelte';
     import { identity } from '$lib/stores/identity.svelte';
-    import { ui } from '$lib/stores/ui.svelte';
+    import { ui, TUTORIAL_CHAPTERS } from '$lib/stores/ui.svelte';
 
     let backupStatus = $state<{ type: 'success' | 'error'; message: string } | null>(null);
     let restoreInputRef = $state<HTMLInputElement | null>(null);
+    let showChapterSelector = $state(false);
 
     $effect(() => {
         settingsStore.save();
@@ -14,6 +15,7 @@
 
     function close() {
         backupStatus = null;
+        showChapterSelector = false;
         settingsStore.showSettingsModal = false;
     }
 
@@ -23,6 +25,23 @@
         settingsStore.fiatDecimals = 2;
         settingsStore.tokenDecimals = 8;
         settingsStore.save();
+    }
+
+    function launchInteractiveTour(chapter: number = 1) {
+        backupStatus = null;
+        showChapterSelector = false;
+        settingsStore.showSettingsModal = false;
+        ui.startTutorial(chapter);
+    }
+
+    function openInteractiveTourPrompt() {
+        backupStatus = null;
+        showChapterSelector = false;
+        settingsStore.showSettingsModal = false;
+        if (ui.isTutorialActive) {
+            ui.completeTutorial();
+        }
+        ui.showTutorialPrompt = true;
     }
 
     function exportEncryptedVaultBackup() {
@@ -137,13 +156,15 @@
             class="absolute inset-0 w-full h-full bg-[#06080b]/90 backdrop-blur-sm border-none cursor-default"
             onclick={close}
         ></button>
+
         <div
-            class="relative z-10 w-full max-w-[520px] bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            data-testid="settings-modal-card"
+            class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             transition:slide={{ duration: 200, axis: 'y' }}
         >
             <div class="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
                 <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-lg bg-[#0a0d12] border border-white/10 flex items-center justify-center text-neutral-400">
+                    <div class="w-8 h-8 rounded-lg bg-[#0a0d12] border border-white/10 flex items-center justify-center text-[#18C6A5]">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -151,10 +172,10 @@
                     </div>
                     <div class="flex flex-col">
                         <h2 class="text-white font-black uppercase tracking-widest text-sm">
-                            System Parameters
+                            System Parameters &amp; Guide
                         </h2>
                         <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-mono">
-                            Environment &amp; Vault Backup Configuration
+                            Environment, Precision, Vault Backup &amp; Interactive Tour
                         </span>
                     </div>
                 </div>
@@ -166,7 +187,76 @@
                     ✕
                 </button>
             </div>
-            <div class="p-6 flex flex-col gap-6 max-h-[68vh] overflow-y-auto hide-scrollbar">
+
+            <div class="p-6 flex flex-col gap-5 max-h-[70vh] overflow-y-auto hide-scrollbar">
+                <!-- INTERACTIVE PLATFORM GUIDE & TOUR LAUNCHER -->
+                <div
+                    data-testid="settings-guide-section"
+                    class="bg-[#11161f] border border-[#18C6A5]/40 rounded-xl p-4 flex flex-col gap-3"
+                    style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
+                >
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"></span>
+                                <span class="text-[10px] font-black text-[#18C6A5] uppercase tracking-widest">
+                                    Interactive Platform Guide &amp; Tour
+                                </span>
+                            </div>
+                            <span class="text-[9px] text-neutral-300 leading-relaxed">
+                                Need a refresher on any station? Launch the interactive sandbox walkthrough or jump directly to any chapter below at any time.
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onclick={() => (showChapterSelector = !showChapterSelector)}
+                            class="text-[9px] font-mono font-bold text-neutral-400 hover:text-white uppercase cursor-pointer shrink-0"
+                        >
+                            {showChapterSelector ? '[Hide Chapters ▴]' : '[Chapters ▾]'}
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            data-testid="settings-launch-tour-btn"
+                            onclick={() => launchInteractiveTour(1)}
+                            class="tactile-btn py-2.5 px-4 rounded-xl text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                            style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
+                        >
+                            Start Full Interactive Tour →
+                        </button>
+                        <button
+                            type="button"
+                            onclick={openInteractiveTourPrompt}
+                            class="tactile-btn py-2.5 px-4 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
+                        >
+                            Open Chapter Menu
+                        </button>
+                    </div>
+
+                    {#if showChapterSelector}
+                        <div
+                            transition:slide={{ duration: 150 }}
+                            class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-2 border-t border-white/10"
+                        >
+                            {#each TUTORIAL_CHAPTERS as chap (chap.chapter)}
+                                <button
+                                    type="button"
+                                    onclick={() => launchInteractiveTour(chap.chapter)}
+                                    class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-[#18C6A5] cursor-pointer text-left truncate"
+                                    title={chap.title}
+                                >
+                                    0{chap.chapter}. {chap.code}
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
+
+                <div class="h-px w-full bg-white/10"></div>
+
+                <!-- BASE THEME & SURFACE TONE -->
                 <div class="flex flex-col gap-5">
                     <div class="flex items-center justify-between">
                         <div class="flex flex-col">
@@ -200,6 +290,7 @@
                             </button>
                         </div>
                     </div>
+
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
                             <div class="flex flex-col">
@@ -225,7 +316,10 @@
                         />
                     </div>
                 </div>
+
                 <div class="h-px w-full bg-white/10"></div>
+
+                <!-- FIAT & TOKEN DECIMAL PRECISION -->
                 <div class="flex flex-col gap-5">
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
@@ -262,7 +356,10 @@
                         />
                     </div>
                 </div>
+
                 <div class="h-px w-full bg-white/10"></div>
+
+                <!-- ENCRYPTED VAULT BACKUP (.JSON) -->
                 <div class="bg-[#11161f] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
                     <div class="flex flex-col gap-1">
                         <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
@@ -297,6 +394,7 @@
                     </div>
                 </div>
             </div>
+
             <div class="p-4 bg-[#11161f] border-t border-white/10 flex justify-between items-center">
                 <button
                     type="button"

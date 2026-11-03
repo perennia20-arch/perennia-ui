@@ -6,7 +6,11 @@
     import { blake2b } from '@noble/hashes/blake2.js';
     import { schnorr } from '@noble/curves/secp256k1.js';
     import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
-    import { ui } from '$lib/stores/ui.svelte';
+    import {
+        ui,
+        SANDBOX_MNEMONIC_WORDS,
+        SANDBOX_WALLETS
+    } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import {
         txState,
@@ -53,14 +57,63 @@
     onMount(() => {
         if (browser) {
             hasStoredVault = !!localStorage.getItem('perennia_sovereign_payload');
-            if (hasStoredVault && !identity.isWalletConnected && !identity.isVaultUnlockPending) {
+            if (
+                hasStoredVault &&
+                !identity.isWalletConnected &&
+                !identity.isVaultUnlockPending &&
+                !ui.isTutorialActive
+            ) {
                 viewState = 'unlock';
             }
         }
     });
 
+    // Strictly synchronize WalletModal's viewState during Chapter 1 of the Interactive Tutorial
+    // so the 3-option 'menu' screen and 'create_pass' screen are never skipped!
     $effect(() => {
-        if (browser && ui.showWalletModal) {
+        if (browser && ui.isTutorialActive && ui.tutorialChapter === 1) {
+            const sub = Number(ui.tutorialSubStep || 0);
+            localError = '';
+            if (sub <= 2) {
+                viewState = 'menu';
+            } else if (sub === 3 || sub === 4) {
+                viewState = 'create_pass';
+                if (!password) password = 'PerenniaSandboxVault2026!';
+                if (!confirmPassword)
+                    confirmPassword = 'PerenniaSandboxVault2026!';
+            } else if (sub >= 5 && sub <= 7) {
+                if (seedWords.length < 24) {
+                    seedWords = [...SANDBOX_MNEMONIC_WORDS];
+                }
+                if (!derivedKaspa) {
+                    derivedKaspa = SANDBOX_WALLETS.kaspa.address;
+                }
+                if (!derivedBtc) {
+                    derivedBtc = SANDBOX_WALLETS.bitcoin.address;
+                }
+                if (!tempVaultPayload) {
+                    tempVaultPayload = {
+                        version: 'perennia-vault-v4',
+                        exportedAt: new Date().toISOString(),
+                        wallets: SANDBOX_WALLETS,
+                        vault: window.btoa(SANDBOX_MNEMONIC_WORDS.join(' '))
+                    };
+                }
+                viewState = 'create_seed';
+            } else if (sub === 8) {
+                if (seedWords.length < 24) {
+                    seedWords = [...SANDBOX_MNEMONIC_WORDS];
+                }
+                verifyWordIndices = [2, 14];
+                verifyInput1 = seedWords[2] || 'able';
+                verifyInput2 = seedWords[14] || 'achieve';
+                viewState = 'verify_seed';
+            }
+        }
+    });
+
+    $effect(() => {
+        if (browser && ui.showWalletModal && !ui.isTutorialActive) {
             hasStoredVault = !!localStorage.getItem('perennia_sovereign_payload');
             if (
                 hasStoredVault &&
@@ -83,20 +136,21 @@
     });
 
     function handleBackdropClick() {
-        if (!identity.isWalletConnected) return;
+        if (ui.isTutorialActive) return;
         if (viewState === 'create_seed' || viewState === 'verify_seed') return;
         if (identity.isConnecting) return;
         close();
     }
 
     function close() {
-        if (viewState === 'create_seed' || viewState === 'verify_seed') return;
-        if (identity.isConnecting) return;
-        if (!identity.isWalletConnected && !identity.isVaultUnlockPending) {
-            ui.showWalletModal = false;
-            ui.hasEntered = false;
+        if (
+            !ui.isTutorialActive &&
+            (viewState === 'create_seed' || viewState === 'verify_seed')
+        )
             return;
-        }
+        if (identity.isConnecting) return;
+
+        // Keep the visitor on the dormant Operations page ("Zebes") when closing WalletModal
         ui.showWalletModal = false;
         if (identity.isVaultUnlockPending) {
             identity.isVaultUnlockPending = false;
@@ -116,8 +170,16 @@
             localError = '';
             statusNotice = '';
             identity.walletMessage = '';
-            hasStoredVault = browser ? !!localStorage.getItem('perennia_sovereign_payload') : false;
-        }, 300);
+            hasStoredVault = browser
+                ? !!localStorage.getItem('perennia_sovereign_payload')
+                : false;
+        }, 250);
+    }
+
+    function startGuidedTourFromModal() {
+        ui.showWalletModal = false;
+        viewState = 'menu';
+        ui.startTutorial(1);
     }
 
     const CRYPTO_ITERATIONS = 250000;
@@ -132,7 +194,12 @@
             ['deriveKey']
         );
         return window.crypto.subtle.deriveKey(
-            { name: 'PBKDF2', salt: salt as any, iterations: CRYPTO_ITERATIONS, hash: 'SHA-256' },
+            {
+                name: 'PBKDF2',
+                salt: salt as any,
+                iterations: CRYPTO_ITERATIONS,
+                hash: 'SHA-256'
+            },
             keyMaterial,
             { name: 'AES-GCM', length: 256 },
             false,
@@ -140,7 +207,10 @@
         );
     }
 
-    async function encryptVault(password: string, mnemonic: string): Promise<string> {
+    async function encryptVault(
+        password: string,
+        mnemonic: string
+    ): Promise<string> {
         const salt = window.crypto.getRandomValues(new Uint8Array(16));
         const iv = window.crypto.getRandomValues(new Uint8Array(12));
         const key = await getDerivationKey(password, salt);
@@ -150,19 +220,26 @@
             key,
             enc.encode(mnemonic) as any
         );
-        const payload = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+        const payload = new Uint8Array(
+            salt.length + iv.length + encrypted.byteLength
+        );
         payload.set(salt, 0);
         payload.set(iv, salt.length);
         payload.set(new Uint8Array(encrypted), salt.length + iv.length);
         let binary = '';
-        for (let i = 0; i < payload.byteLength; i++) binary += String.fromCharCode(payload[i]);
+        for (let i = 0; i < payload.byteLength; i++)
+            binary += String.fromCharCode(payload[i]);
         return window.btoa(binary);
     }
 
-    async function decryptVault(password: string, encryptedB64: string): Promise<string> {
+    async function decryptVault(
+        password: string,
+        encryptedB64: string
+    ): Promise<string> {
         const binary = window.atob(encryptedB64);
         const payload = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) payload[i] = binary.charCodeAt(i);
+        for (let i = 0; i < binary.length; i++)
+            payload[i] = binary.charCodeAt(i);
         const salt = payload.slice(0, 16);
         const iv = payload.slice(16, 28);
         const ciphertext = payload.slice(28);
@@ -187,26 +264,36 @@
         return idx1 < idx2 ? [idx1, idx2] : [idx2, idx1];
     }
 
-    async function buildAndSecureVault(password: string, mnemonic: string, isImport = false) {
+    async function buildAndSecureVault(
+        password: string,
+        mnemonic: string,
+        isImport = false
+    ) {
         identity.isConnecting = true;
         identity.walletMessage = isImport
             ? 'Importing Omni-Chain Matrix...'
             : 'Forging Omni-Chain Matrix...';
         try {
             const keys = await deriveHoneycombKeys(mnemonic);
-            const kasAddress = identity.normalizeKaspaAddress(keys.kaspa.address)!;
+            const kasAddress = identity.normalizeKaspaAddress(
+                keys.kaspa.address
+            )!;
             identity.walletMessage = 'Executing Local Handshake...';
             const challengeRes = await fetch('/api/auth/challenge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ address: kasAddress })
             });
-            if (!challengeRes.ok) throw new Error('Failed to secure connection challenge.');
+            if (!challengeRes.ok)
+                throw new Error('Failed to secure connection challenge.');
             const { message } = await challengeRes.json();
             let privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
             const msgBuf = new TextEncoder().encode(message);
             const hash = blake2b(msgBuf, { dkLen: 32 });
-            const signatureBytes = schnorr.sign(hash, identity.hexToBytes(privateKeyHex));
+            const signatureBytes = schnorr.sign(
+                hash,
+                identity.hexToBytes(privateKeyHex)
+            );
             const signature = identity.bytesToHex(signatureBytes);
             privateKeyHex = '0'.repeat(64);
             const authBody: Record<string, any> = {
@@ -222,7 +309,9 @@
             });
             if (!authRes.ok) {
                 const errData = await authRes.json();
-                throw new Error(errData.error || 'Vault Authentication Failed.');
+                throw new Error(
+                    errData.error || 'Vault Authentication Failed.'
+                );
             }
             identity.walletMessage = 'Encrypting Sovereign Vault...';
             const encryptedVault = await encryptVault(password, mnemonic);
@@ -251,7 +340,8 @@
                 addresses: safeWallets
             };
         } catch (e: any) {
-            identity.walletMessage = e.message || 'Sovereign Generation Failed.';
+            identity.walletMessage =
+                e.message || 'Sovereign Generation Failed.';
             identity.disconnect();
             throw e;
         } finally {
@@ -262,6 +352,27 @@
     async function handleGenerate() {
         localError = '';
         statusNotice = '';
+
+        // In Tutorial Sandbox Mode, generate the 24-word fixture instantaneously without blocking the UI thread
+        if (ui.isTutorialActive && ui.isTutorialSandbox) {
+            seedWords = [...SANDBOX_MNEMONIC_WORDS];
+            derivedKaspa = SANDBOX_WALLETS.kaspa.address;
+            derivedBtc = SANDBOX_WALLETS.bitcoin.address;
+            tempVaultPayload = {
+                version: 'perennia-vault-v4',
+                exportedAt: new Date().toISOString(),
+                wallets: SANDBOX_WALLETS,
+                vault: browser
+                    ? window.btoa(SANDBOX_MNEMONIC_WORDS.join(' '))
+                    : ''
+            };
+            verifyWordIndices = [2, 14];
+            verifyInput1 = '';
+            verifyInput2 = '';
+            viewState = 'create_seed';
+            return;
+        }
+
         if (password.length < 8) {
             localError = 'PASSWORD MUST BE AT LEAST 8 CHARACTERS.';
             return;
@@ -271,9 +382,15 @@
             return;
         }
         try {
-            const randomEntropy = window.crypto.getRandomValues(new Uint8Array(32));
+            const randomEntropy = window.crypto.getRandomValues(
+                new Uint8Array(32)
+            );
             const mnemonicObj = ethers.Mnemonic.fromEntropy(randomEntropy);
-            const res = await buildAndSecureVault(password, mnemonicObj.phrase, false);
+            const res = await buildAndSecureVault(
+                password,
+                mnemonicObj.phrase,
+                false
+            );
             if (res && res.success && res.mnemonic) {
                 seedWords = res.mnemonic.split(' ');
                 tempVaultPayload = res.payload;
@@ -292,14 +409,30 @@
     function proceedToSeedVerification() {
         localError = '';
         statusNotice = '';
-        verifyWordIndices = pickTwoRandomSeedIndices(seedWords.length);
-        verifyInput1 = '';
-        verifyInput2 = '';
+        if (ui.isTutorialActive && ui.isTutorialSandbox) {
+            verifyWordIndices = [2, 14];
+            verifyInput1 = seedWords[2] || 'able';
+            verifyInput2 = seedWords[14] || 'achieve';
+        } else {
+            verifyWordIndices = pickTwoRandomSeedIndices(seedWords.length);
+            verifyInput1 = '';
+            verifyInput2 = '';
+        }
         viewState = 'verify_seed';
     }
 
     function handleVerifySeedChallenge() {
         localError = '';
+        if (ui.isTutorialActive && ui.isTutorialSandbox) {
+            seedWords = [];
+            verifyInput1 = '';
+            verifyInput2 = '';
+            ui.activateSandboxWalletSession();
+            ui.showWalletModal = false;
+            viewState = 'menu';
+            return;
+        }
+
         const [idx1, idx2] = verifyWordIndices;
         const expected1 = (seedWords[idx1] || '').trim().toLowerCase();
         const expected2 = (seedWords[idx2] || '').trim().toLowerCase();
@@ -359,6 +492,7 @@
             seedWords = [];
             password = '';
             confirmPassword = '';
+            viewState = 'menu';
             ui.showWalletModal = false;
         }
     }
@@ -426,10 +560,12 @@
             );
             hasStoredVault = true;
             password = '';
-            statusNotice = 'ENCRYPTED VAULT RESTORED. ENTER PASSWORD TO UNLOCK.';
+            statusNotice =
+                'ENCRYPTED VAULT RESTORED. ENTER PASSWORD TO UNLOCK.';
             viewState = 'unlock';
         } catch (err: any) {
-            localError = err.message || 'FAILED TO READ ENCRYPTED VAULT .JSON FILE.';
+            localError =
+                err.message || 'FAILED TO READ ENCRYPTED VAULT .JSON FILE.';
         } finally {
             input.value = '';
         }
@@ -445,25 +581,33 @@
         identity.isConnecting = true;
         identity.walletMessage = 'Decrypting Sovereign Vault...';
         try {
-            const rawPayload = localStorage.getItem('perennia_sovereign_payload');
+            const rawPayload = localStorage.getItem(
+                'perennia_sovereign_payload'
+            );
             if (!rawPayload) throw new Error('No vault found on this device.');
             const vaultPayload = JSON.parse(rawPayload);
             const mnemonic = await decryptVault(password, vaultPayload.vault);
             const keys = await deriveHoneycombKeys(mnemonic);
             let privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
-            const kasAddress = identity.normalizeKaspaAddress(keys.kaspa.address)!;
+            const kasAddress = identity.normalizeKaspaAddress(
+                keys.kaspa.address
+            )!;
             identity.walletMessage = 'Requesting cryptographic handshake...';
             const challengeRes = await fetch('/api/auth/challenge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ address: kasAddress })
             });
-            if (!challengeRes.ok) throw new Error('Failed to secure connection challenge.');
+            if (!challengeRes.ok)
+                throw new Error('Failed to secure connection challenge.');
             const { message } = await challengeRes.json();
             identity.walletMessage = 'Signing session authorization...';
             const msgBuf = new TextEncoder().encode(message);
             const hash = blake2b(msgBuf, { dkLen: 32 });
-            const signatureBytes = schnorr.sign(hash, identity.hexToBytes(privateKeyHex));
+            const signatureBytes = schnorr.sign(
+                hash,
+                identity.hexToBytes(privateKeyHex)
+            );
             const signature = identity.bytesToHex(signatureBytes);
             privateKeyHex = '0'.repeat(64);
             identity.walletMessage = 'Verifying session...';
@@ -478,7 +622,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(authBody)
             });
-            if (!authRes.ok) throw new Error('Sovereign authentication rejected by backend.');
+            if (!authRes.ok)
+                throw new Error(
+                    'Sovereign authentication rejected by backend.'
+                );
             identity.walletMessage = 'Hydrating Omni-Chain Balances...';
             identity.authorizeSovereignVault(vaultPayload);
             password = '';
@@ -551,7 +698,9 @@
         identity.isConnecting = true;
         identity.walletMessage = 'Unlocking Local Vault...';
         try {
-            const rawPayload = localStorage.getItem('perennia_sovereign_payload');
+            const rawPayload = localStorage.getItem(
+                'perennia_sovereign_payload'
+            );
             if (!rawPayload) throw new Error('No vault found on this device.');
             const vaultPayload = JSON.parse(rawPayload);
             const mnemonic = await decryptVault(password, vaultPayload.vault);
@@ -559,9 +708,11 @@
             let privateKey = keys.kaspa.privateKey.startsWith('0x')
                 ? keys.kaspa.privateKey.substring(2)
                 : keys.kaspa.privateKey;
-            const actionType = identity.pendingTransactionDetails.actionType || 'SWAP';
+            const actionType =
+                identity.pendingTransactionDetails.actionType || 'SWAP';
             if (actionType === 'SEND_KAS') {
-                identity.walletMessage = 'Signing & Broadcasting Kaspa L1 Transfer...';
+                identity.walletMessage =
+                    'Signing & Broadcasting Kaspa L1 Transfer...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
                 const txId = await executeSovereignTransaction(
@@ -582,16 +733,22 @@
                 ).toUpperCase();
                 identity.walletMessage = `Signing & Broadcasting ${targetAsset} L1 Transfer Locally...`;
                 privateKey = '0'.repeat(64);
-                const { txId, explorerUrl } = await executeMultiChainL1Transfer({
-                    asset: targetAsset,
-                    network: targetNetwork,
-                    destinationAddress:
-                        identity.pendingTransactionDetails.destinationAddress,
-                    amount: parseFloat(identity.pendingTransactionDetails.payAmount),
-                    contractAddress: identity.pendingTransactionDetails.contractAddress,
-                    decimals: identity.pendingTransactionDetails.decimals,
-                    keys
-                });
+                const { txId, explorerUrl } = await executeMultiChainL1Transfer(
+                    {
+                        asset: targetAsset,
+                        network: targetNetwork,
+                        destinationAddress:
+                            identity.pendingTransactionDetails
+                                .destinationAddress,
+                        amount: parseFloat(
+                            identity.pendingTransactionDetails.payAmount
+                        ),
+                        contractAddress:
+                            identity.pendingTransactionDetails.contractAddress,
+                        decimals: identity.pendingTransactionDetails.decimals,
+                        keys
+                    }
+                );
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = explorerUrl;
                 password = '';
@@ -627,13 +784,18 @@
             } else if (
                 actionType === 'SWAP' &&
                 identity.pendingTransactionDetails.psbtData?.psbt &&
-                Array.isArray(identity.pendingTransactionDetails.psbtData.psbt.inputs) &&
-                identity.pendingTransactionDetails.psbtData.psbt.inputs.length > 0
+                Array.isArray(
+                    identity.pendingTransactionDetails.psbtData.psbt.inputs
+                ) &&
+                identity.pendingTransactionDetails.psbtData.psbt.inputs.length >
+                    0
             ) {
-                identity.walletMessage = 'Signing Swap PSBT Locally in Browser...';
+                identity.walletMessage =
+                    'Signing Swap PSBT Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData = identity.pendingTransactionDetails.psbtData;
+                const psbtData =
+                    identity.pendingTransactionDetails.psbtData;
                 const txId = await executeSovereignPSBT(
                     psbtData.psbt,
                     psbtData.formattedUtxos || []
@@ -648,10 +810,15 @@
                     'Signing Atomic P2P Offer Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData = identity.pendingTransactionDetails.psbtData || {};
+                const psbtData =
+                    identity.pendingTransactionDetails.psbtData || {};
                 const signedPsbtHex = await signClientP2pOffer(
-                    Number(identity.pendingTransactionDetails.sellAmount || 0),
-                    Number(identity.pendingTransactionDetails.buyAmount || 0),
+                    Number(
+                        identity.pendingTransactionDetails.sellAmount || 0
+                    ),
+                    Number(
+                        identity.pendingTransactionDetails.buyAmount || 0
+                    ),
                     psbtData.formattedUtxos || []
                 );
                 const newOrder = {
@@ -661,10 +828,15 @@
                     buyToken: identity.pendingTransactionDetails.receiveAsset,
                     buyAmount: identity.pendingTransactionDetails.buyAmount,
                     rate: (
-                        Number(identity.pendingTransactionDetails.buyAmount || 0) /
+                        Number(
+                            identity.pendingTransactionDetails.buyAmount || 0
+                        ) /
                         Math.max(
                             1e-8,
-                            Number(identity.pendingTransactionDetails.sellAmount || 1)
+                            Number(
+                                identity.pendingTransactionDetails.sellAmount ||
+                                    1
+                            )
                         )
                     ).toFixed(4),
                     sellerPsbt: signedPsbtHex
@@ -677,7 +849,8 @@
                 if (!p2pRes.ok) {
                     const p2pErr = await p2pRes.json().catch(() => ({}));
                     throw new Error(
-                        p2pErr.error || 'Failed to post P2P offer to orderbook.'
+                        p2pErr.error ||
+                            'Failed to post P2P offer to orderbook.'
                     );
                 }
                 txState.lastTxId = newOrder.id;
@@ -689,7 +862,8 @@
                     'Signing & Broadcasting Atomic P2P Swap Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData = identity.pendingTransactionDetails.psbtData || {};
+                const psbtData =
+                    identity.pendingTransactionDetails.psbtData || {};
                 const txId = await executeClientP2pFill(
                     String(identity.pendingTransactionDetails.orderId || ''),
                     psbtData.formattedUtxos || []
@@ -701,8 +875,10 @@
                 return;
             } else if (actionType === 'FIAT_OFFRAMP') {
                 const sourceMode =
-                    identity.pendingTransactionDetails.sourceMode || 'onchain_kas';
-                const sourceAsset = identity.pendingTransactionDetails.payAsset || 'KAS';
+                    identity.pendingTransactionDetails.sourceMode ||
+                    'onchain_kas';
+                const sourceAsset =
+                    identity.pendingTransactionDetails.payAsset || 'KAS';
                 const payAmountNum = parseFloat(
                     identity.pendingTransactionDetails.payAmount
                 );
@@ -717,24 +893,35 @@
                         amountAsset: payAmountNum,
                         sourceMode,
                         sourceAsset,
-                        fiatAmount: identity.pendingTransactionDetails.fiatAmount,
-                        payoutMethod: identity.pendingTransactionDetails.payoutMethod,
+                        fiatAmount:
+                            identity.pendingTransactionDetails.fiatAmount,
+                        payoutMethod:
+                            identity.pendingTransactionDetails.payoutMethod,
                         bankLabel: identity.pendingTransactionDetails.bankLabel,
-                        accountType: identity.pendingTransactionDetails.accountType,
-                        routingNumber: identity.pendingTransactionDetails.routingNumber,
-                        accountNumber: identity.pendingTransactionDetails.accountNumber,
+                        accountType:
+                            identity.pendingTransactionDetails.accountType,
+                        routingNumber:
+                            identity.pendingTransactionDetails.routingNumber,
+                        accountNumber:
+                            identity.pendingTransactionDetails.accountNumber,
                         systemMode: ui.systemMode,
                         preFlightOnly: true
                     })
                 });
-                const preFlightData = await preFlightRes.json().catch(() => ({}));
+                const preFlightData = await preFlightRes
+                    .json()
+                    .catch(() => ({}));
                 if (!preFlightRes.ok) {
                     privateKey = '0'.repeat(64);
                     throw new Error(
-                        preFlightData.error || 'Fiat Off-Ramp pre-flight check rejected.'
+                        preFlightData.error ||
+                            'Fiat Off-Ramp pre-flight check rejected.'
                     );
                 }
-                if (sourceMode === 'ledger_kas' || sourceMode === 'ledger_usdc') {
+                if (
+                    sourceMode === 'ledger_kas' ||
+                    sourceMode === 'ledger_usdc'
+                ) {
                     privateKey = '0'.repeat(64);
                     identity.walletMessage = `Debiting ${sourceAsset} Ledger & Queuing Bank Payout...`;
                     const offrampRes = await fetch('/api/fiat/offramp', {
@@ -747,19 +934,30 @@
                             amountAsset: payAmountNum,
                             sourceMode,
                             sourceAsset,
-                            fiatAmount: identity.pendingTransactionDetails.fiatAmount,
-                            payoutMethod: identity.pendingTransactionDetails.payoutMethod,
-                            bankLabel: identity.pendingTransactionDetails.bankLabel,
-                            accountType: identity.pendingTransactionDetails.accountType,
-                            routingNumber: identity.pendingTransactionDetails.routingNumber,
-                            accountNumber: identity.pendingTransactionDetails.accountNumber,
+                            fiatAmount:
+                                identity.pendingTransactionDetails.fiatAmount,
+                            payoutMethod:
+                                identity.pendingTransactionDetails.payoutMethod,
+                            bankLabel:
+                                identity.pendingTransactionDetails.bankLabel,
+                            accountType:
+                                identity.pendingTransactionDetails.accountType,
+                            routingNumber:
+                                identity.pendingTransactionDetails
+                                    .routingNumber,
+                            accountNumber:
+                                identity.pendingTransactionDetails
+                                    .accountNumber,
                             systemMode: ui.systemMode
                         })
                     });
-                    const offrampData = await offrampRes.json().catch(() => ({}));
+                    const offrampData = await offrampRes
+                        .json()
+                        .catch(() => ({}));
                     if (!offrampRes.ok) {
                         throw new Error(
-                            offrampData.error || 'Ledger Fiat Off-Ramp execution failed.'
+                            offrampData.error ||
+                                'Ledger Fiat Off-Ramp execution failed.'
                         );
                     }
                     txState.lastTxId =
@@ -777,7 +975,8 @@
                     identity.pendingTransactionDetails.destinationAddress,
                     payAmountNum
                 );
-                identity.walletMessage = 'Executing Bank Settlement Transfer...';
+                identity.walletMessage =
+                    'Executing Bank Settlement Transfer...';
                 const offrampRes = await fetch('/api/fiat/offramp', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -789,12 +988,17 @@
                         amountAsset: payAmountNum,
                         sourceMode: 'onchain_kas',
                         sourceAsset: 'KAS',
-                        fiatAmount: identity.pendingTransactionDetails.fiatAmount,
-                        payoutMethod: identity.pendingTransactionDetails.payoutMethod,
+                        fiatAmount:
+                            identity.pendingTransactionDetails.fiatAmount,
+                        payoutMethod:
+                            identity.pendingTransactionDetails.payoutMethod,
                         bankLabel: identity.pendingTransactionDetails.bankLabel,
-                        accountType: identity.pendingTransactionDetails.accountType,
-                        routingNumber: identity.pendingTransactionDetails.routingNumber,
-                        accountNumber: identity.pendingTransactionDetails.accountNumber,
+                        accountType:
+                            identity.pendingTransactionDetails.accountType,
+                        routingNumber:
+                            identity.pendingTransactionDetails.routingNumber,
+                        accountNumber:
+                            identity.pendingTransactionDetails.accountNumber,
                         systemMode: ui.systemMode
                     })
                 });
@@ -819,8 +1023,12 @@
                     wallet: identity.activeAddress,
                     payload: {
                         asset: targetAsset,
-                        amount: parseFloat(identity.pendingTransactionDetails.payAmount),
-                        destination: identity.pendingTransactionDetails.destinationAddress
+                        amount: parseFloat(
+                            identity.pendingTransactionDetails.payAmount
+                        ),
+                        destination:
+                            identity.pendingTransactionDetails
+                                .destinationAddress
                     }
                 };
                 const broadcastRes = await fetch('/api/state/action', {
@@ -831,7 +1039,8 @@
                 const data = await broadcastRes.json().catch(() => ({}));
                 if (!broadcastRes.ok || !data.success) {
                     throw new Error(
-                        data.error || `Failed to dispatch ${targetAsset} L1 withdrawal.`
+                        data.error ||
+                            `Failed to dispatch ${targetAsset} L1 withdrawal.`
                     );
                 }
                 const txId =
@@ -840,7 +1049,8 @@
                     `L1-${targetAsset}-${Date.now()}`;
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl =
-                    data.data?.explorerUrl || getChainExplorerTxUrl(targetAsset, txId);
+                    data.data?.explorerUrl ||
+                    getChainExplorerTxUrl(targetAsset, txId);
                 password = '';
                 ui.showWalletModal = false;
                 return;
@@ -849,28 +1059,38 @@
                     'Signing KRC-20 Deploy & Chained Cap-Table Fan-Out Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData = identity.pendingTransactionDetails.psbtData || {};
-                const { deployTxId } = await executeSovereignKrc20DeployWithCapTableFanout({
-                    deployPsbt: psbtData.psbt,
-                    utxos: psbtData.formattedUtxos || [],
-                    ticker: String(identity.pendingTransactionDetails.ticker || 'SILO'),
-                    decimals: Number(identity.pendingTransactionDetails.decimals ?? 8),
-                    capTable: identity.pendingTransactionDetails.capTable || []
-                });
+                const psbtData =
+                    identity.pendingTransactionDetails.psbtData || {};
+                const { deployTxId } =
+                    await executeSovereignKrc20DeployWithCapTableFanout({
+                        deployPsbt: psbtData.psbt,
+                        utxos: psbtData.formattedUtxos || [],
+                        ticker: String(
+                            identity.pendingTransactionDetails.ticker || 'SILO'
+                        ),
+                        decimals: Number(
+                            identity.pendingTransactionDetails.decimals ?? 8
+                        ),
+                        capTable:
+                            identity.pendingTransactionDetails.capTable || []
+                    });
                 txState.lastTxId = deployTxId;
-                txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', deployTxId);
+                txState.lastExplorerUrl = getChainExplorerTxUrl(
+                    'KAS',
+                    deployTxId
+                );
                 password = '';
                 ui.showWalletModal = false;
                 return;
             } else {
-                // Covers KRC20_DEPLOY, KRC20_MINT, RWA_FORGE, VPROG_ANCHOR & Sovereign Inscription Envelopes
                 identity.walletMessage =
                     actionType === 'VPROG_ANCHOR'
                         ? 'Signing vProg & Covenant State Anchor Locally in Browser...'
                         : 'Signing Sovereign Inscription Envelope Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData = identity.pendingTransactionDetails.psbtData || {};
+                const psbtData =
+                    identity.pendingTransactionDetails.psbtData || {};
                 const txId = await executeSovereignKrc20Envelope(
                     psbtData.psbt,
                     psbtData.formattedUtxos || [],
@@ -899,17 +1119,21 @@
             await navigator.clipboard.writeText(seedWords.join(' '));
             statusNotice = '24-WORD SEED COPIED TO CLIPBOARD.';
             setTimeout(() => {
-                if (statusNotice === '24-WORD SEED COPIED TO CLIPBOARD.') statusNotice = '';
+                if (statusNotice === '24-WORD SEED COPIED TO CLIPBOARD.')
+                    statusNotice = '';
             }, 3000);
         }
     }
 
     async function copyAddresses() {
         if (browser && derivedKaspa && derivedBtc) {
-            await navigator.clipboard.writeText(`Kaspa: ${derivedKaspa}\nBTC: ${derivedBtc}`);
+            await navigator.clipboard.writeText(
+                `Kaspa: ${derivedKaspa}\nBTC: ${derivedBtc}`
+            );
             statusNotice = 'PUBLIC ADDRESSES COPIED TO CLIPBOARD.';
             setTimeout(() => {
-                if (statusNotice === 'PUBLIC ADDRESSES COPIED TO CLIPBOARD.') statusNotice = '';
+                if (statusNotice === 'PUBLIC ADDRESSES COPIED TO CLIPBOARD.')
+                    statusNotice = '';
             }, 3000);
         }
     }
@@ -960,7 +1184,7 @@
                         onclick={close}
                         class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none"
                         disabled={identity.isConnecting}
-                        title={identity.isWalletConnected ? 'Close' : 'Return to Entry'}
+                        title="Return to Operations Deck"
                     >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -968,6 +1192,7 @@
                     </button>
                 {/if}
             </div>
+
             <div class="flex flex-col gap-3 min-h-[160px] relative z-10">
                 {#if viewState === 'menu'}
                     <div class="flex flex-col gap-3 items-center" in:fade={{ duration: 150 }}>
@@ -981,8 +1206,12 @@
                                 {/if}
                             </div>
                         </div>
-                        <div class="w-full flex flex-col gap-2.5">
-                            {#if hasStoredVault}
+
+                        <div
+                            data-tour-target="mod1-wallet-menu-options"
+                            class="w-full flex flex-col gap-2.5"
+                        >
+                            {#if hasStoredVault && !ui.isTutorialActive}
                                 <button
                                     type="button"
                                     onclick={() => (viewState = 'unlock')}
@@ -995,9 +1224,11 @@
                                 </button>
                                 <div class="h-px w-full bg-white/10 my-0.5"></div>
                             {/if}
+
                             <div class="grid grid-cols-2 gap-2.5">
                                 <button
                                     type="button"
+                                    data-tour-target="mod1-new-vault-btn"
                                     onclick={() => {
                                         localError = '';
                                         statusNotice = '';
@@ -1025,6 +1256,7 @@
                                     </span>
                                 </button>
                             </div>
+
                             <button
                                 type="button"
                                 onclick={() => backupFileInput?.click()}
@@ -1033,9 +1265,22 @@
                             >
                                 <span>Import Encrypted Vault (.json)</span>
                             </button>
-                            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 mt-1 text-center">
-                                <span class="text-[9px] font-mono uppercase tracking-widest text-neutral-400 leading-relaxed block">
-                                    11-Chain Non-Custodial Sovereign Vault • 100% Browser-Side Multi-Chain &amp; P2P Signing
+
+                            {#if !ui.isTutorialActive}
+                                <button
+                                    type="button"
+                                    data-testid="wallet-modal-tour-launch-btn"
+                                    onclick={startGuidedTourFromModal}
+                                    class="tactile-btn w-full py-3 px-3 rounded-xl border-[#18C6A5]/35 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase tracking-wider whitespace-nowrap cursor-pointer flex items-center justify-center mt-0.5"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.12), transparent 70%);"
+                                >
+                                    <span>[? New Here? Take the Interactive Tour →]</span>
+                                </button>
+                            {/if}
+
+                            <div class="pt-3 mt-1 border-t border-white/5 text-center select-none pointer-events-none">
+                                <span class="text-[8px] font-mono uppercase tracking-[0.16em] text-neutral-500 leading-relaxed block">
+                                    11-Chain Non-Custodial Sovereign Vault • 100% Browser-Side Signing
                                 </span>
                             </div>
                         </div>
@@ -1104,6 +1349,7 @@
                     </form>
                 {:else if viewState === 'create_pass'}
                     <form
+                        data-tour-target="mod1-password-form"
                         onsubmit={(e) => {
                             e.preventDefault();
                             handleGenerate();
@@ -1144,6 +1390,7 @@
                             </button>
                             <button
                                 type="submit"
+                                data-tour-target="mod1-generate-seed-btn"
                                 disabled={identity.isConnecting || !password || !confirmPassword}
                                 class="tactile-btn w-2/3 p-3 border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer disabled:opacity-40"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
@@ -1162,7 +1409,10 @@
                                 Write down all 24 words in order right now. Your raw seed phrase will NEVER be shown again after setup, and <strong class="text-white">you will be tested on 2 random words (#{verifyWordIndices[0] + 1} &amp; #{verifyWordIndices[1] + 1}) on the next screen</strong> before unlocking your vault.
                             </span>
                         </div>
-                        <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-[#11161f] p-3.5 rounded-xl border border-white/10">
+                        <div
+                            data-tour-target="mod1-seed-grid"
+                            class="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-[#11161f] p-3.5 rounded-xl border border-white/10"
+                        >
                             {#each seedWords as word, i}
                                 <div class="flex items-center gap-1.5 bg-[#0a0d12] px-2 py-1.5 rounded-lg border border-white/5">
                                     <span class="text-[8px] text-neutral-500 w-4 text-right font-bold">
@@ -1184,7 +1434,10 @@
                                 </span>
                             </div>
                         </div>
-                        <div class="grid grid-cols-3 gap-2">
+                        <div
+                            data-tour-target="mod1-backup-controls"
+                            class="grid grid-cols-3 gap-2"
+                        >
                             <button
                                 type="button"
                                 onclick={copyToClipboard}
@@ -1209,6 +1462,7 @@
                         </div>
                         <button
                             type="button"
+                            data-tour-target="mod1-proceed-verify-btn"
                             onclick={proceedToSeedVerification}
                             class="tactile-btn w-full py-3.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] font-black text-[10px] uppercase tracking-widest cursor-pointer"
                             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
@@ -1282,6 +1536,7 @@
                             </button>
                             <button
                                 type="submit"
+                                data-tour-target="mod1-verify-submit-btn"
                                 class="tactile-btn w-2/3 py-3.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                             >
@@ -1310,7 +1565,9 @@
                                             'Remove the saved encrypted vault from this browser? Make sure you have your 24-word seed or encrypted .json backup.'
                                         )
                                     ) {
-                                        localStorage.removeItem('perennia_sovereign_payload');
+                                        localStorage.removeItem(
+                                            'perennia_sovereign_payload'
+                                        );
                                         hasStoredVault = false;
                                         viewState = 'menu';
                                         localError = '';
@@ -1368,6 +1625,15 @@
                                 Restore .JSON File
                             </button>
                         </div>
+                        {#if !ui.isTutorialActive}
+                            <button
+                                type="button"
+                                onclick={startGuidedTourFromModal}
+                                class="tactile-btn w-full py-2.5 px-3 rounded-xl border-[#18C6A5]/35 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase tracking-wider whitespace-nowrap cursor-pointer"
+                            >
+                                [? Take the Interactive Platform Tour →]
+                            </button>
+                        {/if}
                     </form>
                 {:else if viewState === 'authorize' && identity.pendingTransactionDetails}
                     <form
@@ -1467,6 +1733,7 @@
                     </form>
                 {/if}
             </div>
+
             {#if localError || statusNotice || identity.walletMessage || identity.isConnecting}
                 <div
                     class="mt-5 text-center border-t border-white/10 pt-3.5 min-h-[36px] flex items-center justify-center relative z-10"
