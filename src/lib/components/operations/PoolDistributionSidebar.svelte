@@ -4,7 +4,6 @@
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import type { AssetBucketTelemetry } from '$lib/stores/type';
-
     let {
         displayHashrate = 0,
         effortData = { segments: [], totalHash: 0 },
@@ -23,18 +22,25 @@
         };
         displayedBuckets: AssetBucketTelemetry[];
     } = $props();
-
-    let showAllBuckets = $state(false);
-
     let userRoutedAssets = $derived.by(() => {
         const routed = new Set<string>();
         for (const sec of operations.sectors || []) {
-            if ((sec.allocationPercentage || 0) <= 0) continue;
+            if (
+                (sec.allocationPercentage || 0) <= 0 &&
+                (sec.pendingKaspa || 0) <= 0
+            ) {
+                continue;
+            }
             const primary = sec.settlementConfig?.targetAsset?.ticker;
-            if (primary) routed.add(primary.trim().toUpperCase());
+            if (primary && primary.trim().toUpperCase() !== 'KAS') {
+                routed.add(primary.trim().toUpperCase());
+            }
             if (Array.isArray(sec.settlementConfig?.targetAssets)) {
                 for (const t of sec.settlementConfig.targetAssets) {
-                    if (t?.ticker) routed.add(t.ticker.trim().toUpperCase());
+                    const tick = t?.ticker?.trim().toUpperCase();
+                    if (tick && tick !== 'KAS') {
+                        routed.add(tick);
+                    }
                 }
             }
             if (
@@ -42,28 +48,22 @@
                 typeof sec.settlementConfig.plantWeights === 'object'
             ) {
                 for (const k of Object.keys(sec.settlementConfig.plantWeights)) {
-                    routed.add(k.trim().toUpperCase());
+                    const tick = k.trim().toUpperCase();
+                    if (tick && tick !== 'KAS') {
+                        routed.add(tick);
+                    }
                 }
             }
         }
         return routed;
     });
-
-    let activeFilteredBuckets = $derived(
+    let userActiveBuckets = $derived(
         displayedBuckets.filter((b) => {
             const ticker = String(b.asset || '').trim().toUpperCase();
-            return (
-                Number(b.pendingKas || 0) > 0.01 ||
-                userRoutedAssets.has(ticker)
-            );
+            return ticker !== 'KAS' && userRoutedAssets.has(ticker);
         })
     );
-
-    let visibleBuckets = $derived(
-        showAllBuckets ? displayedBuckets : activeFilteredBuckets
-    );
 </script>
-
 <div
     class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0d12] border border-white/10 rounded-[32px] p-4 shadow-2xl pb-8 w-full relative z-10"
     data-tour="bell-telemetry"
@@ -177,7 +177,6 @@
                 </div>
             </div>
         </div>
-
         <div
             class="w-full flex flex-col gap-2.5 border-t border-white/10 pt-3 mb-2"
         >
@@ -206,59 +205,38 @@
                     22:00 UTC • {operations.localBellTimeLabel}
                 </div>
             </div>
-
             <div class="flex flex-col gap-2">
                 <div class="flex items-center justify-between gap-1 px-0.5">
                     <span
                         class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 truncate"
                     >
-                        Pool Batch Buckets
+                        Your Active Buckets
                     </span>
-                    <div class="flex items-center gap-1.5 shrink-0">
-                        <span class="text-[8px] font-mono text-neutral-500">
-                            {activeFilteredBuckets.length} Active
-                        </span>
-                        {#if displayedBuckets.length > activeFilteredBuckets.length}
-                            <button
-                                type="button"
-                                data-testid="toggle-all-buckets-btn"
-                                onclick={() =>
-                                    (showAllBuckets = !showAllBuckets)}
-                                class="text-[8px] font-mono font-bold text-[#18C6A5] hover:text-white cursor-pointer whitespace-nowrap"
-                            >
-                                {showAllBuckets
-                                    ? '[Hide Empty]'
-                                    : `[Show All ${displayedBuckets.length}]`}
-                            </button>
-                        {/if}
-                    </div>
+                    <span class="text-[8px] font-mono text-neutral-500 shrink-0">
+                        {userActiveBuckets.length} Active
+                    </span>
                 </div>
-
                 <div
                     data-testid="pool-buckets-scroll-container"
                     class="flex flex-col gap-2.5 pr-0.5"
                 >
-                    {#if visibleBuckets.length === 0}
+                    {#if userActiveBuckets.length === 0}
                         <div
-                            class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-3 text-center flex flex-col gap-1.5"
+                            class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-3 text-center flex flex-col gap-1"
                         >
                             <span
                                 class="text-[9px] font-mono text-neutral-400 uppercase tracking-wider"
                             >
-                                No Active Batch Buckets (&gt;0.01 KAS)
+                                No Active Batch Buckets
                             </span>
-                            {#if displayedBuckets.length > 0}
-                                <button
-                                    type="button"
-                                    onclick={() => (showAllBuckets = true)}
-                                    class="text-[8px] font-mono font-bold text-[#18C6A5] hover:underline uppercase cursor-pointer"
-                                >
-                                    [Show All {displayedBuckets.length} Pool Buckets]
-                                </button>
-                            {/if}
+                            <span
+                                class="text-[8px] font-mono text-neutral-500 leading-relaxed"
+                            >
+                                Break off a non-KAS sector to route yield into a 22:00 UTC batch bucket.
+                            </span>
                         </div>
                     {:else}
-                        {#each visibleBuckets as bucket (bucket.asset)}
+                        {#each userActiveBuckets as bucket (bucket.asset)}
                             {@const assetTheme =
                                 treasury.getAsset(bucket.asset).theme?.hex ||
                                 '#18C6A5'}
@@ -269,10 +247,14 @@
                             {@const isReady =
                                 bucket.weightPct >= 100 ||
                                 bucket.status === 'READY_FOR_BELL'}
+                            {@const minKas =
+                                bucket.minProfitableKas > 0
+                                    ? bucket.minProfitableKas
+                                    : (operations.getBucket(bucket.asset)
+                                          ?.minProfitableKas ?? 47.4)}
                             {@const neededKas = Math.max(
                                 0,
-                                (bucket.minProfitableKas || 0) -
-                                    (bucket.pendingKas || 0)
+                                minKas - (bucket.pendingKas || 0)
                             )}
                             {@const bucketBadge =
                                 ui.microBadges[`bucket_${bucket.asset}`]}
@@ -325,10 +307,9 @@
                                     class="flex justify-between items-center gap-1 text-[9px] font-mono text-neutral-400"
                                 >
                                     <span class="tabular-nums truncate">
-                                        {bucket.pendingKas.toFixed(1)} / {bucket.minProfitableKas >
-                                        0
-                                            ? bucket.minProfitableKas.toFixed(1)
-                                            : '0.0'} KAS
+                                        {bucket.pendingKas.toFixed(1)} / {minKas.toFixed(
+                                            1
+                                        )} KAS
                                     </span>
                                     <span
                                         class="uppercase font-bold shrink-0 {isReady
@@ -358,7 +339,6 @@
             </div>
         </div>
     {/if}
-
     <div class="mt-4 pointer-events-none flex flex-col gap-3 w-full">
         <div
             class="flex items-center justify-between border-t border-white/10 pt-3"

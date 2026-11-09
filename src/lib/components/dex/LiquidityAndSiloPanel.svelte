@@ -1,10 +1,10 @@
+<!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\dex\LiquidityAndSiloPanel.svelte -->
 <script lang="ts">
-    import { fade } from 'svelte/transition';
+    import { fade, slide } from 'svelte/transition';
     import { ui } from '$lib/stores/ui.svelte';
-    import { identity } from '$lib/stores/identity.svelte';
     import {
-        treasury,
         DEFAULT_ECOSYSTEM_TICKER,
+        treasury,
         type UnifiedAsset
     } from '$lib/stores/treasury.svelte';
     import {
@@ -18,7 +18,7 @@
         lpAmountA = $bindable(''),
         lpAmountB = $bindable(''),
         lpWeightPctB = $bindable(50.0),
-        extraPlantLegs = $bindable([]),
+        extraPlantLegs = $bindable<SecondaryPlantLeg[]>([]),
         lockDurationIndex = $bindable(0),
         siloStakeAmountInput = $bindable(''),
         lpTokenA,
@@ -74,7 +74,7 @@
         ambientPrimaryHex: string;
         ambientSecondaryHex: string;
         onOpenTokenModal: (
-            type:
+            mode:
                 | 'pay'
                 | 'receive'
                 | 'lpA'
@@ -101,128 +101,173 @@
         onClaimUnstakedSilo: (stakeId: string) => Promise<void>;
     } = $props();
 
-    let fiatToSiloPresetUsd = $state('250');
-    let autoStakeOnFiatBuy = $state(true);
+    let tokenBHex = $derived(lpTokenB.theme?.hex || ambientSecondaryHex || '#3B82F6');
+    let siloHex = $derived(siloAsset.theme?.hex || '#18C6A5');
 
-    let totalPlantAssetCount = $derived(2 + extraPlantLegs.length);
-    let totalPlantInternalPairs = $derived(
-        (totalPlantAssetCount * (totalPlantAssetCount - 1)) / 2
-    );
-    let plantPairSummary = $derived(
-        ['KAS', lpTokenB.ticker, ...extraPlantLegs.map((l) => l.ticker)].join(
-            '/'
-        )
+    let activeFeePct = $derived(
+        (
+            (siloStakingTelemetry.feeRateCap > 0
+                ? siloStakingTelemetry.feeRateCap
+                : 0.015) * 100
+        ).toFixed(2)
     );
 
-    let livePlantInvariantK = $derived.by(() => {
+    let lpTotalUsdValue = $derived.by(() => {
         const kasQty = parseFloat(lpAmountA) || 0;
-        const bQty = parseFloat(lpAmountB) || 0;
-        if (kasQty <= 0 || bQty <= 0) return 0;
-        let k = Math.pow(kasQty, 0.5) * Math.pow(bQty, lpWeightPctB / 100.0);
-        for (const leg of extraPlantLegs) {
-            const q = parseFloat(leg.amount) || 0;
-            if (q <= 0) return 0;
-            k *= Math.pow(q, leg.weightPct / 100.0);
-        }
-        return k;
+        const kasUsd = kasQty * (lpTokenA.spotPrice || 0);
+        return kasUsd > 0 ? kasUsd * 2 : 0;
     });
 
-    let estimatedSiloFromFiat = $derived.by(() => {
-        const usd = Math.max(0, parseFloat(fiatToSiloPresetUsd) || 0);
-        const netUsd = usd * 0.9925;
-        const kasSpot = treasury.getAsset('KAS').spotPrice || 0.165;
-        const siloSpot =
-            siloAsset.spotPrice > 0
-                ? siloAsset.spotPrice
-                : kasSpot / 23.809524;
-        return siloSpot > 0 ? netUsd / siloSpot : 0;
-    });
+    function formatSpotDisplay(price: number): string {
+        if (!Number.isFinite(price) || price <= 0) return '$0.00';
+        if (price < 0.01) return `$${price.toFixed(6)}`;
+        if (price < 1) return `$${price.toFixed(4)}`;
+        return `$${price.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        })}`;
+    }
+
+    function setSiloPercentage(pct: number) {
+        const avail = Number(siloAsset.availableBalance || 0);
+        siloStakeAmountInput =
+            avail > 0 ? Number((avail * pct).toFixed(2)).toString() : '0';
+    }
+
+    function formatCooldownTag(endsAt?: string | number | null): string {
+        if (!endsAt) return '7d Cooldown';
+        const endMs =
+            typeof endsAt === 'number' ? endsAt : new Date(endsAt).getTime();
+        const diffMs = endMs - Date.now();
+        if (!Number.isFinite(diffMs) || diffMs <= 0) return 'Ready to Claim';
+        const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const hours = Math.floor(
+            (diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+        );
+        return `${days}d ${hours}h left`;
+    }
+
+    function handleIconError(e: Event) {
+        const target = e.currentTarget as HTMLImageElement;
+        target.style.display = 'none';
+        if (target.nextElementSibling) {
+            (target.nextElementSibling as HTMLElement).style.display = 'flex';
+        }
+    }
 </script>
 
-<div class="flex flex-col gap-6" in:fade={{ duration: 150 }}>
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+<div
+    class="w-full flex flex-col gap-5 font-mono text-white"
+    in:fade={{ duration: 150 }}
+>
+    {#if swapError}
         <div
-            class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-4 relative"
-            style="background-image: radial-gradient(ellipse at top left, {ambientPrimaryHex}14, transparent 60%), radial-gradient(ellipse at bottom right, {ambientSecondaryHex}18, transparent 65%);"
+            data-testid="lp-error-banner"
+            class="bg-red-950/30 border border-red-500/45 rounded-2xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-red-400"
         >
-            <div
-                class="flex items-center justify-between border-b border-white/10 pb-3"
-            >
-                <div class="flex flex-col">
+            ⚠ {swapError}
+        </div>
+    {/if}
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <!-- LEFT COLUMN: LIQUIDITY POOL PROVISIONING -->
+        <div
+            data-testid="dex-liquidity-plant-card"
+            class="lg:col-span-7 bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
+            style="
+                border-color: {tokenBHex}45;
+                background-image:
+                    radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 58%),
+                    radial-gradient(ellipse at bottom right, {tokenBHex}22, transparent 65%);
+                box-shadow:
+                    0 20px 60px -15px rgba(0, 0, 0, 0.85),
+                    0 0 40px -15px {tokenBHex}25;
+            "
+        >
+            <div class="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
+                <div class="flex items-center gap-2.5">
                     <span
-                        class="text-xs font-black text-white uppercase tracking-widest"
-                    >
-                        Provision 50%-KAS Liquidity Plant
-                    </span>
-                    <span
-                        class="text-[9px] font-mono text-neutral-400 uppercase tracking-widest mt-0.5"
-                    >
-                        Constant-Mean Invariant • {totalPlantInternalPairs} Cross-Pair{totalPlantInternalPairs ===
-                        1
-                            ? ''
-                            : 's'}
-                    </span>
+                        class="w-2.5 h-2.5 rounded-full"
+                        style="background-color: {tokenBHex}; box-shadow: 0 0 10px {tokenBHex}80;"
+                    ></span>
+                    <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
+                        Supply Liquidity
+                    </h3>
                 </div>
-                <span
-                    data-testid="dex-plant-pair-badge"
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[9px] font-mono font-bold text-[#18C6A5]"
-                >
-                    {plantPairSummary}
-                </span>
+                {#if extraPlantLegs.length < 3}
+                    <button
+                        type="button"
+                        data-testid="dex-plant-add-leg-btn"
+                        onclick={() => onAddSecondaryPlantLeg('XAU')}
+                        class="tactile-btn px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                    >
+                        + Add Asset
+                    </button>
+                {/if}
             </div>
 
+            <!-- LEG A: 50% KAS ANCHOR -->
             <div
-                class="tactile-card flex flex-col gap-2.5 bg-[#11161f] p-4 rounded-2xl border border-[#18C6A5]/35"
+                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/35"
+                style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.10), transparent 65%);"
             >
-                <div class="flex justify-between items-center">
-                    <span
-                        class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]"
-                    >
-                        Anchor Asset A (50.0% Weight Locked)
-                    </span>
-                    <div class="flex gap-1">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                            Anchor Deposit
+                        </span>
+                        <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black">
+                            50% KAS
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-1">
                         {#each [0.25, 0.5, 0.75, 1.0] as pct}
                             <button
                                 type="button"
                                 onclick={() => onSetLpPercentageA(pct)}
-                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold text-neutral-300 hover:text-white cursor-pointer"
+                                class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-bold text-neutral-300 hover:text-white cursor-pointer"
                             >
                                 {pct === 1.0 ? 'MAX' : `${pct * 100}%`}
                             </button>
                         {/each}
                     </div>
                 </div>
-                <div class="flex justify-between items-center gap-3">
+
+                <div class="flex items-center justify-between gap-3">
                     <input
                         type="number"
-                        data-testid="dex-lp-kas-amount-input"
+                        data-testid="lp-amount-a-input"
+                        min="0"
+                        step="any"
                         value={lpAmountA}
                         oninput={onHandleLpInputA}
                         placeholder="0.00"
-                        class="w-full bg-transparent text-2xl font-bold font-mono text-white outline-none placeholder-neutral-700"
+                        class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none placeholder-neutral-600 tabular-nums"
                     />
-                    <div
-                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/40"
-                    >
-                        <span
-                            class="font-black text-[#18C6A5] text-xs tracking-wider leading-none whitespace-nowrap"
-                        >
-                            KAS (50.0%)
-                        </span>
+                    <div class="shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] border border-[#18C6A5]/45">
+                        <div class="w-6 h-6 rounded-full bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-[10px] font-black">
+                            K
+                        </div>
+                        <div class="flex flex-col items-start leading-tight">
+                            <span class="text-xs font-black text-white uppercase">
+                                KAS
+                            </span>
+                            <span class="text-[9px] font-bold text-[#18C6A5]">
+                                {formatSpotDisplay(lpTokenA.spotPrice)}
+                            </span>
+                        </div>
                     </div>
                 </div>
-                <div
-                    class="flex justify-between items-center text-[9px] font-mono text-neutral-500"
-                >
+
+                <div class="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
                     <span>
-                        ≈ ${lpAmountA
-                            ? (
-                                  parseFloat(lpAmountA) * lpTokenA.spotPrice
-                              ).toFixed(2)
-                            : '0.00'} USD
+                        ≈ ${(
+                            (parseFloat(lpAmountA) || 0) *
+                            (lpTokenA.spotPrice || 0)
+                        ).toFixed(2)}
                     </span>
                     <span>
-                        Avail: {lpTokenA.availableBalance.toLocaleString(
+                        Available: {lpTokenA.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )} KAS
@@ -230,104 +275,143 @@
                 </div>
             </div>
 
-            <div
-                class="text-center text-neutral-500 font-bold text-[10px] -my-1"
-            >
-                + 50.0% SECONDARY BASKET ({totalPlantAssetCount - 1} ASSET{totalPlantAssetCount -
-                    1 ===
-                1
-                    ? ''
-                    : 'S'}) +
+            <!-- CENTER PLUS DIVIDER -->
+            <div class="flex items-center justify-center -my-4 z-20 pointer-events-none">
+                <div
+                    class="w-9 h-9 rounded-xl bg-[#0a0d12] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
+                    style="border-color: {tokenBHex}55; color: {tokenBHex};"
+                >
+                    +
+                </div>
             </div>
 
+            <!-- LEG B: PAIRED ASSET (SHADED IN SELECTED ASSET'S COLOR) -->
             <div
-                class="tactile-card flex flex-col gap-2.5 bg-[#11161f] p-4 rounded-2xl border"
-                style="border-color: {ambientSecondaryHex}30;"
+                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-all duration-300"
+                style="
+                    border-color: {tokenBHex}55;
+                    background-image: radial-gradient(ellipse at bottom right, {tokenBHex}22, transparent 68%);
+                    box-shadow: inset 0 0 26px -12px {tokenBHex}28;
+                "
             >
-                <div class="flex justify-between items-center">
-                    <span
-                        class="text-[9px] font-bold uppercase tracking-widest"
-                        style="color: {ambientSecondaryHex};"
-                    >
-                        Secondary Asset B ({lpWeightPctB.toFixed(2)}% Weight)
-                    </span>
-                    <div class="flex gap-1">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span
+                            class="text-[10px] font-black uppercase tracking-widest"
+                            style="color: {tokenBHex};"
+                        >
+                            Paired Asset
+                        </span>
+                        <span
+                            data-testid="dex-plant-weight-b-badge"
+                            class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-white text-[8px] font-bold"
+                        >
+                            {lpWeightPctB.toFixed(0)}%
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-1">
                         {#each [0.25, 0.5, 0.75, 1.0] as pct}
                             <button
                                 type="button"
                                 onclick={() => onSetLpPercentageB(pct)}
-                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold text-neutral-300 hover:text-white cursor-pointer"
+                                class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-bold text-neutral-300 hover:text-white cursor-pointer"
                             >
                                 {pct === 1.0 ? 'MAX' : `${pct * 100}%`}
                             </button>
                         {/each}
                     </div>
                 </div>
-                <div class="flex justify-between items-center gap-3">
+
+                <div class="flex items-center justify-between gap-3">
                     <input
                         type="number"
-                        data-testid="dex-lp-secondary-b-input"
+                        data-testid="lp-amount-b-input"
+                        min="0"
+                        step="any"
                         value={lpAmountB}
                         oninput={onHandleLpInputB}
                         placeholder="0.00"
-                        class="w-full bg-transparent text-2xl font-bold font-mono text-white outline-none placeholder-neutral-700"
+                        class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none placeholder-neutral-600 tabular-nums"
                     />
                     <button
                         type="button"
-                        data-testid="dex-lp-select-b-btn"
+                        data-testid="lp-token-b-selector"
                         onclick={() => onOpenTokenModal('lpB')}
-                        class="tactile-btn shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl cursor-pointer"
-                        style="border-color: {ambientSecondaryHex}40;"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer"
+                        style="border-color: {tokenBHex}60;"
                     >
-                        <span
-                            class="font-bold text-white text-xs tracking-wider leading-none"
+                        <div
+                            class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black overflow-hidden shrink-0"
+                            style="background-color: {tokenBHex}22; color: {tokenBHex}; border: 1px solid {tokenBHex}60;"
                         >
-                            {lpTokenB.ticker}
-                        </span>
-                        <svg
-                            class="w-3 h-3 text-neutral-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                            {#if lpTokenB.imgUrl}
+                                <img
+                                    src={lpTokenB.imgUrl}
+                                    alt={lpTokenB.ticker}
+                                    class="w-4 h-4 object-contain"
+                                    onerror={handleIconError}
+                                />
+                                <span
+                                    style="display:none;"
+                                    class="w-full h-full items-center justify-center"
+                                >
+                                    {lpTokenB.ticker[0]}
+                                </span>
+                            {:else}
+                                <span>{lpTokenB.ticker[0]}</span>
+                            {/if}
+                        </div>
+                        <div class="flex flex-col items-start leading-tight">
+                            <span class="text-xs font-black text-white uppercase">
+                                {lpTokenB.ticker}
+                            </span>
+                            <span
+                                class="text-[9px] font-bold"
+                                style="color: {tokenBHex};"
+                            >
+                                {formatSpotDisplay(lpTokenB.spotPrice)}
+                            </span>
+                        </div>
+                        <span class="text-[10px] text-neutral-400 ml-0.5"
+                            >▾</span
                         >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M19 9l-7 7-7-7"
-                            />
-                        </svg>
                     </button>
                 </div>
+
                 {#if extraPlantLegs.length > 0}
-                    <input
-                        type="range"
-                        min="1"
-                        max="48"
-                        step="0.5"
-                        value={lpWeightPctB}
-                        oninput={(e) =>
-                            onAdjustDexPlantSecondaryWeights(
-                                'B',
-                                parseFloat(
-                                    (e.currentTarget as HTMLInputElement).value
-                                ) || 25
-                            )}
-                        class="w-full custom-range-slider cursor-pointer"
-                    />
+                    <div class="flex items-center gap-3 pt-1">
+                        <span class="text-[9px] text-neutral-400 uppercase">
+                            Weight
+                        </span>
+                        <input
+                            type="range"
+                            data-testid="dex-plant-weight-b-slider"
+                            min="5"
+                            max="45"
+                            step="1"
+                            value={lpWeightPctB}
+                            oninput={(e) =>
+                                onAdjustDexPlantSecondaryWeights(
+                                    'B',
+                                    parseFloat(
+                                        (e.currentTarget as HTMLInputElement)
+                                            .value
+                                    )
+                                )}
+                            class="w-full accent-[#18C6A5] cursor-pointer"
+                        />
+                    </div>
                 {/if}
-                <div
-                    class="flex justify-between items-center text-[9px] font-mono text-neutral-500"
-                >
+
+                <div class="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
                     <span>
-                        ≈ ${lpAmountB
-                            ? (
-                                  parseFloat(lpAmountB) * lpTokenB.spotPrice
-                              ).toFixed(2)
-                            : '0.00'} USD
+                        ≈ ${(
+                            (parseFloat(lpAmountB) || 0) *
+                            (lpTokenB.spotPrice || 0)
+                        ).toFixed(2)}
                     </span>
                     <span>
-                        Avail: {lpTokenB.availableBalance.toLocaleString(
+                        Available: {lpTokenB.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )}
@@ -336,670 +420,432 @@
                 </div>
             </div>
 
-            {#each extraPlantLegs as leg, idx (leg.ticker + idx)}
+            <!-- EXTRA MULTI-ASSET LEGS (IF ADDED) -->
+            {#each extraPlantLegs as leg, idx (idx)}
                 {@const legAsset = treasury.getAsset(leg.ticker)}
+                {@const legHex = legAsset.theme?.hex || '#F59E0B'}
                 <div
-                    data-testid="dex-lp-extra-leg-{idx}"
-                    class="tactile-card flex flex-col gap-2.5 bg-[#11161f] p-4 rounded-2xl border border-blue-500/30"
+                    transition:slide={{ duration: 150 }}
+                    class="tactile-card bg-[#11161f] rounded-2xl p-4 flex flex-col gap-2.5 border"
+                    style="
+                        border-color: {legHex}50;
+                        background-image: radial-gradient(ellipse at bottom right, {legHex}1e, transparent 68%);
+                    "
                 >
-                    <div class="flex justify-between items-center">
-                        <span
-                            class="text-[9px] font-bold uppercase tracking-widest text-blue-400"
-                        >
-                            Secondary Asset #{idx + 2} ({leg.weightPct.toFixed(
-                                2
-                            )}% Weight)
-                        </span>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="text-[10px] font-black uppercase"
+                                style="color: {legHex};"
+                            >
+                                Leg {idx + 3}
+                            </span>
+                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-white text-[8px] font-bold">
+                                {leg.weightPct.toFixed(0)}%
+                            </span>
+                        </div>
                         <button
                             type="button"
                             onclick={() => onRemoveSecondaryPlantLeg(idx)}
-                            class="text-[9px] font-mono text-neutral-400 hover:text-red-400 cursor-pointer"
+                            class="text-[9px] text-neutral-400 hover:text-red-400 cursor-pointer"
                         >
-                            [Remove ✕]
+                            ✕ Remove
                         </button>
                     </div>
-                    <div class="flex justify-between items-center gap-3">
+
+                    <div class="flex items-center justify-between gap-3">
                         <input
-                            type="number"
+                            type="text"
                             readonly
-                            value={leg.amount}
-                            placeholder="0.00"
-                            class="w-full bg-transparent text-xl font-bold font-mono text-white outline-none placeholder-neutral-700"
+                            value={leg.amount || '0.00'}
+                            class="w-full bg-transparent text-2xl font-bold font-mono text-white outline-none tabular-nums"
                         />
                         <button
                             type="button"
+                            data-testid="dex-plant-extra-selector-{idx}"
                             onclick={() => onOpenTokenModal('lpExtra', idx)}
-                            class="tactile-btn shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl cursor-pointer border-blue-500/40"
+                            class="tactile-btn shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0a0d12] cursor-pointer"
+                            style="border-color: {legHex}55;"
                         >
-                            <span
-                                class="font-bold text-white text-xs tracking-wider leading-none"
-                            >
+                            <span class="text-xs font-black text-white">
                                 {leg.ticker}
                             </span>
-                            <svg
-                                class="w-3 h-3 text-neutral-400"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
+                            <span
+                                class="text-[9px] font-bold"
+                                style="color: {legHex};"
                             >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M19 9l-7 7-7-7"
-                                />
-                            </svg>
+                                {formatSpotDisplay(legAsset.spotPrice)}
+                            </span>
+                            <span class="text-[9px] text-neutral-400">▾</span>
                         </button>
-                    </div>
-                    <input
-                        type="range"
-                        min="1"
-                        max="48"
-                        step="0.5"
-                        value={leg.weightPct}
-                        oninput={(e) =>
-                            onAdjustDexPlantSecondaryWeights(
-                                idx,
-                                parseFloat(
-                                    (e.currentTarget as HTMLInputElement).value
-                                ) || 25
-                            )}
-                        class="w-full custom-range-slider cursor-pointer"
-                    />
-                    <div
-                        class="flex justify-between items-center text-[9px] font-mono text-neutral-500"
-                    >
-                        <span>
-                            ≈ ${leg.amount
-                                ? (
-                                      parseFloat(leg.amount) *
-                                      legAsset.spotPrice
-                                  ).toFixed(2)
-                                : '0.00'} USD
-                        </span>
-                        <span>
-                            Avail: {legAsset.availableBalance.toLocaleString(
-                                undefined,
-                                { maximumFractionDigits: 4 }
-                            )}
-                            {leg.ticker}
-                        </span>
                     </div>
                 </div>
             {/each}
 
-            {#if extraPlantLegs.length < 3}
-                <button
-                    type="button"
-                    data-testid="dex-add-secondary-plant-asset-btn"
-                    onclick={() => onAddSecondaryPlantLeg()}
-                    class="tactile-btn w-full py-2.5 rounded-xl border-blue-500/40 text-blue-400 text-[10px] font-black uppercase tracking-widest cursor-pointer"
-                >
-                    + Add Secondary Asset to 50% KAS Liquidity Plant
-                </button>
-            {/if}
-
-            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4">
-                <div class="flex justify-between items-center mb-3">
-                    <span
-                        class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest"
-                    >
-                        Stake Duration Lockup
+            <!-- LOCKUP DURATION BAR -->
+            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3 flex flex-col gap-2">
+                <div class="flex items-center justify-between text-[9px] px-1">
+                    <span class="font-bold uppercase tracking-widest text-neutral-400">
+                        Lock Duration
                     </span>
-                    <span
-                        class="text-[10px] font-black text-[#18C6A5] uppercase tracking-widest"
-                    >
-                        {LOCK_OPTIONS[lockDurationIndex].label} ({LOCK_OPTIONS[
-                            lockDurationIndex
-                        ].multiplier}x Yield)
+                    <span class="font-bold text-[#18C6A5]">
+                        Total Value: ${lpTotalUsdValue.toFixed(2)} USD
                     </span>
                 </div>
-                <input
-                    type="range"
-                    min="0"
-                    max="3"
-                    step="1"
-                    bind:value={lockDurationIndex}
-                    class="custom-range-slider w-full"
-                />
-                <div
-                    class="flex justify-between mt-3 text-[9px] font-bold uppercase tracking-widest text-neutral-500"
-                >
-                    <span>Flex (1.0x)</span>
-                    <span>30D (1.2x)</span>
-                    <span>90D (1.5x)</span>
-                    <span>365D (2.5x)</span>
+                <div class="grid grid-cols-4 gap-1.5">
+                    {#each LOCK_OPTIONS as opt, idx (opt.days)}
+                        <button
+                            type="button"
+                            data-testid="lp-lock-option-{opt.days}"
+                            onclick={() => (lockDurationIndex = idx)}
+                            class="py-2 px-2 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {lockDurationIndex ===
+                            idx
+                                ? 'bg-[#161d29] border-[#18C6A5] text-white'
+                                : 'bg-[#0a0d12] border-white/10 text-neutral-400 hover:text-white'}"
+                        >
+                            <span class="text-[10px] font-black uppercase">
+                                {opt.days === 0 ? 'Flex' : `${opt.days}d`}
+                            </span>
+                            <span class="text-[8px] text-[#18C6A5] font-bold">
+                                {opt.multiplier}
+                            </span>
+                        </button>
+                    {/each}
                 </div>
-                {#if livePlantInvariantK > 0}
-                    <div
-                        class="border-t border-white/10 pt-2.5 mt-3 flex justify-between text-[9px] font-mono text-neutral-400"
-                    >
-                        <span>Constant-Mean Invariant (k):</span>
-                        <span class="text-[#18C6A5] font-bold tabular-nums">
-                            {livePlantInvariantK.toFixed(4)} ({totalPlantInternalPairs}
-                            Cross-Pairs)
-                        </span>
-                    </div>
-                {/if}
             </div>
 
-            <div class="relative">
+            <!-- SUPPLY LIQUIDITY CTA -->
+            <div class="relative mt-0.5">
                 {#if ui.microBadges['dex_lp_stake_btn']}
                     <div
-                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
+                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-black uppercase"
                     >
                         {ui.microBadges['dex_lp_stake_btn'].label}
                     </div>
                 {/if}
                 <button
                     type="button"
-                    data-testid="dex-stake-lp-submit-btn"
+                    data-testid="dex-supply-lp-btn"
                     onclick={onExecuteSupplyLiquidity}
-                    disabled={!identity.isWalletConnected ||
-                        !lpAmountA ||
-                        !lpAmountB ||
-                        isProvidingLiquidity}
-                    class="tactile-btn w-full py-4 rounded-2xl text-white text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={isProvidingLiquidity ||
+                        !(parseFloat(lpAmountA) > 0)}
+                    class="tactile-btn w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest text-white cursor-pointer disabled:opacity-45 transition-all duration-300"
                     style="
-                        border-color: {ambientSecondaryHex}50;
-                        background-image: radial-gradient(ellipse at center, {ambientSecondaryHex}24, transparent 70%);
-                        box-shadow: 0 10px 28px -8px {ambientSecondaryHex}30;
+                        border-color: {tokenBHex}65;
+                        background-image: radial-gradient(ellipse at center, {tokenBHex}28, transparent 70%);
                     "
                 >
-                    {isProvidingLiquidity
-                        ? 'Provisioning LP Plant...'
-                        : `Lock Capital & Stake ${plantPairSummary} (${LOCK_OPTIONS[lockDurationIndex].label})`}
+                    {#if isProvidingLiquidity}
+                        Supplying Liquidity...
+                    {:else}
+                        Supply {[
+                            'KAS',
+                            lpTokenB.ticker,
+                            ...extraPlantLegs.map((l) => l.ticker)
+                        ].join('/')} Liquidity →
+                    {/if}
                 </button>
             </div>
-        </div>
 
-        <div
-            class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-4 min-h-[480px]"
-            style="background-image: radial-gradient(ellipse at top right, {ambientSecondaryHex}14, transparent 65%);"
-        >
-            <div
-                class="flex justify-between items-center border-b border-white/10 pb-3"
-            >
-                <div class="flex flex-col">
-                    <h4
-                        class="text-xs font-black uppercase tracking-widest text-white"
-                    >
-                        Active Staked Liquidity Plants
-                    </h4>
-                    <span
-                        class="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mt-0.5"
-                    >
-                        50%-KAS Constant-Mean Invariant • Rebalanced Daily at
-                        22:00 UTC Global Settlement
+            <!-- ACTIVE LP POSITIONS (COMPACT) -->
+            {#if lpPositions.length > 0}
+                <div class="flex flex-col gap-2 pt-2 border-t border-white/10">
+                    <span class="text-[9px] font-black uppercase tracking-widest text-neutral-400 px-1">
+                        Active Positions ({lpPositions.length})
                     </span>
-                </div>
-                <span
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-mono text-[#18C6A5] uppercase"
-                >
-                    {lpPositions.length} ACTIVE
-                </span>
-            </div>
-
-            <div
-                class="flex flex-col gap-3 max-h-[460px] overflow-y-auto hide-scrollbar pr-0.5"
-            >
-                {#each lpPositions as pos (pos.lpId)}
-                    {@const pairTokens = (
-                        pos.poolPair || 'KAS/USDC'
-                    ).split('/')}
-                    {@const posBadge = ui.microBadges[`lp_pos_${pos.lpId}`]}
-                    {@const pairCombinations =
-                        pos.internalPairsCount ||
-                        (pairTokens.length * (pairTokens.length - 1)) / 2}
-                    <div
-                        data-testid="lp-position-card-{pos.lpId}"
-                        class="tactile-card bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3 relative"
-                    >
-                        {#if posBadge}
-                            <div
-                                class="micro-confirm-badge absolute top-2 right-2 px-2.5 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase"
-                            >
-                                {posBadge.label}
-                            </div>
-                        {/if}
-                        <div class="flex justify-between items-start">
-                            <div class="flex flex-col">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <span
-                                        class="font-bold text-white text-sm tracking-wide"
-                                    >
-                                        {pos.poolPair}
-                                    </span>
-                                    <span
-                                        class="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest {pos.lockDurationDays >=
-                                        365
-                                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                                            : pos.lockDurationDays >= 90
-                                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
-                                              : 'bg-[#0a0d12] text-neutral-400 border border-white/10'}"
-                                    >
-                                        {pos.multiplier}x Multiplier
-                                    </span>
-                                    <span
-                                        class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/30 text-[8px] font-mono text-[#18C6A5]"
-                                    >
-                                        {pairCombinations} Cross-Pair{pairCombinations ===
-                                        1
-                                            ? ''
-                                            : 's'}
-                                    </span>
-                                </div>
-                                {#if pos.reserves && Object.keys(pos.reserves).length > 2}
-                                    <span
-                                        class="text-[10px] font-mono text-neutral-300 mt-1"
-                                    >
-                                        {Object.entries(pos.reserves)
-                                            .map(
-                                                ([t, q]) =>
-                                                    `${Number(q).toFixed(4)} ${t}`
-                                            )
-                                            .join(' + ')}
-                                    </span>
-                                {:else}
-                                    <span
-                                        class="text-[10px] font-mono text-neutral-400 mt-1"
-                                    >
-                                        {pos.stakedAssetA.toFixed(4)}
-                                        {pairTokens[0] || 'KAS'} + {pos.stakedAssetB.toFixed(
-                                            6
-                                        )}
-                                        {pairTokens[1] || 'USDC'}
-                                    </span>
-                                {/if}
-                            </div>
-                            <div class="flex flex-col items-end">
-                                <span
-                                    class="text-[8px] font-mono uppercase tracking-widest {pos.isUnlocked
-                                        ? 'text-[#18C6A5]'
-                                        : 'text-amber-400'}"
-                                >
-                                    {pos.isUnlocked ? 'Matured' : 'Timelocked'}
-                                </span>
-                                <span
-                                    class="text-[9px] font-mono text-neutral-500 mt-0.5"
-                                >
-                                    {pos.unlockDate && pos.lockDurationDays > 0
-                                        ? new Date(
-                                              pos.unlockDate
-                                          ).toLocaleDateString()
-                                        : 'Flexible'}
-                                </span>
-                            </div>
-                        </div>
+                    {#each lpPositions as pos (pos.id)}
                         <div
-                            class="flex justify-between items-center border-t border-white/5 pt-3"
+                            data-testid="lp-position-card-{pos.id}"
+                            class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 text-[10px]"
                         >
                             <div class="flex flex-col">
-                                <span
-                                    class="text-[8px] uppercase tracking-widest text-neutral-500 font-bold"
-                                >
-                                    Weighted Share Volume
+                                <span class="font-black text-white">
+                                    {pos.poolPair} • ${Number(
+                                        pos.usdValue || 0
+                                    ).toFixed(2)}
                                 </span>
-                                <span
-                                    class="text-xs font-mono font-bold text-[#18C6A5]"
-                                >
-                                    {pos.weightedTvl.toFixed(4)}
-                                    {pairTokens[0] || 'KAS'}
+                                <span class="text-[9px] text-neutral-400">
+                                    {Number(pos.amountA || 0).toFixed(2)} KAS +
+                                    {Number(pos.amountB || 0).toFixed(4)}
                                 </span>
                             </div>
                             <button
                                 type="button"
-                                onclick={() => onWithdrawLpPosition(pos.lpId)}
-                                disabled={!pos.isUnlocked ||
-                                    isWithdrawingLp === pos.lpId}
-                                class="tactile-btn px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed {pos.isUnlocked
-                                    ? 'text-[#18C6A5] border-[#18C6A5]/40'
-                                    : 'text-neutral-500'}"
+                                data-testid="withdraw-lp-btn-{pos.id}"
+                                onclick={() => onWithdrawLpPosition(pos.id)}
+                                disabled={isWithdrawingLp === pos.id ||
+                                    Boolean(pos.isLocked)}
+                                class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer disabled:opacity-40"
                             >
-                                {#if isWithdrawingLp === pos.lpId}
-                                    Unlocking...
-                                {:else if pos.isUnlocked}
-                                    Withdraw LP
-                                {:else}
-                                    Locked
-                                {/if}
+                                {isWithdrawingLp === pos.id
+                                    ? '...'
+                                    : pos.isLocked
+                                      ? 'Locked'
+                                      : 'Withdraw'}
                             </button>
                         </div>
-                    </div>
-                {/each}
-                {#if lpPositions.length === 0}
-                    <div
-                        class="flex-1 flex flex-col items-center justify-center text-center py-16 px-4 border border-dashed border-white/10 rounded-2xl bg-[#11161f]/40"
-                    >
-                        <span
-                            class="text-xs font-bold uppercase tracking-widest text-neutral-400 mb-1"
-                        >
-                            No Active Staked Liquidity Plants
-                        </span>
-                        <span
-                            class="text-[10px] font-mono text-neutral-500 max-w-xs leading-relaxed"
-                        >
-                            Supply a 50% KAS Liquidity Plant on the left or add
-                            2+ assets to a sector in Operations to earn 80% of
-                            pool settlement fees.
-                        </span>
-                    </div>
-                {/if}
-            </div>
-        </div>
-    </div>
-
-    <!-- SILO 7-DAY COOLDOWN STAKING & 1-CLICK FIAT-TO-SILO PIPELINE -->
-    <div
-        data-testid="silo-staking-vault-card"
-        class="bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
-        style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), rgba(245, 158, 11, 0.08) 55%, transparent 72%);"
-    >
-        <div
-            class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-4"
-        >
-            <div class="flex items-center gap-3.5">
-                <div
-                    class="w-11 h-11 rounded-2xl bg-[#11161f] border border-[#18C6A5]/40 flex items-center justify-center text-[#18C6A5] font-black text-sm shrink-0"
-                >
-                    {DEFAULT_ECOSYSTEM_TICKER}
-                </div>
-                <div class="flex flex-col">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <h3
-                            class="text-xs md:text-sm font-black uppercase tracking-widest text-white"
-                        >
-                            {DEFAULT_ECOSYSTEM_TICKER} 7-Day Cooldown Staking &amp;
-                            Fee-Discount Vault
-                        </h3>
-                        <span
-                            data-testid="silo-active-tier-badge"
-                            class="px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase"
-                        >
-                            {siloStakingTelemetry.tierLabel}
-                        </span>
-                    </div>
-                    <span class="text-[10px] text-neutral-400 mt-0.5">
-                        Stake {DEFAULT_ECOSYSTEM_TICKER} to unlock protocol fee discounts
-                        across 24/7 Wall Street Equity, Commodity, and Crypto swaps
-                        (7-day unbonding cooldown).
-                    </span>
-                </div>
-            </div>
-            <div class="flex flex-wrap items-center gap-2 text-[9px] font-mono">
-                <span
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-neutral-300 whitespace-nowrap"
-                >
-                    ≥10k {DEFAULT_ECOSYSTEM_TICKER}:
-                    <strong class="text-[#18C6A5]">0.75% Fee</strong>
-                </span>
-                <span
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-neutral-300 whitespace-nowrap"
-                >
-                    ≥100k {DEFAULT_ECOSYSTEM_TICKER}:
-                    <strong class="text-amber-400">0.50% Fee</strong>
-                </span>
-                <span
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-neutral-300 whitespace-nowrap"
-                >
-                    ≥1M {DEFAULT_ECOSYSTEM_TICKER}:
-                    <strong class="text-blue-400">0.25% Fee</strong>
-                </span>
-            </div>
-        </div>
-
-        <!-- 1-CLICK FIAT-TO-SILO (BUY & AUTO-STAKE) ACTION BAR -->
-        <div
-            class="bg-[#11161f] border border-[#18C6A5]/40 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-        >
-            <div class="flex flex-col gap-1">
-                <div class="flex items-center gap-2 flex-wrap">
-                    <span
-                        class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase whitespace-nowrap"
-                    >
-                        1-CLICK FIAT-TO-SILO
-                    </span>
-                    <span
-                        class="text-xs font-black uppercase tracking-wider text-white"
-                    >
-                        Direct Bank / Card → {DEFAULT_ECOSYSTEM_TICKER} Fee-Discount
-                        Vault
-                    </span>
-                </div>
-                <span class="text-[10px] text-neutral-400">
-                    Need {DEFAULT_ECOSYSTEM_TICKER}? Buy directly with USD (~{estimatedSiloFromFiat.toLocaleString(
-                        undefined,
-                        { maximumFractionDigits: 0 }
-                    )}
-                    {DEFAULT_ECOSYSTEM_TICKER} for ${fiatToSiloPresetUsd} USD) and
-                    auto-stake into your Fee Shield in one click.
-                </span>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2 shrink-0">
-                <div
-                    class="flex items-center gap-1 bg-[#0a0d12] p-1 rounded-xl border border-white/10"
-                >
-                    {#each ['100', '250', '500', '2000'] as usdPreset}
-                        <button
-                            type="button"
-                            onclick={() => (fiatToSiloPresetUsd = usdPreset)}
-                            class="px-2 py-1 rounded-lg text-[9px] font-mono font-bold uppercase cursor-pointer transition-colors whitespace-nowrap {fiatToSiloPresetUsd ===
-                            usdPreset
-                                ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40'
-                                : 'text-neutral-400 hover:text-white'}"
-                        >
-                            ${Number(usdPreset).toLocaleString()}
-                        </button>
                     {/each}
                 </div>
-
-                <label
-                    class="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#0a0d12] border border-white/10 text-[9px] font-mono font-bold text-neutral-300 cursor-pointer select-none whitespace-nowrap"
-                >
-                    <input
-                        type="checkbox"
-                        bind:checked={autoStakeOnFiatBuy}
-                        class="accent-[#18C6A5] cursor-pointer"
-                    />
-                    <span>Auto-Stake Vault</span>
-                </label>
-
-                <button
-                    type="button"
-                    data-testid="silo-buy-autostake-fiat-btn"
-                    onclick={() =>
-                        ui.openFiatModal(
-                            DEFAULT_ECOSYSTEM_TICKER,
-                            autoStakeOnFiatBuy,
-                            fiatToSiloPresetUsd
-                        )}
-                    class="tactile-btn px-4 py-2.5 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer whitespace-nowrap"
-                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
-                >
-                    {autoStakeOnFiatBuy
-                        ? `[ $ Buy & Auto-Stake SILO ($${fiatToSiloPresetUsd}) → ]`
-                        : `[ $ Buy SILO with USD ($${fiatToSiloPresetUsd}) → ]`}
-                </button>
-            </div>
+            {/if}
         </div>
 
-        {#if swapError}
-            <div
-                class="bg-red-950/25 border border-red-500/40 p-3 rounded-xl text-center"
-            >
+        <!-- RIGHT COLUMN: STREAMLINED SILO FEE TIER STAKING -->
+        <div
+            data-testid="silo-staking-card"
+            class="lg:col-span-5 bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
+            style="
+                border-color: {siloHex}45;
+                background-image:
+                    radial-gradient(ellipse at top right, {siloHex}20, transparent 60%),
+                    radial-gradient(ellipse at bottom left, rgba(24, 198, 165, 0.12), transparent 65%);
+                box-shadow:
+                    0 20px 60px -15px rgba(0, 0, 0, 0.85),
+                    0 0 40px -15px {siloHex}25;
+            "
+        >
+            <!-- HEADER -->
+            <div class="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
+                <div class="flex items-center gap-2.5">
+                    <span
+                        class="w-2.5 h-2.5 rounded-full"
+                        style="background-color: {siloHex}; box-shadow: 0 0 10px {siloHex}80;"
+                    ></span>
+                    <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
+                        {DEFAULT_ECOSYSTEM_TICKER} Fee Tier
+                    </h3>
+                </div>
                 <span
-                    class="text-[10px] font-mono font-bold uppercase tracking-widest text-red-400"
+                    data-testid="silo-active-fee-tier"
+                    class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase"
                 >
-                    ⚠ {swapError}
+                    {activeFeePct}% Active Fee
                 </span>
             </div>
-        {/if}
 
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            <!-- 3 VISUAL FEE TIER PILLS (HOW STAKING IMPACTS FEES) -->
+            <div class="grid grid-cols-3 gap-2">
+                {#each [
+                    {
+                        id: 'standard',
+                        fee: '1.50%',
+                        req: '0 SILO',
+                        active: siloStakingTelemetry.combinedEligibleStaked < 10000
+                    },
+                    {
+                        id: 'shield',
+                        fee: '0.75%',
+                        req: '10k+ SILO',
+                        active:
+                            siloStakingTelemetry.combinedEligibleStaked >=
+                                10000 &&
+                            siloStakingTelemetry.combinedEligibleStaked < 100000
+                    },
+                    {
+                        id: 'sovereign',
+                        fee: '0.25%',
+                        req: '100k+ SILO',
+                        active:
+                            siloStakingTelemetry.combinedEligibleStaked >=
+                            100000
+                    }
+                ] as tier (tier.id)}
+                    <div
+                        data-testid="silo-tier-pill-{tier.id}"
+                        class="p-3 rounded-2xl border flex flex-col items-center justify-center gap-0.5 transition-all {tier.active
+                            ? 'bg-[#161d29] border-[#18C6A5] shadow-lg'
+                            : 'bg-[#11161f] border-white/10 opacity-70'}"
+                    >
+                        <span
+                            class="text-base md:text-lg font-black tabular-nums {tier.active
+                                ? 'text-[#18C6A5]'
+                                : 'text-white'}"
+                        >
+                            {tier.fee}
+                        </span>
+                        <span class="text-[9px] font-bold uppercase text-neutral-400">
+                            {tier.req}
+                        </span>
+                    </div>
+                {/each}
+            </div>
+
+            <!-- STAKE INPUT CARD (DEX STYLE) -->
             <div
-                class="lg:col-span-5 bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3 relative"
+                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border"
+                style="
+                    border-color: {siloHex}50;
+                    background-image: radial-gradient(ellipse at bottom right, {siloHex}22, transparent 68%);
+                "
             >
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                        Stake {DEFAULT_ECOSYSTEM_TICKER}
+                    </span>
+                    <div class="flex items-center gap-1">
+                        {#each [0.25, 0.5, 0.75, 1.0] as pct}
+                            <button
+                                type="button"
+                                onclick={() => setSiloPercentage(pct)}
+                                class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-bold text-neutral-300 hover:text-white cursor-pointer"
+                            >
+                                {pct === 1.0 ? 'MAX' : `${pct * 100}%`}
+                            </button>
+                        {/each}
+                        <button
+                            type="button"
+                            data-testid="silo-buy-with-usd-btn"
+                            onclick={() =>
+                                ui.openFiatModal(
+                                    DEFAULT_ECOSYSTEM_TICKER,
+                                    true,
+                                    '250'
+                                )}
+                            class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-black text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer ml-0.5"
+                        >
+                            + Buy
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between gap-3">
+                    <input
+                        type="number"
+                        data-testid="silo-stake-amount-input"
+                        min="0"
+                        step="any"
+                        bind:value={siloStakeAmountInput}
+                        placeholder="0.00"
+                        class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none placeholder-neutral-600 tabular-nums"
+                    />
+                    <div
+                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[#0a0d12] border"
+                        style="border-color: {siloHex}55;"
+                    >
+                        <div
+                            class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black"
+                            style="background-color: {siloHex}22; color: {siloHex}; border: 1px solid {siloHex}60;"
+                        >
+                            S
+                        </div>
+                        <div class="flex flex-col items-start leading-tight">
+                            <span class="text-xs font-black text-white uppercase">
+                                {DEFAULT_ECOSYSTEM_TICKER}
+                            </span>
+                            <span
+                                class="text-[9px] font-bold"
+                                style="color: {siloHex};"
+                            >
+                                {formatSpotDisplay(siloAsset.spotPrice)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between text-[10px] text-neutral-400 pt-0.5">
+                    <span data-testid="silo-staked-balance-display">
+                        Staked: <strong class="text-white"
+                            >{siloStakingTelemetry.combinedEligibleStaked.toLocaleString()}</strong
+                        >
+                        {DEFAULT_ECOSYSTEM_TICKER}
+                    </span>
+                    <span>
+                        Available: {siloAsset.availableBalance.toLocaleString(
+                            undefined,
+                            { maximumFractionDigits: 2 }
+                        )}
+                    </span>
+                </div>
+            </div>
+
+            <!-- STAKE BUTTON -->
+            <div class="relative">
                 {#if ui.microBadges['silo_stake_btn']}
                     <div
-                        class="micro-confirm-badge absolute -top-3 right-3 px-2.5 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase"
+                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-black uppercase"
                     >
                         {ui.microBadges['silo_stake_btn'].label}
                     </div>
                 {/if}
-                <div class="flex justify-between items-center text-[10px]">
-                    <span
-                        class="font-bold uppercase tracking-widest text-neutral-300"
-                    >
-                        Stake Existing {DEFAULT_ECOSYSTEM_TICKER} (7-Day Cooldown)
-                    </span>
-                    <button
-                        type="button"
-                        onclick={() => {
-                            siloStakeAmountInput = String(
-                                siloAsset.availableBalance || 0
-                            );
-                        }}
-                        class="tactile-btn px-2 py-0.5 rounded text-[8px] font-bold uppercase text-[#18C6A5] cursor-pointer"
-                    >
-                        [MAX: {siloAsset.availableBalance.toLocaleString()}]
-                    </button>
-                </div>
-                <div class="flex items-center gap-2">
-                    <input
-                        type="number"
-                        data-testid="silo-stake-amount-input"
-                        bind:value={siloStakeAmountInput}
-                        placeholder="10000"
-                        class="flex-1 bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-white outline-none"
-                    />
-                    <button
-                        type="button"
-                        data-testid="silo-stake-submit-btn"
-                        onclick={onExecuteStakeSilo}
-                        disabled={isStakingSilo ||
-                            !siloStakeAmountInput ||
-                            parseFloat(siloStakeAmountInput) <= 0}
-                        class="tactile-btn px-5 py-2.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 whitespace-nowrap"
-                    >
-                        {isStakingSilo
-                            ? 'Staking...'
-                            : `Stake ${DEFAULT_ECOSYSTEM_TICKER}`}
-                    </button>
-                </div>
-                <div
-                    class="flex justify-between text-[9px] text-neutral-400 pt-1 border-t border-white/5"
+                <button
+                    type="button"
+                    data-testid="silo-stake-submit-btn"
+                    onclick={onExecuteStakeSilo}
+                    disabled={isStakingSilo ||
+                        !(parseFloat(siloStakeAmountInput) > 0)}
+                    class="tactile-btn w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest text-white cursor-pointer disabled:opacity-45 transition-all duration-300"
+                    style="
+                        border-color: {siloHex}65;
+                        background-image: radial-gradient(ellipse at center, {siloHex}28, transparent 70%);
+                    "
                 >
-                    <span>
-                        Active Staked: <strong class="text-white"
-                            >{siloStakingTelemetry.activeStaked.toLocaleString()}
-                            {DEFAULT_ECOSYSTEM_TICKER}</strong
-                        >
-                    </span>
-                    <span>
-                        In 7D Cooldown: <strong class="text-amber-400"
-                            >{siloStakingTelemetry.cooldownStaked.toLocaleString()}
-                            {DEFAULT_ECOSYSTEM_TICKER}</strong
-                        >
-                    </span>
-                </div>
+                    {#if isStakingSilo}
+                        Staking {DEFAULT_ECOSYSTEM_TICKER}...
+                    {:else}
+                        Stake {DEFAULT_ECOSYSTEM_TICKER} →
+                    {/if}
+                </button>
             </div>
 
-            <div class="lg:col-span-7 flex flex-col gap-2.5">
-                {#if siloStakingTelemetry.positions.length === 0}
-                    <div
-                        class="py-8 text-center border border-dashed border-white/10 rounded-2xl bg-[#11161f]/40 text-[10px] text-neutral-500 uppercase tracking-widest"
-                    >
-                        No active {DEFAULT_ECOSYSTEM_TICKER} staking positions. Stake
-                        ≥10,000 {DEFAULT_ECOSYSTEM_TICKER} or use 1-Click Buy &amp;
-                        Auto-Stake above to unlock the 0.75% fee tier.
+            <!-- ACTIVE STAKES & 7D COOLDOWN LIST -->
+            {#if siloStakingTelemetry.positions.length > 0}
+                <div class="flex flex-col gap-2 pt-2 border-t border-white/10">
+                    <div class="flex items-center justify-between text-[9px] text-neutral-400 px-1">
+                        <span class="font-black uppercase tracking-widest">
+                            Staked Positions
+                        </span>
+                        <span>7-Day Unstake Cooldown</span>
                     </div>
-                {:else}
-                    {#each siloStakingTelemetry.positions as spos (spos.stakeId)}
-                        {@const sBadge =
-                            ui.microBadges[`silo_pos_${spos.stakeId}`]}
+                    {#each siloStakingTelemetry.positions as pos (pos.id)}
                         <div
-                            data-testid="silo-stake-row-{spos.stakeId}"
-                            class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[10px] relative"
+                            data-testid="silo-position-row-{pos.id}"
+                            class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 text-[10px]"
                         >
-                            {#if sBadge}
-                                <div
-                                    class="micro-confirm-badge absolute -top-2.5 right-3 px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase"
+                            <div class="flex flex-col">
+                                <span class="font-black text-white">
+                                    {Number(pos.amount || 0).toLocaleString()}
+                                    {DEFAULT_ECOSYSTEM_TICKER}
+                                </span>
+                                <span
+                                    class="text-[9px] {pos.status === 'ACTIVE'
+                                        ? 'text-[#18C6A5]'
+                                        : 'text-amber-400'}"
                                 >
-                                    {sBadge.label}
-                                </div>
+                                    {pos.status === 'ACTIVE'
+                                        ? 'Active Fee Shield'
+                                        : formatCooldownTag(pos.cooldownEndsAt)}
+                                </span>
+                            </div>
+
+                            {#if pos.status === 'ACTIVE'}
+                                <button
+                                    type="button"
+                                    data-testid="silo-start-cooldown-btn-{pos.id}"
+                                    onclick={() =>
+                                        onInitiateSiloCooldown(pos.id)}
+                                    disabled={isMutatingSiloId === pos.id}
+                                    class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-amber-400 border-amber-500/40 cursor-pointer"
+                                >
+                                    {isMutatingSiloId === pos.id
+                                        ? '...'
+                                        : 'Unstake (7d)'}
+                                </button>
+                            {:else}
+                                <button
+                                    type="button"
+                                    data-testid="silo-claim-unstaked-btn-{pos.id}"
+                                    onclick={() => onClaimUnstakedSilo(pos.id)}
+                                    disabled={isMutatingSiloId === pos.id}
+                                    class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                                >
+                                    {isMutatingSiloId === pos.id
+                                        ? '...'
+                                        : 'Claim'}
+                                </button>
                             {/if}
-                            <div class="flex flex-col gap-0.5">
-                                <div class="flex items-center gap-2">
-                                    <span class="font-black text-white text-xs">
-                                        {Number(
-                                            spos.amountStaked || 0
-                                        ).toLocaleString()}
-                                        {spos.ticker}
-                                    </span>
-                                    <span
-                                        class="px-2 py-0.5 rounded text-[8px] font-black uppercase border {spos.status ===
-                                        'ACTIVE'
-                                            ? 'border-[#18C6A5]/40 text-[#18C6A5] bg-[#18C6A5]/10'
-                                            : 'border-amber-500/40 text-amber-400 bg-amber-500/10'}"
-                                    >
-                                        {spos.status === 'ACTIVE'
-                                            ? 'ACTIVE FEE SHIELD'
-                                            : '7-DAY COOLDOWN'}
-                                    </span>
-                                </div>
-                                {#if spos.status === 'COOLDOWN' && spos.cooldownEndsAt}
-                                    <span class="text-[9px] text-amber-400">
-                                        Unbonding Cooldown Ends: {new Date(
-                                            spos.cooldownEndsAt
-                                        ).toLocaleString()}
-                                    </span>
-                                {:else}
-                                    <span class="text-[9px] text-neutral-400">
-                                        Unstaking requires a 7-day cooldown
-                                        period before withdrawal.
-                                    </span>
-                                {/if}
-                            </div>
-                            <div class="flex items-center gap-2 shrink-0">
-                                {#if spos.status === 'ACTIVE'}
-                                    <button
-                                        type="button"
-                                        data-testid="silo-initiate-cooldown-btn-{spos.stakeId}"
-                                        disabled={isMutatingSiloId ===
-                                            spos.stakeId}
-                                        onclick={() =>
-                                            onInitiateSiloCooldown(
-                                                spos.stakeId
-                                            )}
-                                        class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider text-amber-400 border-amber-500/40 cursor-pointer disabled:opacity-40 whitespace-nowrap"
-                                    >
-                                        {isMutatingSiloId === spos.stakeId
-                                            ? 'Starting...'
-                                            : '[Initiate 7-Day Cooldown]'}
-                                    </button>
-                                {:else}
-                                    <button
-                                        type="button"
-                                        data-testid="silo-claim-unstaked-btn-{spos.stakeId}"
-                                        disabled={!spos.isMatured ||
-                                            isMutatingSiloId === spos.stakeId}
-                                        onclick={() =>
-                                            onClaimUnstakedSilo(spos.stakeId)}
-                                        class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider cursor-pointer disabled:opacity-40 whitespace-nowrap {spos.isMatured
-                                            ? 'text-[#18C6A5] border-[#18C6A5]/45'
-                                            : 'text-neutral-500'}"
-                                    >
-                                        {spos.isMatured
-                                            ? '[Claim Unstaked SILO ✓]'
-                                            : 'Cooldown Active (7D)'}
-                                    </button>
-                                {/if}
-                            </div>
                         </div>
                     {/each}
-                {/if}
-            </div>
+                </div>
+            {/if}
         </div>
     </div>
 </div>

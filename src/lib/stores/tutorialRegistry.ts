@@ -1,3 +1,4 @@
+// WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\stores\tutorialRegistry.ts
 import type { Worker, Sector } from './type';
 
 export type TutorialInteractionMode = 'ACTION' | 'READ';
@@ -43,8 +44,8 @@ export const TUTORIAL_CHAPTERS: TutorialChapterMeta[] = [
     {
         chapter: 2,
         code: 'SILO',
-        title: 'Direct Bank Purchases, Buy SILO & Fee Shield',
-        subtitle: 'Buy SILO or any crypto/equity directly from your bank, and stake SILO for 0.75%–0.25% fees',
+        title: 'Fiat Bridge, Buy SILO & 3-Tier Fee Shield',
+        subtitle: 'Fund via Instant Bank/Card or Bank Wire, buy SILO, and unlock 1.50% → 0.75% → 0.25% fees',
         tab: 'DEX',
         accentHex: '#18C6A5'
     },
@@ -67,24 +68,24 @@ export const TUTORIAL_CHAPTERS: TutorialChapterMeta[] = [
     {
         chapter: 5,
         code: 'Exchange',
-        title: 'The Exchange (24/7 Wall St. & Crypto)',
-        subtitle: 'Search crypto & Wall Street pairs, inspect swap quotes, and provide 50%-KAS LP',
+        title: 'The Exchange (Swaps, 50%-KAS LP & Atomic P2P)',
+        subtitle: 'Trade 24/7 crypto & equities, supply 50%-KAS liquidity, and post atomic P2P offers',
         tab: 'DEX',
         accentHex: '#F59E0B'
     },
     {
         chapter: 6,
         code: 'Treasury',
-        title: 'Multi-Chain Treasury & Cold Airlock',
-        subtitle: 'Inspect balances, configure the Cold Vault Airlock, and view L1 payouts',
+        title: 'Multi-Chain Treasury & Per-Token Cold Vault',
+        subtitle: 'Inspect balances, configure per-token [Cold Vault] auto-sweeps, and view L1 payouts',
         tab: 'TREASURY',
         accentHex: '#3B82F6'
     },
     {
         chapter: 7,
         code: 'Tax',
-        title: 'Zero-PII Tax Fortress, Settings & Guide',
-        subtitle: 'Configure your jurisdiction, choose USDC or Auto-LP tax escrow, and explore System Settings',
+        title: 'Zero-PII Tax Fortress, External Cost Basis & Settings',
+        subtitle: 'Configure jurisdiction, protect Form 8949 with External Cost Basis, and set Language/FX',
         tab: 'TAX FORTRESS',
         accentHex: '#18C6A5'
     }
@@ -544,7 +545,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             badge: 'Wallet • Step 9 of 9',
             title: 'Verify Your Seed & Log In to Your Vault',
             description:
-                'We have filled in the two requested words from your sandbox phrase. Click [Verify & Unlock Sovereign Vault ✓] to complete sign-up and move directly to Direct Bank Purchasing & SILO!',
+                'We have filled in the two requested words from your sandbox phrase. Click [Verify & Unlock Sovereign Vault ✓] to complete sign-up and move directly to the Fiat Bridge & SILO Fee Shield!',
             bullets: [
                 'Once verified, your wallet unlocks in the top-right header (`UNLOCKED`).',
                 'Click the highlighted [Verify & Unlock Sovereign Vault ✓] button.'
@@ -562,15 +563,15 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             tab: 'DEX',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod2silo-fiat-onramp-panel"]',
-            fallbackSelector: '[data-testid="fiat-onramp-tab-btn"]',
+            fallbackSelector: '[data-testid="fiat-step1-calculator-card"]',
             badge: 'SILO & Fiat • Step 1 of 13',
-            title: 'Step 1: Direct-from-Bank Purchasing (SILO, Crypto & Equities)',
+            title: 'Step 1: Instant Bank / Card vs. Bank Wire Settlement',
             description:
-                'Now that you are logged in, you can purchase SILO—or any supported L1 crypto, stablecoin, or 24/7 Wall Street equity—directly from your bank account or card just like a centralized exchange, while keeping 100% self-custody:',
+                'The Fiat Bridge lets you buy SILO, KAS, BTC, ETH, SOL, USDC, or 24/7 Wall Street assets directly with USD while keeping 100% self-custody:',
             bullets: [
-                'Buy Any Token Directly with USD: Enter any USD amount (e.g. $250 USD) and fund via Sovereign Wire / ACH (0.75% fee, or 0.50% ≥$2,000) or Instant Card.',
-                'Automated Multi-Leg Backend Routing: Behind the scenes, Perennia’s settlement engine breaks your USD purchase into atomic conversion legs and delivers your chosen token directly to your Internal Ledger ($0 gas), L1 wallet, or Staking Vault.',
-                'Click [Next →] to generate a direct bank purchase order.'
+                'Instant Bank / Card (Stripe Onramp & ACH): Link your checking or savings account (Mod-10 ABA verified) or use a card for immediate purchase execution.',
+                'Bank Wire (Bridge Virtual Account): Generates a dedicated commercial virtual account and wire memo for same-day wire settlement ($15 wire fee waived on orders ≥$2,500).',
+                'Locked USD Input & Dynamic Shading: Switching tokens dynamically shades the card in that asset’s theme color without ever resetting your USD amount. Click [Next →] to create an order.'
             ],
             accentHex: '#18C6A5'
         },
@@ -581,17 +582,17 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 13,
             tab: 'DEX',
             mode: 'ACTION',
-            targetSelector: '[data-tour-target="mod2silo-onramp-submit-btn"]',
-            fallbackSelector: '[data-tour="dex-workspace"] button',
+            targetSelector: '[data-testid="fiat-generate-pass-cta"]',
+            fallbackSelector: '[data-tour-target="mod2silo-onramp-submit-btn"]',
             chevronPlacement: 'top',
-            actionHint: 'Click Generate Wire / ACH Order',
+            actionHint: 'Click Buy KAS / Generate Order',
             badge: 'SILO & Fiat • Step 2 of 13',
-            title: 'Generate Your Direct Bank Purchase Order',
+            title: 'Execute Your Direct Bank Purchase Order',
             description:
-                'Click the highlighted [Generate Sovereign Wire / ACH Order & Memo] button at the bottom of the Fiat Bridge to create your direct bank purchase order.',
+                'Click the highlighted [Buy KAS →] button at the bottom of the Fiat Bridge to lock your quote and generate your settlement receipt.',
             bullets: [
-                'Generating an order locks your reference memo and target asset delivery instructions.',
-                'Click the highlighted button to see your order confirmation.'
+                'You can choose delivery directly to your Self-Custody Wallet (L1), Platform Balance ($0 Gas), or 1-Click Auto-Stake SILO.',
+                'Click the highlighted purchase button to see your settlement receipt.'
             ],
             accentHex: '#18C6A5',
             advanceDelayMs: 320
@@ -603,16 +604,16 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 13,
             tab: 'DEX',
             mode: 'READ',
-            targetSelector: '[data-tour-target="mod2silo-onramp-receipt-card"]',
-            fallbackSelector: '[data-testid="fiat-onramp-tab-btn"]',
+            targetSelector: '[data-testid="fiat-settlement-pass-card"]',
+            fallbackSelector: '[data-tour-target="mod2silo-onramp-receipt-card"]',
             badge: 'SILO & Fiat • Step 3 of 13',
-            title: 'Your Direct Purchase Order & Printable Wire Slip PDF',
+            title: 'Your 4-Stage Settlement Receipt & Printable Wire Slip PDF',
             description:
-                'Here is your active Sovereign On-Ramp Order! Everything your bank needs to complete the purchase is generated automatically:',
+                'Here is your active settlement receipt with a real-time 4-stage progress tracker (1. Verified → 2. Cleared → 3. Executed → 4. Credited):',
             bullets: [
-                'Automated Clearing & Token Delivery: As soon as your wire or ACH transfer clears, the backend automatically executes the conversion legs and credits your tokens.',
-                '[Download Wire Slip PDF ↓]: Downloads a formatted PDF containing the receiving commercial bank routing/account numbers and your mandatory Wire Memo.',
-                'Click [Next →] to see how linking your bank for 1-click purchases and USD cash-outs works.'
+                'Automated Token Delivery: As soon as your ACH debit or bank wire clears, Perennia’s settlement engine delivers your tokens and stamps a HIFO cost-basis lot automatically.',
+                '[Download Wire Slip PDF ↓]: Generates a clean, zero-PII PDF receipt containing your order reference ID, fee breakdown, and bank wire coordinates.',
+                'Click [Next →] to see how selling crypto back to your bank account works.'
             ],
             accentHex: '#18C6A5'
         },
@@ -626,14 +627,14 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             targetSelector: '[data-testid="fiat-offramp-tab-btn"]',
             fallbackSelector: '[data-tour="dex-workspace"] button',
             chevronPlacement: 'top',
-            actionHint: 'Click Off-Ramp (Cash Out to Bank)',
+            actionHint: 'Click Sell for USD',
             badge: 'SILO & Fiat • Step 4 of 13',
-            title: 'Inspect Bank Off-Ramp & ABA Recognition',
+            title: 'Switch to Sell for USD (Bank Off-Ramp)',
             description:
-                'Click the highlighted [Off-Ramp (Cash Out to Bank)] tab to see where you save your own bank account for direct USD cash-outs.',
+                'Click the highlighted [Sell for USD] tab at the top of the Fiat Bridge to inspect direct crypto-to-bank payouts.',
             bullets: [
-                'Your saved bank rail lets you liquidate any asset back to USD and wire it straight to your checking or savings account.',
-                'Click the highlighted [Off-Ramp (Cash Out to Bank)] tab.'
+                'Sell from either your Self-Custody Wallet (1-click browser L1 signature) or your Platform Balance ($0 gas) straight to your bank via ACH or Same-Day Wire.',
+                'Click the highlighted [Sell for USD] tab.'
             ],
             accentHex: '#18C6A5',
             advanceDelayMs: 260
@@ -648,13 +649,13 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             targetSelector: '[data-tour-target="mod2silo-bank-rail-vault"]',
             fallbackSelector: '[data-testid="offramp-aba-input"]',
             badge: 'SILO & Fiat • Step 5 of 13',
-            title: 'Encrypted Bank Rail Vault (Mod-10 ABA Verified)',
+            title: 'Encrypted Bank Rail Vault (Federal Reserve Mod-10 Verified)',
             description:
-                'We have entered a sample 9-digit ABA routing number (111000614) to demonstrate instant bank recognition:',
+                'We have entered a sample 9-digit ABA routing number (111000614) to demonstrate instant institution recognition:',
             bullets: [
-                'Instant Bank Verification: Perennia verifies the Federal Reserve Mod-10 checksum locally and identifies your bank (JPMorgan Chase Bank, N.A. • MOD-10 VALID).',
-                'AES-256-GCM Vault: Saving your bank rail encrypts your routing and account numbers for 1-click ACH ($2) or Same-Day Wire ($15, waived ≥$2,000) payouts.',
-                'Now let’s look at purchasing and staking SILO tokens—click [Next →] to continue!'
+                'Mod-10 Checksum Verification: Perennia validates your 9-digit routing number locally and identifies your bank (JPMorgan Chase Bank, N.A. • MOD-10 VALID).',
+                'AES-256-GCM Encrypted Vault: Saving your bank account encrypts your routing and account numbers so you can cash out any asset to USD in one click.',
+                'Now let’s purchase and stake SILO tokens—click [Next →] to continue!'
             ],
             accentHex: '#3B82F6'
         },
@@ -665,8 +666,8 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 13,
             tab: 'DEX',
             mode: 'ACTION',
-            targetSelector: '[data-tour-target="mod2silo-swap-tab-btn"]',
-            fallbackSelector: '[data-tour="dex-workspace"] button',
+            targetSelector: '[data-testid="dex-mode-swap-btn"]',
+            fallbackSelector: '[data-tour-target="mod2silo-swap-tab-btn"]',
             chevronPlacement: 'bottom',
             actionHint: 'Click Swap Tab',
             badge: 'SILO & Fiat • Step 6 of 13',
@@ -674,7 +675,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             description:
                 'Click the highlighted [Swap] tab at the top of the Exchange to purchase SILO—Perennia’s native KRC-20 utility and fee-discount token.',
             bullets: [
-                'You can purchase SILO directly from your bank rail or instantly with zero network gas using your KAS or USDC balance.',
+                'You can buy SILO with USD in the Fiat modal or swap into SILO instantly from KAS or USDC.',
                 'Click the highlighted [Swap] tab.'
             ],
             accentHex: '#F59E0B',
@@ -696,7 +697,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             description:
                 'In the Swap Station, your [You Pay] asset is set to KAS. Click the highlighted token selector button inside the [You Receive] box to choose SILO.',
             bullets: [
-                'SILO is listed right at the top of the Asset Selection drawer as Perennia’s native Ecosystem utility token.',
+                'SILO is listed at the top of the Asset Selection drawer as Perennia’s native Ecosystem utility token.',
                 'Click the highlighted token selector button.'
             ],
             accentHex: '#18C6A5',
@@ -716,9 +717,9 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             badge: 'SILO & Fiat • Step 8 of 13',
             title: 'Select SILO (Perennia Silo Utility KRC-20)',
             description:
-                'Click the highlighted [SILO — Perennia Silo Utility (KRC-20)] row in the Asset Drawer to configure the KAS → SILO purchase pair.',
+                'Click the highlighted [SILO — Perennia Silo Utility (KRC-20)] row in the Asset Drawer to configure the KAS → SILO swap pair.',
             bullets: [
-                'Selecting SILO binds it to the Receive panel and closes the drawer.',
+                'Selecting SILO binds it to the Receive panel and shades the card in SILO’s signature teal glow.',
                 'Click the highlighted [SILO] row.'
             ],
             accentHex: '#18C6A5',
@@ -736,10 +737,10 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             badge: 'SILO & Fiat • Step 9 of 13',
             title: 'Inspect Your KAS → SILO Purchase Quote',
             description:
-                'We have entered 1,000 KAS (≈ $165.00 USD) in the [You Pay] box so you can see the live SILO purchase quote:',
+                'We have entered 1,000 KAS in the [You Pay] box so you can see the live SILO conversion quote:',
             bullets: [
-                'Estimated Output: 1,000 KAS converts into ~3,928.57 SILO at the live oracle rate (1 KAS = 23.809524 SILO).',
-                'Instant Zero-Gas Execution: Because the purchase settles through Perennia’s internal liquidity pool, you pay $0.00 in network gas.',
+                'Live Oracle Rate: 1,000 KAS converts into ~3,928.57 SILO at the live oracle rate (1 KAS = 23.809524 SILO).',
+                '1-Click Self-Custody or Platform Execution: Swaps from your Platform Balance execute with $0 gas; swaps from your L1 wallet use a 1-click local browser signature.',
                 'Click [Next →] to execute your SILO token purchase!'
             ],
             accentHex: '#18C6A5'
@@ -758,7 +759,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             badge: 'SILO & Fiat • Step 10 of 13',
             title: 'Execute Your SILO Token Purchase',
             description:
-                'Click the highlighted [Review & Execute KAS → SILO Swap] button at the bottom of the Swap Station to purchase your SILO tokens.',
+                'Click the highlighted [Review & Execute KAS → SILO Swap] button at the bottom of the Swap Station to complete your SILO purchase.',
             bullets: [
                 'Your purchased SILO tokens are credited immediately to your Sovereign Vault balance.',
                 'Click the highlighted [Review & Execute KAS → SILO Swap] button.'
@@ -773,16 +774,16 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 13,
             tab: 'DEX',
             mode: 'ACTION',
-            targetSelector: '[data-tour-target="mod2silo-liquidity-tab-btn"]',
-            fallbackSelector: '[data-tour="dex-workspace"] button',
+            targetSelector: '[data-testid="dex-mode-lp-btn"]',
+            fallbackSelector: '[data-tour-target="mod2silo-liquidity-tab-btn"]',
             chevronPlacement: 'bottom',
             actionHint: 'Click Liquidity Tab',
             badge: 'SILO & Fiat • Step 11 of 13',
-            title: 'Step 3: Open Liquidity to Stake Your SILO',
+            title: 'Step 3: Open Liquidity to Stake SILO & Lower Your Fees',
             description:
-                'Your SILO purchase is confirmed! Now let’s put your SILO tokens to work to slash your platform fees. Click the highlighted [Liquidity] tab at the top of the Exchange.',
+                'Your SILO purchase is confirmed! Now let’s stake SILO to unlock permanent protocol fee discounts. Click the highlighted [Liquidity] tab at the top of the Exchange.',
             bullets: [
-                'The Liquidity workspace houses the SILO 7-Day Cooldown Staking & Fee-Discount Vault.',
+                'The Liquidity workspace houses the Supply Liquidity card on the left and the 3-Tier SILO Fee Shield card on the right.',
                 'Click the highlighted [Liquidity] tab.'
             ],
             accentHex: '#18C6A5',
@@ -796,17 +797,17 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             tab: 'DEX',
             mode: 'ACTION',
             targetSelector: '[data-testid="silo-stake-submit-btn"]',
-            fallbackSelector: '[data-testid="silo-staking-vault-card"] button',
+            fallbackSelector: '[data-testid="silo-staking-card"] button',
             chevronPlacement: 'top',
-            actionHint: 'Click Stake SILO',
+            actionHint: 'Click Stake SILO →',
             badge: 'SILO & Fiat • Step 12 of 13',
-            title: 'Stake SILO to Activate Your Fee Shield',
+            title: 'How the 3-Tier SILO Fee Shield Works (1.50% → 0.75% → 0.25%)',
             description:
-                'At the bottom of the Liquidity workspace is the SILO Staking Vault. We have pre-filled 15,000 SILO in the stake input. Click the highlighted [Stake SILO] button to activate your fee discount.',
+                'Look at the three visual fee tier pills at the top of the SILO Fee Tier card (`1.50%` at `0 SILO`, `0.75%` at `10k+ SILO`, and `0.25%` at `100k+ SILO`). We have pre-filled 15,000 SILO—click [Stake SILO →] to unlock the 0.75% fee tier:',
             bullets: [
-                'Tier 1 (≥10,000 SILO): Lowers swap & settlement fees from 1.50% down to 0.75%.',
-                'Tier 2 (≥100,000 SILO): 0.50% Fee • Tier 3 (≥1,000,000 SILO): 0.25% Fee.',
-                'Click the highlighted [Stake SILO] button.'
+                'Standard Tier (0 SILO): 1.50% base fee across swaps and 22:00 UTC settlements.',
+                'Shield Tier (10k+ SILO): Cuts your protocol fee in half to 0.75%.',
+                'Sovereign Tier (100k+ SILO): Slashes your protocol fee down to 0.25%. Click [Stake SILO →] now.'
             ],
             accentHex: '#18C6A5',
             advanceDelayMs: 360
@@ -818,15 +819,15 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 13,
             tab: 'DEX',
             mode: 'READ',
-            targetSelector: '[data-testid="silo-staking-vault-card"]',
+            targetSelector: '[data-testid="silo-staking-card"]',
             fallbackSelector: '[data-tour="dex-workspace"]',
             badge: 'SILO & Fiat • Step 13 of 13',
-            title: 'Your SILO Fee Shield Is Active!',
+            title: 'Your 0.75% SILO Fee Shield Is Active!',
             description:
-                'Look at the SILO Staking Vault card: your active tier badge now reads [SILO Staker Tier (0.75% Fee)] and your 15,000 SILO position is marked [ACTIVE FEE SHIELD].',
+                'Look at the SILO Fee Tier card: the middle `0.75% (10k+ SILO)` pill is now highlighted in teal, and your header badge reads `0.75% Active Fee`.',
             bullets: [
-                'Automatic Fee Discount: Every swap and 22:00 UTC settlement across Perennia now automatically uses your discounted 0.75% SILO Staker rate.',
-                '7-Day Unbonding Cooldown: You can click [Initiate 7-Day Cooldown] at any time to unbond and withdraw your SILO back to your spendable wallet.',
+                'Automatic Global Discount: Every swap and 22:00 UTC settlement across Perennia now automatically applies your 0.75% SILO Fee Shield.',
+                '7-Day Unstake Cooldown: You can click [Unstake (7d)] on any staked position at any time to initiate the 7-day cooldown and withdraw your SILO.',
                 'Click [Next →] below to head to Operations and set up your ASIC Workers!'
             ],
             accentHex: '#18C6A5'
@@ -957,7 +958,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             description:
                 'Click the highlighted [IceRiver KS7 Lite] model in the catalog to bind its hardware profile and automatically configure Port :3334.',
             bullets: [
-                'Port :3332 is tuned for <1 TH/s rigs, :3333 for 1–10 TH/s rigs, and :3334 for high-hashrate ASICs.',
+                'Port :3332 is tuned for <1 TH/s rigs (KS0 / KS0 Pro / Ultra), :3333 for 1–10 TH/s rigs, and :3334 for high-hashrate ASICs.',
                 'Click the highlighted ASIC model in the list.'
             ],
             accentHex: '#18C6A5',
@@ -1035,7 +1036,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             targetSelector: '[data-tour="bell-telemetry"]',
             fallbackSelector: '[data-tour="sector-matrix"]',
             badge: 'Workers • Step 10 of 10',
-            title: 'Pool Distribution & Hashrate Partitioning',
+            title: 'Pool Distribution & 22:00 UTC Global Settlement',
             description:
                 'Look at the Pool Distribution ring on the right sidebar. With 0 custom sectors created, 100.0% of your aggregate hashrate streams directly to your Kaspa wallet and pays out at 50 KAS.',
             bullets: [
@@ -1238,19 +1239,19 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step0_demonstrate_swap_station',
             chapter: 5,
             stepIndex: 0,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod4-swap-station-card"]',
             fallbackSelector: '[data-tour="dex-workspace"]',
-            badge: 'Exchange • Step 1 of 8',
+            badge: 'Exchange • Step 1 of 10',
             title: 'The 24/7 Wall St. & Crypto Swap Station',
             description:
-                'Beyond purchasing SILO, the Perennia Exchange lets you trade 24/7 between USD (Bank Account), Kaspa, major L1 crypto, and tokenized Wall Street Equities & Commodities.',
+                'The Perennia Exchange lets you trade 24/7 between L1 crypto, KRC-20 tokens, and tokenized Wall Street Equities & Commodities with dynamic token color shading.',
             bullets: [
-                'You Pay (Top Box): Choose any crypto or click [$ Pay with USD (Bank)] to buy directly from your bank.',
-                'You Receive (Bottom Box): Displays your estimated output and the active target asset.',
-                'Click [Next →] below to open the Asset Selection drawer and explore 24/7 Wall Street feeds.'
+                'You Pay (Top Box): Choose any crypto from your Platform Balance ($0 gas) or Self-Custody Wallet (1-click browser L1 signature).',
+                'You Receive (Bottom Box): Dynamically shades in your selected token’s theme color and displays your live oracle conversion output.',
+                'Click [Next →] below to open the universal Asset Selection drawer.'
             ],
             accentHex: '#F59E0B'
         },
@@ -1258,19 +1259,19 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step1_open_asset_drawer',
             chapter: 5,
             stepIndex: 1,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'ACTION',
             targetSelector: '[data-testid="dex-receive-token-selector"]',
             fallbackSelector: '[data-tour="dex-workspace"] button',
             chevronPlacement: 'left',
             actionHint: 'Click Asset Selector',
-            badge: 'Exchange • Step 2 of 8',
-            title: 'Open the Asset Selection Drawer',
+            badge: 'Exchange • Step 2 of 10',
+            title: 'Open the Universal Asset Selection Drawer',
             description:
                 'Click the highlighted token selector button inside the [You Receive] box to open the universal Asset Selection drawer.',
             bullets: [
-                'From this drawer, you can browse or search every supported crypto, stablecoin, equity, and commodity feed.',
+                'Browse or search every supported crypto, stablecoin, equity, commodity, or paste any contract address.',
                 'Click the highlighted token selector button.'
             ],
             accentHex: '#F59E0B',
@@ -1280,18 +1281,18 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step2_demonstrate_asset_drawer',
             chapter: 5,
             stepIndex: 2,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod4-asset-modal-header"]',
             fallbackSelector: '[data-testid="dex-token-modal-search"]',
-            badge: 'Exchange • Step 3 of 8',
-            title: 'Inside the Asset Selection Drawer',
+            badge: 'Exchange • Step 3 of 10',
+            title: 'Universal Token Discovery & Category Filters',
             description:
-                'Here is the Asset Selection drawer. At the top, you have a real-time ticker search bar and four category filter tabs (All, Crypto, Equities, Gold/Debt).',
+                'At the top of the Asset Selection drawer is the universal search bar and four category filter tabs (All, Crypto, Equities, Gold/Debt).',
             bullets: [
-                'Live Oracle Discovery: Typing any ticker into the search bar queries multi-exchange spot feeds and Kasplex L1 in real time.',
-                'Category Filters: Quickly narrow the list to Crypto, 24/7 Wall Street Equities, or Gold & US Treasury Bills.',
+                'Live Oracle Discovery: Typing any ticker or pasting an ERC-20, SPL, or KRC-20 contract queries our 5-node CEX quorum, DexScreener, and Kasplex in real time.',
+                'Category Filters: Narrow the list to Crypto, 24/7 Wall Street Equities, or Physical Gold & US Treasury Bills.',
                 'Click [Next →] to filter the drawer to Wall Street Equities.'
             ],
             accentHex: '#18C6A5'
@@ -1300,19 +1301,19 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step3_click_equities_filter',
             chapter: 5,
             stepIndex: 3,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'ACTION',
             targetSelector: '[data-testid="dex-modal-cat-EQUITIES"]',
             fallbackSelector: '[data-testid="dex-token-modal-search"]',
             chevronPlacement: 'top',
             actionHint: 'Click Equities Tab',
-            badge: 'Exchange • Step 4 of 8',
+            badge: 'Exchange • Step 4 of 10',
             title: 'Filter by 24/7 Wall Street Equities',
             description:
                 'Click the highlighted [Equities] filter tab inside the drawer to view tokenized Wall Street equities and index funds.',
             bullets: [
-                'Includes 24/7 Pyth-backed price feeds for NVDA, SPY, QQQ, AAPL, TSLA, AMD, TSM, AVGO, and XLE.',
+                'Includes 24/7 Pyth Hermes oracle feeds for NVDA, SPY, QQQ, AAPL, TSLA, AMD, TSM, AVGO, and XLE.',
                 'Click the highlighted [Equities] tab.'
             ],
             accentHex: '#F59E0B',
@@ -1322,19 +1323,19 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step4_select_nvda',
             chapter: 5,
             stepIndex: 4,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'ACTION',
             targetSelector: '[data-testid="dex-select-token-NVDA"]',
             fallbackSelector: '[data-testid^="dex-select-token-"]',
             chevronPlacement: 'top',
             actionHint: 'Click NVDA Row',
-            badge: 'Exchange • Step 5 of 8',
+            badge: 'Exchange • Step 5 of 10',
             title: 'Select NVDA as Your Target Asset',
             description:
-                'Here are the live Wall Street Equity feeds with their current spot prices and your available balance. Click the highlighted [NVDA] row to select NVIDIA and close the drawer.',
+                'Click the highlighted [NVDA] row to select NVIDIA and close the drawer.',
             bullets: [
-                'Selecting an asset binds it to the Swap Station and immediately calculates your conversion rate.',
+                'Selecting NVDA shades the Receive card in NVIDIA green and calculates your live conversion quote.',
                 'Click the highlighted [NVDA] row.'
             ],
             accentHex: '#18C6A5',
@@ -1344,19 +1345,19 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step5_demonstrate_swap_quote',
             chapter: 5,
             stepIndex: 5,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod4-swap-execution-panel"]',
             fallbackSelector: '[data-testid="dex-oracle-rate-readout"]',
-            badge: 'Exchange • Step 6 of 8',
-            title: 'Your Live Quote & Execution Controls',
+            badge: 'Exchange • Step 6 of 10',
+            title: 'Live Oracle Rate & SILO Fee Shield Readout',
             description:
-                'Your KAS → NVDA pair is now loaded with a sample 1,000 KAS quote. Look at the execution readout box below the Receive panel:',
+                'Your KAS → NVDA pair is now loaded with a sample 1,000 KAS quote. Look at the compact telemetry panel below the Receive card:',
             bullets: [
-                'Live Oracle Rate: Shows the exact conversion ratio between KAS and NVDA.',
-                'Active Fee Tier: Displays your current protocol fee rate (discounted by your staked SILO Fee Shield).',
-                'Settlement Execution: Pool swaps settle with $0.00 network gas. Click [Next →] to explore 50%-KAS Liquidity Plants.'
+                'Live Oracle Rate: Shows the exact real-time conversion ratio between KAS and NVDA.',
+                'Active Fee Tier: Displays your active fee percentage (`0.75%` with your staked SILO Fee Shield).',
+                'Click [Next →] to explore the 50%-KAS Liquidity Plant builder.'
             ],
             accentHex: '#F59E0B'
         },
@@ -1364,15 +1365,15 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step6_click_liquidity_tab',
             chapter: 5,
             stepIndex: 6,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'ACTION',
-            targetSelector: '[data-tour-target="mod4-liquidity-tab-btn"]',
-            fallbackSelector: '[data-tour="dex-workspace"] button',
+            targetSelector: '[data-testid="dex-mode-lp-btn"]',
+            fallbackSelector: '[data-tour-target="mod4-liquidity-tab-btn"]',
             chevronPlacement: 'bottom',
             actionHint: 'Click Liquidity Tab',
-            badge: 'Exchange • Step 7 of 8',
-            title: 'Open the 50%-KAS Liquidity Plant Builder',
+            badge: 'Exchange • Step 7 of 10',
+            title: 'Open the 50%-KAS Supply Liquidity Workspace',
             description:
                 'Click the highlighted [Liquidity] tab at the top of the Exchange to see how you can supply multi-asset liquidity to the pool.',
             bullets: [
@@ -1386,21 +1387,63 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'exchange_step7_demonstrate_liquidity_plants',
             chapter: 5,
             stepIndex: 7,
-            totalChapterSteps: 8,
+            totalChapterSteps: 10,
             tab: 'DEX',
             mode: 'READ',
-            targetSelector: '[data-tour-target="mod4-lp-provision-card"]',
-            fallbackSelector: '[data-testid="silo-staking-vault-card"]',
-            badge: 'Exchange • Step 8 of 8',
-            title: 'Provisioning 50%-KAS Multi-Asset Liquidity Plants',
+            targetSelector: '[data-testid="dex-liquidity-plant-card"]',
+            fallbackSelector: '[data-tour-target="mod4-lp-provision-card"]',
+            badge: 'Exchange • Step 8 of 10',
+            title: 'Supplying 50%-KAS Multi-Asset Liquidity',
             description:
-                'On the left is the 50%-KAS Liquidity Plant builder, and on the right are your Active Staked Liquidity Plants:',
+                'On the left is the Supply Liquidity card, which pairs a 50% KAS Anchor Deposit with any Paired Asset (or up to 3 additional assets via [+ Add Asset]):',
             bullets: [
-                '50.0% KAS Anchor: Pair 50% KAS with 1 to 4 secondary assets (USDC, NVDA, BTC, XAU) in a single multi-asset pool.',
-                'Lockup Multipliers: Choose Flexible (1.0x), 30 Days (1.2x), 90 Days (1.5x), or 365 Days (2.5x) yield weight.',
-                'Click [Next →] below to advance to the Multi-Chain Treasury.'
+                'Dynamic Asset Shading: Selecting any Paired Asset (USDC, NVDA, BTC, XAU) dynamically shades the card in that token’s color.',
+                'Lock Duration Multipliers: Choose Flex (1x), 30d (1.2x), 90d (1.5x), or 365d (2.5x) yield weight.',
+                'Click [Next →] to explore the P2P Atomic Orderbook.'
             ],
             accentHex: '#18C6A5'
+        },
+        {
+            id: 'exchange_step8_click_p2p_tab',
+            chapter: 5,
+            stepIndex: 8,
+            totalChapterSteps: 10,
+            tab: 'DEX',
+            mode: 'ACTION',
+            targetSelector: '[data-testid="dex-mode-p2p-btn"]',
+            fallbackSelector: '[data-tour="dex-workspace"] button',
+            chevronPlacement: 'bottom',
+            actionHint: 'Click P2P Tab',
+            badge: 'Exchange • Step 9 of 10',
+            title: 'Open the Atomic P2P Orderbook',
+            description:
+                'Click the highlighted [P2P] tab at the top of the Exchange to inspect zero-slippage peer-to-peer limit offers.',
+            bullets: [
+                'P2P offers let you set your exact ask price with zero AMM price impact.',
+                'Click the highlighted [P2P] tab.'
+            ],
+            accentHex: '#3B82F6',
+            advanceDelayMs: 260
+        },
+        {
+            id: 'exchange_step9_demonstrate_p2p_orderbook',
+            chapter: 5,
+            stepIndex: 9,
+            totalChapterSteps: 10,
+            tab: 'DEX',
+            mode: 'READ',
+            targetSelector: '[data-testid="p2p-deploy-offer-card"]',
+            fallbackSelector: '[data-testid="p2p-orderbook-panel"]',
+            badge: 'Exchange • Step 10 of 10',
+            title: 'How Atomic P2P Offers Work',
+            description:
+                'On the left is the Deploy P2P Offer card, and on the right is the live Open P2P Offers orderbook:',
+            bullets: [
+                'Zero-Custody PSBT Signing: When you deploy an offer, your browser signs a partial cryptographic envelope (`SIGHASH_SINGLE | ANYONECANPAY`) locking your exact input and required output.',
+                'Dynamic Color Shading: The [You Offer] box shades in your sell token’s color, while the [You Require] box shades in your requested buy token’s color.',
+                'Click [Next →] below to advance to the Multi-Chain Treasury!'
+            ],
+            accentHex: '#3B82F6'
         }
     ],
     6: [
@@ -1418,9 +1461,9 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             description:
                 'Welcome to your 11-Chain Sovereign Treasury. The master vault summary card separates your holdings into three transparent custody buckets:',
             bullets: [
-                'On-Chain L1 Balance: Spendable coins and tokens sitting directly on their native L1 blockchains.',
-                'In Batch Settlement Queue: Mining yield accrued in the pool awaiting the 22:00 UTC settlement sweep or direct withdrawal.',
-                'Active LP Staked: Capital working inside your 50%-KAS Liquidity Plants and SILO fee-discount vaults. Click [Next →] to continue.'
+                'Wallet Balance (On-Chain): Spendable coins and tokens sitting directly on their native L1 blockchains.',
+                'Pending Settlement: Mining yield accrued in the pool awaiting the 22:00 UTC settlement sweep or direct withdrawal.',
+                'Staked in Liquidity Pools: Capital working inside your 50%-KAS Liquidity Plants and SILO fee-discount vaults. Click [Next →] to continue.'
             ],
             accentHex: '#18C6A5'
         },
@@ -1431,17 +1474,17 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 10,
             tab: 'TREASURY',
             mode: 'ACTION',
-            targetSelector: '[data-testid="toggle-cold-vault-airlock-btn"]',
-            fallbackSelector: '[data-testid="cold-vault-airlock-card"] button',
+            targetSelector: '[data-testid="cold-vault-btn-KAS"]',
+            fallbackSelector: '[data-testid="network-row-KAS"] button',
             chevronPlacement: 'bottom',
-            actionHint: 'Click Configure Airlock ▾',
+            actionHint: 'Click [Cold Vault] on Kaspa Row',
             badge: 'Treasury • Step 2 of 10',
-            title: 'Open the Hot / Cold Vault Airlock',
+            title: 'Open the Per-Token [Cold Vault] Drawer',
             description:
-                'Above your vault summary is the Hot / Cold Vault Airlock & Hardware Signer Bridge. Click [Configure Airlock ▾] to open the airlock station.',
+                'Instead of a single global airlock, every chain and token row in your Perennia Wallet has its own dedicated `[Cold Vault]` button. Click `[Cold Vault]` on the Kaspa row to open its Cold Storage Auto-Sweep drawer.',
             bullets: [
-                'The Airlock lets you link an air-gapped cold wallet and automate overflow sweeps.',
-                'Click the highlighted [Configure Airlock ▾] button.'
+                'Each asset (KAS, BTC, ETH, SOL, USDC, SILO) can have its own hardware wallet address and auto-sweep ceiling.',
+                'Click the highlighted `[Cold Vault]` button on the Kaspa row.'
             ],
             accentHex: '#18C6A5',
             advanceDelayMs: 260
@@ -1454,15 +1497,15 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             tab: 'TREASURY',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod5-airlock-left-panel"]',
-            fallbackSelector: '[data-testid="cold-vault-airlock-card"]',
+            fallbackSelector: '[data-testid="cold-vault-drawer-KAS"]',
             badge: 'Treasury • Step 3 of 10',
-            title: 'Airlock Station: Hardware Signer & Auto-Sweep Rules',
+            title: 'Per-Token Cold Storage Auto-Sweep Rules',
             description:
-                'Here is the left panel of the Airlock station, where you bind your cold storage address and set automatic overflow rules:',
+                'Here is the left panel of the token’s Cold Vault drawer, where you bind your hardware wallet address and set automatic overflow rules:',
             bullets: [
-                'Pluggable Hardware Signer Mode: Link a cold card via Web Camera QR scan, Mobile NFC tap, or Desktop USB smartcard reader.',
-                'Overflow Ceiling & Auto-Sweep: Set a KAS ceiling (such as 500 KAS) so any settled balance above your threshold automatically sweeps to cold storage.',
-                'Click [Next →] to inspect the right panel of the Airlock station.'
+                'Chain-Validated Cold Address & QR Scanner: Paste your Tangem/Ledger cold address or click `[Scan QR]` to scan it with your camera.',
+                'Hot Balance Ceiling & Auto-Sweep: Set a ceiling (such as 500 KAS) so any settled balance above your threshold automatically sweeps to cold storage.',
+                'Click [Next →] to inspect the 1-Click Immediate Cold Sweep panel on the right.'
             ],
             accentHex: '#18C6A5'
         },
@@ -1474,15 +1517,15 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             tab: 'TREASURY',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod5-airlock-right-panel"]',
-            fallbackSelector: '[data-testid="cold-vault-airlock-card"]',
+            fallbackSelector: '[data-testid="cold-vault-drawer-KAS"]',
             badge: 'Treasury • Step 4 of 10',
-            title: 'Airlock Station: 1-Click Cold Sweep & QR Generator',
+            title: '1-Click Immediate Cold Sweep',
             description:
-                'On the right side of the Airlock station are your manual cold-sweep and optical QR signing tools:',
+                'On the right side of the Cold Vault drawer is your 1-Click Immediate Cold Sweep tool:',
             bullets: [
-                '1-Click Hot-to-Cold Sweep: Enter any KAS amount (or click [MAX Queue]) to immediately dispatch funds to your bound Cold Vault.',
-                'Air-Gapped QR Request Generator: Generates an optical QR payload for offline hardware signing without ever connecting a USB cable.',
-                'Click [Next →] to close the Airlock drawer.'
+                'Sweep Queue or L1 Balance: Click `[MAX Queue]` or `[MAX L1]` to immediately dispatch funds to your saved Cold Wallet address.',
+                'Per-Sub-Token Support: If a chain has sub-tokens (like SILO on Kaspa or USDC on Ethereum), you can switch between them right at the top of this drawer.',
+                'Click [Next →] to close the Cold Vault drawer.'
             ],
             accentHex: '#3B82F6'
         },
@@ -1493,17 +1536,17 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             totalChapterSteps: 10,
             tab: 'TREASURY',
             mode: 'ACTION',
-            targetSelector: '[data-testid="toggle-cold-vault-airlock-btn"]',
-            fallbackSelector: '[data-testid="cold-vault-airlock-card"]',
+            targetSelector: '[data-testid="cold-vault-btn-KAS"]',
+            fallbackSelector: '[data-testid="network-row-KAS"] button',
             chevronPlacement: 'bottom',
-            actionHint: 'Click Collapse Airlock ▴',
+            actionHint: 'Click [Cold Vault] to Collapse',
             badge: 'Treasury • Step 5 of 10',
-            title: 'Close the Airlock Drawer',
+            title: 'Close the Cold Vault Drawer',
             description:
-                'Click the highlighted [Collapse Airlock ▴] button to close the Airlock station so we can inspect your L1 network rows below.',
+                'Click the highlighted `[Cold Vault]` button again to collapse the Cold Storage drawer.',
             bullets: [
-                'Your Cold Vault rules remain active in the background once saved.',
-                'Click the highlighted [Collapse Airlock ▴] button.'
+                'Once saved, a `COLD AUTO-SWEEP` badge appears on that token’s row and runs automatically in the background.',
+                'Click the highlighted `[Cold Vault]` button.'
             ],
             accentHex: '#18C6A5',
             advanceDelayMs: 260
@@ -1522,9 +1565,9 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             badge: 'Treasury • Step 6 of 10',
             title: 'Open the Kaspa L1 Transfer Drawer',
             description:
-                'Every chain card in your Treasury has quick-action buttons for `[+ Buy with USD]`, `[Receive QR]`, `[Send / Withdraw L1]`, `[Activity]`, and `[Compound UTXOs]`. Click `[Send / Withdraw L1]` on the Kaspa row.',
+                'Every chain card in your Treasury has quick-action buttons for `[+ Buy with USD]`, `[Receive QR]`, `[Send / Withdraw L1]`, `[Cold Vault]`, `[Activity]`, and `[Compound UTXOs]`. Click `[Send / Withdraw L1]` on the Kaspa row.',
             bullets: [
-                'You can also expand the Kaspa row to see your KRC-20 tokens (like SILO) and buy or send them on-chain.',
+                'You can send native KAS or any KRC-20 token (like SILO) held on your Kaspa address.',
                 'Click the highlighted `[Send / Withdraw L1]` button.'
             ],
             accentHex: '#F59E0B',
@@ -1588,7 +1631,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             bullets: [
                 '1-Click Explorer Verification: Click any row to verify the transaction hash directly on kas.fyi, Etherscan, Mempool.space, or Solscan.',
                 'Export CSV / JSON: Use the `[Export Activity CSV]` or `[Export JSON]` buttons in the top-right corner of the drawer for accounting and tax records.',
-                'Click [Next →] to inspect the Multi-Chain Derivations bar.'
+                'Click [Next →] to inspect the Perennia Wallet Multi-Chain bar.'
             ],
             accentHex: '#3B82F6'
         },
@@ -1602,11 +1645,11 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             targetSelector: '[data-tour-target="mod5-multichain-search-bar"]',
             fallbackSelector: '[data-testid="treasury-token-search-input"]',
             badge: 'Treasury • Step 10 of 10',
-            title: 'Sovereign Multi-Chain Derivations',
+            title: 'Perennia Wallet & Multi-Chain Derivations',
             description:
-                'Below your Kaspa card is the Sovereign Multi-Chain Derivations bar, which manages all secondary blockchains derived from your 24-word seed phrase.',
+                'Directly above your Kaspa card is the Perennia Wallet bar, which manages all 11 blockchains and custom tokens derived from your 24-word seed phrase.',
             bullets: [
-                'Universal Token Search: Search any chain or add custom Web3 / KRC-20 tokens to your vault.',
+                'Universal Token Search: Search any chain or add custom Web3 / KRC-20 tokens to your wallet, or jump straight into a swap.',
                 'Organize & Manage Chains: Click [Organize] to drag-and-drop your preferred network order, or [Manage Chains] to toggle visibility across Bitcoin, Ethereum, Solana, Arbitrum, Base, Dogecoin, XRP, Polygon, Avalanche, Sui, TRON, and Zcash.',
                 'Click [Next →] below to advance to the final section: the Tax Fortress & System Settings!'
             ],
@@ -1618,12 +1661,12 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step0_demonstrate_summary_cards',
             chapter: 7,
             stepIndex: 0,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod6-summary-grid"]',
             fallbackSelector: '[data-testid="tax-fortress-view"]',
-            badge: 'Tax Fortress • Step 1 of 13',
+            badge: 'Tax Fortress • Step 1 of 15',
             title: 'Your Real-Time Tax & Cost-Basis Matrix',
             description:
                 'Welcome to the Zero-PII Tax Fortress. Here are your four core tax telemetry cards, updated automatically every time a mining payout, bank purchase, or swap settles:',
@@ -1638,14 +1681,14 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step1_open_jurisdiction_drawer',
             chapter: 7,
             stepIndex: 1,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'ACTION',
             targetSelector: '[data-testid="configure-jurisdiction-btn"]',
             fallbackSelector: '[data-testid="tax-fortress-view"] button',
             chevronPlacement: 'bottom',
             actionHint: 'Click Configure Jurisdiction',
-            badge: 'Tax Fortress • Step 2 of 13',
+            badge: 'Tax Fortress • Step 2 of 15',
             title: 'Open the Jurisdiction & Profile Drawer',
             description:
                 'Click the highlighted [[ Configure Jurisdiction & Profile ]] button to customize your tax authority, state, entity structure, and local PDF fields.',
@@ -1660,12 +1703,12 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step2_demonstrate_jurisdiction_selectors',
             chapter: 7,
             stepIndex: 2,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod6-jurisdiction-selectors"]',
             fallbackSelector: '[data-testid="jurisdiction-config-form"]',
-            badge: 'Tax Fortress • Step 3 of 13',
+            badge: 'Tax Fortress • Step 3 of 15',
             title: 'Jurisdiction, Entity Structure & CPA Override',
             description:
                 'Inside the top half of the drawer, Perennia computes your composite effective tax rate automatically:',
@@ -1680,12 +1723,12 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step3_demonstrate_local_pii_fields',
             chapter: 7,
             stepIndex: 3,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod6-local-pii-row"]',
             fallbackSelector: '#legalName',
-            badge: 'Tax Fortress • Step 4 of 13',
+            badge: 'Tax Fortress • Step 4 of 15',
             title: 'Zero-Server-PII Local Browser Encryption',
             description:
                 'These three optional fields (Legal / Entity Name, TIN / EIN, and Domicile Address) are protected by Perennia’s Zero-PII architecture:',
@@ -1700,14 +1743,14 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step4_save_jurisdiction_profile',
             chapter: 7,
             stepIndex: 4,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'ACTION',
             targetSelector: '[data-testid="save-tax-profile-btn"]',
             fallbackSelector: '[data-testid="jurisdiction-config-form"] button[type="submit"]',
             chevronPlacement: 'top',
             actionHint: 'Click Save Profile',
-            badge: 'Tax Fortress • Step 5 of 13',
+            badge: 'Tax Fortress • Step 5 of 15',
             title: 'Save Your Jurisdiction Profile',
             description:
                 'Click the highlighted [Save US-TX Profile ✓] button to lock in your effective withholding rate and close the configuration drawer.',
@@ -1722,14 +1765,14 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step5_click_escrow_toggle',
             chapter: 7,
             stepIndex: 5,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'ACTION',
             targetSelector: '[data-testid="toggle-tax-escrow-btn"]',
             fallbackSelector: '[data-testid="tax-fortress-view"] button',
             chevronPlacement: 'left',
             actionHint: 'Click Escrow Toggle Switch',
-            badge: 'Tax Fortress • Step 6 of 13',
+            badge: 'Tax Fortress • Step 6 of 15',
             title: 'Configure Your Automated Tax Escrow Reserve',
             description:
                 'Perennia can automatically set aside your estimated tax withholding percentage on every settlement. Click the highlighted toggle switch on the Tax Escrow card to choose your reserve mode.',
@@ -1744,12 +1787,12 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step6_demonstrate_escrow_modal',
             chapter: 7,
             stepIndex: 6,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod6-escrow-modal-card"]',
             fallbackSelector: '[data-testid="confirm-tax-escrow-btn"]',
-            badge: 'Tax Fortress • Step 7 of 13',
+            badge: 'Tax Fortress • Step 7 of 15',
             title: 'Mode A (100% USDC Reserve) vs. Mode B (50/50 KAS/USDC Auto-LP)',
             description:
                 'Inside the Tax Escrow configuration modal, you have complete control over how your tax reserve is held:',
@@ -1764,14 +1807,14 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step7_confirm_escrow_lp',
             chapter: 7,
             stepIndex: 7,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'ACTION',
             targetSelector: '[data-testid="confirm-tax-escrow-btn"]',
             fallbackSelector: 'button[data-testid="confirm-tax-escrow-btn"]',
             chevronPlacement: 'top',
             actionHint: 'Click Activate Tax Escrow',
-            badge: 'Tax Fortress • Step 8 of 13',
+            badge: 'Tax Fortress • Step 8 of 15',
             title: 'Activate Your Tax Escrow Reserve',
             description:
                 'Click the highlighted [Activate 100% USDC Tax Escrow ✓] button to arm automated tax escrow routing.',
@@ -1786,17 +1829,17 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step8_click_hifo_lots_tab',
             chapter: 7,
             stepIndex: 8,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'ACTION',
             targetSelector: '[data-testid="tax-mode-hifo-lots-btn"]',
             fallbackSelector: '[data-testid="tax-mode-executions-btn"]',
             chevronPlacement: 'top',
             actionHint: 'Click 02. Passive HIFO Lots',
-            badge: 'Tax Fortress • Step 9 of 13',
+            badge: 'Tax Fortress • Step 9 of 15',
             title: 'Open Your Passive HIFO Cost-Basis Lots',
             description:
-                'Below your summary cards is the 3-mode tax ledger. Click [02. Passive HIFO Cost-Basis Lots] to inspect how your acquisition lots are tracked and ranked.',
+                'Below your summary cards is the multi-mode tax ledger. Click [02. Passive HIFO Cost-Basis Lots] to inspect how your acquisition lots are tracked and ranked.',
             bullets: [
                 'Every mining payout and direct bank purchase creates an immutable cost-basis lot stamped with the exact fair-market USD spot price at that second.',
                 'Click the highlighted [02. Passive HIFO Cost-Basis Lots] tab.'
@@ -1808,32 +1851,74 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             id: 'tax_step9_demonstrate_hifo_table',
             chapter: 7,
             stepIndex: 9,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod6-ledger-table-card"]',
             fallbackSelector: '[data-testid="tax-mode-hifo-lots-btn"]',
-            badge: 'Tax Fortress • Step 10 of 13',
+            badge: 'Tax Fortress • Step 10 of 15',
             title: 'Passive HIFO Lot Matching & Schedule D Dispositions',
             description:
                 'Here is your Passive HIFO lot table. Notice how your open lots are automatically sorted from highest FMV cost basis ($0.1800) to lowest ($0.1500):',
             bullets: [
                 'Automatic Tax Optimization: When you swap or off-ramp KAS, the engine automatically consumes your highest cost-basis lot first to minimize realized capital gains.',
                 'Schedule D Term Tracking: Tracks exact holding days on every lot (Short-Term vs. Long-Term >365 days), which you can inspect in tab 03 (Schedule D Matched Dispositions).',
-                'Click [Next →] to inspect the 1-Click PDF & CSV export tools.'
+                'Click [Next →] to see how External Deposit Cost Basis protects you when depositing external crypto.'
             ],
             accentHex: '#3B82F6'
         },
         {
-            id: 'tax_step10_demonstrate_pdf_export_finish',
+            id: 'tax_step10_click_external_basis_tab',
             chapter: 7,
             stepIndex: 10,
-            totalChapterSteps: 13,
+            totalChapterSteps: 15,
+            tab: 'TAX FORTRESS',
+            mode: 'ACTION',
+            targetSelector: '[data-testid="tax-tab-external-btn"]',
+            fallbackSelector: '[data-testid="tax-mode-disposals-btn"]',
+            chevronPlacement: 'top',
+            actionHint: 'Click 04. + External Deposit Cost Basis',
+            badge: 'Tax Fortress • Step 11 of 15',
+            title: 'Open External Deposit Cost Basis Registration',
+            description:
+                'What if you transfer BTC, KAS, ETH, or SOL into your Perennia Wallet from an external exchange or hardware wallet? Click [04. + External Deposit Cost Basis] to see how Perennia protects your Form 8949 taxes.',
+            bullets: [
+                'Without a cost-basis record, selling externally deposited crypto could be treated as a $0-cost-basis 100% capital gain.',
+                'Click the highlighted [04. + External Deposit Cost Basis] tab.'
+            ],
+            accentHex: '#18C6A5',
+            advanceDelayMs: 260
+        },
+        {
+            id: 'tax_step11_demonstrate_external_basis_card',
+            chapter: 7,
+            stepIndex: 11,
+            totalChapterSteps: 15,
+            tab: 'TAX FORTRESS',
+            mode: 'READ',
+            targetSelector: '[data-testid="external-cost-basis-card"]',
+            fallbackSelector: '[data-testid="tax-tab-external-btn"]',
+            badge: 'Tax Fortress • Step 12 of 15',
+            title: 'How External Deposit Cost Basis Protects Form 8949 Taxes',
+            description:
+                'Here is the External L1 Deposit Cost Basis registration form:',
+            bullets: [
+                'Register Historical Acquisition Basis: Enter the token ticker, deposited quantity, your original USD cost basis, and the original acquisition date.',
+                'True Net Gain Calculation: Registering an OPEN HIFO lot ensures that when you swap or off-ramp that deposit for USD, Form 8949 and Schedule D only tax your true net gain (and respect Long-Term >365d holding periods).',
+                'Click [Next →] to inspect the 1-Click PDF & CSV export tools.'
+            ],
+            accentHex: '#18C6A5'
+        },
+        {
+            id: 'tax_step12_demonstrate_pdf_export_finish',
+            chapter: 7,
+            stepIndex: 12,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-tour-target="mod6-export-buttons"]',
             fallbackSelector: '[data-testid="generate-1099-pdf-btn"]',
-            badge: 'Tax Fortress • Step 11 of 13',
+            badge: 'Tax Fortress • Step 13 of 15',
             title: '1-Click Local 1099-DA / 8949 PDF & CSV Export',
             description:
                 'In the top-right corner of the Tax Fortress are your instant export tools for your CPA or tax filing software:',
@@ -1845,44 +1930,44 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             accentHex: '#18C6A5'
         },
         {
-            id: 'tax_step11_click_settings_gear',
+            id: 'tax_step13_click_settings_gear',
             chapter: 7,
-            stepIndex: 11,
-            totalChapterSteps: 13,
+            stepIndex: 13,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'ACTION',
             targetSelector: '[data-testid="header-settings-btn"]',
             fallbackSelector: 'header button[aria-label="Settings"]',
             chevronPlacement: 'bottom',
             actionHint: 'Click [⚙] Settings Gear',
-            badge: 'Settings & Guide • Step 12 of 13',
-            title: 'Open System Parameters & Guide (⚙)',
+            badge: 'Settings & Guide • Step 14 of 15',
+            title: 'Open System Parameters, Language & FX Guide (⚙)',
             description:
                 'Finally, look at the top-right command header next to the [$ Buy Crypto] button. Click the highlighted [⚙] Settings gear icon to open System Parameters.',
             bullets: [
-                'The Settings menu houses your display theme, decimal precision, encrypted .JSON vault backup, and the Interactive Platform Guide launcher.',
+                'The Settings menu houses your Display Language (8 languages), Display Currency (9 live FX currencies), theme, decimal precision, encrypted .JSON backup, and the Interactive Tour launcher.',
                 'Click the highlighted [⚙] Settings gear button.'
             ],
             accentHex: '#18C6A5',
             advanceDelayMs: 260
         },
         {
-            id: 'tax_step12_settings_and_guide_finale',
+            id: 'tax_step14_settings_and_guide_finale',
             chapter: 7,
-            stepIndex: 12,
-            totalChapterSteps: 13,
+            stepIndex: 14,
+            totalChapterSteps: 15,
             tab: 'TAX FORTRESS',
             mode: 'READ',
             targetSelector: '[data-testid="settings-modal-card"]',
             fallbackSelector: '[data-testid="settings-guide-section"]',
-            badge: 'Settings & Guide • Step 13 of 13',
-            title: 'System Parameters & Accessing This Guide Anytime',
+            badge: 'Settings & Guide • Step 15 of 15',
+            title: 'Multi-Language, Live FX Currency & Accessing This Guide Anytime',
             description:
                 'Here is your System Parameters modal. Everything you need to customize your workspace or revisit this walkthrough lives right here:',
             bullets: [
-                'Interactive Platform Guide & Tour (Top Card): You can relaunch the full interactive tour or jump to any individual chapter from this menu whenever you need a refresher.',
-                'Theme, Warmth & Decimal Precision: Toggle between Industrial Dark and Warm Eggshell Light mode, tune surface warmth, and set your Fiat & Token decimal precision.',
-                'Encrypted Vault Backup (.JSON): Export or restore your password-encrypted vault file at any time. Click [Finish Tour ✓] below to return to the live Perennia platform!'
+                'Interactive Platform Guide & Tour (Top Card): Relaunch the full interactive tour or jump to any individual chapter whenever you need a refresher.',
+                'Display Language & Live FX Currency: Switch between 8 languages (EN, ES, DE, FR, PT, ZH, JA, KO) and 9 live FX currencies (USD, EUR, GBP, CAD, AUD, CHF, JPY, MXN, BRL).',
+                'Theme, Precision & Encrypted Vault Backup (.JSON): Tune surface warmth, decimal precision, or export your encrypted vault file at any time. Click [Finish Tour ✓] below to return to the live Perennia platform!'
             ],
             accentHex: '#18C6A5'
         }

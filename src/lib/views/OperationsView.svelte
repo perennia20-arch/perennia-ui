@@ -30,12 +30,19 @@
     import PoolDistributionSidebar from '$lib/components/operations/PoolDistributionSidebar.svelte';
     import SectorConfigModals from '$lib/components/operations/SectorConfigModals.svelte';
 
+    type ChartTimeframe = '1H' | '24H' | '7D' | '30D';
+
     let unassignedReserveKas = $state(0.0);
     let unassignedReserveTargetKas = $state(DEFAULT_RESERVE_PAYOUT_KAS);
     let savedBankRailLast4 = $state<string | null>(null);
     let savedBankRailLabel = $state<string>('Primary Operating Account');
     let savedBankRailMethod = $state<string>('ACH');
     let isPullingOutKey = $state<string | null>(null);
+
+    let hashChartTimeframe = $state<ChartTimeframe>('1H');
+    let priceChartTimeframe = $state<ChartTimeframe>('24H');
+    let priceTimeframeDelta = $state<number | null>(null);
+
     let mineableKrc20Vaults = $state<MineableKrc20VaultInfo[]>([
         ...INITIAL_MINEABLE_KRC20_VAULTS
     ]);
@@ -118,7 +125,7 @@
                 }
             }
         } catch {
-            // Non-blocking vault sync
+            // Ignore transient sync error
         }
     }
 
@@ -251,7 +258,7 @@
                 }
             }
         } catch {
-            // Non-blocking bank rail check
+            // Ignore bank status check error
         }
     }
 
@@ -266,7 +273,7 @@
                 }
             }
         } catch {
-            // Non-blocking tax events check
+            // Ignore tax events fetch error
         }
     }
 
@@ -312,22 +319,9 @@
                 }
             }
         } catch {
-            // Non-blocking reserve telemetry sync
+            // Ignore ledger sync error
         }
     }
-
-    $effect(() => {
-        if (
-            browser &&
-            identity.isWalletConnected &&
-            (identity.activeAddress || ui.adminTargetWallet)
-        ) {
-            syncUnassignedReserveTelemetry();
-            syncSavedBankRailStatus();
-            syncRecentSettlementEvents();
-            syncMineableKrc20Vaults();
-        }
-    });
 
     let displayedWorkers = $derived(operations.workers || []);
     let displayHashrate = $derived(
@@ -354,12 +348,91 @@
     let plantSectors = $derived(
         (operations.sectors || []).filter((s) => s.routeMode === 'auto-lp')
     );
-
     let dragSectorId = $state<string | null>(null);
     let dropTargetSectorId = $state<string | null>(null);
     let displayedBuckets = $derived<AssetBucketTelemetry[]>(
         operations.displayedBuckets
     );
+
+    let displayHashHistory = $state<number[]>([]);
+    let kasHistory = $state<number[]>([]);
+
+    async function loadHashChartHistory(
+        tf: ChartTimeframe = hashChartTimeframe
+    ) {
+        if (!browser || !identity.isWalletConnected) return;
+        try {
+            const targetParam =
+                identity.isCorporateAdmin &&
+                ui.adminModeActive &&
+                ui.adminTargetWallet
+                    ? `&target=${encodeURIComponent(ui.adminTargetWallet)}`
+                    : '';
+            const res = await fetch(
+                `/api/state/stats?timeframe=${encodeURIComponent(tf)}${targetParam}`
+            );
+            if (res.ok) {
+                const data = await res.json();
+                if (
+                    Array.isArray(data.hashrateHistoryThs) &&
+                    data.hashrateHistoryThs.length > 0
+                ) {
+                    displayHashHistory = data.hashrateHistoryThs.slice(-60);
+                    return;
+                }
+            }
+        } catch {
+            // Fallback below
+        }
+        if (displayHashrate > 0 && displayHashHistory.length === 0) {
+            displayHashHistory = Array.from(
+                { length: 20 },
+                () => displayHashrate
+            );
+        }
+    }
+
+    async function loadPriceChartHistory(
+        tf: ChartTimeframe = priceChartTimeframe
+    ) {
+        if (!browser) return;
+        try {
+            const res = await fetch(
+                `/api/prices?history=KAS&timeframe=${encodeURIComponent(tf)}`
+            );
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.points) && data.points.length > 1) {
+                    kasHistory = data.points;
+                    if (typeof data.deltaPct === 'number') {
+                        priceTimeframeDelta = data.deltaPct;
+                    }
+                    return;
+                }
+            }
+        } catch {
+            // Fallback below
+        }
+        const spot = treasury.getAsset('KAS').spotPrice;
+        if (spot > 0 && kasHistory.length === 0) {
+            kasHistory = Array.from({ length: 24 }, () => spot);
+        }
+    }
+
+    $effect(() => {
+        if (
+            browser &&
+            identity.isWalletConnected &&
+            (identity.activeAddress || ui.adminTargetWallet)
+        ) {
+            syncUnassignedReserveTelemetry();
+            syncSavedBankRailStatus();
+            syncRecentSettlementEvents();
+            syncMineableKrc20Vaults();
+            loadHashChartHistory(hashChartTimeframe);
+            loadPriceChartHistory(priceChartTimeframe);
+        }
+    });
 
     function computeLiveKasPerThPerDay(): number {
         if (operations.networkDifficulty > 0 && operations.blockRewardKas > 0) {
@@ -536,7 +609,7 @@
         if (clean === 'USD') {
             return savedBankRailLast4
                 ? `${savedBankRailLabel} (*${savedBankRailLast4} • ${savedBankRailMethod})`
-                : 'Sovereign Bank Rail Vault (ACH / Wire)';
+                : 'Bank Rail Account (ACH / Wire)';
         }
         const keys = identity.sovereignKeys;
         if (!keys) return identity.activeAddress || '';
@@ -1156,8 +1229,6 @@
         return { segments, totalHash };
     });
 
-    let displayHashHistory = $state<number[]>([]);
-    let kasHistory = $state<number[]>([]);
     let chartInterval: ReturnType<typeof setInterval>;
     let reservePollInterval: ReturnType<typeof setInterval>;
 
@@ -1172,6 +1243,9 @@
         syncSavedBankRailStatus();
         syncRecentSettlementEvents();
         syncMineableKrc20Vaults();
+        loadHashChartHistory(hashChartTimeframe);
+        loadPriceChartHistory(priceChartTimeframe);
+
         if (browser) {
             window.addEventListener(
                 'perennia:yield_update',
@@ -1182,23 +1256,28 @@
                 handleRealtimeYieldOrFiatEvent
             );
         }
+
         chartInterval = setInterval(() => {
             if (browser && identity.isWalletConnected) {
-                displayHashHistory = [
-                    ...displayHashHistory,
-                    displayHashrate
-                ].slice(-30);
+                if (hashChartTimeframe === '1H') {
+                    displayHashHistory = [
+                        ...displayHashHistory,
+                        displayHashrate
+                    ].slice(-60);
+                }
                 const spot = treasury.getAsset('KAS').spotPrice;
-                if (spot > 0) {
-                    kasHistory = [...kasHistory, spot].slice(-30);
+                if (spot > 0 && kasHistory.length === 0) {
+                    kasHistory = [spot];
                 }
             }
         }, 2000);
+
         reservePollInterval = setInterval(() => {
             if (browser && identity.isWalletConnected) {
                 syncUnassignedReserveTelemetry();
+                loadPriceChartHistory(priceChartTimeframe);
             }
-        }, 8000);
+        }, 12000);
     });
 
     onDestroy(() => {
@@ -1220,6 +1299,11 @@
         buildSvgPath(displayHashHistory, 200, 240, true)
     );
     let pricePath = $derived(buildSvgPath(kasHistory, 200, 240, false));
+    let activePriceDeltaPct = $derived(
+        priceTimeframeDelta !== null
+            ? priceTimeframeDelta
+            : treasury.getAsset('KAS').delta || 0
+    );
 </script>
 
 {#if activeWorkerMenu !== null}
@@ -1270,8 +1354,8 @@
                         class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
                         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 60%);"
                     >
-                        <div class="flex justify-between items-start relative z-10 pointer-events-none">
-                            <div class="flex flex-col">
+                        <div class="flex justify-between items-start gap-2 relative z-10">
+                            <div class="flex flex-col pointer-events-none">
                                 <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
                                     <div
                                         class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"
@@ -1283,6 +1367,21 @@
                                     <span class="text-xs text-neutral-400 font-bold">TH/s</span>
                                 </span>
                             </div>
+                            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
+                                {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
+                                    <button
+                                        type="button"
+                                        data-testid="hash-chart-tf-{tf}"
+                                        onclick={() => {
+                                            hashChartTimeframe = tf as ChartTimeframe;
+                                            loadHashChartHistory(tf as ChartTimeframe);
+                                        }}
+                                        class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {hashChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                    >
+                                        {tf}
+                                    </button>
+                                {/each}
+                            </div>
                         </div>
                         <div class="absolute inset-0 pointer-events-none p-4 z-0">
                             <div class="w-full h-full border-l border-b border-white/5 relative">
@@ -1290,7 +1389,7 @@
                                     TH/s
                                 </span>
                                 <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                    Time →
+                                    {hashChartTimeframe} →
                                 </span>
                             </div>
                         </div>
@@ -1320,21 +1419,38 @@
                         class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
                         style="background-image: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.08), transparent 60%);"
                     >
-                        <div class="flex justify-between items-start relative z-10 pointer-events-none">
-                            <div class="flex flex-col">
+                        <div class="flex justify-between items-start gap-2 relative z-10">
+                            <div class="flex flex-col pointer-events-none">
                                 <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
                                     <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
                                     KAS / USD Price
                                 </span>
-                                <span class="text-2xl font-mono font-light text-white tracking-tight mt-0.5 tabular-nums">
-                                    ${treasury.getAsset('KAS').spotPrice.toFixed(4)}
-                                </span>
+                                <div class="flex items-baseline gap-2 mt-0.5">
+                                    <span class="text-2xl font-mono font-light text-white tracking-tight tabular-nums">
+                                        ${treasury.getAsset('KAS').spotPrice.toFixed(4)}
+                                    </span>
+                                    <span
+                                        class="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-[#11161f] border {activePriceDeltaPct >= 0 ? 'text-[#10b981] border-emerald-900/30' : 'text-[#ef4444] border-red-900/30'}"
+                                    >
+                                        {activePriceDeltaPct > 0 ? '+' : ''}{activePriceDeltaPct.toFixed(2)}%
+                                    </span>
+                                </div>
                             </div>
-                            <span
-                                class="text-[10px] font-bold font-mono px-2 py-1 rounded-lg bg-[#11161f] border {treasury.getAsset('KAS').delta >= 0 ? 'text-[#10b981] border-emerald-900/30' : 'text-[#ef4444] border-red-900/30'}"
-                            >
-                                {treasury.getAsset('KAS').delta > 0 ? '+' : ''}{treasury.getAsset('KAS').delta.toFixed(2)}%
-                            </span>
+                            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
+                                {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
+                                    <button
+                                        type="button"
+                                        data-testid="price-chart-tf-{tf}"
+                                        onclick={() => {
+                                            priceChartTimeframe = tf as ChartTimeframe;
+                                            loadPriceChartHistory(tf as ChartTimeframe);
+                                        }}
+                                        class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {priceChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                    >
+                                        {tf}
+                                    </button>
+                                {/each}
+                            </div>
                         </div>
                         <div class="absolute inset-0 pointer-events-none p-4 z-0">
                             <div class="w-full h-full border-l border-b border-white/5 relative">
@@ -1342,7 +1458,7 @@
                                     USD
                                 </span>
                                 <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                    Time →
+                                    {priceChartTimeframe} →
                                 </span>
                             </div>
                         </div>
@@ -1352,7 +1468,7 @@
                                 <path
                                     d={pricePath}
                                     fill="none"
-                                    stroke={treasury.getAsset('KAS').delta >= 0 ? '#10b981' : '#ef4444'}
+                                    stroke={activePriceDeltaPct >= 0 ? '#10b981' : '#ef4444'}
                                     stroke-width="2"
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
@@ -1362,7 +1478,7 @@
                                     <linearGradient id="kasGradient" x1="0" y1="0" x2="0" y2="1">
                                         <stop
                                             offset="0%"
-                                            stop-color={treasury.getAsset('KAS').delta >= 0 ? '#10b981' : '#ef4444'}
+                                            stop-color={activePriceDeltaPct >= 0 ? '#10b981' : '#ef4444'}
                                         />
                                         <stop offset="100%" stop-color="transparent" />
                                     </linearGradient>
@@ -1373,7 +1489,6 @@
                 </div>
             {/if}
 
-            <!-- SETTLEMENT SILOS & LIQUIDITY PLANTS WORKSPACE -->
             <div
                 class="flex flex-col gap-5 flex-1 border border-white/10 rounded-[32px] bg-[#0a0d12] p-5 sm:p-6 min-h-[480px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
                 style="background-image: radial-gradient(ellipse at 50% 0%, rgba(24, 198, 165, 0.06), transparent 60%), linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px); background-size: 100% 100%, 30px 30px, 30px 30px;"

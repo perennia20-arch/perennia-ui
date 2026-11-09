@@ -1,0 +1,33 @@
+﻿# Environment & Secret Configs
+.env
+.env.*
+*.env
+!.env.example
+
+# Cryptographic Keys, Wallets & Certs
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.wallet
+*.seed
+*.mnemonic
+*secret*
+*credentials*
+
+# Build, Cache, Test & Lock Artifacts
+node_modules/
+.svelte-kit/
+build/
+dist/
+coverage/
+playwright-report/
+test-results/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+*.log
+
+# Existing Repomix Snapshots (prevent recursive packing)
+repomix*

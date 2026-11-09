@@ -1,3 +1,4 @@
+<!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\TutorialOverlay.svelte -->
 <script lang="ts">
     import { fade, fly } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
@@ -37,8 +38,8 @@
         {
             chapter: 2,
             shortName: 'SILO',
-            title: 'Fiat On-Ramp, Buy SILO & Fee Shield',
-            subtitle: 'Fund with USD via Wire/ACH or Card, purchase SILO tokens, and stake for 0.75%–0.25% fees',
+            title: 'Fiat Bridge, Buy SILO & 3-Tier Fee Shield',
+            subtitle: 'Fund via Instant Bank/Card or Bank Wire, buy SILO, and unlock 1.50% → 0.75% → 0.25% fees',
             tab: 'DEX',
             accentHex: '#18C6A5'
         },
@@ -61,24 +62,24 @@
         {
             chapter: 5,
             shortName: 'Exchange',
-            title: 'The Exchange (24/7 Wall St. & Crypto)',
-            subtitle: 'Search crypto & Wall Street pairs, inspect swap quotes, and provide 50%-KAS LP',
+            title: 'The Exchange (Swaps, 50%-KAS LP & Atomic P2P)',
+            subtitle: 'Trade 24/7 crypto & equities, supply 50%-KAS liquidity, and post atomic P2P offers',
             tab: 'DEX',
             accentHex: '#F59E0B'
         },
         {
             chapter: 6,
             shortName: 'Treasury',
-            title: 'Multi-Chain Treasury & Cold Airlock',
-            subtitle: 'Inspect balances, configure the Cold Vault Airlock, and view L1 payouts',
+            title: 'Multi-Chain Treasury & Per-Token Cold Vault',
+            subtitle: 'Inspect balances, configure per-token [Cold Vault] auto-sweeps, and view L1 payouts',
             tab: 'TREASURY',
             accentHex: '#3B82F6'
         },
         {
             chapter: 7,
             shortName: 'Tax',
-            title: 'Zero-PII Tax Fortress, Settings & Guide',
-            subtitle: 'Configure your jurisdiction, choose USDC or Auto-LP tax escrow, and explore System Settings',
+            title: 'Zero-PII Tax Fortress, External Cost Basis & Settings',
+            subtitle: 'Configure jurisdiction, protect Form 8949 with External Cost Basis, and set Language/FX',
             tab: 'TAX FORTRESS',
             accentHex: '#18C6A5'
         }
@@ -297,28 +298,31 @@
                                     orderId: 'PER-ONRAMP-SILO01',
                                     clientSecret: 'per_sec_sandbox_silo',
                                     walletAddress: SANDBOX_WALLETS.kaspa.address,
-                                    fiatAmountUsd: 250.0,
-                                    feeUsd: 1.88,
-                                    netUsdConverted: 248.12,
+                                    fiatAmountUsd: 500.0,
+                                    feeUsd: 10.0,
+                                    netUsdConverted: 490.0,
                                     spotPrice: 0.165,
-                                    estimatedKas: 1503.78,
+                                    estimatedKas: 2969.7,
+                                    estimatedTokens: 2969.7,
+                                    deliveredTokens: 2969.7,
+                                    targetAsset: 'KAS',
                                     paymentRail: 'SOVEREIGN_WIRE_ACH',
-                                    settlementTarget: 'LEDGER_KAS',
+                                    settlementTarget: 'L1_KAS',
                                     wireMemo: 'PER-ONRAMP-SILO01',
                                     wireInstructions: {
                                         beneficiaryName:
                                             'Perennia Holdings, LLC — Sovereign Treasury',
                                         bankName:
-                                            'Mercury / Column N.A. Commercial Vault',
-                                        routingNumber: '021000021',
+                                            'Lead Bank / Column N.A. Commercial Vault',
+                                        routingNumber: '101019644',
                                         accountNumber: '8804921044',
                                         accountType: 'COMMERCIAL CHECKING',
                                         wireMemo: 'PER-ONRAMP-SILO01',
-                                        settlementTarget: 'LEDGER_KAS'
+                                        settlementTarget: 'L1_KAS'
                                     },
-                                    status: 'AWAITING_WIRE_RECEIPT',
-                                    nonKycTier: 'SOVEREIGN_WIRE_ACH',
-                                    widgetUrl: 'https://global.transak.com/'
+                                    status: 'COMPLETED',
+                                    txHash: 'ONRAMP-SANDBOX-CONFIRMED-01',
+                                    nonKycTier: 'SOVEREIGN_WIRE_ACH'
                                 }),
                                 {
                                     status: 200,
@@ -348,8 +352,12 @@
                         });
                         return new Response(
                             JSON.stringify({
+                                success: true,
+                                orderId: 'SILO-PURCHASE-CONFIRMED-01',
+                                txHash: 'SILO-PURCHASE-CONFIRMED-01',
                                 unified_rate: 23.809524,
                                 estimated_output: 3928.5714,
+                                receivedAmount: 3928.5714,
                                 transaction_uuid: 'SILO-PURCHASE-CONFIRMED-01',
                                 legs: [
                                     {
@@ -362,6 +370,29 @@
                                 ],
                                 psbt: null,
                                 formattedUtxos: []
+                            }),
+                            {
+                                status: 200,
+                                headers: { 'Content-Type': 'application/json' }
+                            }
+                        );
+                    }
+                    if (urlStr.includes('/api/p2p')) {
+                        return new Response(
+                            JSON.stringify({
+                                success: true,
+                                orders: [
+                                    {
+                                        id: 'P2P-SANDBOX-01',
+                                        seller: SANDBOX_WALLETS.kaspa.address,
+                                        sellToken: 'KAS',
+                                        sellAmount: 2500,
+                                        buyToken: 'USDC',
+                                        buyAmount: 412.5,
+                                        rate: '0.1650',
+                                        status: 'OPEN'
+                                    }
+                                ]
                             }),
                             {
                                 status: 200,
@@ -539,9 +570,11 @@
                                             activeAmt > 0
                                                 ? [
                                                       {
+                                                          id: 'tut-silo-pos-01',
                                                           stakeId:
                                                               'tut-silo-pos-01',
                                                           ticker: 'SILO',
+                                                          amount: activeAmt,
                                                           amountStaked: activeAmt,
                                                           status: 'ACTIVE',
                                                           isMatured: false
@@ -568,11 +601,26 @@
                                 }
                             );
                         }
-                        if (bodyObj.action === 'GET_COLD_VAULT_AIRLOCK') {
+                        if (
+                            bodyObj.action === 'GET_USER_COLD_VAULT_RULES' ||
+                            bodyObj.action === 'GET_COLD_VAULT_AIRLOCK'
+                        ) {
                             return new Response(
                                 JSON.stringify({
                                     success: true,
                                     data: {
+                                        rulesByAsset: {
+                                            KAS: {
+                                                assetTicker: 'KAS',
+                                                network: 'KAS',
+                                                coldDestinationAddress:
+                                                    SANDBOX_WALLETS.kaspa.address,
+                                                vaultLabel:
+                                                    'Primary Air-Gapped Hardware Vault',
+                                                overflowCeiling: 500,
+                                                autoSweepEnabled: true
+                                            }
+                                        },
                                         clientVault: {
                                             coldKaspaAddress:
                                                 SANDBOX_WALLETS.kaspa.address,
@@ -613,8 +661,12 @@
                                     success: true,
                                     data: [
                                         {
+                                            id: 'TUT-LP-365',
                                             lpId: 'TUT-LP-365',
                                             poolPair: 'KAS/NVDA/USDC',
+                                            amountA: 4200.0,
+                                            amountB: 4.85,
+                                            usdValue: 1386.0,
                                             stakedAssetA: 4200.0,
                                             stakedAssetB: 4.85,
                                             weights: {
@@ -635,6 +687,7 @@
                                             ).toISOString(),
                                             createdAt: new Date().toISOString(),
                                             isUnlocked: false,
+                                            isLocked: true,
                                             multiplier: 2.5,
                                             weightedTvl: 10500.0
                                         }
@@ -969,19 +1022,15 @@
                 '[data-tour="dex-workspace"]'
             ) as HTMLElement | null;
             if (!workspace) return;
-            const workspaceButtons = Array.from(
-                workspace.querySelectorAll('button')
-            ) as HTMLButtonElement[];
-            const swapTabBtn = workspaceButtons.find(
-                (b) => (b.textContent || '').trim().toUpperCase() === 'SWAP'
-            );
-            const liquidityTabBtn = workspaceButtons.find(
-                (b) =>
-                    (b.textContent || '').trim().toUpperCase() === 'LIQUIDITY'
-            );
-            const fiatTabBtn = workspaceButtons.find(
-                (b) => (b.textContent || '').trim().toUpperCase() === 'FIAT'
-            );
+            const swapTabBtn = document.querySelector(
+                '[data-testid="dex-mode-swap-btn"]'
+            ) as HTMLButtonElement | null;
+            const liquidityTabBtn = document.querySelector(
+                '[data-testid="dex-mode-lp-btn"]'
+            ) as HTMLButtonElement | null;
+            const fiatTabBtn = document.querySelector(
+                '[data-testid="dex-mode-fiat-btn"]'
+            ) as HTMLButtonElement | null;
             if (swapTabBtn) {
                 swapTabBtn.setAttribute(
                     'data-tour-target',
@@ -1014,31 +1063,18 @@
                     if (!onrampUsdInput && activeOnrampTabBtn) {
                         activeOnrampTabBtn.click();
                     }
-                    const currentOnrampInput =
-                        document.querySelector('#onrampUsdInput');
-                    if (currentOnrampInput) {
-                        const onrampPanel = currentOnrampInput.closest(
-                            'div.bg-\\[\\#11161f\\]'
-                        ) as HTMLElement | null;
-                        if (onrampPanel) {
-                            onrampPanel.setAttribute(
-                                'data-tour-target',
-                                'mod2silo-fiat-onramp-panel'
-                            );
-                        }
+                    const step1Card = document.querySelector(
+                        '[data-testid="fiat-step1-calculator-card"]'
+                    ) as HTMLElement | null;
+                    if (step1Card) {
+                        step1Card.setAttribute(
+                            'data-tour-target',
+                            'mod2silo-fiat-onramp-panel'
+                        );
                     }
-                    const allFiatBtns = Array.from(
-                        workspace.querySelectorAll('button')
-                    ) as HTMLButtonElement[];
-                    const genOrderBtn = allFiatBtns.find(
-                        (b) =>
-                            (b.textContent || '')
-                                .toUpperCase()
-                                .includes('GENERATE SOVEREIGN WIRE') ||
-                            (b.textContent || '')
-                                .toUpperCase()
-                                .includes('INITIALIZE INSTANT CARD')
-                    );
+                    const genOrderBtn = document.querySelector(
+                        '[data-testid="fiat-generate-pass-cta"]'
+                    ) as HTMLButtonElement | null;
                     if (genOrderBtn) {
                         genOrderBtn.setAttribute(
                             'data-tour-target',
@@ -1046,24 +1082,17 @@
                         );
                     }
                     if (stepIdx === 2) {
-                        const downloadSlipBtn = allFiatBtns.find((b) =>
-                            (b.textContent || '')
-                                .toUpperCase()
-                                .includes('DOWNLOAD WIRE SLIP PDF')
-                        );
-                        if (!downloadSlipBtn && genOrderBtn) {
+                        const passCard = document.querySelector(
+                            '[data-testid="fiat-settlement-pass-card"]'
+                        ) as HTMLElement | null;
+                        if (!passCard && genOrderBtn) {
                             genOrderBtn.click();
                         }
-                        if (downloadSlipBtn) {
-                            const receiptCard = downloadSlipBtn.closest(
-                                'div.bg-\\[\\#11161f\\]'
-                            ) as HTMLElement | null;
-                            if (receiptCard) {
-                                receiptCard.setAttribute(
-                                    'data-tour-target',
-                                    'mod2silo-onramp-receipt-card'
-                                );
-                            }
+                        if (passCard) {
+                            passCard.setAttribute(
+                                'data-tour-target',
+                                'mod2silo-onramp-receipt-card'
+                            );
                         }
                     }
                     return;
@@ -1174,7 +1203,7 @@
             }
             if (stepIdx >= 11) {
                 const siloVaultCard = document.querySelector(
-                    '[data-testid="silo-staking-vault-card"]'
+                    '[data-testid="silo-staking-card"]'
                 );
                 if (!siloVaultCard && liquidityTabBtn) {
                     liquidityTabBtn.click();
@@ -1191,7 +1220,7 @@
                 }
                 if (stepIdx === 12) {
                     const activeRow = document.querySelector(
-                        '[data-testid="silo-stake-row-tut-silo-pos-01"]'
+                        '[data-testid="silo-position-row-tut-silo-pos-01"]'
                     );
                     if (!activeRow && stakeSubmitBtn && stakeInput) {
                         setNativeInputValue(stakeInput, '15000');
@@ -1565,15 +1594,16 @@
                 '[data-tour="dex-workspace"]'
             );
             if (!workspace) return;
-            const workspaceButtons = Array.from(
-                workspace.querySelectorAll('button')
-            ) as HTMLButtonElement[];
-            const swapSubTabBtn = workspaceButtons.find(
-                (b) => (b.textContent || '').trim().toUpperCase() === 'SWAP'
-            );
-            const liquiditySubTabBtn = workspaceButtons.find(
-                (b) => (b.textContent || '').trim().toUpperCase() === 'LIQUIDITY'
-            );
+            const swapSubTabBtn = document.querySelector(
+                '[data-testid="dex-mode-swap-btn"]'
+            ) as HTMLButtonElement | null;
+            const liquiditySubTabBtn = document.querySelector(
+                '[data-testid="dex-mode-lp-btn"]'
+            ) as HTMLButtonElement | null;
+            const p2pSubTabBtn = document.querySelector(
+                '[data-testid="dex-mode-p2p-btn"]'
+            ) as HTMLButtonElement | null;
+
             if (liquiditySubTabBtn) {
                 liquiditySubTabBtn.setAttribute(
                     'data-tour-target',
@@ -1681,25 +1711,29 @@
                 return;
             }
             if (stepIdx === 7) {
-                const lpKasInput = document.querySelector(
-                    '[data-testid="dex-lp-kas-amount-input"]'
-                );
-                if (!lpKasInput && liquiditySubTabBtn) {
+                const lpCard = document.querySelector(
+                    '[data-testid="dex-liquidity-plant-card"]'
+                ) as HTMLElement | null;
+                if (!lpCard && liquiditySubTabBtn) {
                     liquiditySubTabBtn.click();
                 }
-                const activeLpInput = document.querySelector(
-                    '[data-testid="dex-lp-kas-amount-input"]'
-                );
-                if (activeLpInput) {
-                    const lpCard = activeLpInput.closest(
-                        'div.lg\\:col-span-6'
-                    ) as HTMLElement | null;
-                    if (lpCard) {
-                        lpCard.setAttribute(
-                            'data-tour-target',
-                            'mod4-lp-provision-card'
-                        );
-                    }
+                const activeLpCard = document.querySelector(
+                    '[data-testid="dex-liquidity-plant-card"]'
+                ) as HTMLElement | null;
+                if (activeLpCard) {
+                    activeLpCard.setAttribute(
+                        'data-tour-target',
+                        'mod4-lp-provision-card'
+                    );
+                }
+                return;
+            }
+            if (stepIdx === 9) {
+                const p2pCard = document.querySelector(
+                    '[data-testid="p2p-deploy-offer-card"]'
+                ) as HTMLElement | null;
+                if (!p2pCard && p2pSubTabBtn) {
+                    p2pSubTabBtn.click();
                 }
             }
             return;
@@ -1748,31 +1782,29 @@
                     );
                 }
             }
-            const airlockCard = document.querySelector(
-                '[data-testid="cold-vault-airlock-card"]'
-            ) as HTMLElement | null;
-            const toggleAirlockBtn = document.querySelector(
-                '[data-testid="toggle-cold-vault-airlock-btn"]'
+
+            const coldVaultBtn = document.querySelector(
+                '[data-testid="cold-vault-btn-KAS"]'
             ) as HTMLButtonElement | null;
-            const airlockAddrInput = document.querySelector(
-                '[data-testid="cold-vault-address-input"]'
-            );
-            if (
-                (stepIdx === 0 || stepIdx === 1) &&
-                airlockAddrInput &&
-                toggleAirlockBtn
-            ) {
-                toggleAirlockBtn.click();
+            const coldVaultDrawer = document.querySelector(
+                '[data-testid="cold-vault-drawer-KAS"]'
+            ) as HTMLElement | null;
+
+            if ((stepIdx === 0 || stepIdx === 1) && coldVaultDrawer && coldVaultBtn) {
+                coldVaultBtn.click();
             }
             if (stepIdx >= 2 && stepIdx <= 4) {
-                if (!airlockAddrInput && toggleAirlockBtn) {
-                    toggleAirlockBtn.click();
+                if (!coldVaultDrawer && coldVaultBtn) {
+                    coldVaultBtn.click();
                 }
-                if (airlockCard) {
-                    const leftPanel = airlockCard.querySelector(
+                const activeColdDrawer = document.querySelector(
+                    '[data-testid="cold-vault-drawer-KAS"]'
+                ) as HTMLElement | null;
+                if (activeColdDrawer) {
+                    const leftPanel = activeColdDrawer.querySelector(
                         'div.lg\\:col-span-7'
                     ) as HTMLElement | null;
-                    const rightPanel = airlockCard.querySelector(
+                    const rightPanel = activeColdDrawer.querySelector(
                         'div.lg\\:col-span-5'
                     ) as HTMLElement | null;
                     if (leftPanel) {
@@ -1789,9 +1821,10 @@
                     }
                 }
             }
-            if (stepIdx >= 5 && airlockAddrInput && toggleAirlockBtn) {
-                toggleAirlockBtn.click();
+            if (stepIdx >= 5 && coldVaultDrawer && coldVaultBtn) {
+                coldVaultBtn.click();
             }
+
             const kasRow = document.querySelector(
                 '[data-testid="network-row-KAS"]'
             ) as HTMLElement | null;
@@ -1838,10 +1871,10 @@
                 ui.taxEvents = JSON.parse(JSON.stringify(SANDBOX_TAX_EVENTS));
             }
 
-            if (stepIdx <= 11 && settingsStore.showSettingsModal) {
+            if (stepIdx <= 13 && settingsStore.showSettingsModal) {
                 settingsStore.showSettingsModal = false;
             }
-            if (stepIdx === 12) {
+            if (stepIdx === 14) {
                 if (!settingsStore.showSettingsModal) {
                     settingsStore.showSettingsModal = true;
                 }
@@ -1877,6 +1910,9 @@
             }
             const hifoLotsBtn = viewContainer.querySelector(
                 '[data-testid="tax-mode-hifo-lots-btn"]'
+            ) as HTMLButtonElement | null;
+            const extBasisBtn = viewContainer.querySelector(
+                '[data-testid="tax-tab-external-btn"]'
             ) as HTMLButtonElement | null;
             if (hifoLotsBtn) {
                 const tableCard = hifoLotsBtn.closest(
@@ -1969,6 +2005,14 @@
             if (stepIdx === 9 && hifoLotsBtn) {
                 if (!viewContainer.textContent?.includes('HIFO-LOT-')) {
                     hifoLotsBtn.click();
+                }
+            }
+            if (stepIdx === 11 && extBasisBtn) {
+                const extCard = viewContainer.querySelector(
+                    '[data-testid="external-cost-basis-card"]'
+                );
+                if (!extCard) {
+                    extBasisBtn.click();
                 }
             }
         }

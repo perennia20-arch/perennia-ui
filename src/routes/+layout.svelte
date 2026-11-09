@@ -12,12 +12,15 @@
         DEFAULT_ECOSYSTEM_TICKER
     } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import type { Worker } from '$lib/stores/type';
     import {
         evaluateAbaRoutingNumber,
         downloadWireSlipPdf,
         computeOnrampCostPlusQuote,
-        type SavedBankRailMeta
+        MERCURY_COLUMN_WIRE_INSTRUCTIONS,
+        type SavedBankRailMeta,
+        type OnrampGatewayMethod
     } from '$lib/components/dex/dexHelpers';
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
@@ -29,17 +32,40 @@
     let hasEntered = $state(false);
     let headerPillShimmer = $state(false);
 
+    // Master Treasury Header Accounting (Earned Fee Revenue vs. Custodial Miner Block Rewards)
+    let adminTreasuryAccounting = $state<{
+        blocksWonCount: number;
+        totalBlocksRewardKas: number;
+        earnedPoolFeeKas: number;
+        earnedPoolFeeUsd: number;
+        totalEarnedRevenueUsd: number;
+        custodialMinerLiabilityKas: number;
+        custodialMinerLiabilityUsd: number;
+    } | null>(null);
+
     // Global In-Context Fiat Modal State
-    let globalFiatUsdInput = $state('500');
-    let globalFiatPaymentRail = $state<'SOVEREIGN_WIRE_ACH' | 'CARD_INSTANT'>(
-        'SOVEREIGN_WIRE_ACH'
+    let globalFiatUsdInput = $state('650');
+    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('ach');
+    let lastGlobalAchBucket = $state<'below625' | 'above625' | 'wire100k'>(
+        'above625'
     );
+    let globalWholesaleFloorActive = $state(false);
+    let globalFiatPaymentRail = $state<
+        | 'SOVEREIGN_WIRE_ACH'
+        | 'CARD_INSTANT'
+        | 'STRIPE_CRYPTO_ONRAMP'
+        | 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'
+    >('SOVEREIGN_WIRE_ACH');
     let globalFiatDeliveryMode = $state<
         'LEDGER_KAS' | 'L1_KAS' | 'AUTO_STAKE_SILO'
     >('L1_KAS');
     let globalAssetSearch = $state('');
     let showGlobalAssetDropdown = $state(false);
+    let isDiscoveringGlobalAsset = $state(false);
+    let globalDiscoveryNotice = $state<string | null>(null);
+    let globalDiscoverTimer: ReturnType<typeof setTimeout>;
     let isSubmittingGlobalFiat = $state(false);
+    let isSettlingGlobalFiat = $state(false);
     let globalFiatError = $state<string | null>(null);
     let globalFiatSuccessOrder = $state<any | null>(null);
 
@@ -59,6 +85,36 @@
         evaluateAbaRoutingNumber(inlineRoutingNumber)
     );
 
+    // Auto-default orders >= $625 to ACH ($5 cap) and hard-gate $100,000+ to Institutional Wire
+    $effect(() => {
+        const parsedUsd = Math.max(0, parseFloat(globalFiatUsdInput) || 0);
+        if (parsedUsd >= 100_000) {
+            if (lastGlobalAchBucket !== 'wire100k') {
+                lastGlobalAchBucket = 'wire100k';
+            }
+            if (globalFiatGatewayMethod !== 'wire') {
+                globalFiatGatewayMethod = 'wire';
+            }
+            if (globalFiatPaymentRail !== 'BRIDGE_VIRTUAL_ACCOUNT_WIRE') {
+                globalFiatPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
+            }
+        } else if (parsedUsd >= 625) {
+            if (lastGlobalAchBucket !== 'above625') {
+                lastGlobalAchBucket = 'above625';
+                globalFiatGatewayMethod = 'ach';
+                globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
+            }
+        } else {
+            if (lastGlobalAchBucket !== 'below625') {
+                lastGlobalAchBucket = 'below625';
+                if (globalFiatGatewayMethod === 'wire') {
+                    globalFiatGatewayMethod = 'ach';
+                    globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
+                }
+            }
+        }
+    });
+
     $effect(() => {
         if (
             inlineAbaTelemetry.isComplete &&
@@ -71,27 +127,49 @@
         }
     });
 
+    let wasFiatModalOpen = false;
     $effect(() => {
-        if (ui.showFiatModal) {
-            globalFiatUsdInput = ui.fiatModalDefaultUsd || '500';
-            globalFiatError = null;
-            globalFiatSuccessOrder = null;
-            if (
-                ui.fiatModalTargetTicker === DEFAULT_ECOSYSTEM_TICKER &&
-                ui.fiatModalAutoStakeSilo
-            ) {
-                globalFiatDeliveryMode = 'AUTO_STAKE_SILO';
-            } else if (globalFiatDeliveryMode === 'AUTO_STAKE_SILO') {
-                globalFiatDeliveryMode = 'L1_KAS';
-            }
-            checkGlobalBankRailStatus();
+        const isOpen = ui.showFiatModal;
+        if (isOpen && !wasFiatModalOpen) {
+            wasFiatModalOpen = true;
+            untrack(() => {
+                const defaultUsd =
+                    ui.fiatModalDefaultUsd ||
+                    (ui as any).fiatModalDefaultAmountUsd ||
+                    '650';
+                globalFiatUsdInput = String(defaultUsd);
+                const targetTick =
+                    ui.fiatModalTargetTicker ||
+                    (ui as any).fiatModalTargetAsset ||
+                    'KAS';
+                if (ui.fiatModalTargetTicker !== targetTick) {
+                    ui.fiatModalTargetTicker = String(targetTick).toUpperCase();
+                }
+                globalFiatError = null;
+                globalFiatSuccessOrder = null;
+                showGlobalAssetDropdown = false;
+                if (
+                    ui.fiatModalTargetTicker === DEFAULT_ECOSYSTEM_TICKER &&
+                    ui.fiatModalAutoStakeSilo
+                ) {
+                    globalFiatDeliveryMode = 'AUTO_STAKE_SILO';
+                } else if (globalFiatDeliveryMode === 'AUTO_STAKE_SILO') {
+                    globalFiatDeliveryMode = 'L1_KAS';
+                }
+                checkGlobalBankRailStatus();
+            });
+        } else if (!isOpen && wasFiatModalOpen) {
+            wasFiatModalOpen = false;
+            showGlobalAssetDropdown = false;
         }
     });
 
     let selectedGlobalTargetAsset = $derived(
         treasury.getAsset(ui.fiatModalTargetTicker || 'KAS')
     );
-
+    let targetAssetHex = $derived(
+        selectedGlobalTargetAsset.theme?.hex || '#18C6A5'
+    );
     let globalTargetSpotUsd = $derived.by(() => {
         const t = selectedGlobalTargetAsset;
         if (
@@ -119,8 +197,18 @@
                 globalFiatDeliveryMode === 'AUTO_STAKE_SILO',
             bundledKasOrSilo:
                 ui.fiatModalAutoStakeSilo ||
-                globalFiatDeliveryMode === 'AUTO_STAKE_SILO'
+                globalFiatDeliveryMode === 'AUTO_STAKE_SILO',
+            wholesaleFloorActive: globalWholesaleFloorActive,
+            paymentMethod: globalFiatGatewayMethod
         })
+    );
+
+    let globalWireMemoPreview = $derived(
+        globalFiatSuccessOrder?.wireMemo ||
+            `PERENNIA-${(identity.activeAddress || 'VAULT')
+                .replace(/[^a-zA-Z0-9]/g, '')
+                .slice(-6)
+                .toUpperCase()}`
     );
 
     let selectableGlobalAssets = $derived(
@@ -131,10 +219,78 @@
             return (
                 a.ticker.toLowerCase().includes(q) ||
                 a.name.toLowerCase().includes(q) ||
-                a.assetClass.toLowerCase().includes(q)
+                a.assetClass.toLowerCase().includes(q) ||
+                (a.contract && a.contract.toLowerCase().includes(q))
             );
         })
     );
+
+    function formatGlobalSpotDisplay(price: number): string {
+        if (!Number.isFinite(price) || price <= 0) {
+            return i18n.formatFiat(0, { decimals: 2 });
+        }
+        return i18n.formatFiat(price, { adaptiveSmallPrice: true });
+    }
+
+    function handleModalIconError(e: Event) {
+        const target = e.currentTarget as HTMLImageElement;
+        target.style.display = 'none';
+        if (target.nextElementSibling) {
+            (target.nextElementSibling as HTMLElement).style.display = 'flex';
+        }
+    }
+
+    function handleGlobalAssetSearchInput(raw: string) {
+        globalAssetSearch = raw;
+        globalDiscoveryNotice = null;
+        clearTimeout(globalDiscoverTimer);
+        const trimmed = raw.trim();
+        if (trimmed.length < 2) return;
+        globalDiscoverTimer = setTimeout(async () => {
+            isDiscoveringGlobalAsset = true;
+            try {
+                if (
+                    typeof (treasury as any).discoverAndRegisterToken ===
+                    'function'
+                ) {
+                    const res = await (
+                        treasury as any
+                    ).discoverAndRegisterToken(trimmed, true);
+                    if (res?.primary) {
+                        globalDiscoveryNotice = `✓ Discovered ${res.primary.ticker} (${res.primary.network}) @ ${formatGlobalSpotDisplay(res.primary.spotPrice)}`;
+                        return;
+                    }
+                }
+                const resp = await fetch(
+                    `/api/prices?discover=${encodeURIComponent(trimmed)}&register=1`
+                );
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success && data.asset) {
+                        const a = data.asset;
+                        treasury.updateAsset(a.ticker, {
+                            name: a.name || a.ticker,
+                            assetClass: a.assetClass || 'DeFi',
+                            network: a.network || 'ETH',
+                            spotPrice: Number(a.spotPrice || 0),
+                            delta: Number(a.change24h || 0),
+                            contract: a.contract || a.ticker,
+                            imgUrl: a.imgUrl || '',
+                            theme: a.theme || {
+                                hex: '#18C6A5',
+                                pastel: '#99f6e4'
+                            }
+                        });
+                        globalDiscoveryNotice = `✓ Discovered ${a.ticker} (${a.network}) @ ${formatGlobalSpotDisplay(Number(a.spotPrice || 0))}`;
+                    }
+                }
+            } catch {
+                // Ignore discovery timeout
+            } finally {
+                isDiscoveringGlobalAsset = false;
+            }
+        }, 260);
+    }
 
     $effect(() => {
         if (ui.activeTab === 'treasury') {
@@ -175,20 +331,38 @@
         if (identity.activeAddress && browser && navigator.clipboard) {
             navigator.clipboard.writeText(identity.activeAddress);
             headerPillShimmer = true;
-            ui.triggerMicroBadge('header_wallet_pill', 'COPIED ✓', '#18C6A5');
+            ui.triggerMicroBadge(
+                'header_wallet_pill',
+                i18n.t('header.copied'),
+                '#18C6A5'
+            );
             setTimeout(() => {
                 headerPillShimmer = false;
             }, 650);
         }
     }
 
+    function fillTestBankCredentials() {
+        inlineRoutingNumber = '110000000';
+        inlineAccountNumber = '000123456789';
+        inlineBankLabel = 'Stripe Test Bank (ACH Direct Debit)';
+        inlineAccountType = 'CHECKING';
+        globalFiatError = null;
+    }
+
     async function checkGlobalBankRailStatus() {
         if (!browser || !identity.isWalletConnected) return;
         try {
-            const res = await fetch('/api/fiat/offramp');
-            if (res.ok) {
-                const data = await res.json();
+            const [offRes, onRes] = await Promise.all([
+                fetch('/api/fiat/offramp').catch(() => null),
+                fetch('/api/fiat/onramp').catch(() => null)
+            ]);
+            if (offRes && offRes.ok) {
+                const data = await offRes.json();
                 savedBankLast4 = data.savedBankRailLast4 || null;
+                if (!savedBankLast4) {
+                    showInlineBankSetup = true;
+                }
                 if (typeof data.spotPrice === 'number' && data.spotPrice > 0) {
                     treasury.updateAsset('KAS', { spotPrice: data.spotPrice });
                 }
@@ -207,8 +381,14 @@
                             : 'ach';
                 }
             }
+            if (onRes && onRes.ok) {
+                const onData = await onRes.json();
+                if (typeof onData.wholesaleFloorActive === 'boolean') {
+                    globalWholesaleFloorActive = onData.wholesaleFloorActive;
+                }
+            }
         } catch {
-            // Ignore transient check error
+            // Ignore transient status error
         }
     }
 
@@ -259,7 +439,7 @@
             inlineRoutingNumber = '';
             inlineAccountNumber = '';
             showInlineBankSetup = false;
-            inlineBankBanner = `AES-256-GCM Bank Rail Linked (${resolvedLabel} • *${savedBankLast4})`;
+            inlineBankBanner = `Bank Account Linked (${resolvedLabel} • *${savedBankLast4})`;
             ui.triggerMicroBadge(
                 'global_fiat_btn',
                 `BANK *${savedBankLast4} LINKED ✓`,
@@ -281,13 +461,52 @@
         }
         const usdAmt = parseFloat(globalFiatUsdInput);
         if (isNaN(usdAmt) || usdAmt < 10) {
-            globalFiatError = 'Minimum direct purchase amount is $10.00 USD.';
+            globalFiatError = 'Minimum purchase amount is $10.00 USD.';
             return;
         }
         if (globalCostPlusPreview.circuitBreakerTripped) {
             globalFiatError =
                 globalCostPlusPreview.circuitBreakerReason ||
                 'Live oracle price feed is offline; failing closed.';
+            return;
+        }
+        const isBridgePushWire =
+            globalFiatGatewayMethod === 'wire' ||
+            globalCostPlusPreview.requiresInstitutionalWire ||
+            globalFiatPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
+        const isCardMethod =
+            globalFiatGatewayMethod === 'card' && !isBridgePushWire;
+        const cleanInlineRouting = inlineRoutingNumber
+            .replace(/\D/g, '')
+            .trim();
+        const cleanInlineAccount = inlineAccountNumber
+            .replace(/\D/g, '')
+            .trim();
+        const hasTypedBankCredentials =
+            cleanInlineRouting.length > 0 || cleanInlineAccount.length > 0;
+        if (hasTypedBankCredentials && !isCardMethod && !isBridgePushWire) {
+            if (
+                cleanInlineRouting.length !== 9 ||
+                cleanInlineAccount.length < 4
+            ) {
+                globalFiatError =
+                    'Please enter a complete 9-digit ABA Routing Number and Bank Account Number (minimum 4 digits).';
+                return;
+            }
+            if (!inlineAbaTelemetry.checksumValid) {
+                globalFiatError =
+                    'ABA_CHECKSUM_INVALID: The 9-digit routing number failed the Federal Reserve Mod-10 checksum test.';
+                return;
+            }
+        } else if (
+            !savedBankLast4 &&
+            !isBridgePushWire &&
+            !isCardMethod &&
+            globalFiatPaymentRail !== 'STRIPE_CRYPTO_ONRAMP'
+        ) {
+            showInlineBankSetup = true;
+            globalFiatError =
+                'Enter your 9-digit ABA Routing Number and Bank Account Number below to purchase via ACH, or select Card / Wire.';
             return;
         }
         isSubmittingGlobalFiat = true;
@@ -298,42 +517,133 @@
             targetTicker === DEFAULT_ECOSYSTEM_TICKER &&
             (ui.fiatModalAutoStakeSilo ||
                 globalFiatDeliveryMode === 'AUTO_STAKE_SILO');
+        const resolvedLabel =
+            inlineBankLabel.trim() ||
+            inlineAbaTelemetry.institutionName ||
+            savedBankRailMeta?.bankLabel ||
+            'Primary Operating Account';
+        try {
+            const payload: Record<string, any> = {
+                walletAddress: identity.activeAddress,
+                evmAddress: identity.sovereignKeys?.ethereum?.address,
+                solAddress: identity.sovereignKeys?.solana?.address,
+                fiatAmountUsd: usdAmt,
+                targetAsset: targetTicker,
+                paymentMethod: isBridgePushWire
+                    ? 'wire'
+                    : isCardMethod
+                      ? 'card'
+                      : 'ach',
+                paymentRail: isBridgePushWire
+                    ? 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'
+                    : isCardMethod
+                      ? 'CARD_INSTANT'
+                      : globalFiatPaymentRail,
+                settlementTarget: isAutoStakeSilo
+                    ? 'AUTO_STAKE_SILO'
+                    : globalFiatDeliveryMode,
+                autoStakeSilo: isAutoStakeSilo,
+                bundledKasOrSilo: isAutoStakeSilo,
+                instantBankDebit: !isBridgePushWire,
+                bankLabel: resolvedLabel,
+                accountType: inlineAccountType
+            };
+            if (
+                cleanInlineRouting.length === 9 &&
+                cleanInlineAccount.length >= 4
+            ) {
+                payload.routingNumber = cleanInlineRouting;
+                payload.accountNumber = cleanInlineAccount;
+            }
+            const res = await fetch('/api/fiat/onramp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(
+                    data.error || 'Failed to execute bank purchase.'
+                );
+            }
+            if (data.bankLast4) {
+                savedBankLast4 = data.bankLast4;
+                savedBankRailMeta = {
+                    bankLabel: data.bankLabel || resolvedLabel,
+                    accountType: inlineAccountType,
+                    payoutMethod: 'ACH',
+                    bankLast4: data.bankLast4,
+                    updatedAt: new Date().toISOString()
+                };
+                inlineRoutingNumber = '';
+                inlineAccountNumber = '';
+                showInlineBankSetup = false;
+            }
+            globalFiatSuccessOrder = data;
+            ui.triggerMicroBadge(
+                'global_fiat_btn',
+                data.status === 'COMPLETED'
+                    ? `${targetTicker} PURCHASED & CREDITED ✓`
+                    : `ORDER ${data.orderId || data.sessionId} CREATED ✓`,
+                '#18C6A5'
+            );
+            if (identity.activeAddress) {
+                await hydrateHeaderTreasuryBalances(identity.activeAddress);
+            }
+        } catch (err: any) {
+            globalFiatError =
+                err.message || 'Direct bank purchase execution failed.';
+        } finally {
+            isSubmittingGlobalFiat = false;
+        }
+    }
+
+    async function settleGlobalFiatOrderNow() {
+        if (
+            !globalFiatSuccessOrder?.orderId &&
+            !globalFiatSuccessOrder?.sessionId
+        )
+            return;
+        const orderId =
+            globalFiatSuccessOrder.orderId || globalFiatSuccessOrder.sessionId;
+        isSettlingGlobalFiat = true;
+        globalFiatError = null;
         try {
             const res = await fetch('/api/fiat/onramp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    walletAddress: identity.activeAddress,
-                    fiatAmountUsd: usdAmt,
-                    targetAsset: targetTicker,
-                    paymentRail: globalFiatPaymentRail,
-                    settlementTarget: isAutoStakeSilo
-                        ? 'AUTO_STAKE_SILO'
-                        : globalFiatDeliveryMode,
-                    autoStakeSilo: isAutoStakeSilo,
-                    bundledKasOrSilo: isAutoStakeSilo
+                    action: 'SETTLE_ORDER_NOW',
+                    orderId
                 })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 throw new Error(
-                    data.error || 'Failed to generate Settlement Pass.'
+                    data.error || 'Failed to settle purchase order.'
                 );
             }
-            globalFiatSuccessOrder = data;
+            globalFiatSuccessOrder = {
+                ...globalFiatSuccessOrder,
+                status: 'COMPLETED',
+                txHash: data.txHash || globalFiatSuccessOrder.txHash,
+                deliveredTokens:
+                    data.deliveredTokens ??
+                    globalFiatSuccessOrder.estimatedTokens
+            };
             ui.triggerMicroBadge(
                 'global_fiat_btn',
-                `PASS ${data.orderId || data.sessionId} RESERVED ✓`,
+                `${globalFiatSuccessOrder.targetAsset || selectedGlobalTargetAsset.ticker} DELIVERED ✓`,
                 '#18C6A5'
             );
-            if (data.status === 'COMPLETED' && identity.activeAddress) {
-                hydrateHeaderTreasuryBalances(identity.activeAddress);
+            if (identity.activeAddress) {
+                await hydrateHeaderTreasuryBalances(identity.activeAddress);
             }
         } catch (err: any) {
             globalFiatError =
-                err.message || 'Direct fiat purchase initialization failed.';
+                err.message || 'Failed to complete order settlement.';
         } finally {
-            isSubmittingGlobalFiat = false;
+            isSettlingGlobalFiat = false;
         }
     }
 
@@ -376,12 +686,20 @@
     async function hydrateHeaderTreasuryBalances(walletAddr: string) {
         if (!browser || !walletAddr) return;
         try {
-            const [balRes, ledgerRes] = await Promise.all([
+            const requests: Promise<Response>[] = [
                 fetch(`/api/balance?address=${encodeURIComponent(walletAddr)}`),
                 fetch(
                     `/api/user/ledger?wallet=${encodeURIComponent(walletAddr)}`
                 )
-            ]);
+            ];
+            if (identity.isCorporateAdmin && !ui.adminModeActive) {
+                requests.push(
+                    fetch(
+                        `/api/treasury/corporate?corporate=true&kas=${encodeURIComponent(walletAddr)}`
+                    )
+                );
+            }
+            const [balRes, ledgerRes, corpRes] = await Promise.all(requests);
             if (balRes.ok) {
                 const balData = await balRes.json();
                 if (typeof balData.balance === 'number') {
@@ -401,8 +719,15 @@
                     }
                 }
             }
+            if (corpRes && corpRes.ok) {
+                const corpData = await corpRes.json();
+                if (corpData?.reconciliation?.treasuryAccounting) {
+                    adminTreasuryAccounting =
+                        corpData.reconciliation.treasuryAccounting;
+                }
+            }
         } catch {
-            // Ignore balance hydration error
+            // Ignore transient header balance refresh error
         }
     }
 
@@ -471,6 +796,7 @@
                     loadStateFromServer(target);
                 } else if (!connected) {
                     isLoaded = false;
+                    adminTreasuryAccounting = null;
                     operations.purge();
                 }
             });
@@ -501,6 +827,12 @@
                                             detail: parsed
                                         })
                                     );
+                                    if (identity.activeAddress) {
+                                        hydrateHeaderTreasuryBalances(
+                                            resolveTargetWallet() ||
+                                                identity.activeAddress
+                                        );
+                                    }
                                     return;
                                 }
                                 if (
@@ -852,6 +1184,11 @@
                     }
                 }
             }
+            if (identity.isWalletConnected && identity.activeAddress) {
+                hydrateHeaderTreasuryBalances(
+                    resolveTargetWallet() || identity.activeAddress
+                );
+            }
         } catch {
             // Ignore transient price fetch error
         }
@@ -900,7 +1237,7 @@
                 }
             }
         } catch {
-            // Ignore initial auth check error
+            // Ignore auth check error at boot
         }
         fetchPriceData();
         settingsStore.applyTheme();
@@ -910,6 +1247,7 @@
     onDestroy(() => {
         if (priceInterval) clearInterval(priceInterval);
         if (epochClockInterval) clearInterval(epochClockInterval);
+        clearTimeout(globalDiscoverTimer);
     });
 </script>
 
@@ -954,8 +1292,8 @@
                                 class="text-[8px] font-mono uppercase tracking-widest text-neutral-500 mt-0.5"
                             >
                                 {operations.globalNodeStatus === 'connected'
-                                    ? 'DAG NODE ONLINE'
-                                    : 'SOVEREIGN NEXUS'}
+                                    ? i18n.t('header.node_online')
+                                    : i18n.t('header.mining_settlement')}
                             </span>
                         </div>
                     </button>
@@ -972,7 +1310,7 @@
                                 onclick={() => (ui.activeTab = 'OPERATIONS')}
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'OPERATIONS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
-                                OPERATIONS
+                                {i18n.t('nav.operations')}
                             </button>
                             <button
                                 type="button"
@@ -980,7 +1318,7 @@
                                 onclick={() => (ui.activeTab = 'DEX')}
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'DEX' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
-                                <span>EXCHANGE</span>
+                                <span>{i18n.t('nav.exchange')}</span>
                                 <span
                                     class="hidden xl:inline text-[8px] px-1.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-neutral-400"
                                 >
@@ -992,22 +1330,49 @@
                                 data-testid="header-treasury-btn"
                                 onclick={() => (ui.activeTab = 'TREASURY')}
                                 class="px-3 md:px-3.5 py-1.5 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 {ui.activeTab === 'TREASURY' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-300 hover:text-white border border-transparent'}"
-                                title="Open Sovereign Multi-Chain Treasury Vault"
+                                title={identity.isCorporateAdmin &&
+                                !ui.adminModeActive &&
+                                adminTreasuryAccounting
+                                    ? `Earned Fee Revenue: ${i18n.formatFiat(adminTreasuryAccounting.totalEarnedRevenueUsd, { decimals: settingsStore.fiatDecimals })} | Custodial Miner Rewards (22:00 UTC): ${i18n.formatFiat(adminTreasuryAccounting.custodialMinerLiabilityUsd, { decimals: settingsStore.fiatDecimals })}`
+                                    : 'Open Multi-Chain Treasury'}
                             >
-                                <span>TREASURY</span>
-                                <span
-                                    class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
-                                >
-                                    ${treasury.totalVaultValue.toLocaleString(
-                                        'en-US',
-                                        {
-                                            minimumFractionDigits:
-                                                settingsStore.fiatDecimals,
-                                            maximumFractionDigits:
-                                                settingsStore.fiatDecimals
-                                        }
-                                    )}
-                                </span>
+                                <span>{i18n.t('nav.treasury')}</span>
+                                {#if identity.isCorporateAdmin && !ui.adminModeActive && adminTreasuryAccounting}
+                                    <span
+                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
+                                    >
+                                        Fee: {i18n.formatFiat(
+                                            adminTreasuryAccounting.totalEarnedRevenueUsd,
+                                            {
+                                                decimals:
+                                                    settingsStore.fiatDecimals
+                                            }
+                                        )}
+                                    </span>
+                                    <span
+                                        class="hidden 2xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-amber-500/35 text-amber-400 font-mono font-bold text-[9px] tabular-nums"
+                                    >
+                                        Pool: {i18n.formatFiat(
+                                            adminTreasuryAccounting.custodialMinerLiabilityUsd,
+                                            {
+                                                decimals:
+                                                    settingsStore.fiatDecimals
+                                            }
+                                        )}
+                                    </span>
+                                {:else}
+                                    <span
+                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
+                                    >
+                                        {i18n.formatFiat(
+                                            treasury.totalVaultValue,
+                                            {
+                                                decimals:
+                                                    settingsStore.fiatDecimals
+                                            }
+                                        )}
+                                    </span>
+                                {/if}
                             </button>
                             <button
                                 type="button"
@@ -1015,7 +1380,7 @@
                                 onclick={() => (ui.activeTab = 'TAX FORTRESS')}
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'TAX FORTRESS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
-                                TAX FORTRESS
+                                {i18n.t('nav.tax_fortress')}
                             </button>
                             {#if identity.canAccessForge}
                                 <button
@@ -1024,7 +1389,7 @@
                                     onclick={() => (ui.activeTab = 'FORGE')}
                                     class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'FORGE' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                                 >
-                                    FORGE
+                                    {i18n.t('nav.forge')}
                                 </button>
                             {/if}
                             {#if identity.isCorporateAdmin}
@@ -1034,7 +1399,7 @@
                                     onclick={() => (ui.activeTab = 'DIRECTOR')}
                                     class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'DIRECTOR' ? 'bg-[#161d29] text-amber-400 border border-amber-500/45 shadow-sm' : 'text-amber-400/80 hover:text-amber-300 border border-transparent'}"
                                 >
-                                    DIRECTOR
+                                    {i18n.t('nav.director')}
                                 </button>
                             {/if}
                         </div>
@@ -1079,13 +1444,13 @@
                                 type="button"
                                 data-testid="header-buy-fiat-btn"
                                 onclick={() =>
-                                    ui.openFiatModal('KAS', false, '500')}
+                                    ui.openFiatModal('KAS', false, '650')}
                                 class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest cursor-pointer flex items-center gap-1.5 text-[#18C6A5] border-[#18C6A5]/50 whitespace-nowrap"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
-                                title="Buy KAS, SILO, BTC, or Any Token with USD (Zero-Loss Cost-Plus)"
+                                title="Buy Crypto with USD"
                             >
                                 <span class="text-xs font-black">$</span>
-                                <span>Buy Crypto</span>
+                                <span>{i18n.t('header.buy_crypto')}</span>
                             </button>
                         </div>
                         <button
@@ -1124,7 +1489,8 @@
                                 class="tactile-btn px-4 md:px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                             >
-                                Unlock Vault
+                                {i18n.t('header.unlock_vault')}
+                                <span class="sr-only">Unlock Vault</span>
                             </button>
                         {:else}
                             <div
@@ -1142,13 +1508,13 @@
                                     type="button"
                                     onclick={copyHeaderWalletAddress}
                                     class="tactile-btn {headerPillShimmer ? 'shimmer-flash' : ''} rounded-lg px-2.5 md:px-3 py-1.5 flex items-center gap-1.5 cursor-pointer group"
-                                    title="Click to copy Sovereign Kaspa Address"
+                                    title="Click to copy Kaspa Address"
                                 >
                                     <div
                                         class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'} shrink-0"
                                     ></div>
                                     <span
-                                        class="{operations.globalNodeStatus === 'connected' ? 'text-[#18C6A5]' : operations.globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-neutral-400'} font-mono text-[10px] font-bold truncate max-w-[90px] md:max-w-none group-hover:text-white transition-colors"
+                                        class="{operations.globalNodeStatus === 'connected' ? 'text-[#18C6A5]' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'text-neutral-400'} font-mono text-[10px] font-bold truncate max-w-[90px] md:max-w-none group-hover:text-white transition-colors"
                                     >
                                         {identity.activeAddress?.substring(
                                             0,
@@ -1157,6 +1523,7 @@
                                             identity.activeAddress.length - 4
                                         )}
                                     </span>
+                                    <span class="sr-only">UNLOCKED</span>
                                 </button>
                                 <button
                                     type="button"
@@ -1206,27 +1573,28 @@
             class="fixed inset-0 w-full h-full bg-transparent border-none cursor-default"
         ></button>
         <div
-            class="relative z-10 w-full max-w-[700px] bg-[#0a0d12] border border-[#18C6A5]/45 rounded-[28px] p-6 md:p-7 shadow-[0_24px_80px_rgba(0,0,0,0.95)] flex flex-col gap-4 my-auto"
-            style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 65%);"
+            class="relative z-10 w-full max-w-[580px] bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 flex flex-col gap-3.5 my-auto transition-all duration-300"
+            style="
+                border-color: {targetAssetHex}45;
+                background-image:
+                    radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 58%),
+                    radial-gradient(ellipse at bottom right, {targetAssetHex}24, transparent 65%);
+                box-shadow:
+                    0 24px 70px -15px rgba(0, 0, 0, 0.9),
+                    0 0 42px -15px {targetAssetHex}30;
+            "
         >
-            <div
-                class="flex items-start justify-between gap-3 border-b border-white/10 pb-3.5"
-            >
-                <div class="flex flex-col">
-                    <div class="flex items-center gap-2">
-                        <span
-                            class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"
-                        ></span>
-                        <h2
-                            class="text-xs md:text-sm font-black uppercase tracking-widest text-white"
-                        >
-                            Zero-Loss Cost-Plus On-Ramp &amp; Single-Hop
-                            Drop-Ship
-                        </h2>
-                    </div>
-                    <span class="text-[9px] text-neutral-400 mt-0.5">
-                        Direct Bank-to-Self-Custody or 1-Click SILO Auto-Stake •
-                        Zero Batch Waiting
+            <div class="flex items-center justify-between gap-3 pb-2 border-b border-white/10 flex-wrap">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <span
+                        class="w-2.5 h-2.5 rounded-full transition-colors duration-300"
+                        style="background-color: {targetAssetHex}; box-shadow: 0 0 10px {targetAssetHex}80;"
+                    ></span>
+                    <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
+                        Buy {selectedGlobalTargetAsset.ticker} with USD
+                    </h2>
+                    <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase">
+                        {globalCostPlusPreview.tierBadgeLabel}
                     </span>
                 </div>
                 <button
@@ -1239,274 +1607,297 @@
                 </button>
             </div>
             <div
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
+                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/35"
+                style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.10), transparent 65%);"
             >
                 <div class="flex items-center justify-between flex-wrap gap-2">
-                    <span
-                        class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]"
+                    <label
+                        for="globalFiatUsdAmount"
+                        class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
                     >
-                        Step 1 • Instant Payout Calculator
-                    </span>
-                    <div class="flex items-center gap-1.5 flex-wrap">
+                        {i18n.t('dex.you_pay')}
+                    </label>
+                    <div class="flex items-center gap-1 flex-wrap">
                         {#each [
                             { label: '$100', val: '100' },
-                            { label: '$250', val: '250' },
-                            { label: '$500', val: '500' },
-                            { label: '$1,000', val: '1000' },
-                            { label: '$2,500+', val: '2500' }
+                            { label: '$650 (ACH)', val: '650' },
+                            { label: '$2.5k', val: '2500' },
+                            { label: '$10k (Pro)', val: '10000' },
+                            { label: '$100k (Wire)', val: '100000' }
                         ] as preset (preset.val)}
                             <button
                                 type="button"
                                 onclick={() =>
                                     (globalFiatUsdInput = preset.val)}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase whitespace-nowrap cursor-pointer {globalFiatUsdInput === preset.val ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400 hover:text-white'}"
+                                class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-mono font-bold cursor-pointer {globalFiatUsdInput ===
+                                preset.val
+                                    ? 'text-[#18C6A5] border-[#18C6A5]/45'
+                                    : 'text-neutral-300 hover:text-white'}"
                             >
                                 {preset.label}
                             </button>
                         {/each}
                     </div>
                 </div>
-                <div
-                    class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-stretch"
-                >
-                    <div
-                        class="sm:col-span-6 bg-[#0a0d12] border border-white/10 rounded-xl p-3.5 flex flex-col justify-between"
-                    >
-                        <label
-                            for="globalFiatUsdAmount"
-                            class="text-[8px] font-bold uppercase tracking-widest text-neutral-500"
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span class="text-2xl md:text-3xl font-bold text-neutral-500"
+                            >$</span
                         >
-                            You Pay (USD Bank ACH / Whale Wire)
-                        </label>
-                        <div class="flex items-center gap-1 mt-1">
-                            <span class="text-neutral-500 text-xl font-bold"
-                                >$</span
-                            >
-                            <input
-                                id="globalFiatUsdAmount"
-                                data-testid="global-fiat-usd-input"
-                                type="number"
-                                min="10"
-                                bind:value={globalFiatUsdInput}
-                                class="w-full bg-transparent text-2xl font-black text-white outline-none tabular-nums"
-                            />
-                            <span
-                                class="text-[10px] font-bold text-neutral-400 px-2 py-0.5 rounded bg-[#11161f] border border-white/10"
-                            >
-                                USD
-                            </span>
-                        </div>
-                        <span class="text-[8px] text-neutral-400 mt-1">
-                            {globalCostPlusPreview.railLabel} • Net Converted:
-                            <strong class="text-white"
-                                >${globalCostPlusPreview.guestNetUsd.toFixed(
-                                    2
-                                )}</strong
-                            >
-                            (Fee: ${globalCostPlusPreview.feeUsd.toFixed(2)})
-                        </span>
+                        <input
+                            id="globalFiatUsdAmount"
+                            data-testid="global-fiat-usd-input"
+                            type="number"
+                            min="10"
+                            bind:value={globalFiatUsdInput}
+                            placeholder="650"
+                            class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none tabular-nums"
+                        />
                     </div>
                     <div
-                        class="sm:col-span-6 bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl p-3.5 flex flex-col justify-between relative"
+                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[#0a0d12] border border-[#18C6A5]/40"
                     >
-                        <div class="flex items-center justify-between">
-                            <span
-                                class="text-[8px] font-bold uppercase tracking-widest text-[#18C6A5]"
-                            >
-                                You Receive (Est. Output)
-                            </span>
-                            <span class="text-[8px] text-neutral-400">
-                                {#if globalCostPlusPreview.spotPriceUsd > 0}
-                                    Spot: ${globalCostPlusPreview.spotPriceUsd <
-                                    0.01
-                                        ? globalCostPlusPreview.spotPriceUsd.toFixed(
-                                              6
-                                          )
-                                        : globalCostPlusPreview.spotPriceUsd.toFixed(
-                                              4
-                                          )}
-                                {:else}
-                                    Oracle Syncing...
-                                {/if}
-                            </span>
+                        <div class="w-6 h-6 rounded-full bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-[10px] font-black">
+                            $
                         </div>
-                        <div
-                            class="flex items-center justify-between gap-2 mt-1"
-                        >
-                            <span
-                                data-testid="global-fiat-estimated-output"
-                                class="text-xl font-black text-[#18C6A5] tabular-nums truncate"
-                            >
-                                ≈ {globalCostPlusPreview.estimatedTokens.toLocaleString(
-                                    undefined,
-                                    {
-                                        maximumFractionDigits:
-                                            globalCostPlusPreview.estimatedTokens <
-                                            1
-                                                ? 6
-                                                : 2
-                                    }
-                                )}
-                            </span>
-                            <button
-                                type="button"
-                                data-testid="global-fiat-asset-selector-btn"
-                                onclick={() =>
-                                    (showGlobalAssetDropdown =
-                                        !showGlobalAssetDropdown)}
-                                class="tactile-btn px-3 py-1.5 rounded-xl border-[#18C6A5]/45 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer"
-                            >
-                                <span>{selectedGlobalTargetAsset.ticker}</span>
-                                <span class="text-[9px] text-neutral-400"
-                                    >▾</span
-                                >
-                            </button>
-                        </div>
-                        <span class="text-[8px] text-neutral-400 mt-1 truncate">
-                            {globalCostPlusPreview.routingTopology}
+                        <span class="text-xs font-black text-white tracking-wider">
+                            USD
                         </span>
-                        {#if showGlobalAssetDropdown}
-                            <div
-                                class="absolute top-full right-0 mt-1.5 w-64 bg-[#0a0d12] border border-white/20 rounded-2xl shadow-2xl p-2 z-50 flex flex-col gap-1.5 max-h-60 overflow-y-auto"
-                            >
-                                <input
-                                    type="text"
-                                    bind:value={globalAssetSearch}
-                                    placeholder="Filter KAS, SILO, BTC, NVDA..."
-                                    class="w-full bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-white outline-none"
-                                />
-                                {#each selectableGlobalAssets as item (item.ticker)}
-                                    <button
-                                        type="button"
-                                        onclick={() => {
-                                            ui.fiatModalTargetTicker =
-                                                item.ticker;
-                                            if (
-                                                item.ticker !==
-                                                DEFAULT_ECOSYSTEM_TICKER
-                                            ) {
-                                                ui.fiatModalAutoStakeSilo = false;
-                                                if (
-                                                    globalFiatDeliveryMode ===
-                                                    'AUTO_STAKE_SILO'
-                                                ) {
-                                                    globalFiatDeliveryMode =
-                                                        'L1_KAS';
-                                                }
-                                            }
-                                            showGlobalAssetDropdown = false;
-                                        }}
-                                        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[#161d29] flex items-center justify-between text-[10px] cursor-pointer"
-                                    >
-                                        <span class="font-bold text-white"
-                                            >{item.ticker} — {item.name}</span
-                                        >
-                                        <span class="text-[#18C6A5] font-bold">
-                                            ${item.spotPrice > 0
-                                                ? item.spotPrice < 0.01
-                                                    ? item.spotPrice.toFixed(4)
-                                                    : item.spotPrice.toFixed(2)
-                                                : 'LIVE'}
-                                        </span>
-                                    </button>
-                                {/each}
-                            </div>
-                        {/if}
                     </div>
                 </div>
-                <div
-                    data-testid="global-fiat-competitor-savings-badge"
-                    class="bg-[#0a0d12] border border-[#18C6A5]/45 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"
-                >
-                    <span class="text-[11px] font-black text-[#18C6A5]">
-                        You keep +${globalCostPlusPreview.guestSavingsUsd.toFixed(
+                <div class="flex items-center justify-between flex-wrap gap-2 text-[10px] font-mono text-neutral-400 pt-1 border-t border-white/10">
+                    <span>
+                        Principal: ${globalCostPlusPreview.guestNetUsd.toFixed(
                             2
-                        )} more than Uphold &amp; Retail Exchange Apps.
-                    </span>
-                    <span class="text-[9px] text-neutral-400">
-                        Perennia Net: ${globalCostPlusPreview.guestNetUsd.toFixed(
+                        )} • Perennia ({globalCostPlusPreview.protocolFeeFloorPct.toFixed(
                             2
-                        )} vs. Uphold: ${globalCostPlusPreview.competitorNetUsd.toFixed(
+                        )}%): ${globalCostPlusPreview.perenniaFeeUsd.toFixed(2)} • Gateway: ${globalCostPlusPreview.stripeGatewayFeeUsd.toFixed(
                             2
                         )}
                     </span>
-                </div>
-                <div class="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span class="text-[8px] text-neutral-500 uppercase mr-1"
-                        >Quick Asset:</span
+                    <span
+                        data-testid="global-fiat-fee-breakdown"
+                        class="text-[#18C6A5] font-bold"
                     >
-                    {#each ['KAS', 'BTC', 'ETH', 'SOL', 'USDC', 'SILO', 'NVDA', 'SPY', 'XAU'] as quickTick}
-                        <button
-                            type="button"
-                            onclick={() => {
-                                ui.fiatModalTargetTicker = quickTick;
-                                if (quickTick !== DEFAULT_ECOSYSTEM_TICKER) {
-                                    ui.fiatModalAutoStakeSilo = false;
-                                    if (
-                                        globalFiatDeliveryMode ===
-                                        'AUTO_STAKE_SILO'
-                                    ) {
-                                        globalFiatDeliveryMode = 'L1_KAS';
-                                    }
-                                }
-                            }}
-                            class="px-2.5 py-0.5 rounded-md text-[9px] font-bold uppercase border cursor-pointer transition-colors {ui.fiatModalTargetTicker === quickTick ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45' : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
-                        >
-                            {quickTick}
-                        </button>
-                    {/each}
+                        Total Charge: ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(
+                            2
+                        )} (Fee: ${globalCostPlusPreview.feeUsd.toFixed(2)})
+                    </span>
+                </div>
+            </div>
+            <div class="flex items-center justify-center -my-4 z-20 pointer-events-none">
+                <div
+                    class="w-9 h-9 rounded-xl bg-[#0a0d12] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
+                    style="border-color: {targetAssetHex}55; color: {targetAssetHex};"
+                >
+                    ↓
                 </div>
             </div>
             <div
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
+                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border relative transition-all duration-300"
+                style="
+                    border-color: {targetAssetHex}55;
+                    background-image: radial-gradient(ellipse at bottom right, {targetAssetHex}24, transparent 68%);
+                    box-shadow: inset 0 0 26px -12px {targetAssetHex}28;
+                "
             >
-                <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center justify-between">
                     <span
-                        class="text-[10px] font-black uppercase tracking-widest text-white"
+                        class="text-[10px] font-black uppercase tracking-widest transition-colors duration-300"
+                        style="color: {targetAssetHex};"
                     >
-                        Step 2 • Destination Upgrade &amp; Bank Vault
+                        {i18n.t('dex.you_receive')}
                     </span>
-                    {#if savedBankLast4}
-                        <button
-                            type="button"
-                            onclick={() =>
-                                (showInlineBankSetup = !showInlineBankSetup)}
-                            class="text-[9px] font-bold text-[#18C6A5] hover:underline uppercase cursor-pointer"
-                        >
-                            {showInlineBankSetup
-                                ? '[Close Bank Editor ✕]'
-                                : `✓ Linked Bank *${savedBankLast4} [Change]`}
-                        </button>
-                    {:else}
-                        <button
-                            type="button"
-                            data-testid="global-fiat-link-bank-toggle-btn"
-                            onclick={() =>
-                                (showInlineBankSetup = !showInlineBankSetup)}
-                            class="text-[9px] font-bold text-amber-400 hover:underline uppercase cursor-pointer"
-                        >
-                            {showInlineBankSetup
-                                ? '[Hide Bank Setup ▴]'
-                                : '[+ Link Bank Account (Mod-10 ABA)]'}
-                        </button>
-                    {/if}
+                    <span class="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-400">
+                        {selectedGlobalTargetAsset.assetClass.toUpperCase()} • 24/7 ORACLE
+                    </span>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div class="flex items-center justify-between gap-3">
+                    <span
+                        data-testid="global-fiat-estimated-output"
+                        class="text-3xl md:text-4xl font-bold font-mono text-white tabular-nums truncate"
+                    >
+                        {globalCostPlusPreview.estimatedTokens > 0
+                            ? globalCostPlusPreview.estimatedTokens.toLocaleString(
+                                  undefined,
+                                  {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits:
+                                          globalCostPlusPreview.estimatedTokens <
+                                          1
+                                              ? 6
+                                              : 2
+                                  }
+                              )
+                            : '0.00'}
+                    </span>
+                    <button
+                        type="button"
+                        data-testid="global-fiat-asset-selector-btn"
+                        onclick={() =>
+                            (showGlobalAssetDropdown =
+                                !showGlobalAssetDropdown)}
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer transition-all duration-300"
+                        style="border-color: {targetAssetHex}60;"
+                    >
+                        <div
+                            class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black overflow-hidden shrink-0"
+                            style="background-color: {targetAssetHex}22; color: {targetAssetHex}; border: 1px solid {targetAssetHex}60;"
+                        >
+                            {#if selectedGlobalTargetAsset.imgUrl}
+                                <img
+                                    src={selectedGlobalTargetAsset.imgUrl}
+                                    alt={selectedGlobalTargetAsset.ticker}
+                                    class="w-4 h-4 object-contain"
+                                    onerror={handleModalIconError}
+                                />
+                                <span
+                                    style="display:none;"
+                                    class="w-full h-full items-center justify-center"
+                                >
+                                    {selectedGlobalTargetAsset.ticker[0]}
+                                </span>
+                            {:else}
+                                <span>{selectedGlobalTargetAsset.ticker[0]}</span>
+                            {/if}
+                        </div>
+                        <div class="flex flex-col items-start leading-tight">
+                            <span class="text-xs font-black text-white tracking-wider uppercase">
+                                {selectedGlobalTargetAsset.ticker}
+                            </span>
+                            <span
+                                class="text-[9px] font-mono font-bold"
+                                style="color: {targetAssetHex};"
+                            >
+                                {formatGlobalSpotDisplay(
+                                    globalCostPlusPreview.spotPriceUsd
+                                )}
+                            </span>
+                        </div>
+                        <span class="text-[10px] text-neutral-400 ml-0.5"
+                            >▾</span
+                        >
+                    </button>
+                </div>
+                <div
+                    data-testid="global-fiat-competitor-savings-badge"
+                    class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-3 py-1.5 flex items-center justify-between flex-wrap gap-2 text-[9px] font-mono"
+                >
+                    <span class="text-[#18C6A5] font-bold">
+                        ✓ Save +${globalCostPlusPreview.savingsVsMoonpayUsd.toFixed(
+                            2
+                        )} vs. MoonPay &amp; +${globalCostPlusPreview.savingsVsCoinbaseUsd.toFixed(
+                            2
+                        )} vs. Coinbase
+                    </span>
+                    <span class="text-neutral-400">
+                        {i18n.t('dex.available')}: {selectedGlobalTargetAsset.availableBalance.toLocaleString(
+                            undefined,
+                            {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 4
+                            }
+                        )}
+                        {selectedGlobalTargetAsset.ticker}
+                    </span>
+                </div>
+                {#if showGlobalAssetDropdown}
+                    <div
+                        class="absolute top-full right-0 mt-2 w-72 bg-[#0a0d12] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
+                    >
+                        <input
+                            type="text"
+                            value={globalAssetSearch}
+                            oninput={(e) =>
+                                handleGlobalAssetSearchInput(
+                                    (e.currentTarget as HTMLInputElement).value
+                                )}
+                            placeholder="Search ticker or paste contract..."
+                            class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white outline-none"
+                        />
+                        {#if isDiscoveringGlobalAsset}
+                            <span
+                                class="text-[8px] text-[#18C6A5] animate-pulse px-1"
+                            >
+                                Discovering live token feed...
+                            </span>
+                        {:else if globalDiscoveryNotice}
+                            <span class="text-[8px] text-[#18C6A5] px-1">
+                                {globalDiscoveryNotice}
+                            </span>
+                        {/if}
+                        {#each selectableGlobalAssets as item (item.ticker)}
+                            {@const itemHex = item.theme?.hex || '#18C6A5'}
+                            <button
+                                type="button"
+                                onclick={() => {
+                                    ui.fiatModalTargetTicker = item.ticker;
+                                    if (
+                                        item.ticker !== DEFAULT_ECOSYSTEM_TICKER
+                                    ) {
+                                        ui.fiatModalAutoStakeSilo = false;
+                                        if (
+                                            globalFiatDeliveryMode ===
+                                            'AUTO_STAKE_SILO'
+                                        ) {
+                                            globalFiatDeliveryMode = 'L1_KAS';
+                                        }
+                                    }
+                                    showGlobalAssetDropdown = false;
+                                }}
+                                class="w-full text-left px-2.5 py-2 rounded-xl hover:bg-[#161d29] flex items-center justify-between text-[10px] cursor-pointer"
+                            >
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span
+                                        class="w-2 h-2 rounded-full shrink-0"
+                                        style="background-color: {itemHex};"
+                                    ></span>
+                                    <span class="font-bold text-white truncate">
+                                        {item.ticker} — {item.name}
+                                    </span>
+                                </div>
+                                <span
+                                    class="font-bold shrink-0 ml-2"
+                                    style="color: {itemHex};"
+                                >
+                                    {item.spotPrice > 0
+                                        ? formatGlobalSpotDisplay(
+                                              item.spotPrice
+                                          )
+                                        : 'LIVE'}
+                                </span>
+                            </button>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5">
+                <div class="grid grid-cols-3 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5">
                     <button
                         type="button"
                         onclick={() => {
                             globalFiatDeliveryMode = 'L1_KAS';
                             ui.fiatModalAutoStakeSilo = false;
                         }}
-                        class="p-3 rounded-xl border text-left cursor-pointer flex flex-col gap-1 {globalFiatDeliveryMode !== 'AUTO_STAKE_SILO' && !ui.fiatModalAutoStakeSilo ? 'bg-[#161d29] border-[#18C6A5] text-white' : 'bg-[#0a0d12] border-white/10 text-neutral-400'}"
+                        class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalFiatDeliveryMode ===
+                            'L1_KAS' && !ui.fiatModalAutoStakeSilo
+                            ? 'bg-[#161d29] text-white border border-white/15'
+                            : 'text-neutral-400 hover:text-white'}"
                     >
-                        <span class="text-[10px] font-black uppercase text-white">
-                            Direct to Self-Custody Wallet
-                        </span>
-                        <span class="text-[9px] text-neutral-300">
-                            "100% yours the moment settlement clears—no 65-day
-                            exchange holds."
-                        </span>
+                        Wallet (L1)
+                    </button>
+                    <button
+                        type="button"
+                        onclick={() => {
+                            globalFiatDeliveryMode = 'LEDGER_KAS';
+                            ui.fiatModalAutoStakeSilo = false;
+                        }}
+                        class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalFiatDeliveryMode ===
+                            'LEDGER_KAS' && !ui.fiatModalAutoStakeSilo
+                            ? 'bg-[#161d29] text-white border border-white/15'
+                            : 'text-neutral-400 hover:text-white'}"
+                    >
+                        Platform ($0 Gas)
                     </button>
                     <button
                         type="button"
@@ -1516,36 +1907,156 @@
                             ui.fiatModalAutoStakeSilo = true;
                             globalFiatDeliveryMode = 'AUTO_STAKE_SILO';
                         }}
-                        class="p-3 rounded-xl border text-left cursor-pointer flex flex-col gap-1 {globalFiatDeliveryMode === 'AUTO_STAKE_SILO' || ui.fiatModalAutoStakeSilo ? 'bg-[#161d29] border-[#18C6A5] text-white' : 'bg-[#0a0d12] border-white/10 text-neutral-400'}"
+                        class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalFiatDeliveryMode ===
+                            'AUTO_STAKE_SILO' || ui.fiatModalAutoStakeSilo
+                            ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45'
+                            : 'text-neutral-400 hover:text-[#18C6A5]'}"
                     >
-                        <span class="text-[10px] font-black uppercase text-[#18C6A5]">
-                            1-Click Auto-Stake to SILO Vault
-                        </span>
-                        <span class="text-[9px] text-neutral-300">
-                            "Skip the extra swap and earn vault yield
-                            immediately."
-                        </span>
+                        Auto-Stake {DEFAULT_ECOSYSTEM_TICKER}
                     </button>
                 </div>
+                <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button
+                            type="button"
+                            data-testid="modal-rail-stripe-btn"
+                            disabled={globalCostPlusPreview.requiresInstitutionalWire}
+                            onclick={() => {
+                                globalFiatGatewayMethod = 'ach';
+                                globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
+                            }}
+                            class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
+                                'ach' &&
+                            !globalCostPlusPreview.requiresInstitutionalWire
+                                ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
+                                : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                        >
+                            ACH ($5 Cap @ $625+)
+                        </button>
+                        <button
+                            type="button"
+                            disabled={globalCostPlusPreview.requiresInstitutionalWire}
+                            onclick={() => {
+                                globalFiatGatewayMethod = 'card';
+                                globalFiatPaymentRail = 'CARD_INSTANT';
+                            }}
+                            class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
+                                'card' &&
+                            !globalCostPlusPreview.requiresInstitutionalWire
+                                ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
+                                : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                        >
+                            Card (2.9%+$0.30)
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="modal-rail-bridge-wire-btn"
+                            onclick={() => {
+                                globalFiatGatewayMethod = 'wire';
+                                globalFiatPaymentRail =
+                                    'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
+                            }}
+                            class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {globalFiatGatewayMethod ===
+                                'wire' ||
+                            globalCostPlusPreview.requiresInstitutionalWire
+                                ? 'bg-[#161d29] text-amber-400 border-amber-500/40'
+                                : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                        >
+                            Mercury Wire ($100k+)
+                        </button>
+                    </div>
+                    {#if globalFiatGatewayMethod !== 'wire' && !globalCostPlusPreview.requiresInstitutionalWire}
+                        {#if savedBankLast4}
+                            <button
+                                type="button"
+                                onclick={() =>
+                                    (showInlineBankSetup =
+                                        !showInlineBankSetup)}
+                                class="font-bold text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                            >
+                                {showInlineBankSetup
+                                    ? '[Close Bank ✕]'
+                                    : `✓ Bank *${savedBankLast4} [Change]`}
+                            </button>
+                        {:else}
+                            <button
+                                type="button"
+                                data-testid="global-fiat-link-bank-toggle-btn"
+                                onclick={() =>
+                                    (showInlineBankSetup =
+                                        !showInlineBankSetup)}
+                                class="font-bold text-amber-400 hover:underline uppercase cursor-pointer"
+                            >
+                                {showInlineBankSetup
+                                    ? '[Hide Bank ▴]'
+                                    : '[+ Link Bank Account]'}
+                            </button>
+                        {/if}
+                    {/if}
+                </div>
                 {#if inlineBankBanner}
-                    <div
-                        class="p-2.5 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold text-center"
-                    >
+                    <div class="p-2 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold text-center">
                         {inlineBankBanner}
                     </div>
                 {/if}
-                {#if showInlineBankSetup}
+                {#if globalCostPlusPreview.requiresInstitutionalWire || globalFiatGatewayMethod === 'wire' || globalFiatPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'}
                     <div
                         transition:slide={{ duration: 150 }}
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2.5"
+                        class="bg-[#0a0d12] border border-amber-500/45 rounded-xl p-3 flex flex-col gap-2 text-[9px] font-mono"
                     >
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-amber-400 font-black uppercase">
+                                🏛️ Column N.A. / Mercury Wire (*9901)
+                            </span>
+                            <span class="text-[#18C6A5] font-bold">
+                                0.20% Institutional Tier • $0 Gateway Fee
+                            </span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-[8px]">
+                            <div class="bg-[#11161f] p-2 rounded border border-white/5">
+                                <span class="text-neutral-500 block">ABA ROUTING</span>
+                                <span class="text-white font-black select-all">
+                                    {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
+                                </span>
+                            </div>
+                            <div class="bg-[#11161f] p-2 rounded border border-white/5">
+                                <span class="text-neutral-500 block">ACCOUNT NUMBER</span>
+                                <span class="text-white font-black select-all">
+                                    {MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between text-[8px] text-neutral-400">
+                            <span>{MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankName}</span>
+                            <span class="text-amber-300 font-bold select-all">
+                                Memo: {globalWireMemoPreview}
+                            </span>
+                        </div>
+                    </div>
+                {:else if showInlineBankSetup || (!savedBankLast4 && globalFiatGatewayMethod === 'ach')}
+                    <div
+                        transition:slide={{ duration: 150 }}
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5 mt-0.5"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span class="text-[9px] font-bold uppercase text-neutral-300">
+                                Bank Account Details
+                            </span>
+                            <button
+                                type="button"
+                                onclick={fillTestBankCredentials}
+                                class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
+                            >
+                                [Use Test Bank]
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div class="flex flex-col gap-1">
                                 <label
                                     for="inlineAbaRouting"
                                     class="text-[8px] font-bold uppercase text-neutral-400"
                                 >
-                                    9-Digit ABA Routing Number
+                                    9-Digit Routing Number
                                 </label>
                                 <input
                                     id="inlineAbaRouting"
@@ -1553,7 +2064,7 @@
                                     type="text"
                                     maxlength="9"
                                     bind:value={inlineRoutingNumber}
-                                    placeholder="021000021"
+                                    placeholder="111000614"
                                     class="bg-[#11161f] border {inlineAbaTelemetry.isComplete ? (inlineAbaTelemetry.checksumValid ? 'border-[#18C6A5]/60' : 'border-red-500/60') : 'border-white/10'} rounded-lg px-3 py-2 text-xs text-white outline-none"
                                 />
                                 {#if inlineAbaTelemetry.cleanDigits.length > 0}
@@ -1564,8 +2075,8 @@
                                         inlineAbaTelemetry.checksumValid
                                             ? `✓ ${inlineAbaTelemetry.institutionName}`
                                             : inlineAbaTelemetry.isComplete
-                                              ? '✕ Invalid ABA Mod-10 Checksum'
-                                              : `Digits: ${inlineAbaTelemetry.cleanDigits.length}/9`}
+                                              ? '✕ Invalid Routing Number'
+                                              : `${inlineAbaTelemetry.cleanDigits.length}/9 digits`}
                                     </span>
                                 {/if}
                             </div>
@@ -1574,7 +2085,7 @@
                                     for="inlineBankAcct"
                                     class="text-[8px] font-bold uppercase text-neutral-400"
                                 >
-                                    Checking / Savings Account Number
+                                    Account Number
                                 </label>
                                 <input
                                     id="inlineBankAcct"
@@ -1596,16 +2107,14 @@
                             class="tactile-btn w-full py-2 rounded-lg text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer disabled:opacity-40"
                         >
                             {isSavingInlineBankRail
-                                ? 'Encrypting Bank Rail...'
-                                : 'Save Encrypted Bank Rail & Arm 1-Click ACH ✓'}
+                                ? 'Saving Bank Account...'
+                                : 'Save Bank Account ✓'}
                         </button>
                     </div>
                 {/if}
             </div>
             {#if globalFiatError || globalCostPlusPreview.circuitBreakerTripped}
-                <div
-                    class="p-3 rounded-xl bg-red-950/30 border border-red-500/45 text-red-400 text-[10px] font-bold text-center"
-                >
+                <div class="p-3 rounded-xl bg-red-950/30 border border-red-500/45 text-red-400 text-[10px] font-bold text-center">
                     ⚠ {globalFiatError ||
                         globalCostPlusPreview.circuitBreakerReason}
                 </div>
@@ -1615,29 +2124,45 @@
                     data-testid="global-fiat-order-receipt"
                     class="bg-[#11161f] border border-[#18C6A5]/50 rounded-2xl p-4 flex flex-col gap-2.5"
                 >
-                    <div class="flex items-center justify-between">
-                        <span
-                            class="text-[10px] font-black uppercase text-[#18C6A5]"
-                        >
-                            ✓ Settlement Pass {globalFiatSuccessOrder.orderId} Reserved
-                            ({globalFiatSuccessOrder.status})
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-[10px] font-black uppercase text-[#18C6A5]">
+                            ✓ {globalFiatSuccessOrder.status === 'COMPLETED'
+                                ? `Purchase Completed (${globalFiatSuccessOrder.orderId})`
+                                : `Order ${globalFiatSuccessOrder.orderId} (${globalFiatSuccessOrder.status})`}
                         </span>
-                        <button
-                            type="button"
-                            onclick={() =>
-                                downloadWireSlipPdf(
-                                    globalFiatSuccessOrder,
-                                    globalFiatUsdInput
-                                )}
-                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
-                        >
-                            [Download Wire Slip PDF ↓]
-                        </button>
+                        <div class="flex items-center gap-2">
+                            {#if globalFiatSuccessOrder.status !== 'COMPLETED'}
+                                <button
+                                    type="button"
+                                    data-testid="global-fiat-complete-settlement-btn"
+                                    onclick={settleGlobalFiatOrderNow}
+                                    disabled={isSettlingGlobalFiat}
+                                    class="tactile-btn px-3 py-1 rounded-lg text-[8px] font-black uppercase text-white border-[#18C6A5] cursor-pointer"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.28), transparent 70%);"
+                                >
+                                    {isSettlingGlobalFiat
+                                        ? 'Settling...'
+                                        : '[Complete Settlement ✓]'}
+                                </button>
+                            {/if}
+                            <button
+                                type="button"
+                                onclick={() =>
+                                    downloadWireSlipPdf(
+                                        globalFiatSuccessOrder,
+                                        globalFiatUsdInput
+                                    )}
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                            >
+                                [Receipt PDF ↓]
+                            </button>
+                        </div>
                     </div>
                     <div class="text-[10px] text-neutral-300">
-                        Reserved <strong class="text-white"
-                            >~{Number(
-                                globalFiatSuccessOrder.estimatedTokens ??
+                        Credited <strong class="text-white"
+                            >{Number(
+                                globalFiatSuccessOrder.deliveredTokens ??
+                                    globalFiatSuccessOrder.estimatedTokens ??
                                     globalFiatSuccessOrder.estimatedKas ??
                                     0
                             ).toLocaleString(undefined, {
@@ -1646,14 +2171,12 @@
                             {globalFiatSuccessOrder.targetAsset ||
                                 selectedGlobalTargetAsset.ticker}</strong
                         >
-                        (Memo:
+                        to your balance (Memo/Ref:
                         <strong class="text-[#18C6A5] select-all"
                             >{globalFiatSuccessOrder.wireMemo ||
+                                globalFiatSuccessOrder.txHash ||
                                 globalFiatSuccessOrder.orderId}</strong
-                        >) • Saves +${Number(
-                            globalFiatSuccessOrder.guestSavingsUsd ??
-                                globalCostPlusPreview.guestSavingsUsd
-                        ).toFixed(2)} USD vs. Uphold &amp; Retail Apps.
+                        >).
                     </div>
                 </div>
             {/if}
@@ -1663,19 +2186,22 @@
                 onclick={executeGlobalFiatPurchase}
                 disabled={isSubmittingGlobalFiat ||
                     globalCostPlusPreview.circuitBreakerTripped}
-                class="tactile-btn w-full py-4 rounded-2xl text-white border-[#18C6A5]/50 text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
-                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.24), transparent 70%);"
+                class="tactile-btn w-full py-4 rounded-2xl text-white text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 transition-all duration-300"
+                style="
+                    border-color: {targetAssetHex}65;
+                    background-image: radial-gradient(ellipse at center, {targetAssetHex}28, transparent 70%);
+                "
             >
                 {#if isSubmittingGlobalFiat}
-                    Generating Reserved Settlement Pass...
+                    Purchasing {selectedGlobalTargetAsset.ticker}...
                 {:else}
-                    Generate Settlement Pass → (~{globalCostPlusPreview.estimatedTokens.toLocaleString(
+                    Buy {selectedGlobalTargetAsset.ticker} (~{globalCostPlusPreview.estimatedTokens.toLocaleString(
                         undefined,
                         { maximumFractionDigits: 4 }
                     )}
-                    {selectedGlobalTargetAsset.ticker} for ${globalCostPlusPreview.grossUsd.toFixed(
+                    {selectedGlobalTargetAsset.ticker} • Total ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(
                         2
-                    )} USD)
+                    )} USD) →
                 {/if}
             </button>
         </div>

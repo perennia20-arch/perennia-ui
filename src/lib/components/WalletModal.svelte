@@ -1,3 +1,4 @@
+<!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\WalletModal.svelte -->
 <script lang="ts">
     import { fade, fly } from 'svelte/transition';
     import { browser } from '$app/environment';
@@ -12,6 +13,7 @@
         SANDBOX_WALLETS
     } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
+    import { resolveSigningMetadataForAsset } from '$lib/stores/kaspaStore.svelte';
     import {
         txState,
         executeSovereignPSBT,
@@ -69,7 +71,6 @@
     });
 
     // Strictly synchronize WalletModal's viewState during Chapter 1 of the Interactive Tutorial
-    // so the 3-option 'menu' screen and 'create_pass' screen are never skipped!
     $effect(() => {
         if (browser && ui.isTutorialActive && ui.tutorialChapter === 1) {
             const sub = Number(ui.tutorialSubStep || 0);
@@ -150,7 +151,6 @@
             return;
         if (identity.isConnecting) return;
 
-        // Keep the visitor on the dormant Operations page ("Zebes") when closing WalletModal
         ui.showWalletModal = false;
         if (identity.isVaultUnlockPending) {
             identity.isVaultUnlockPending = false;
@@ -326,7 +326,9 @@
                 avalanche: { address: keys.avalanche.address },
                 sui: { address: keys.sui.address },
                 tron: { address: keys.tron.address },
-                zcash: { address: keys.zcash.address }
+                zcash: { address: keys.zcash.address },
+                arbitrum: { address: keys.ethereum.address },
+                base: { address: keys.ethereum.address }
             };
             return {
                 success: true,
@@ -353,7 +355,6 @@
         localError = '';
         statusNotice = '';
 
-        // In Tutorial Sandbox Mode, generate the 24-word fixture instantaneously without blocking the UI thread
         if (ui.isTutorialActive && ui.isTutorialSandbox) {
             seedWords = [...SANDBOX_MNEMONIC_WORDS];
             derivedKaspa = SANDBOX_WALLETS.kaspa.address;
@@ -649,12 +650,13 @@
             return 'Execute P2P Fill (Local PSBT)';
         }
         if (actionType === 'FIAT_OFFRAMP') {
-            return `Bank ${(details.payoutMethod || 'ACH').toUpperCase()} (${details.sourceMode === 'onchain_kas' || !details.sourceMode ? 'L1 UTXO' : 'Zero-Gas Ledger'})`;
+            const asset = String(details.payAsset || 'KAS').toUpperCase();
+            return `Off-Ramp ${asset} → Bank ${(details.payoutMethod || 'ACH').toUpperCase()} (${details.sourceMode === 'onchain_kas' || details.sourceMode === 'onchain_l1' || !details.sourceMode ? '1-Click L1 Sign' : 'Zero-Gas Ledger'})`;
         }
         if (actionType === 'SEND_KAS') {
             return 'Send Kaspa (L1)';
         }
-        if (actionType === 'SEND_L1') {
+        if (actionType === 'SEND_L1' || actionType === 'L1_TRANSFER') {
             return `Send ${details.payAsset} (Client-Side L1)`;
         }
         if (actionType === 'SEND_KRC20') {
@@ -681,7 +683,10 @@
         if (actionType === 'VPROG_ANCHOR') {
             return `Anchor vProg & Covenant State (${details.resourceId || 'vprog-v1'})`;
         }
-        return `Swap ${details.payAsset || 'KAS'} (Local PSBT)`;
+        if (actionType === 'DEX_SWAP' || actionType === 'SWAP') {
+            return `Swap ${details.payAsset || 'KAS'} → ${details.receiveAsset || 'USDC'} (Client-Side L1)`;
+        }
+        return `Sign ${details.payAsset || 'KAS'} Transaction (Local)`;
     }
 
     async function handleAuthorize() {
@@ -708,44 +713,44 @@
             let privateKey = keys.kaspa.privateKey.startsWith('0x')
                 ? keys.kaspa.privateKey.substring(2)
                 : keys.kaspa.privateKey;
-            const actionType =
-                identity.pendingTransactionDetails.actionType || 'SWAP';
+            const details = identity.pendingTransactionDetails;
+            const actionType = String(
+                details.actionType || details.intentType || 'SWAP'
+            ).toUpperCase();
+
             if (actionType === 'SEND_KAS') {
                 identity.walletMessage =
                     'Signing & Broadcasting Kaspa L1 Transfer...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
                 const txId = await executeSovereignTransaction(
-                    identity.pendingTransactionDetails.destinationAddress,
-                    parseFloat(identity.pendingTransactionDetails.payAmount)
+                    details.destinationAddress,
+                    parseFloat(details.payAmount)
                 );
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
                 password = '';
                 ui.showWalletModal = false;
                 return;
-            } else if (actionType === 'SEND_L1') {
-                const targetAsset = String(
-                    identity.pendingTransactionDetails.payAsset || 'KAS'
-                ).toUpperCase();
-                const targetNetwork = String(
-                    identity.pendingTransactionDetails.network || targetAsset
-                ).toUpperCase();
-                identity.walletMessage = `Signing & Broadcasting ${targetAsset} L1 Transfer Locally...`;
+            } else if (
+                actionType === 'SEND_L1' ||
+                actionType === 'L1_TRANSFER'
+            ) {
+                const meta = resolveSigningMetadataForAsset(
+                    details.payAsset || 'KAS',
+                    details.network,
+                    details.contractAddress
+                );
+                identity.walletMessage = `Signing & Broadcasting ${meta.ticker} (${meta.network}) L1 Transfer Locally...`;
                 privateKey = '0'.repeat(64);
                 const { txId, explorerUrl } = await executeMultiChainL1Transfer(
                     {
-                        asset: targetAsset,
-                        network: targetNetwork,
-                        destinationAddress:
-                            identity.pendingTransactionDetails
-                                .destinationAddress,
-                        amount: parseFloat(
-                            identity.pendingTransactionDetails.payAmount
-                        ),
-                        contractAddress:
-                            identity.pendingTransactionDetails.contractAddress,
-                        decimals: identity.pendingTransactionDetails.decimals,
+                        asset: meta.ticker,
+                        network: meta.network,
+                        destinationAddress: details.destinationAddress,
+                        amount: parseFloat(details.payAmount),
+                        contractAddress: meta.contractAddress,
+                        decimals: details.decimals ?? meta.decimals,
                         keys
                     }
                 );
@@ -756,15 +761,15 @@
                 return;
             } else if (actionType === 'SEND_KRC20') {
                 const krcTicker = String(
-                    identity.pendingTransactionDetails.payAsset || 'NACHO'
+                    details.payAsset || 'SILO'
                 ).toUpperCase();
                 identity.walletMessage = `Signing ${krcTicker} KRC-20 Transfer Inscription Locally...`;
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
                 const txId = await executeSovereignKrc20Transfer(
                     krcTicker,
-                    identity.pendingTransactionDetails.destinationAddress,
-                    parseFloat(identity.pendingTransactionDetails.payAmount)
+                    details.destinationAddress,
+                    parseFloat(details.payAmount)
                 );
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
@@ -781,27 +786,111 @@
                 password = '';
                 ui.showWalletModal = false;
                 return;
-            } else if (
-                actionType === 'SWAP' &&
-                identity.pendingTransactionDetails.psbtData?.psbt &&
-                Array.isArray(
-                    identity.pendingTransactionDetails.psbtData.psbt.inputs
-                ) &&
-                identity.pendingTransactionDetails.psbtData.psbt.inputs.length >
-                    0
-            ) {
-                identity.walletMessage =
-                    'Signing Swap PSBT Locally in Browser...';
-                txState.decryptedPrivateKeyHex = privateKey;
-                privateKey = '0'.repeat(64);
-                const psbtData =
-                    identity.pendingTransactionDetails.psbtData;
-                const txId = await executeSovereignPSBT(
-                    psbtData.psbt,
-                    psbtData.formattedUtxos || []
+            } else if (actionType === 'SWAP' || actionType === 'DEX_SWAP') {
+                const payAsset = String(details.payAsset || 'KAS')
+                    .trim()
+                    .toUpperCase();
+                const receiveAsset = String(details.receiveAsset || 'USDC')
+                    .trim()
+                    .toUpperCase();
+                const payAmountNum = parseFloat(details.payAmount);
+
+                if (
+                    details.psbtData?.psbt &&
+                    Array.isArray(details.psbtData.psbt.inputs) &&
+                    details.psbtData.psbt.inputs.length > 0
+                ) {
+                    identity.walletMessage =
+                        'Signing Swap PSBT Locally in Browser...';
+                    txState.decryptedPrivateKeyHex = privateKey;
+                    privateKey = '0'.repeat(64);
+                    const psbtData = details.psbtData;
+                    const txId = await executeSovereignPSBT(
+                        psbtData.psbt,
+                        psbtData.formattedUtxos || []
+                    );
+                    txState.lastTxId = txId;
+                    txState.lastExplorerUrl = getChainExplorerTxUrl(
+                        'KAS',
+                        txId
+                    );
+                    password = '';
+                    ui.showWalletModal = false;
+                    return;
+                }
+
+                // Multi-chain L1 swap from self-custody wallet (KAS, KRC-20, BTC, ETH/ERC-20, SOL)
+                const meta = resolveSigningMetadataForAsset(
+                    payAsset,
+                    details.network,
+                    details.contractAddress
                 );
-                txState.lastTxId = txId;
-                txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+                let settlementAddress = String(
+                    details.destinationAddress || ''
+                ).trim();
+                if (!settlementAddress) {
+                    const previewRes = await fetch(
+                        `/api/fiat/offramp?quoteAsset=${encodeURIComponent(meta.ticker)}&amountUsd=100`
+                    ).catch(() => null);
+                    if (previewRes && previewRes.ok) {
+                        const previewData = await previewRes
+                            .json()
+                            .catch(() => ({}));
+                        settlementAddress = String(
+                            previewData?.depositPreview?.depositAddress ||
+                                previewData?.masterTreasuryKasAddress ||
+                                ''
+                        ).trim();
+                    }
+                }
+                if (!settlementAddress) {
+                    privateKey = '0'.repeat(64);
+                    throw new Error(
+                        `Settlement deposit address for ${meta.ticker} is unavailable.`
+                    );
+                }
+
+                identity.walletMessage = `Signing & Broadcasting ${meta.ticker} L1 Swap Leg Locally...`;
+                privateKey = '0'.repeat(64);
+                const { txId, explorerUrl } = await executeMultiChainL1Transfer(
+                    {
+                        asset: meta.ticker,
+                        network: meta.network,
+                        destinationAddress: settlementAddress,
+                        amount: payAmountNum,
+                        contractAddress: meta.contractAddress,
+                        decimals: details.decimals ?? meta.decimals,
+                        keys
+                    }
+                );
+
+                identity.walletMessage = `Settling ${meta.ticker} → ${receiveAsset} via Smart Order Router...`;
+                const swapRes = await fetch('/api/sor/swap', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        wallet: identity.activeAddress,
+                        payAsset: meta.ticker,
+                        receiveAsset,
+                        payAmount: payAmountNum,
+                        amount: payAmountNum,
+                        executionMode: 'INSTANT_SOR',
+                        fundingSource: 'ONCHAIN_L1',
+                        onchainTxId: txId
+                    })
+                });
+                const swapData = await swapRes.json().catch(() => ({}));
+                if (!swapRes.ok || swapData.error) {
+                    throw new Error(
+                        swapData.error ||
+                            'Smart Order Router rejected on-chain swap.'
+                    );
+                }
+
+                txState.lastTxId =
+                    swapData.txHash || swapData.orderId || txId;
+                txState.lastExplorerUrl =
+                    swapData.explorerUrl || explorerUrl;
                 password = '';
                 ui.showWalletModal = false;
                 return;
@@ -810,34 +899,21 @@
                     'Signing Atomic P2P Offer Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData =
-                    identity.pendingTransactionDetails.psbtData || {};
+                const psbtData = details.psbtData || {};
                 const signedPsbtHex = await signClientP2pOffer(
-                    Number(
-                        identity.pendingTransactionDetails.sellAmount || 0
-                    ),
-                    Number(
-                        identity.pendingTransactionDetails.buyAmount || 0
-                    ),
+                    Number(details.sellAmount || 0),
+                    Number(details.buyAmount || 0),
                     psbtData.formattedUtxos || []
                 );
                 const newOrder = {
                     id: 'ORD-' + Date.now().toString(36).toUpperCase(),
-                    sellToken: identity.pendingTransactionDetails.payAsset,
-                    sellAmount: identity.pendingTransactionDetails.sellAmount,
-                    buyToken: identity.pendingTransactionDetails.receiveAsset,
-                    buyAmount: identity.pendingTransactionDetails.buyAmount,
+                    sellToken: details.payAsset,
+                    sellAmount: details.sellAmount,
+                    buyToken: details.receiveAsset,
+                    buyAmount: details.buyAmount,
                     rate: (
-                        Number(
-                            identity.pendingTransactionDetails.buyAmount || 0
-                        ) /
-                        Math.max(
-                            1e-8,
-                            Number(
-                                identity.pendingTransactionDetails.sellAmount ||
-                                    1
-                            )
-                        )
+                        Number(details.buyAmount || 0) /
+                        Math.max(1e-8, Number(details.sellAmount || 1))
                     ).toFixed(4),
                     sellerPsbt: signedPsbtHex
                 };
@@ -862,10 +938,9 @@
                     'Signing & Broadcasting Atomic P2P Swap Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData =
-                    identity.pendingTransactionDetails.psbtData || {};
+                const psbtData = details.psbtData || {};
                 const txId = await executeClientP2pFill(
-                    String(identity.pendingTransactionDetails.orderId || ''),
+                    String(details.orderId || ''),
                     psbtData.formattedUtxos || []
                 );
                 txState.lastTxId = txId;
@@ -874,14 +949,21 @@
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'FIAT_OFFRAMP') {
-                const sourceMode =
-                    identity.pendingTransactionDetails.sourceMode ||
-                    'onchain_kas';
-                const sourceAsset =
-                    identity.pendingTransactionDetails.payAsset || 'KAS';
-                const payAmountNum = parseFloat(
-                    identity.pendingTransactionDetails.payAmount
+                const sourceMode = String(
+                    details.sourceMode || 'onchain_kas'
+                ).toLowerCase();
+                const sourceAsset = String(
+                    details.payAsset || 'KAS'
+                )
+                    .trim()
+                    .toUpperCase();
+                const payAmountNum = parseFloat(details.payAmount);
+                const meta = resolveSigningMetadataForAsset(
+                    sourceAsset,
+                    details.network,
+                    details.contractAddress
                 );
+
                 identity.walletMessage = 'Verifying Fiat Rail Pre-Flight...';
                 const preFlightRes = await fetch('/api/fiat/offramp', {
                     method: 'POST',
@@ -892,18 +974,14 @@
                         kasAmount: payAmountNum,
                         amountAsset: payAmountNum,
                         sourceMode,
-                        sourceAsset,
-                        fiatAmount:
-                            identity.pendingTransactionDetails.fiatAmount,
-                        payoutMethod:
-                            identity.pendingTransactionDetails.payoutMethod,
-                        bankLabel: identity.pendingTransactionDetails.bankLabel,
-                        accountType:
-                            identity.pendingTransactionDetails.accountType,
-                        routingNumber:
-                            identity.pendingTransactionDetails.routingNumber,
-                        accountNumber:
-                            identity.pendingTransactionDetails.accountNumber,
+                        sourceAsset: meta.ticker,
+                        fiatAmount: details.fiatAmount,
+                        payoutMethod: details.payoutMethod,
+                        bankLabel: details.bankLabel,
+                        accountType: details.accountType,
+                        routingNumber: details.routingNumber,
+                        accountNumber: details.accountNumber,
+                        externalCostBasisUsd: details.externalCostBasisUsd,
                         systemMode: ui.systemMode,
                         preFlightOnly: true
                     })
@@ -918,12 +996,15 @@
                             'Fiat Off-Ramp pre-flight check rejected.'
                     );
                 }
-                if (
+
+                const isLedgerSale =
                     sourceMode === 'ledger_kas' ||
-                    sourceMode === 'ledger_usdc'
-                ) {
+                    sourceMode === 'ledger_usdc' ||
+                    sourceMode === 'platform_balance';
+
+                if (isLedgerSale) {
                     privateKey = '0'.repeat(64);
-                    identity.walletMessage = `Debiting ${sourceAsset} Ledger & Queuing Bank Payout...`;
+                    identity.walletMessage = `Debiting ${meta.ticker} Platform Balance & Queuing Bank Payout...`;
                     const offrampRes = await fetch('/api/fiat/offramp', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -933,21 +1014,14 @@
                             kasAmount: payAmountNum,
                             amountAsset: payAmountNum,
                             sourceMode,
-                            sourceAsset,
-                            fiatAmount:
-                                identity.pendingTransactionDetails.fiatAmount,
-                            payoutMethod:
-                                identity.pendingTransactionDetails.payoutMethod,
-                            bankLabel:
-                                identity.pendingTransactionDetails.bankLabel,
-                            accountType:
-                                identity.pendingTransactionDetails.accountType,
-                            routingNumber:
-                                identity.pendingTransactionDetails
-                                    .routingNumber,
-                            accountNumber:
-                                identity.pendingTransactionDetails
-                                    .accountNumber,
+                            sourceAsset: meta.ticker,
+                            fiatAmount: details.fiatAmount,
+                            payoutMethod: details.payoutMethod,
+                            bankLabel: details.bankLabel,
+                            accountType: details.accountType,
+                            routingNumber: details.routingNumber,
+                            accountNumber: details.accountNumber,
+                            externalCostBasisUsd: details.externalCostBasisUsd,
                             systemMode: ui.systemMode
                         })
                     });
@@ -968,37 +1042,70 @@
                     ui.showWalletModal = false;
                     return;
                 }
-                identity.walletMessage = 'Signing L1 Settlement Transfer...';
-                txState.decryptedPrivateKeyHex = privateKey;
-                privateKey = '0'.repeat(64);
-                const txId = await executeSovereignTransaction(
-                    identity.pendingTransactionDetails.destinationAddress,
-                    payAmountNum
-                );
+
+                const targetDepositAddress = String(
+                    details.destinationAddress ||
+                        preFlightData.depositAddress ||
+                        ''
+                ).trim();
+                if (!targetDepositAddress) {
+                    privateKey = '0'.repeat(64);
+                    throw new Error(
+                        `Settlement deposit address for ${meta.ticker} is unavailable.`
+                    );
+                }
+
+                let txId = '';
+                let explorerUrl = '';
+                if (meta.isNativeKas) {
+                    identity.walletMessage =
+                        'Signing Kaspa L1 Off-Ramp Settlement Transfer...';
+                    txState.decryptedPrivateKeyHex = privateKey;
+                    privateKey = '0'.repeat(64);
+                    txId = await executeSovereignTransaction(
+                        targetDepositAddress,
+                        payAmountNum
+                    );
+                    explorerUrl = getChainExplorerTxUrl('KAS', txId);
+                } else {
+                    identity.walletMessage = `Signing & Broadcasting ${meta.ticker} (${meta.network}) L1 Settlement Transfer...`;
+                    privateKey = '0'.repeat(64);
+                    const l1Res = await executeMultiChainL1Transfer({
+                        asset: meta.ticker,
+                        network: meta.network,
+                        destinationAddress: targetDepositAddress,
+                        amount: payAmountNum,
+                        contractAddress: meta.contractAddress,
+                        decimals: details.decimals ?? meta.decimals,
+                        keys
+                    });
+                    txId = l1Res.txId;
+                    explorerUrl = l1Res.explorerUrl;
+                }
+
                 identity.walletMessage =
-                    'Executing Bank Settlement Transfer...';
+                    'Finalizing Bridge Liquidation & Bank Payout...';
                 const offrampRes = await fetch('/api/fiat/offramp', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         wallet: identity.activeAddress,
                         txId,
+                        payoutId: details.payoutId,
                         amountKas: payAmountNum,
                         kasAmount: payAmountNum,
                         amountAsset: payAmountNum,
-                        sourceMode: 'onchain_kas',
-                        sourceAsset: 'KAS',
-                        fiatAmount:
-                            identity.pendingTransactionDetails.fiatAmount,
-                        payoutMethod:
-                            identity.pendingTransactionDetails.payoutMethod,
-                        bankLabel: identity.pendingTransactionDetails.bankLabel,
-                        accountType:
-                            identity.pendingTransactionDetails.accountType,
-                        routingNumber:
-                            identity.pendingTransactionDetails.routingNumber,
-                        accountNumber:
-                            identity.pendingTransactionDetails.accountNumber,
+                        sourceMode: meta.isNativeKas
+                            ? 'onchain_kas'
+                            : 'direct_wholesale_deposit',
+                        sourceAsset: meta.ticker,
+                        fiatAmount: details.fiatAmount,
+                        payoutMethod: details.payoutMethod,
+                        bankLabel: details.bankLabel,
+                        accountType: details.accountType,
+                        routingNumber: details.routingNumber,
+                        accountNumber: details.accountNumber,
+                        externalCostBasisUsd: details.externalCostBasisUsd,
                         systemMode: ui.systemMode
                     })
                 });
@@ -1008,13 +1115,15 @@
                         offrampData.error || 'Bank transfer execution failed.'
                     );
                 }
-                txState.lastTxId = offrampData.wireReferenceId || txId;
+                txState.lastTxId =
+                    txId || offrampData.wireReferenceId || offrampData.payoutId;
+                txState.lastExplorerUrl = explorerUrl;
                 password = '';
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'WITHDRAW_SYNTHETIC') {
                 const targetAsset = String(
-                    identity.pendingTransactionDetails.payAsset || 'KAS'
+                    details.payAsset || 'KAS'
                 ).toUpperCase();
                 identity.walletMessage = `Dispatching ${targetAsset} Settlement to L1...`;
                 privateKey = '0'.repeat(64);
@@ -1023,12 +1132,8 @@
                     wallet: identity.activeAddress,
                     payload: {
                         asset: targetAsset,
-                        amount: parseFloat(
-                            identity.pendingTransactionDetails.payAmount
-                        ),
-                        destination:
-                            identity.pendingTransactionDetails
-                                .destinationAddress
+                        amount: parseFloat(details.payAmount),
+                        destination: details.destinationAddress
                     }
                 };
                 const broadcastRes = await fetch('/api/state/action', {
@@ -1059,20 +1164,14 @@
                     'Signing KRC-20 Deploy & Chained Cap-Table Fan-Out Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData =
-                    identity.pendingTransactionDetails.psbtData || {};
+                const psbtData = details.psbtData || {};
                 const { deployTxId } =
                     await executeSovereignKrc20DeployWithCapTableFanout({
                         deployPsbt: psbtData.psbt,
                         utxos: psbtData.formattedUtxos || [],
-                        ticker: String(
-                            identity.pendingTransactionDetails.ticker || 'SILO'
-                        ),
-                        decimals: Number(
-                            identity.pendingTransactionDetails.decimals ?? 8
-                        ),
-                        capTable:
-                            identity.pendingTransactionDetails.capTable || []
+                        ticker: String(details.ticker || 'SILO'),
+                        decimals: Number(details.decimals ?? 8),
+                        capTable: details.capTable || []
                     });
                 txState.lastTxId = deployTxId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl(
@@ -1089,12 +1188,11 @@
                         : 'Signing Sovereign Inscription Envelope Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const psbtData =
-                    identity.pendingTransactionDetails.psbtData || {};
+                const psbtData = details.psbtData || {};
                 const txId = await executeSovereignKrc20Envelope(
                     psbtData.psbt,
                     psbtData.formattedUtxos || [],
-                    identity.pendingTransactionDetails.recipientAddress
+                    details.recipientAddress
                 );
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);

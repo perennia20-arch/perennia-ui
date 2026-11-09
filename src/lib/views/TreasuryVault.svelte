@@ -1,12 +1,15 @@
+<!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\views\TreasuryVault.svelte -->
 <script lang="ts">
     import { onMount, onDestroy, untrack } from 'svelte';
     import { slide } from 'svelte/transition';
     import { browser } from '$app/environment';
+    import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
+    import { MASTER_ADMIN_ADDRESS } from '$lib/stores/kaspaStore.svelte';
     import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
 
@@ -26,7 +29,11 @@
     let activeNetworks = $state<string[]>(['BTC', 'ETH', 'SOL']);
     let isDirectorConsoleOpen = $state(true);
     let activeDirectorTab = $state<
-        'reconciliation' | 'fees' | 'buckets' | 'organization'
+        | 'reconciliation'
+        | 'fees'
+        | 'buckets'
+        | 'organization'
+        | 'corporate_sweep'
     >('reconciliation');
 
     let corporateReconciliation = $state<{
@@ -38,10 +45,69 @@
         unhedgedDeltaKas: number;
         hedgeStatus: any;
         fppsSolvency: any;
+        treasuryAccounting?: {
+            blocksWonCount: number;
+            totalBlocksRewardKas: number;
+            poolFeeRatePct: number;
+            earnedPoolFeeKas: number;
+            earnedPoolFeeUsd: number;
+            realizedFiatAndDexProfitUsd: number;
+            totalEarnedRevenueUsd: number;
+            custodialMinerLiabilityKas: number;
+            custodialMinerLiabilityUsd: number;
+            rawOnChainKas: number;
+            netTreasuryOwnKas: number;
+        };
+        solvencyGate?: {
+            totalEarnedFeeRevenueUsd: number;
+            workingFloatFloorUsd: number;
+            taxEscrowReserveUsd: number;
+            alreadyDisbursedCorporateUsd: number;
+            sweepableCorporateUsd: number;
+            custodialMinerRewardsExcludedKas: number;
+            custodialMinerRewardsExcludedUsd: number;
+            corporateLiquidationAddress: string;
+        };
+        phase2SovereignAch?: {
+            currentUsdcReserve: number;
+            targetUsdcReserve: number;
+            progressPct: number;
+            directColumnLeadBankUnlocked: boolean;
+        };
+        corporateOutflows?: any[];
+        corporateOutflowSummary?: {
+            totalOpexUsd: number;
+            totalOwnersDrawUsd: number;
+            totalTaxEscrowUsd: number;
+            totalDisbursedUsd: number;
+        };
         updatedAt: number;
     } | null>(null);
 
-    // Per-Token Cold Vault Rules & Admin Treasury Modulation State
+    let collateralBackedAch = $state<{
+        eligible: boolean;
+        lockedLpUsd: number;
+        lockedSiloUsd: number;
+        totalLockedCollateralUsd: number;
+        collateralBackedAchLimitUsd: number;
+        returnWindowDaysCovered: number;
+    } | null>(null);
+
+    // Corporate Outflow & 1-Click LLC Bank Sweep State (Director Only)
+    let corpOutflowCategory = $state<
+        | 'ACCOUNTS_PAYABLE_OPEX'
+        | 'OWNERS_DRAW_DISTRIBUTION'
+        | 'TAX_ESCROW_RESERVE'
+    >('ACCOUNTS_PAYABLE_OPEX');
+    let corpSourceAsset = $state<'USDC' | 'KAS'>('USDC');
+    let corpSweepAmountUsd = $state('250');
+    let corpVendorOrBeneficiary = $state('Dallas Bare-Metal Colocation');
+    let corpInvoiceOrMemo = $state('INV-2026-11 Low-Latency Stratum Outpost');
+    let corpLogOnly = $state(false);
+    let isExecutingCorpSweep = $state(false);
+    let corpSweepBanner = $state<string | null>(null);
+    let corpSweepError = $state<string | null>(null);
+
     let coldVaultRulesMap = $state<Record<string, any>>({});
     let adminHotCeilingKas = $state(5000);
     let adminMinRunwayKas = $state(250);
@@ -52,9 +118,9 @@
     let adminHotBalanceKas = $state(0);
     let adminRunwayHours = $state(0);
     let isSavingAdminConfig = $state(false);
-
     let walletActivityEvents = $state<any[]>([]);
     let customNetworks = $state<Array<{ ticker: string; standard: string }>>([]);
+
     let userCustomTokens = $state<Record<string, any[]>>({
         KAS: [],
         BTC: [],
@@ -70,6 +136,7 @@
         TRX: [],
         ZEC: []
     });
+
     let selectedTokensMap = $state<Record<string, string[]>>({
         KAS: [],
         BTC: [],
@@ -85,6 +152,7 @@
         TRX: [],
         ZEC: []
     });
+
     let hasLoadedLocalState = $state(false);
     let serverSyncTimeout: ReturnType<typeof setTimeout>;
     let liveDiscoverTimeout: ReturnType<typeof setTimeout>;
@@ -171,6 +239,14 @@
     });
 
     let totalAccumulatedFeesUsd = $derived.by(() => {
+        if (
+            corporateReconciliation?.treasuryAccounting
+                ?.totalEarnedRevenueUsd !== undefined
+        ) {
+            return Number(
+                corporateReconciliation.treasuryAccounting.totalEarnedRevenueUsd
+            );
+        }
         if (!corporateReconciliation?.accumulatedFees) return 0;
         let sum = corporateReconciliation.nettingProfitUsd || 0;
         for (const [ticker, qty] of Object.entries(
@@ -183,6 +259,33 @@
         }
         return sum;
     });
+
+    let earnedPoolFeeKas = $derived(
+        Number(
+            corporateReconciliation?.treasuryAccounting?.earnedPoolFeeKas ??
+                corporateReconciliation?.accumulatedFees?.['KAS'] ??
+                0
+        )
+    );
+    let custodialMinerLiabilityKas = $derived(
+        Number(
+            corporateReconciliation?.treasuryAccounting
+                ?.custodialMinerLiabilityKas ?? 0
+        )
+    );
+    let custodialMinerLiabilityUsd = $derived(
+        Number(
+            corporateReconciliation?.treasuryAccounting
+                ?.custodialMinerLiabilityUsd ??
+                custodialMinerLiabilityKas *
+                    (treasury.getAsset('KAS').spotPrice || 0)
+        )
+    );
+    let blocksWonCount = $derived(
+        Number(
+            corporateReconciliation?.treasuryAccounting?.blocksWonCount ?? 0
+        )
+    );
 
     async function fetchColdVaultRulesAndSysConfig() {
         if (!browser || !identity.isWalletConnected) return;
@@ -232,7 +335,7 @@
                 }
             }
         } catch {
-            // Ignore transient fetch error
+            // Ignore transient config read error
         }
     }
 
@@ -265,6 +368,240 @@
             }
         } finally {
             isSavingAdminConfig = false;
+        }
+    }
+
+    async function executeCorporateBankSweep() {
+        if (!identity.isCorporateAdmin) {
+            corpSweepError =
+                'FORBIDDEN: Corporate Outflow & LLC Bank Sweep is restricted to the Master Treasury administrator.';
+            return;
+        }
+        corpSweepError = null;
+        corpSweepBanner = null;
+        const parsedUsd = parseFloat(corpSweepAmountUsd);
+        if (!Number.isFinite(parsedUsd) || parsedUsd <= 0) {
+            corpSweepError = 'Enter a valid USD sweep amount greater than $0.00.';
+            return;
+        }
+        isExecutingCorpSweep = true;
+        try {
+            const res = await fetch('/api/treasury/corporate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    outflowCategory: corpOutflowCategory,
+                    sourceAsset: corpSourceAsset,
+                    amountUsd: parsedUsd,
+                    vendorOrBeneficiary: corpVendorOrBeneficiary.trim(),
+                    invoiceOrMemo: corpInvoiceOrMemo.trim(),
+                    logOnly: corpLogOnly
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(
+                    data.error ||
+                        'Corporate bank sweep rejected by solvency gate.'
+                );
+            }
+            if (data.reconciliation) {
+                corporateReconciliation = data.reconciliation;
+            }
+            const out = data.outflow;
+            corpSweepBanner = `Corporate Outflow Recorded & Dispatched (${out.outflowId} • $${Number(out.grossUsd).toFixed(2)} USD • ${out.outflowCategory}) ✓`;
+            ui.triggerMicroBadge(
+                'corp_reconcile_sync',
+                `CORP SWEEP $${Number(out.grossUsd).toFixed(2)} ✓`,
+                '#18C6A5'
+            );
+        } catch (err: any) {
+            corpSweepError =
+                err.message || 'Failed to execute corporate bank sweep.';
+        } finally {
+            isExecutingCorpSweep = false;
+        }
+    }
+
+    export async function downloadCorporateVoucherPdf(outflow: any) {
+        if (!browser || !outflow) return;
+        try {
+            const pdfDoc = await PDFDocument.create();
+            const page = pdfDoc.addPage([612, 640]);
+            const fontBold = await pdfDoc.embedFont(
+                StandardFonts.HelveticaBold
+            );
+            const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
+            const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+            const slateBg = rgb(0.04, 0.05, 0.07);
+            const teal = rgb(0.094, 0.776, 0.647);
+            const dark = rgb(0.1, 0.12, 0.16);
+            const muted = rgb(0.42, 0.46, 0.52);
+
+            const outflowId = String(
+                outflow.outflow_id || outflow.outflowId || 'CORP-VOUCHER'
+            );
+            const category = String(
+                outflow.outflow_category ||
+                    outflow.outflowCategory ||
+                    'ACCOUNTS_PAYABLE_OPEX'
+            );
+            const asset = String(
+                outflow.source_asset || outflow.sourceAsset || 'USDC'
+            );
+            const amountCrypto = Number(
+                outflow.amount_crypto ?? outflow.amountCrypto ?? 0
+            );
+            const grossUsd = Number(
+                outflow.gross_usd ?? outflow.grossUsd ?? 0
+            );
+            const costBasisUsd = Number(
+                outflow.cost_basis_usd ?? outflow.costBasisUsd ?? grossUsd
+            );
+            const gainLossUsd = Number(
+                outflow.realized_gain_loss_usd ??
+                    outflow.realizedGainLossUsd ??
+                    0
+            );
+            const vendor = String(
+                outflow.vendor_or_beneficiary ||
+                    outflow.vendorOrBeneficiary ||
+                    'Perennia Holdings, LLC'
+            );
+            const memo = String(
+                outflow.invoice_or_memo ||
+                    outflow.invoiceOrMemo ||
+                    'Corporate Treasury Sweep'
+            );
+            const liqAddr = String(
+                outflow.liquidation_address ||
+                    outflow.liquidationAddress ||
+                    '0x71C7656EC7ab88b098defB751B7401B5f6d8976F'
+            );
+            const txHash = String(
+                outflow.tx_hash || outflow.txHash || outflowId
+            );
+            const createdAt =
+                outflow.created_at || outflow.createdAt
+                    ? new Date(
+                          outflow.created_at || outflow.createdAt
+                      ).toUTCString()
+                    : new Date().toUTCString();
+
+            page.drawRectangle({
+                x: 0,
+                y: 555,
+                width: 612,
+                height: 85,
+                color: slateBg
+            });
+            page.drawText(
+                'PERENNIA HOLDINGS, LLC — CORPORATE TREASURY VOUCHER',
+                {
+                    x: 36,
+                    y: 604,
+                    size: 12.5,
+                    font: fontBold,
+                    color: teal
+                }
+            );
+            page.drawText(
+                `VOUCHER ID: ${outflowId} • UTC: ${createdAt}`,
+                {
+                    x: 36,
+                    y: 582,
+                    size: 8.5,
+                    font: fontMono,
+                    color: rgb(0.9, 0.92, 0.95)
+                }
+            );
+            page.drawText(
+                `AUTHORIZED SIGNER: ${identity.activeAddress || MASTER_ADMIN_ADDRESS}`,
+                {
+                    x: 36,
+                    y: 566,
+                    size: 7.5,
+                    font: fontMono,
+                    color: rgb(0.75, 0.8, 0.86)
+                }
+            );
+
+            const rows: Array<[string, string]> = [
+                ['ACCOUNTING CLASSIFICATION', category],
+                [
+                    'TAX TREATMENT',
+                    category === 'ACCOUNTS_PAYABLE_OPEX'
+                        ? 'DEDUCTIBLE BUSINESS OPERATING EXPENSE (SCHEDULE C / 1120)'
+                        : category === 'OWNERS_DRAW_DISTRIBUTION'
+                          ? 'NON-TAXABLE EQUITY DISTRIBUTION (HIFO LOGGED ON CRYPTO LEG)'
+                          : 'CORPORATE TAX ESCROW RESERVE TRANSFER'
+                ],
+                ['VENDOR / BENEFICIARY', vendor],
+                ['INVOICE / MEMO REFERENCE', memo],
+                ['SOURCE TREASURY ASSET', `${amountCrypto.toFixed(4)} ${asset}`],
+                ['GROSS USD SETTLEMENT VALUE', `$${grossUsd.toFixed(2)} USD`],
+                ['HIFO MATCHED COST BASIS', `$${costBasisUsd.toFixed(2)} USD`],
+                [
+                    'REALIZED CAPITAL GAIN / (LOSS)',
+                    `${gainLossUsd >= 0 ? '+' : ''}$${gainLossUsd.toFixed(2)} USD`
+                ],
+                ['BRIDGE LIQUIDATION ADDRESS', liqAddr],
+                ['SETTLEMENT TX / TRACE HASH', txHash]
+            ];
+
+            let y = 515;
+            for (const [label, val] of rows) {
+                page.drawRectangle({
+                    x: 36,
+                    y: y - 8,
+                    width: 540,
+                    height: 30,
+                    borderColor: rgb(0.84, 0.87, 0.9),
+                    borderWidth: 1
+                });
+                page.drawText(label, {
+                    x: 46,
+                    y: y + 3,
+                    size: 8,
+                    font: fontBold,
+                    color: muted
+                });
+                page.drawText(String(val).slice(0, 62), {
+                    x: 235,
+                    y: y + 3,
+                    size: 8.5,
+                    font: fontMono,
+                    color: dark
+                });
+                y -= 38;
+            }
+
+            page.drawText(
+                'SOLVENCY ATTESTATION: Custodial miner block rewards & user LP reservoirs are cryptographically excluded.',
+                {
+                    x: 36,
+                    y: 42,
+                    size: 7.5,
+                    font: fontReg,
+                    color: muted
+                }
+            );
+
+            const pdfBytes = await pdfDoc.save();
+            const blob = new Blob([pdfBytes as any], {
+                type: 'application/pdf'
+            });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${outflowId}-Corporate-Voucher.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Failed to compile Corporate Voucher PDF:', err);
         }
     }
 
@@ -681,7 +1018,9 @@
             if (regAsset.ticker === 'USD') continue;
             if (
                 regAsset.ticker.toUpperCase().includes(query) ||
-                regAsset.name.toUpperCase().includes(query)
+                regAsset.name.toUpperCase().includes(query) ||
+                (regAsset.contract &&
+                    regAsset.contract.toUpperCase().includes(query))
             ) {
                 const key = `${regAsset.ticker}:${regAsset.network}`;
                 resultsMap.set(key, {
@@ -734,21 +1073,18 @@
                     price: treasury.getAsset(query).spotPrice || 0,
                     contract: query,
                     network: query,
-                    badge: 'Sovereign Derived',
+                    badge: 'Multi-Chain',
                     isNativeChain: true
                 });
             }
         }
         searchResults = Array.from(resultsMap.values());
-        if (
-            query.length >= 2 &&
-            query.length <= 12 &&
-            /^[A-Z0-9]+$/.test(query)
-        ) {
+        if (networkSearchQuery.trim().length >= 2) {
             liveDiscoverTimeout = setTimeout(async () => {
                 try {
+                    const rawQ = networkSearchQuery.trim();
                     const res = await fetch(
-                        `/api/prices?discover=${encodeURIComponent(query)}`
+                        `/api/prices?discover=${encodeURIComponent(rawQ)}&register=1`
                     );
                     if (res.ok) {
                         const data = await res.json();
@@ -771,14 +1107,14 @@
                                     !(
                                         r.symbol === discEntry.symbol &&
                                         (r.network === discEntry.network ||
-                                            r.badge === 'Sovereign Derived')
+                                            r.badge === 'Multi-Chain')
                                     )
                             );
                             searchResults = [discEntry, ...filteredExisting];
                         }
                     }
                 } catch {
-                    // Ignore discovery error
+                    // Ignore live discover error
                 }
             }, 260);
         }
@@ -793,7 +1129,7 @@
             let externalResults: any[] = [];
             try {
                 const oracleRes = await fetch(
-                    `/api/prices?discover=${encodeURIComponent(query)}`
+                    `/api/prices?discover=${encodeURIComponent(networkSearchQuery.trim())}&register=1`
                 );
                 if (oracleRes.ok) {
                     const oracleData = await oracleRes.json();
@@ -813,7 +1149,7 @@
                     }
                 }
             } catch {
-                // Continue
+                // Ignore oracle discover fallback
             }
             const dsRes = await fetch(
                 `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`
@@ -929,7 +1265,7 @@
                     }
                 }
             } catch {
-                // Ignore
+                // Ignore Kasplex lookup fallback
             }
             if (externalResults.length > 0) {
                 searchResults = [...externalResults, ...searchResults];
@@ -993,7 +1329,7 @@
                 if (Array.isArray(data.customNetworks))
                     customNetworks = data.customNetworks;
             } catch {
-                // Ignore corrupt local state
+                // Ignore local parse error
             }
         }
         try {
@@ -1125,7 +1461,7 @@
                 }
             }
         } catch {
-            // Ignore activity fetch error
+            // Ignore wallet activity error
         }
     }
 
@@ -1248,7 +1584,7 @@
                 }
             }
         } catch {
-            // Ignore KRC-20 fetch error
+            // Ignore Kasplex lookup error
         }
     }
 
@@ -1260,47 +1596,120 @@
                 identity.sovereignKeys?.kaspa?.address ||
                 identity.activeAddress ||
                 '';
+            const btcAddr = identity.sovereignKeys?.bitcoin?.address || '';
             const ethAddr = identity.sovereignKeys?.ethereum?.address || '';
+            const solAddr = identity.sovereignKeys?.solana?.address || '';
+            const dogeAddr = identity.sovereignKeys?.doge?.address || '';
+            const xrpAddr = identity.sovereignKeys?.xrp?.address || '';
+            const polAddr = identity.sovereignKeys?.polygon?.address || ethAddr;
+            const avaxAddr =
+                identity.sovereignKeys?.avalanche?.address || ethAddr;
+            const suiAddr = identity.sovereignKeys?.sui?.address || '';
+            const trxAddr = identity.sovereignKeys?.tron?.address || '';
+            const zecAddr = identity.sovereignKeys?.zcash?.address || '';
+
             const params = new URLSearchParams({
                 kas: kasAddr,
-                btc: identity.sovereignKeys?.bitcoin?.address || '',
+                btc: btcAddr,
                 eth: ethAddr,
-                sol: identity.sovereignKeys?.solana?.address || '',
-                doge: identity.sovereignKeys?.doge?.address || '',
-                xrp: identity.sovereignKeys?.xrp?.address || '',
-                pol: identity.sovereignKeys?.polygon?.address || '',
-                avax: identity.sovereignKeys?.avalanche?.address || '',
-                sui: identity.sovereignKeys?.sui?.address || '',
-                trx: identity.sovereignKeys?.tron?.address || '',
-                zec: identity.sovereignKeys?.zcash?.address || ''
+                sol: solAddr,
+                doge: dogeAddr,
+                xrp: xrpAddr,
+                pol: polAddr,
+                avax: avaxAddr,
+                sui: suiAddr,
+                trx: trxAddr,
+                zec: zecAddr
             });
             if (identity.isCorporateAdmin) {
                 params.set('corporate', 'true');
             }
-            const res = await fetch(
-                `/api/treasury/corporate?${params.toString()}`
-            );
-            if (res.ok) {
-                const estate = await res.json();
-                estate.assets.forEach((onChainAsset: any) => {
-                    if (
-                        onChainAsset.balance !== undefined &&
-                        onChainAsset.address &&
-                        !onChainAsset.address.includes('Awaiting')
-                    ) {
-                        treasury.updateAsset(
-                            onChainAsset.symbol.toUpperCase(),
-                            {
-                                onChain: onChainAsset.balance,
-                                address: onChainAsset.address
-                            }
-                        );
-                    }
-                });
+
+            const [corpRes, multiBalRes] = await Promise.all([
+                fetch(`/api/treasury/corporate?${params.toString()}`).catch(
+                    () => null
+                ),
+                fetch('/api/balance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        addresses: {
+                            kas: kasAddr,
+                            btc: btcAddr,
+                            eth: ethAddr,
+                            sol: solAddr,
+                            doge: dogeAddr,
+                            xrp: xrpAddr,
+                            pol: polAddr,
+                            avax: avaxAddr,
+                            sui: suiAddr,
+                            trx: trxAddr,
+                            zec: zecAddr
+                        }
+                    })
+                }).catch(() => null)
+            ]);
+
+            if (corpRes && corpRes.ok) {
+                const estate = await corpRes.json();
+                if (Array.isArray(estate.assets)) {
+                    estate.assets.forEach((onChainAsset: any) => {
+                        if (
+                            onChainAsset.balance !== undefined &&
+                            onChainAsset.address &&
+                            !onChainAsset.address.includes('Awaiting')
+                        ) {
+                            treasury.updateAsset(
+                                onChainAsset.symbol.toUpperCase(),
+                                {
+                                    onChain: onChainAsset.balance,
+                                    address: onChainAsset.address
+                                }
+                            );
+                        }
+                    });
+                }
+                if (estate.collateralBackedAch) {
+                    collateralBackedAch = estate.collateralBackedAch;
+                }
                 if (identity.isCorporateAdmin && estate.reconciliation) {
                     corporateReconciliation = estate.reconciliation;
                 }
             }
+
+            if (multiBalRes && multiBalRes.ok) {
+                const balData = await multiBalRes.json();
+                if (typeof balData.balanceKas === 'number') {
+                    treasury.updateAsset('KAS', {
+                        onChain: balData.balanceKas
+                    });
+                }
+                if (balData.chains && typeof balData.chains === 'object') {
+                    for (const [chainTick, chainBal] of Object.entries(
+                        balData.chains
+                    )) {
+                        const numBal = Number(chainBal);
+                        if (Number.isFinite(numBal) && numBal >= 0) {
+                            treasury.updateAsset(chainTick.toUpperCase(), {
+                                onChain: numBal
+                            });
+                        }
+                    }
+                }
+                if (balData.tokens && typeof balData.tokens === 'object') {
+                    for (const [tokTick, tokBal] of Object.entries(
+                        balData.tokens
+                    )) {
+                        const numBal = Number(tokBal);
+                        if (Number.isFinite(numBal) && numBal >= 0) {
+                            treasury.updateAsset(tokTick.toUpperCase(), {
+                                onChain: numBal
+                            });
+                        }
+                    }
+                }
+            }
+
             if (ethAddr) {
                 fetchErc20AndL2Balances(ethAddr);
             }
@@ -1308,7 +1717,7 @@
                 fetchKrc20OnChainBalances(kasAddr);
             }
         } catch {
-            // Ignore omni-chain fetch error
+            // Ignore inventory fetch error
         }
     }
 
@@ -1373,14 +1782,14 @@
     {#if !identity.isWalletConnected}
         <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#06080b]/95 p-6 text-center gap-4">
             <h2 class="text-2xl md:text-4xl font-black uppercase tracking-[0.2em] text-neutral-400">
-                TREASURY LOCKED
+                WALLET LOCKED
             </h2>
             <button
                 type="button"
                 onclick={() => (ui.showWalletModal = true)}
                 class="tactile-btn px-6 py-3 rounded-xl text-[#18C6A5] border-[#18C6A5]/40 text-xs font-black uppercase tracking-widest cursor-pointer"
             >
-                Unlock Sovereign Vault
+                Unlock Wallet
             </button>
         </div>
     {/if}
@@ -1388,40 +1797,6 @@
     <div
         class="w-full max-w-5xl p-4 lg:p-8 flex flex-col gap-6 transition-opacity duration-500 {!identity.isWalletConnected ? 'opacity-10 pointer-events-none' : 'opacity-100'} relative"
     >
-        <div
-            class="bg-[#0a0d12] border border-white/10 rounded-2xl px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative"
-            style="background-image: radial-gradient(ellipse at left, {identity.isVaultUnlocked ? 'rgba(24, 198, 165, 0.10)' : 'rgba(245, 158, 11, 0.10)'}, transparent 65%);"
-        >
-            <div class="flex items-center gap-3">
-                <span
-                    class="w-2 h-2 rounded-full {identity.isVaultUnlocked ? 'bg-[#18C6A5]' : 'bg-amber-400 animate-pulse'}"
-                ></span>
-                <div class="flex flex-col">
-                    <span class="text-[10px] font-black uppercase tracking-widest text-white">
-                        {identity.isCorporateAdmin
-                            ? `Master Treasury Session: ${identity.isVaultUnlocked ? 'Sovereign Cipher Unlocked' : 'Locked'}`
-                            : `Sovereign Vault Session: ${identity.isVaultUnlocked ? 'Unlocked & Active' : 'Locked'}`}
-                    </span>
-                    <span class="text-[9px] text-neutral-400">
-                        {identity.isVaultUnlocked
-                            ? 'Sovereign Vault unlocked for client-side L1 transfers, KRC-20 inscriptions, UTXO compounding, and per-token Cold Storage auto-sweeps.'
-                            : 'Unlock your vault password to sign multi-chain L1 transactions or withdraw funds.'}
-                    </span>
-                </div>
-            </div>
-            {#if !identity.isVaultUnlocked}
-                <div class="flex items-center gap-2 shrink-0">
-                    <button
-                        type="button"
-                        onclick={() => (ui.showWalletModal = true)}
-                        class="tactile-btn shrink-0 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-amber-400 border-amber-500/35 cursor-pointer"
-                    >
-                        Unlock Vault
-                    </button>
-                </div>
-            {/if}
-        </div>
-
         {#if identity.isCorporateAdmin}
             <div
                 class="tactile-card bg-[#0a0d12] border border-white/15 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
@@ -1442,14 +1817,14 @@
                         <div class="flex flex-col">
                             <div class="flex items-center gap-2">
                                 <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                                    Master Treasury Organization &amp; Reconciliation Console
+                                    Master Treasury Overview &amp; Fee Accounting
                                 </h2>
                                 <span class="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[8px] font-mono font-black uppercase">
-                                    DIRECTOR CLEARANCE
+                                    ADMIN
                                 </span>
                             </div>
                             <span class="text-[9px] font-mono text-neutral-400 mt-0.5">
-                                Order-Book Netting Queue • Protocol Fee Reserves • LP Bucket Skew • Live Treasury Ceiling Modulation
+                                Earned Fee Revenue vs. Custodial Miner Block Rewards (22:00 UTC Settlement Sweep)
                             </span>
                         </div>
                     </div>
@@ -1484,22 +1859,41 @@
 
                 {#if isDirectorConsoleOpen}
                     <div transition:slide class="flex flex-col gap-5">
-                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
-                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
-                                    Pool Netting Queue
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div
+                                data-testid="master-treasury-earned-revenue-card"
+                                class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col justify-between"
+                            >
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-[#18C6A5]">
+                                    Earned Fee Revenue (Perennia Net)
                                 </span>
                                 <div class="flex items-baseline justify-between mt-1.5">
-                                    <span class="text-lg font-mono font-black text-white tabular-nums">
-                                        {corporateReconciliation?.nettingQueueLength ??
-                                            0} Orders
+                                    <span class="text-lg font-mono font-black text-[#18C6A5] tabular-nums">
+                                        ${totalAccumulatedFeesUsd.toFixed(2)}
                                     </span>
-                                    <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
-                                        +{corporateReconciliation?.passthroughQueueLength ??
-                                            0} Pass-Through
+                                    <span class="text-[8px] font-mono text-neutral-400 uppercase">
+                                        {earnedPoolFeeKas.toFixed(2)} KAS ({blocksWonCount} Blks)
                                     </span>
                                 </div>
                             </div>
+
+                            <div
+                                data-testid="master-treasury-custodial-miner-card"
+                                class="bg-[#11161f] border border-amber-500/35 rounded-2xl p-4 flex flex-col justify-between"
+                            >
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">
+                                    Custodial Miner Rewards (22:00 UTC)
+                                </span>
+                                <div class="flex items-baseline justify-between mt-1.5">
+                                    <span class="text-lg font-mono font-black text-amber-400 tabular-nums">
+                                        ${custodialMinerLiabilityUsd.toFixed(2)}
+                                    </span>
+                                    <span class="text-[8px] font-mono text-neutral-300 uppercase">
+                                        {custodialMinerLiabilityKas.toFixed(2)} KAS Held
+                                    </span>
+                                </div>
+                            </div>
+
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
                                     Hot Dispatcher Balance / Cap
@@ -1516,30 +1910,15 @@
                                     </span>
                                 </div>
                             </div>
+
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
-                                    Uncompounded Fee Reserve
-                                </span>
-                                <div class="flex items-baseline justify-between mt-1.5">
-                                    <span class="text-lg font-mono font-black text-[#18C6A5] tabular-nums">
-                                        ${totalAccumulatedFeesUsd.toFixed(2)}
-                                    </span>
-                                    <span class="text-[8px] font-mono text-neutral-400 uppercase">
-                                        Pool Fee: {adminPoolFeePct.toFixed(2)}%
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
-                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
-                                    FPPS Solvency Headroom
+                                    Pool Netting Queue &amp; Runway
                                 </span>
                                 <div class="flex items-baseline justify-between mt-1.5">
                                     <span class="text-lg font-mono font-black text-white tabular-nums">
-                                        {(
-                                            corporateReconciliation?.fppsSolvency
-                                                ?.availableHeadroomKas ??
-                                            adminFppsMaxFloatKas
-                                        ).toFixed(2)} KAS
+                                        {corporateReconciliation?.nettingQueueLength ??
+                                            0} Orders
                                     </span>
                                     <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
                                         Runway: {adminRunwayHours.toFixed(1)}h
@@ -1571,7 +1950,7 @@
                                         (activeDirectorTab = 'buckets')}
                                     class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'buckets' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
-                                    LP Bucket Coverage &amp; Skew
+                                    Global Pool Buckets
                                 </button>
                                 <button
                                     type="button"
@@ -1579,7 +1958,16 @@
                                         (activeDirectorTab = 'organization')}
                                     class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'organization' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
-                                    Ceilings &amp; Vault Organization
+                                    Ceilings &amp; Network Order
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="vault-tab-corporate-btn"
+                                    onclick={() =>
+                                        (activeDirectorTab = 'corporate_sweep')}
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'corporate_sweep' ? 'bg-[#161d29] text-amber-400 border border-amber-500/45' : 'text-amber-400/80 hover:text-amber-300'}"
+                                >
+                                    LLC Bank Sweep &amp; Phase 2 ACH
                                 </button>
                             </div>
                             <span class="text-[8px] font-mono text-neutral-500 uppercase px-2">
@@ -1591,16 +1979,16 @@
                             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                                 <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
                                     <span class="text-[10px] font-black uppercase tracking-widest text-white">
-                                        Live Netting Queue &amp; Solvency Ledger
+                                        Live Netting Queue &amp; Block Reward Accounting
                                     </span>
                                     <span class="text-[9px] font-mono text-neutral-400">
-                                        L1 Blocks Won: {(
+                                        Total Blocks Won: {(
+                                            corporateReconciliation?.treasuryAccounting
+                                                ?.totalBlocksRewardKas ??
                                             corporateReconciliation?.fppsSolvency
-                                                ?.l1BlocksWonKas ?? 0
-                                        ).toFixed(2)} KAS | Streamed: {(
-                                            corporateReconciliation?.fppsSolvency
-                                                ?.externalStreamedKas ?? 0
-                                        ).toFixed(4)} KAS
+                                                ?.l1BlocksWonKas ??
+                                            0
+                                        ).toFixed(2)} KAS | Earned Fee ({adminPoolFeePct.toFixed(1)}%): {earnedPoolFeeKas.toFixed(2)} KAS | Miner Custodial: {custodialMinerLiabilityKas.toFixed(2)} KAS
                                     </span>
                                 </div>
                                 {#if corporateReconciliation?.recentNettingOrders && corporateReconciliation.recentNettingOrders.length > 0}
@@ -1656,41 +2044,51 @@
                                     </div>
                                 {:else}
                                     <div class="py-6 text-center text-[10px] font-mono text-neutral-400 border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/50">
-                                        Netting queue is currently clear (all pending batch orders reconciled into double-entry ledgers &amp; 365D House LP).
+                                        Netting queue is currently clear.
                                     </div>
                                 {/if}
                             </div>
                         {:else if activeDirectorTab === 'fees'}
-                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
-                                {#each Object.entries(corporateReconciliation?.accumulatedFees || { KAS: 0, USDC: 0, BTC: 0, ETH: 0, SOL: 0 }) as [sym, feeAmt]}
-                                    {@const assetObj = treasury.getAsset(sym)}
-                                    {@const usdVal =
-                                        (Number(feeAmt) || 0) *
-                                        (assetObj.spotPrice ||
-                                            (sym === 'USDC' || sym === 'USDT'
-                                                ? 1
-                                                : 0))}
-                                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
-                                        <div class="flex items-center justify-between">
-                                            <span class="text-[10px] font-black text-white"
-                                                >{sym}</span
-                                            >
-                                            <span class="text-[8px] font-mono text-[#18C6A5]">
-                                                ${usdVal.toFixed(2)}
+                            <div class="flex flex-col gap-2.5">
+                                <div class="flex items-center justify-between px-1">
+                                    <span class="text-[9px] font-mono text-neutral-400 uppercase">
+                                        Oracle-Verified Protocol Fee Vaults
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-mono font-bold">
+                                        Auto-2.5x LP @ ≥$5
+                                    </span>
+                                </div>
+                                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                                    {#each Object.entries(corporateReconciliation?.accumulatedFees || { KAS: 0, USDC: 0, BTC: 0, ETH: 0, SOL: 0 }) as [sym, feeAmt]}
+                                        {@const assetObj = treasury.getAsset(sym)}
+                                        {@const usdVal =
+                                            (Number(feeAmt) || 0) *
+                                            (assetObj.spotPrice ||
+                                                (sym === 'USDC' || sym === 'USDT'
+                                                    ? 1
+                                                    : 0))}
+                                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-[10px] font-black text-white"
+                                                    >{sym}</span
+                                                >
+                                                <span class="text-[8px] font-mono text-[#18C6A5]">
+                                                    ${usdVal.toFixed(2)}
+                                                </span>
+                                            </div>
+                                            <span class="text-xs font-mono font-bold text-neutral-200 tabular-nums">
+                                                {Number(feeAmt || 0).toFixed(6)}
+                                            </span>
+                                            <span class="text-[8px] font-mono text-neutral-500 uppercase">
+                                                Earned Fee Balance
                                             </span>
                                         </div>
-                                        <span class="text-xs font-mono font-bold text-neutral-200 tabular-nums">
-                                            {Number(feeAmt || 0).toFixed(6)}
-                                        </span>
-                                        <span class="text-[8px] font-mono text-neutral-500 uppercase">
-                                            Batch Fee Buffer
-                                        </span>
-                                    </div>
-                                {/each}
+                                    {/each}
+                                </div>
                             </div>
                         {:else if activeDirectorTab === 'buckets'}
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {#each operations.displayedBuckets as bucket (bucket.asset)}
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {#each operations.allGlobalPoolBuckets as bucket (bucket.asset)}
                                     <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2">
                                         <div class="flex items-center justify-between">
                                             <span class="text-xs font-black text-white">
@@ -1855,12 +2253,318 @@
                                     </button>
                                 </div>
                             </div>
+                        {:else if activeDirectorTab === 'corporate_sweep'}
+                            {@const solvency =
+                                corporateReconciliation?.solvencyGate || {
+                                    totalEarnedFeeRevenueUsd:
+                                        totalAccumulatedFeesUsd,
+                                    workingFloatFloorUsd: 900,
+                                    taxEscrowReserveUsd: 0,
+                                    alreadyDisbursedCorporateUsd: 0,
+                                    sweepableCorporateUsd: Math.max(
+                                        0,
+                                        totalAccumulatedFeesUsd - 900
+                                    ),
+                                    custodialMinerRewardsExcludedKas:
+                                        custodialMinerLiabilityKas,
+                                    custodialMinerRewardsExcludedUsd:
+                                        custodialMinerLiabilityUsd,
+                                    corporateLiquidationAddress:
+                                        '0x71C7656EC7ab88b098defB751B7401B5f6d8976F'
+                                }}
+                            {@const phase2 =
+                                corporateReconciliation?.phase2SovereignAch || {
+                                    currentUsdcReserve:
+                                        corporateReconciliation
+                                            ?.accumulatedFees?.['USDC'] || 0,
+                                    targetUsdcReserve: 250000,
+                                    progressPct: 0,
+                                    directColumnLeadBankUnlocked: false
+                                }}
+                            {@const outflows =
+                                corporateReconciliation?.corporateOutflows ||
+                                []}
+
+                            <div
+                                data-testid="corporate-treasury-panel"
+                                class="flex flex-col gap-4"
+                            >
+                                <div
+                                    data-testid="phase2-ach-reserve-card"
+                                    class="bg-[#11161f] border border-[#18C6A5]/40 rounded-2xl p-4 flex flex-col gap-2.5"
+                                >
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div class="flex flex-col">
+                                            <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                                                Phase 2 Direct Sovereign ACH Reserve ($250,000 USDC Target)
+                                            </span>
+                                            <span class="text-[8px] text-neutral-400">
+                                                Accumulates earned USDC fee revenue toward unlocking direct 0.05% native ACH clearing.
+                                            </span>
+                                        </div>
+                                        <span class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-[#18C6A5]/45 text-[10px] font-black text-[#18C6A5]">
+                                            ${Number(
+                                                phase2.currentUsdcReserve || 0
+                                            ).toLocaleString(undefined, {
+                                                minimumFractionDigits: 2
+                                            })} / $250,000.00 USDC ({Number(
+                                                phase2.progressPct || 0
+                                            ).toFixed(2)}%)
+                                        </span>
+                                    </div>
+                                    <div class="w-full h-2 rounded-full bg-[#0a0d12] border border-white/10 overflow-hidden">
+                                        <div
+                                            class="h-full bg-[#18C6A5] transition-all duration-300"
+                                            style="width: {Math.max(
+                                                2,
+                                                Math.min(
+                                                    100,
+                                                    Number(
+                                                        phase2.progressPct || 0
+                                                    )
+                                                )
+                                            )}%;"
+                                        ></div>
+                                    </div>
+                                </div>
+
+                                {#if corpSweepError}
+                                    <div class="bg-red-950/30 border border-red-500/45 rounded-xl p-3 text-center text-[10px] font-bold text-red-400">
+                                        ⚠ {corpSweepError}
+                                    </div>
+                                {/if}
+                                {#if corpSweepBanner}
+                                    <div class="bg-[#0a0d12] border border-[#18C6A5]/45 rounded-xl p-3 text-center text-[10px] font-bold text-[#18C6A5]">
+                                        {corpSweepBanner}
+                                    </div>
+                                {/if}
+
+                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                                    <div
+                                        data-testid="corporate-solvency-gate-card"
+                                        class="lg:col-span-5 bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-3"
+                                    >
+                                        <div class="flex flex-col gap-0.5 border-b border-white/10 pb-2">
+                                            <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                                                Strict Corporate Solvency Gate
+                                            </span>
+                                            <span class="text-[8px] text-neutral-400">
+                                                Custodial miner block rewards and user LP reservoirs are cryptographically excluded from corporate sweeps.
+                                            </span>
+                                        </div>
+                                        <div class="flex flex-col gap-2 text-[10px]">
+                                            <div class="flex items-center justify-between bg-[#0a0d12] p-2.5 rounded-lg border border-white/5">
+                                                <span class="text-neutral-400"
+                                                    >Total Earned Fee Revenue</span
+                                                >
+                                                <span class="font-bold text-white">
+                                                    ${Number(
+                                                        solvency.totalEarnedFeeRevenueUsd ||
+                                                            0
+                                                    ).toFixed(2)} USD
+                                                </span>
+                                            </div>
+                                            <div class="flex items-center justify-between bg-[#0a0d12] p-2.5 rounded-lg border border-white/5">
+                                                <span class="text-neutral-400"
+                                                    >Less: Working Float Floor</span
+                                                >
+                                                <span class="font-bold text-neutral-300">
+                                                    -${Number(
+                                                        solvency.workingFloatFloorUsd ||
+                                                            900
+                                                    ).toFixed(2)} USD
+                                                </span>
+                                            </div>
+                                            <div class="flex items-center justify-between bg-[#161d29] p-3 rounded-xl border border-[#18C6A5]/45">
+                                                <span class="font-black uppercase text-[#18C6A5]">
+                                                    Sweepable Corporate USD
+                                                </span>
+                                                <span
+                                                    data-testid="corporate-sweepable-usd"
+                                                    class="text-sm font-black text-[#18C6A5]"
+                                                >
+                                                    ${Number(
+                                                        solvency.sweepableCorporateUsd ||
+                                                            0
+                                                    ).toFixed(2)} USD
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="lg:col-span-7 bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+                                        <span class="text-[10px] font-black uppercase tracking-widest text-white">
+                                            1-Click Corporate Bank Sweep &amp; AP / Owner's Draw Voucher
+                                        </span>
+                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                            {#each [
+                                                {
+                                                    id: 'ACCOUNTS_PAYABLE_OPEX',
+                                                    label: 'Accounts Payable (OPEX)'
+                                                },
+                                                {
+                                                    id: 'OWNERS_DRAW_DISTRIBUTION',
+                                                    label: "Owner's Draw"
+                                                },
+                                                {
+                                                    id: 'TAX_ESCROW_RESERVE',
+                                                    label: 'Tax Escrow Reserve'
+                                                }
+                                            ] as cat (cat.id)}
+                                                <button
+                                                    type="button"
+                                                    data-testid="corp-category-btn-{cat.id}"
+                                                    onclick={() =>
+                                                        (corpOutflowCategory =
+                                                            cat.id as any)}
+                                                    class="py-2 px-2.5 rounded-xl text-[8px] font-black uppercase border cursor-pointer {corpOutflowCategory ===
+                                                    cat.id
+                                                        ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]'
+                                                        : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                                                >
+                                                    {cat.label}
+                                                </button>
+                                            {/each}
+                                        </div>
+
+                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                            <div class="flex flex-col gap-1">
+                                                <span class="text-[8px] font-bold uppercase text-neutral-400">
+                                                    Source Asset
+                                                </span>
+                                                <select
+                                                    bind:value={corpSourceAsset}
+                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-2.5 py-2 text-xs text-white outline-none"
+                                                >
+                                                    <option value="USDC">USDC</option>
+                                                    <option value="KAS">KAS</option>
+                                                </select>
+                                            </div>
+                                            <div class="sm:col-span-2 flex flex-col gap-1">
+                                                <label
+                                                    for="corpSweepUsdInput"
+                                                    class="text-[8px] font-bold uppercase text-neutral-400"
+                                                >
+                                                    Sweep / Voucher Amount (USD)
+                                                </label>
+                                                <input
+                                                    id="corpSweepUsdInput"
+                                                    data-testid="corporate-sweep-usd-input"
+                                                    type="number"
+                                                    min="1"
+                                                    step="any"
+                                                    bind:value={corpSweepAmountUsd}
+                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-black text-white outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                            <div class="flex flex-col gap-1">
+                                                <label
+                                                    for="corpVendorInput"
+                                                    class="text-[8px] font-bold uppercase text-neutral-400"
+                                                >
+                                                    Vendor / Beneficiary
+                                                </label>
+                                                <input
+                                                    id="corpVendorInput"
+                                                    data-testid="corporate-vendor-input"
+                                                    type="text"
+                                                    bind:value={corpVendorOrBeneficiary}
+                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                                />
+                                            </div>
+                                            <div class="flex flex-col gap-1">
+                                                <label
+                                                    for="corpMemoInput"
+                                                    class="text-[8px] font-bold uppercase text-neutral-400"
+                                                >
+                                                    Invoice # / Memo
+                                                </label>
+                                                <input
+                                                    id="corpMemoInput"
+                                                    data-testid="corporate-memo-input"
+                                                    type="text"
+                                                    bind:value={corpInvoiceOrMemo}
+                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <label class="flex items-center gap-2 text-[8px] text-neutral-400 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                bind:checked={corpLogOnly}
+                                                class="accent-[#18C6A5]"
+                                            />
+                                            <span>
+                                                Record as Accounting Voucher Only (Bypass Solvency Cap for historical receipts)
+                                            </span>
+                                        </label>
+
+                                        <button
+                                            type="button"
+                                            data-testid="corporate-sweep-submit-btn"
+                                            onclick={executeCorporateBankSweep}
+                                            disabled={isExecutingCorpSweep}
+                                            class="tactile-btn w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-white border-[#18C6A5] cursor-pointer"
+                                            style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
+                                        >
+                                            {isExecutingCorpSweep
+                                                ? 'Executing Corporate Sweep...'
+                                                : `Execute 1-Click Corporate Sweep ($${Number(corpSweepAmountUsd || 0).toFixed(2)} USD • ${corpOutflowCategory}) →`}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {#if outflows.length > 0}
+                                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
+                                        <span class="text-[10px] font-black uppercase tracking-widest text-white">
+                                            Corporate Outflow Ledger &amp; Vouchers
+                                        </span>
+                                        <div class="flex flex-col gap-2 max-h-56 overflow-y-auto hide-scrollbar">
+                                            {#each outflows as item (item.outflow_id)}
+                                                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                                                    <div class="flex flex-col">
+                                                        <span class="font-bold text-white">
+                                                            {item.outflow_category} • {item.vendor_or_beneficiary}
+                                                        </span>
+                                                        <span class="text-[8px] text-neutral-400">
+                                                            ID: {item.outflow_id} • Memo: {item.invoice_or_memo}
+                                                        </span>
+                                                    </div>
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="font-black text-[#18C6A5]">
+                                                            ${Number(
+                                                                item.gross_usd || 0
+                                                            ).toFixed(2)} USD
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            data-testid="download-corp-voucher-{item.outflow_id}"
+                                                            onclick={() =>
+                                                                downloadCorporateVoucherPdf(
+                                                                    item
+                                                                )}
+                                                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                                                        >
+                                                            [Voucher PDF ↓]
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            {/each}
+                                        </div>
+                                    </div>
+                                {/if}
+                            </div>
                         {/if}
                     </div>
                 {/if}
             </div>
         {/if}
 
+        <!-- TOTAL VAULT VALUE CARD -->
         <div
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[28px] shadow-2xl relative overflow-hidden group"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 60%);"
@@ -1870,9 +2574,14 @@
                     <div class="flex flex-col items-center md:items-start text-center md:text-left">
                         <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2 flex items-center gap-2">
                             <span class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></span>
-                            Total Vault Value
+                            {identity.isCorporateAdmin
+                                ? 'Master Treasury Balance'
+                                : 'Total Vault Value'}
                         </span>
-                        <span class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums">
+                        <span
+                            data-testid="vault-total-usd-value"
+                            class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums"
+                        >
                             ${treasury.totalVaultValue.toLocaleString('en-US', {
                                 minimumFractionDigits:
                                     settingsStore.fiatDecimals,
@@ -1880,7 +2589,18 @@
                                     settingsStore.fiatDecimals
                             })}
                         </span>
+                        {#if identity.isCorporateAdmin}
+                            <div class="flex flex-wrap items-center gap-3 mt-2 text-[10px] font-mono">
+                                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
+                                    Earned Fee Revenue: ${totalAccumulatedFeesUsd.toFixed(2)} USD
+                                </span>
+                                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-amber-500/40 text-amber-400 font-bold">
+                                    Custodial Miner Rewards (22:00 UTC): ${custodialMinerLiabilityUsd.toFixed(2)} USD ({custodialMinerLiabilityKas.toFixed(2)} KAS)
+                                </span>
+                            </div>
+                        {/if}
                     </div>
+
                     <div class="flex flex-col items-end gap-3 self-center lg:self-end relative z-20">
                         <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0">
                             {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
@@ -1911,10 +2631,11 @@
                         </div>
                     </div>
                 </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/10 pt-5">
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            On-Chain L1 Balance
+                            Wallet Balance (On-Chain)
                         </span>
                         <span class="text-xs font-mono font-black text-[#18C6A5] tabular-nums">
                             ${totalOnChainUsd.toLocaleString(undefined, {
@@ -1927,7 +2648,7 @@
                     </div>
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            In Batch Settlement Queue
+                            Pending Settlement
                         </span>
                         <span class="text-xs font-mono font-black text-amber-400 tabular-nums">
                             ${totalBatchQueueUsd.toLocaleString(undefined, {
@@ -1940,7 +2661,7 @@
                     </div>
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Active LP Staked
+                            Staked in Liquidity Pools
                         </span>
                         <span class="text-xs font-mono font-black text-blue-400 tabular-nums">
                             ${totalStakedLpUsd.toLocaleString(undefined, {
@@ -1953,6 +2674,7 @@
                     </div>
                 </div>
             </div>
+
             <div class="absolute right-[-40px] top-[-40px] w-64 h-64 opacity-30 pointer-events-none hidden lg:block">
                 <svg
                     viewBox="0 0 36 36"
@@ -1985,31 +2707,7 @@
             </div>
         </div>
 
-        <NetworkRow
-            asset={treasury.getAsset('KAS') as any}
-            subAssets={getDynamicSubAssets('KAS')}
-            selectedTokens={getDynamicSelectedTokens('KAS')}
-            onToggleToken={(s: string) => toggleTokenSelection('KAS', s)}
-            onDeleteToken={(s: string) => deleteTokenFromNetwork('KAS', s)}
-            standardLabel="KRC-20"
-            searchQuery={networkSearchQuery}
-            {activeHoverSegment}
-            onHover={(v: string | null) => (activeHoverSegment = v)}
-            {displayUnit}
-            {timeframe}
-            fiatDecimals={settingsStore.fiatDecimals}
-            tokenDecimals={settingsStore.tokenDecimals}
-            isManagingNetworks={false}
-            isOrganizing={false}
-            isNetworkSelected={true}
-            autoOpenToken={targetAutoOpenNetwork === 'KAS'
-                ? targetAutoOpenToken
-                : targetedSubAssetsMap['KAS'] || null}
-            ledgerEvents={walletActivityEvents}
-            {coldVaultRulesMap}
-            onRefreshColdVaultRules={fetchColdVaultRulesAndSysConfig}
-        />
-
+        <!-- PERENNIA WALLET HEADER & SEARCH BAR (UNDER TOTAL VAULT VALUE, ABOVE KASPA) -->
         <div class="flex flex-col gap-4 w-full relative">
             <div
                 class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-4 lg:p-5 flex flex-col lg:flex-row items-center justify-between gap-4"
@@ -2037,10 +2735,10 @@
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs md:text-sm font-bold uppercase tracking-widest text-white">
-                            Sovereign Multi-Chain Derivations
+                            Perennia Wallet
                         </span>
                         <span class="text-[9px] text-neutral-500 mt-0.5">
-                            Universal Multi-Chain Token Search, Cold Storage Drawers &amp; Key Matrix
+                            Manage networks, token balances, and cold storage rules
                         </span>
                     </div>
                 </button>
@@ -2060,7 +2758,7 @@
                                     isAllNetworksDrawerOpen = true;
                                 handleLiveSearch();
                             }}
-                            placeholder="Search chains or add Web3 token (PEPE, ONDO)..."
+                            placeholder="Search chains or add token (USDC, PEPE, ONDO)..."
                             class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-8 text-xs font-mono text-white outline-none transition-colors"
                         />
                         <svg
@@ -2186,28 +2884,55 @@
                 </div>
             </div>
 
+            {#if networkSearchQuery.trim().length > 1 && !isGlobalSearching}
+                <div class="py-4 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
+                    <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
+                        Query Global On-Chain Indexers &amp; CEX Oracles for "{networkSearchQuery.toUpperCase()}"
+                    </span>
+                    <button
+                        type="button"
+                        onclick={executeGlobalMasterSearch}
+                        disabled={isGlobalSearching}
+                        class="tactile-btn px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[9px] uppercase tracking-widest font-bold cursor-pointer"
+                    >
+                        Search Web3 Indexer
+                    </button>
+                    {#if globalSearchError}
+                        <span class="text-amber-400 text-[9px]"
+                            >{globalSearchError}</span
+                        >
+                    {/if}
+                </div>
+            {/if}
+
+            <!-- PRIMARY KASPA L1 ROW -->
+            <NetworkRow
+                asset={treasury.getAsset('KAS') as any}
+                subAssets={getDynamicSubAssets('KAS')}
+                selectedTokens={getDynamicSelectedTokens('KAS')}
+                onToggleToken={(s: string) => toggleTokenSelection('KAS', s)}
+                onDeleteToken={(s: string) => deleteTokenFromNetwork('KAS', s)}
+                standardLabel="KRC-20"
+                searchQuery={networkSearchQuery}
+                {activeHoverSegment}
+                onHover={(v: string | null) => (activeHoverSegment = v)}
+                {displayUnit}
+                {timeframe}
+                fiatDecimals={settingsStore.fiatDecimals}
+                tokenDecimals={settingsStore.tokenDecimals}
+                isManagingNetworks={false}
+                isOrganizing={false}
+                isNetworkSelected={true}
+                autoOpenToken={targetAutoOpenNetwork === 'KAS'
+                    ? targetAutoOpenToken
+                    : targetedSubAssetsMap['KAS'] || null}
+                ledgerEvents={walletActivityEvents}
+                {coldVaultRulesMap}
+                onRefreshColdVaultRules={fetchColdVaultRulesAndSysConfig}
+            />
+
             {#if isAllNetworksDrawerOpen}
                 <div transition:slide class="w-full flex flex-col gap-4">
-                    {#if networkSearchQuery.trim().length > 1 && !isGlobalSearching}
-                        <div class="py-4 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
-                            <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
-                                Query Global On-Chain Indexers &amp; CEX Oracles for "{networkSearchQuery.toUpperCase()}"
-                            </span>
-                            <button
-                                type="button"
-                                onclick={executeGlobalMasterSearch}
-                                disabled={isGlobalSearching}
-                                class="tactile-btn px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[9px] uppercase tracking-widest font-bold cursor-pointer"
-                            >
-                                Search Web3 Indexer
-                            </button>
-                            {#if globalSearchError}
-                                <span class="text-amber-400 text-[9px]"
-                                    >{globalSearchError}</span
-                                >
-                            {/if}
-                        </div>
-                    {/if}
                     {#each visibleSecondaryNetworks as net (net.ticker)}
                         <div
                             draggable={isOrganizing &&

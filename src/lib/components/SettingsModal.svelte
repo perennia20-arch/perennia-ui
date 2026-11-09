@@ -1,7 +1,15 @@
+<!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\SettingsModal.svelte -->
 <script lang="ts">
     import { fade, slide } from 'svelte/transition';
     import { browser } from '$app/environment';
     import { settingsStore } from '$lib/stores/settings.svelte';
+    import {
+        i18n,
+        SUPPORTED_LOCALES,
+        SUPPORTED_CURRENCIES,
+        type SupportedLocale,
+        type SupportedCurrency
+    } from '$lib/stores/i18n.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { ui, TUTORIAL_CHAPTERS } from '$lib/stores/ui.svelte';
 
@@ -24,7 +32,17 @@
         settingsStore.bgIntensity = 0;
         settingsStore.fiatDecimals = 2;
         settingsStore.tokenDecimals = 8;
+        settingsStore.setLocale('EN');
+        settingsStore.setCurrency('USD');
         settingsStore.save();
+    }
+
+    function handleSelectLocale(code: SupportedLocale) {
+        settingsStore.setLocale(code);
+    }
+
+    function handleSelectCurrency(code: SupportedCurrency) {
+        settingsStore.setCurrency(code);
     }
 
     function launchInteractiveTour(chapter: number = 1) {
@@ -159,7 +177,7 @@
 
         <div
             data-testid="settings-modal-card"
-            class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            class="relative z-10 w-full max-w-[560px] bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             transition:slide={{ duration: 200, axis: 'y' }}
         >
             <div class="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
@@ -172,10 +190,10 @@
                     </div>
                     <div class="flex flex-col">
                         <h2 class="text-white font-black uppercase tracking-widest text-sm">
-                            System Parameters &amp; Guide
+                            {i18n.t('settings.title')}
                         </h2>
                         <span class="text-[9px] text-neutral-500 uppercase tracking-widest font-mono">
-                            Environment, Precision, Vault Backup &amp; Interactive Tour
+                            {i18n.t('settings.subtitle')}
                         </span>
                     </div>
                 </div>
@@ -188,7 +206,7 @@
                 </button>
             </div>
 
-            <div class="p-6 flex flex-col gap-5 max-h-[70vh] overflow-y-auto hide-scrollbar">
+            <div class="p-6 flex flex-col gap-5 max-h-[72vh] overflow-y-auto hide-scrollbar">
                 <!-- INTERACTIVE PLATFORM GUIDE & TOUR LAUNCHER -->
                 <div
                     data-testid="settings-guide-section"
@@ -200,11 +218,11 @@
                             <div class="flex items-center gap-2">
                                 <span class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"></span>
                                 <span class="text-[10px] font-black text-[#18C6A5] uppercase tracking-widest">
-                                    Interactive Platform Guide &amp; Tour
+                                    {i18n.t('settings.guide_title')}
                                 </span>
                             </div>
                             <span class="text-[9px] text-neutral-300 leading-relaxed">
-                                Need a refresher on any station? Launch the interactive sandbox walkthrough or jump directly to any chapter below at any time.
+                                {i18n.t('settings.guide_desc')}
                             </span>
                         </div>
                         <button
@@ -224,14 +242,14 @@
                             class="tactile-btn py-2.5 px-4 rounded-xl text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
                             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
                         >
-                            Start Full Interactive Tour →
+                            {i18n.t('settings.start_tour')}
                         </button>
                         <button
                             type="button"
                             onclick={openInteractiveTourPrompt}
                             class="tactile-btn py-2.5 px-4 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
                         >
-                            Open Chapter Menu
+                            {i18n.t('settings.open_chapter_menu')}
                         </button>
                     </div>
 
@@ -256,15 +274,110 @@
 
                 <div class="h-px w-full bg-white/10"></div>
 
+                <!-- LANGUAGE & DISPLAY CURRENCY (LIVE FX) -->
+                <div class="flex flex-col gap-4">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
+                                    {i18n.t('settings.language_label')}
+                                </span>
+                                <span class="text-[9px] text-neutral-500 mt-0.5">
+                                    {i18n.t('settings.language_sub')}
+                                </span>
+                            </div>
+                            <span class="px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[9px] font-mono font-black text-[#18C6A5]">
+                                {settingsStore.locale} • {i18n.activeLocaleSpec.nativeName}
+                            </span>
+                        </div>
+                        <div
+                            data-testid="settings-locale-selector"
+                            class="grid grid-cols-4 sm:grid-cols-8 gap-1.5"
+                        >
+                            {#each SUPPORTED_LOCALES as loc (loc.code)}
+                                <button
+                                    type="button"
+                                    data-testid="settings-locale-btn-{loc.code}"
+                                    onclick={() => handleSelectLocale(loc.code)}
+                                    class="py-2 px-1.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {settingsStore.locale === loc.code ? 'bg-[#161d29] border-[#18C6A5] text-[#18C6A5] shadow-sm' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                                    title="{loc.label} ({loc.nativeName})"
+                                >
+                                    <span class="text-[10px] font-mono font-black uppercase">
+                                        {loc.code}
+                                    </span>
+                                    <span class="text-[7px] text-neutral-400 truncate max-w-full">
+                                        {loc.nativeName}
+                                    </span>
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2 pt-1">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
+                                    {i18n.t('settings.currency_label')}
+                                </span>
+                                <span class="text-[9px] text-neutral-500 mt-0.5">
+                                    {i18n.t('settings.currency_sub')}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span
+                                    data-testid="settings-fx-rate-badge"
+                                    class="px-2.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] font-mono font-bold text-white"
+                                >
+                                    1 USD = {i18n.activeFxRate.toFixed(
+                                        settingsStore.currency === 'JPY' ? 2 : 4
+                                    )}
+                                    {settingsStore.currency}
+                                </span>
+                                <button
+                                    type="button"
+                                    onclick={() => i18n.syncFxRates(true)}
+                                    disabled={i18n.isSyncingFx}
+                                    class="text-[8px] font-mono text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                                >
+                                    {i18n.isSyncingFx ? '...' : 'Sync ↻'}
+                                </button>
+                            </div>
+                        </div>
+                        <div
+                            data-testid="settings-currency-selector"
+                            class="grid grid-cols-3 sm:grid-cols-9 gap-1.5"
+                        >
+                            {#each SUPPORTED_CURRENCIES as cur (cur.code)}
+                                <button
+                                    type="button"
+                                    data-testid="settings-currency-btn-{cur.code}"
+                                    onclick={() => handleSelectCurrency(cur.code)}
+                                    class="py-2 px-1.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {settingsStore.currency === cur.code ? 'bg-[#161d29] border-[#18C6A5] text-[#18C6A5] shadow-sm' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                                    title="{cur.name} ({cur.symbol})"
+                                >
+                                    <span class="text-[10px] font-mono font-black">
+                                        {cur.code}
+                                    </span>
+                                    <span class="text-[8px] font-mono text-neutral-400">
+                                        {cur.symbol.trim()}
+                                    </span>
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="h-px w-full bg-white/10"></div>
+
                 <!-- BASE THEME & SURFACE TONE -->
                 <div class="flex flex-col gap-5">
                     <div class="flex items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
-                                Base Theme Mode
+                                {i18n.t('settings.theme_label')}
                             </span>
                             <span class="text-[9px] text-neutral-500 mt-0.5 max-w-[260px] leading-relaxed">
-                                Toggle between Calibrated Industrial Dark and Warm Light.
+                                {i18n.t('settings.theme_sub')}
                             </span>
                         </div>
                         <div class="flex bg-[#11161f] p-1 rounded-xl border border-white/10">
@@ -276,7 +389,7 @@
                                 }}
                                 class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer {settingsStore.theme === 'dark' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40 shadow-sm' : 'text-neutral-500 hover:text-white'}"
                             >
-                                Dark
+                                {i18n.t('settings.dark')}
                             </button>
                             <button
                                 type="button"
@@ -286,7 +399,7 @@
                                 }}
                                 class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer {settingsStore.theme === 'light' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40 shadow-sm' : 'text-neutral-500 hover:text-white'}"
                             >
-                                Light
+                                {i18n.t('settings.light')}
                             </button>
                         </div>
                     </div>
@@ -295,7 +408,7 @@
                         <div class="flex items-center justify-between">
                             <div class="flex flex-col">
                                 <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
-                                    Surface Tone / Warmth
+                                    {i18n.t('settings.warmth_label')}
                                 </span>
                                 <span class="text-[9px] text-neutral-500">
                                     {settingsStore.theme === 'dark'
@@ -324,7 +437,7 @@
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
-                                Fiat Precision (Decimals)
+                                {i18n.t('settings.fiat_decimals')}
                             </span>
                             <span class="text-[10px] font-mono text-neutral-400 font-bold">
                                 {settingsStore.fiatDecimals}
@@ -341,7 +454,7 @@
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
-                                Token Precision (Decimals)
+                                {i18n.t('settings.token_decimals')}
                             </span>
                             <span class="text-[10px] font-mono text-neutral-400 font-bold">
                                 {settingsStore.tokenDecimals}
@@ -363,10 +476,10 @@
                 <div class="bg-[#11161f] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
                     <div class="flex flex-col gap-1">
                         <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
-                            Encrypted Vault Backup (.json)
+                            {i18n.t('settings.backup_title')}
                         </span>
                         <span class="text-[9px] text-neutral-400 leading-relaxed">
-                            Export or restore your password-encrypted Sovereign Vault file. For security, your raw 24-word seed phrase is never displayed after initial vault creation.
+                            {i18n.t('settings.backup_desc')}
                         </span>
                     </div>
                     {#if backupStatus}
@@ -382,14 +495,14 @@
                             onclick={exportEncryptedVaultBackup}
                             class="tactile-btn py-2.5 px-4 rounded-xl text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
                         >
-                            Export Encrypted .JSON
+                            {i18n.t('settings.export_json')}
                         </button>
                         <button
                             type="button"
                             onclick={() => restoreInputRef?.click()}
                             class="tactile-btn py-2.5 px-4 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
                         >
-                            Import Encrypted .JSON
+                            {i18n.t('settings.import_json')}
                         </button>
                     </div>
                 </div>
@@ -401,14 +514,14 @@
                     onclick={resetDefaults}
                     class="text-[9px] font-bold text-neutral-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer border-b border-transparent hover:border-white"
                 >
-                    Reset Defaults
+                    {i18n.t('settings.reset_defaults')}
                 </button>
                 <button
                     type="button"
                     onclick={close}
                     class="tactile-btn px-6 py-2.5 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg cursor-pointer"
                 >
-                    Apply &amp; Close
+                    {i18n.t('settings.apply_close')}
                 </button>
             </div>
         </div>

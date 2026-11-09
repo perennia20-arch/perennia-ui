@@ -1,3 +1,4 @@
+// WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\stores\treasury.svelte.ts
 import { browser } from '$app/environment';
 import type { AssetClass, ThemeColors } from './type';
 import { operations } from './operations.svelte';
@@ -67,7 +68,7 @@ export class UnifiedAsset {
         this.name = init.name || 'Unknown Asset';
         this.assetClass = init.assetClass || 'Ecosystem';
         this.network = init.network || 'KAS';
-        this.theme = init.theme || { hex: '#ffffff', pastel: '#ffffff' };
+        this.theme = init.theme || { hex: '#18C6A5', pastel: '#99f6e4' };
         this.imgUrl = init.imgUrl || '';
         this.contract = init.contract;
         if (init.address !== undefined) this.address = init.address;
@@ -83,7 +84,7 @@ export class UnifiedAsset {
         return this.ticker;
     }
     get hex() {
-        return this.theme.hex;
+        return this.theme?.hex || '#18C6A5';
     }
     get icon() {
         return this.imgUrl;
@@ -94,7 +95,7 @@ export class UnifiedAsset {
     get badge() {
         return this.assetClass === 'Native L1'
             ? `${this.ticker} [L1]`
-            : this.assetClass.toUpperCase();
+            : String(this.assetClass || 'TOKEN').toUpperCase();
     }
     get availableBalance() {
         return this.onChain + this.synthetic;
@@ -112,6 +113,7 @@ export class UnifiedAsset {
 
 class TreasuryStore {
     registry = $state<UnifiedAsset[]>([]);
+    discoveredTickers = $state<string[]>([]);
     rwaOracleOnline = $state<boolean>(false);
     rwaOracleError = $state<string | null>(null);
 
@@ -123,7 +125,10 @@ class TreasuryStore {
     }
 
     get visibleAssets() {
-        const targeted = new Set<string>([...operations.targetedAssets]);
+        const targeted = new Set<string>([
+            ...operations.targetedAssets,
+            ...this.discoveredTickers
+        ]);
         for (const sector of operations.sectors) {
             if (sector.settlementConfig?.targetAssets) {
                 for (const t of sector.settlementConfig.targetAssets) {
@@ -155,7 +160,7 @@ class TreasuryStore {
     }
 
     getAsset(ticker: string): UnifiedAsset {
-        const clean = ticker.toUpperCase();
+        const clean = String(ticker || 'KAS').trim().toUpperCase();
         const asset = this.registry.find((a) => a.ticker === clean);
         if (!asset) {
             return new UnifiedAsset({
@@ -163,44 +168,150 @@ class TreasuryStore {
                 name: clean,
                 assetClass: 'Ecosystem',
                 network: clean,
-                spotPrice: 0
+                spotPrice: 0,
+                theme: { hex: '#18C6A5', pastel: '#99f6e4' }
             });
         }
         return asset;
     }
 
     updateAsset(ticker: string, updates: Partial<UnifiedAsset>) {
-        const clean = ticker.toUpperCase();
+        const clean = String(ticker || '').trim().toUpperCase();
+        if (!clean) return;
         const asset = this.registry.find((a) => a.ticker === clean);
         if (asset) {
+            if (updates.name !== undefined) asset.name = updates.name;
+            if (updates.assetClass !== undefined)
+                asset.assetClass = updates.assetClass;
+            if (updates.network !== undefined) asset.network = updates.network;
+            if (updates.theme !== undefined) asset.theme = updates.theme;
+            if (updates.imgUrl !== undefined) asset.imgUrl = updates.imgUrl;
             if (updates.onChain !== undefined) asset.onChain = updates.onChain;
-            if (updates.synthetic !== undefined) asset.synthetic = updates.synthetic;
-            if (updates.lpStaked !== undefined) asset.lpStaked = updates.lpStaked;
-            if (updates.spotPrice !== undefined) asset.spotPrice = updates.spotPrice;
+            if (updates.synthetic !== undefined)
+                asset.synthetic = updates.synthetic;
+            if (updates.lpStaked !== undefined)
+                asset.lpStaked = updates.lpStaked;
+            if (updates.spotPrice !== undefined)
+                asset.spotPrice = updates.spotPrice;
             if (updates.delta !== undefined) asset.delta = updates.delta;
             if (updates.address !== undefined) asset.address = updates.address;
-            if (updates.contract !== undefined) asset.contract = updates.contract;
+            if (updates.contract !== undefined)
+                asset.contract = updates.contract;
             if (updates.apy !== undefined) asset.apy = updates.apy;
             if (updates.accruedYield !== undefined)
                 asset.accruedYield = updates.accruedYield;
-            if (updates.siloVolume !== undefined) asset.siloVolume = updates.siloVolume;
-            if (updates.validator !== undefined) asset.validator = updates.validator;
+            if (updates.siloVolume !== undefined)
+                asset.siloVolume = updates.siloVolume;
+            if (updates.validator !== undefined)
+                asset.validator = updates.validator;
         } else {
             const newAsset = new UnifiedAsset({
                 ticker: clean,
-                name: clean,
-                assetClass: 'Ecosystem',
-                network: clean,
-                spotPrice: 0
+                name: updates.name || clean,
+                assetClass: updates.assetClass || 'Ecosystem',
+                network: updates.network || clean,
+                spotPrice: updates.spotPrice ?? 0,
+                theme: updates.theme || { hex: '#18C6A5', pastel: '#99f6e4' },
+                imgUrl: updates.imgUrl || '',
+                contract: updates.contract
             });
-            if (updates.onChain !== undefined) newAsset.onChain = updates.onChain;
-            if (updates.synthetic !== undefined) newAsset.synthetic = updates.synthetic;
-            if (updates.lpStaked !== undefined) newAsset.lpStaked = updates.lpStaked;
-            if (updates.spotPrice !== undefined) newAsset.spotPrice = updates.spotPrice;
+            if (updates.onChain !== undefined)
+                newAsset.onChain = updates.onChain;
+            if (updates.synthetic !== undefined)
+                newAsset.synthetic = updates.synthetic;
+            if (updates.lpStaked !== undefined)
+                newAsset.lpStaked = updates.lpStaked;
             if (updates.delta !== undefined) newAsset.delta = updates.delta;
-            if (updates.address !== undefined) newAsset.address = updates.address;
-            if (updates.contract !== undefined) newAsset.contract = updates.contract;
+            if (updates.address !== undefined)
+                newAsset.address = updates.address;
             this.registry.push(newAsset);
+        }
+    }
+
+    registerDiscoveredAsset(
+        meta: {
+            ticker: string;
+            name?: string;
+            assetClass?: AssetClass;
+            network?: string;
+            spotPrice?: number;
+            change24h?: number;
+            delta?: number;
+            contract?: string;
+            imgUrl?: string;
+            theme?: ThemeColors;
+        },
+        pinVisible = true
+    ): UnifiedAsset {
+        const clean = String(meta.ticker || '')
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '')
+            .slice(0, 12);
+        if (!clean) {
+            return this.getAsset('KAS');
+        }
+        this.updateAsset(clean, {
+            name: meta.name || clean,
+            assetClass: meta.assetClass || 'DeFi',
+            network: (meta.network || 'ETH').toUpperCase(),
+            spotPrice:
+                typeof meta.spotPrice === 'number' && meta.spotPrice > 0
+                    ? meta.spotPrice
+                    : undefined,
+            delta:
+                typeof meta.change24h === 'number'
+                    ? meta.change24h
+                    : typeof meta.delta === 'number'
+                      ? meta.delta
+                      : undefined,
+            contract: meta.contract || clean,
+            imgUrl: meta.imgUrl,
+            theme: meta.theme || { hex: '#18C6A5', pastel: '#99f6e4' }
+        });
+        if (pinVisible && !this.discoveredTickers.includes(clean)) {
+            this.discoveredTickers = [...this.discoveredTickers, clean];
+        }
+        return this.getAsset(clean);
+    }
+
+    async discoverAndRegisterToken(
+        rawQuery: string,
+        persistOnServer = true
+    ): Promise<{
+        primary: UnifiedAsset | null;
+        matches: UnifiedAsset[];
+    }> {
+        if (!browser) return { primary: null, matches: [] };
+        const trimmed = String(rawQuery || '').trim();
+        if (trimmed.length < 2) return { primary: null, matches: [] };
+
+        try {
+            const res = await fetch(
+                `/api/prices?discover=${encodeURIComponent(trimmed)}${persistOnServer ? '&register=1' : ''}`
+            );
+            if (!res.ok) return { primary: null, matches: [] };
+            const data = await res.json();
+            const matches: UnifiedAsset[] = [];
+            if (Array.isArray(data?.matches)) {
+                for (const m of data.matches) {
+                    if (m?.ticker) {
+                        matches.push(this.registerDiscoveredAsset(m, true));
+                    }
+                }
+            }
+            let primary: UnifiedAsset | null = null;
+            if (data?.asset?.ticker) {
+                primary = this.registerDiscoveredAsset(data.asset, true);
+                if (!matches.some((m) => m.ticker === primary!.ticker)) {
+                    matches.unshift(primary);
+                }
+            } else if (matches.length > 0) {
+                primary = matches[0];
+            }
+            return { primary, matches };
+        } catch {
+            return { primary: null, matches: [] };
         }
     }
 
@@ -212,7 +323,9 @@ class TreasuryStore {
             if (res.ok && data.success && Array.isArray(data.assets)) {
                 let updatedCount = 0;
                 for (const item of data.assets) {
-                    const ticker = String(item.ticker || '').trim().toUpperCase();
+                    const ticker = String(item.ticker || '')
+                        .trim()
+                        .toUpperCase();
                     const spot = Number(item.spotPrice ?? item.price ?? 0);
                     const delta = Number(item.change24h ?? 0);
                     if (ticker && spot > 0) {
@@ -224,16 +337,21 @@ class TreasuryStore {
                     }
                 }
                 this.rwaOracleOnline = updatedCount > 0;
-                this.rwaOracleError = updatedCount > 0 ? null : 'Pyth Hermes returned 0 active RWA feeds.';
+                this.rwaOracleError =
+                    updatedCount > 0
+                        ? null
+                        : 'Pyth Hermes returned 0 active RWA feeds.';
                 return updatedCount > 0;
             } else {
                 this.rwaOracleOnline = false;
-                this.rwaOracleError = data.error || `Pyth Hermes Oracle HTTP ${res.status}`;
+                this.rwaOracleError =
+                    data.error || `Pyth Hermes Oracle HTTP ${res.status}`;
                 return false;
             }
         } catch (err: any) {
             this.rwaOracleOnline = false;
-            this.rwaOracleError = err.message || 'Pyth Hermes Oracle network error.';
+            this.rwaOracleError =
+                err.message || 'Pyth Hermes Oracle network error.';
             return false;
         }
     }

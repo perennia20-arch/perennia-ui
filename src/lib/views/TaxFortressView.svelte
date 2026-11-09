@@ -1,10 +1,16 @@
+<!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\views\TaxFortressView.svelte -->
 <script lang="ts">
     import { fade, slide } from 'svelte/transition';
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
+    import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
     import { ui, SANDBOX_TAX_EVENTS } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
+    import {
+        MASTER_ADMIN_ADDRESS,
+        getIsCorporateAdmin
+    } from '$lib/stores/kaspaStore.svelte';
     import {
         NON_CPA_PROTOCOL_DISCLAIMER,
         COUNTRY_TAX_MATRIX,
@@ -22,6 +28,16 @@
     } from '$lib/crypto/taxFortressEngine';
 
     const NON_CPA_ACK_STORAGE_KEY = 'perennia_non_cpa_acknowledged_v1';
+
+    const TAXABLE_PROCEEDS_EVENT_TYPES = new Set([
+        'YIELD',
+        'EPOCH_BELL_YIELD',
+        'DEX_SWAP',
+        'FIAT_OFFRAMP',
+        'OTC_SETTLEMENT',
+        'PASSTHROUGH_SETTLED',
+        'P2P_ATOMIC_FILL'
+    ]);
 
     const EMPTY_HIFO_BUNDLE: HifoTaxBundle = {
         accountingMethod: 'PASSIVE_HIFO_NO_WASH',
@@ -107,10 +123,8 @@
         }
     };
 
-    // One-Time Cookie-Style Non-CPA Disclaimer State
     let nonCpaAcknowledged = $state(false);
     let showNonCpaNoticeDrawer = $state(false);
-
     let countryCode = $state('US');
     let stateRegion = $state('TX');
     let entityType = $state('LLC');
@@ -130,14 +144,77 @@
     let showEscrowModal = $state(false);
     let escrowLpBalanceUsd = $state(0.0);
     let isWithdrawingEscrowLp = $state(false);
-
     let isGeneratingPdf = $state(false);
-    let activeLedgerTab = $state<'EXECUTIONS' | 'HIFO_LOTS' | 'DISPOSITIONS'>(
-        'EXECUTIONS'
+    let activeLedgerTab = $state<
+        | 'EXECUTIONS'
+        | 'HIFO_LOTS'
+        | 'DISPOSITIONS'
+        | 'EXTERNAL_BASIS'
+        | 'CORPORATE_ACCOUNTING'
+    >('EXECUTIONS');
+
+    // External L1 Deposit Cost-Basis Registration State
+    let extAssetTicker = $state('BTC');
+    let extAmountTokens = $state('');
+    let extTotalCostBasisUsd = $state('');
+    let extAcquiredDate = $state(new Date().toISOString().slice(0, 10));
+    let extSourceTxHash = $state('');
+    let isRegisteringExtLot = $state(false);
+    let extBasisFeedback = $state<{
+        type: 'success' | 'error';
+        message: string;
+    } | null>(null);
+
+    // Corporate LLC P&L, OPEX Deductions, Owner's Draws & Tax Escrow State
+    let corporateReconciliation = $state<any | null>(null);
+    let corpCategory = $state<
+        | 'ACCOUNTS_PAYABLE_OPEX'
+        | 'OWNERS_DRAW_DISTRIBUTION'
+        | 'TAX_ESCROW_RESERVE'
+    >('ACCOUNTS_PAYABLE_OPEX');
+    let corpAsset = $state<'USDC' | 'KAS'>('USDC');
+    let corpAmountUsd = $state('250');
+    let corpVendor = $state('Dallas Data Center Outpost / Hosting');
+    let corpMemo = $state('INV-2026-11 Low-Latency Stratum Colocation');
+    let corpLogOnly = $state(true);
+    let isLoggingCorpVoucher = $state(false);
+    let corpVoucherFeedback = $state<{
+        type: 'success' | 'error';
+        message: string;
+    } | null>(null);
+
+    let isAdmin = $derived(
+        Boolean(identity.isCorporateAdmin || getIsCorporateAdmin())
+    );
+
+    let grossBusinessIncomeUsd = $derived(
+        Number(
+            corporateReconciliation?.treasuryAccounting
+                ?.totalEarnedRevenueUsd ?? 0
+        )
+    );
+    let totalDeductibleOpexUsd = $derived(
+        Number(
+            corporateReconciliation?.corporateOutflowSummary?.totalOpexUsd ?? 0
+        )
+    );
+    let totalOwnersDrawUsd = $derived(
+        Number(
+            corporateReconciliation?.corporateOutflowSummary
+                ?.totalOwnersDrawUsd ?? 0
+        )
+    );
+    let totalTaxEscrowUsd = $derived(
+        Number(
+            corporateReconciliation?.corporateOutflowSummary
+                ?.totalTaxEscrowUsd ?? 0
+        )
+    );
+    let netTaxableBusinessIncomeUsd = $derived(
+        Math.max(0, grossBusinessIncomeUsd - totalDeductibleOpexUsd)
     );
 
     let liveHifoBundle = $state<HifoTaxBundle>({ ...EMPTY_HIFO_BUNDLE });
-
     let hifoBundle = $derived<HifoTaxBundle>(
         ui.isTutorialActive || ui.isTutorialSandbox
             ? SANDBOX_DEFAULT_HIFO_BUNDLE
@@ -164,18 +241,52 @@
               : []
     );
 
+    let miningYieldIncomeUsd = $derived(
+        displayedEvents
+            .filter((ev) => {
+                const raw = String(
+                    ev.rawEventType || ev.type || ''
+                ).toUpperCase();
+                return (
+                    raw === 'YIELD' ||
+                    raw === 'EPOCH_BELL_YIELD' ||
+                    raw.includes('EPOCH L1 PAYOUT')
+                );
+            })
+            .reduce(
+                (sum, ev) => sum + Math.max(0, Number(ev.usdValueAtTime || 0)),
+                0
+            )
+    );
+
     let grossTaxableProceedsUsd = $derived(
-        displayedEvents.reduce(
-            (sum, ev) => sum + Math.max(0, Number(ev.usdValueAtTime || 0)),
-            0
-        )
+        displayedEvents
+            .filter((ev) => {
+                const raw = String(ev.rawEventType || '').toUpperCase();
+                if (raw) {
+                    return TAXABLE_PROCEEDS_EVENT_TYPES.has(raw);
+                }
+                const label = String(ev.type || '').toUpperCase();
+                return (
+                    !label.includes('ON-RAMP') &&
+                    !label.includes('WITHDRAWAL') &&
+                    !label.includes('REFUND')
+                );
+            })
+            .reduce(
+                (sum, ev) => sum + Math.max(0, Number(ev.usdValueAtTime || 0)),
+                0
+            )
     );
 
     let netTaxableIncomeUsd = $derived(
         Math.max(
             0,
-            grossTaxableProceedsUsd -
-                Number(hifoBundle.summary.totalMatchedCostBasisUsd || 0)
+            miningYieldIncomeUsd +
+                Math.max(
+                    0,
+                    Number(hifoBundle.summary.netRealizedGainLossUsd || 0)
+                )
         )
     );
 
@@ -220,10 +331,9 @@
         if (localPii.businessAddress)
             businessAddress = localPii.businessAddress;
 
+        const escrowStorageKey = `perennia_tax_escrow_cfg_${activeAddr.toLowerCase()}`;
         try {
-            const savedEscrowRaw = localStorage.getItem(
-                `perennia_tax_escrow_cfg_${activeAddr.toLowerCase()}`
-            );
+            const savedEscrowRaw = localStorage.getItem(escrowStorageKey);
             if (savedEscrowRaw) {
                 const parsedCfg = JSON.parse(savedEscrowRaw);
                 if (
@@ -240,13 +350,13 @@
                 }
             }
         } catch {
-            // Ignore local escrow preference parse error
+            // Ignore malformed localStorage config
         }
 
         try {
-            const [eventsBundleRes, kycRes, hifoRes] = await Promise.all([
-                fetch('/api/user/tax-events?bundle=hifo'),
-                fetch('/api/treasury/kyc'),
+            const requests: Promise<Response | null>[] = [
+                fetch('/api/user/tax-events?bundle=hifo').catch(() => null),
+                fetch('/api/treasury/kyc').catch(() => null),
                 fetch('/api/state/action', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -254,10 +364,21 @@
                         action: 'GET_HIFO_TAX_LOTS',
                         payload: {}
                     })
-                })
-            ]);
+                }).catch(() => null)
+            ];
 
-            if (kycRes.ok) {
+            if (isAdmin) {
+                requests.push(
+                    fetch(
+                        `/api/treasury/corporate?corporate=true&kas=${encodeURIComponent(activeAddr)}`
+                    ).catch(() => null)
+                );
+            }
+
+            const [eventsBundleRes, kycRes, hifoRes, corpRes] =
+                await Promise.all(requests);
+
+            if (kycRes && kycRes.ok) {
                 const kycData = await kycRes.json().catch(() => ({}));
                 if (kycData?.jurisdiction) {
                     countryCode =
@@ -270,18 +391,31 @@
                 }
             }
 
-            if (eventsBundleRes.ok) {
+            if (corpRes && corpRes.ok) {
+                const corpJson = await corpRes.json().catch(() => ({}));
+                if (corpJson?.reconciliation) {
+                    corporateReconciliation = corpJson.reconciliation;
+                }
+            }
+
+            let loadedEventsCount = 0;
+            let loadedLotsCount = 0;
+
+            if (eventsBundleRes && eventsBundleRes.ok) {
                 const bundleData = await eventsBundleRes.json();
                 if (Array.isArray(bundleData)) {
                     ui.taxEvents = bundleData;
+                    loadedEventsCount = bundleData.length;
                 } else if (bundleData && typeof bundleData === 'object') {
                     if (Array.isArray(bundleData.events)) {
                         ui.taxEvents = bundleData.events;
+                        loadedEventsCount = bundleData.events.length;
                     }
                     if (
                         Array.isArray(bundleData.hifoLots) &&
                         bundleData.hifoSummary
                     ) {
+                        loadedLotsCount = bundleData.hifoLots.length;
                         liveHifoBundle = {
                             accountingMethod:
                                 bundleData.hifoSummary.accountingMethod ||
@@ -298,23 +432,35 @@
                 }
             }
 
-            if (hifoRes.ok) {
+            if (hifoRes && hifoRes.ok) {
                 const hData = await hifoRes.json();
                 if (
                     hData.success &&
                     hData.data &&
-                    Array.isArray(hData.data.lots) &&
-                    hData.data.lots.length > 0
+                    Array.isArray(hData.data.lots)
                 ) {
-                    liveHifoBundle = hData.data;
+                    if (hData.data.lots.length > 0 || loadedEventsCount === 0) {
+                        liveHifoBundle = hData.data;
+                        loadedLotsCount = hData.data.lots.length;
+                    }
                 }
             }
 
-            if (taxEscrowEnabled) {
+            if (
+                !ui.isTutorialActive &&
+                !ui.isTutorialSandbox &&
+                loadedEventsCount === 0 &&
+                loadedLotsCount === 0
+            ) {
+                liveHifoBundle = { ...EMPTY_HIFO_BUNDLE };
+                escrowLpBalanceUsd = 0.0;
+                taxEscrowEnabled = false;
+                localStorage.removeItem(escrowStorageKey);
+            } else if (taxEscrowEnabled) {
                 escrowLpBalanceUsd = estimatedTaxLiabilityUsd;
             }
         } catch {
-            // Non-blocking sync
+            // Keep existing reactive state on transient network error
         }
     }
 
@@ -330,6 +476,20 @@
                 businessAddress: businessAddress.trim()
             };
             await saveLocalEncryptedTaxPii(activeAddr, localPii);
+            if (browser) {
+                const rawStored = localStorage.getItem(
+                    `perennia_zero_pii_tax_vault_${activeAddr.toLowerCase()}`
+                );
+                localStorage.setItem(
+                    `perennia_zero_pii_tax_v4_${activeAddr.toLowerCase()}`,
+                    JSON.stringify({
+                        cipherVersion: 'AES-256-GCM-V1',
+                        jurisdictionCode: rateCalculation.jurisdictionCode,
+                        effectiveTaxRate: rateCalculation.effectiveRatePct,
+                        encryptedPiiAesGcm: rawStored || 'AES_256_GCM_CIPHERTEXT'
+                    })
+                );
+            }
             await fetch('/api/treasury/kyc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -350,6 +510,265 @@
             showJurisdictionDrawer = false;
         } finally {
             isSavingProfile = false;
+        }
+    }
+
+    async function registerExternalDepositCostBasis() {
+        extBasisFeedback = null;
+        if (!identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
+        const qty = parseFloat(extAmountTokens);
+        const basisUsd = parseFloat(extTotalCostBasisUsd);
+        if (!Number.isFinite(qty) || qty <= 0) {
+            extBasisFeedback = {
+                type: 'error',
+                message:
+                    'Enter a positive token quantity for the external L1 deposit.'
+            };
+            return;
+        }
+        if (!Number.isFinite(basisUsd) || basisUsd < 0) {
+            extBasisFeedback = {
+                type: 'error',
+                message:
+                    'Enter a valid historical USD cost basis ($0.00 or higher).'
+            };
+            return;
+        }
+        isRegisteringExtLot = true;
+        try {
+            const res = await fetch('/api/fiat/offramp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'REGISTER_EXTERNAL_COST_BASIS',
+                    assetTicker: extAssetTicker.trim().toUpperCase(),
+                    amountTokens: qty,
+                    totalCostBasisUsd: basisUsd,
+                    acquiredAt: extAcquiredDate
+                        ? new Date(extAcquiredDate).toISOString()
+                        : new Date().toISOString(),
+                    txHash: extSourceTxHash.trim() || undefined
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(
+                    data.error ||
+                        'Failed to register external L1 deposit cost basis.'
+                );
+            }
+            extBasisFeedback = {
+                type: 'success',
+                message: `✓ Registered OPEN HIFO Lot: ${qty} ${data.assetTicker} @ $${Number(data.fmvUsdPerToken).toFixed(4)}/unit (Total Basis: $${Number(data.totalCostBasisUsd).toFixed(2)} USD)`
+            };
+            extAmountTokens = '';
+            extTotalCostBasisUsd = '';
+            extSourceTxHash = '';
+            await syncTaxFortressData();
+        } catch (err: any) {
+            extBasisFeedback = {
+                type: 'error',
+                message:
+                    err.message || 'Failed to register external deposit lot.'
+            };
+        } finally {
+            isRegisteringExtLot = false;
+        }
+    }
+
+    async function recordCorporateOutflowVoucher() {
+        corpVoucherFeedback = null;
+        if (!isAdmin) {
+            corpVoucherFeedback = {
+                type: 'error',
+                message:
+                    'FORBIDDEN: Corporate Outflow & Schedule C / 1120 Ledger is restricted to MASTER_ADMIN_ADDRESS.'
+            };
+            return;
+        }
+        const amtUsd = parseFloat(corpAmountUsd);
+        if (!Number.isFinite(amtUsd) || amtUsd <= 0) {
+            corpVoucherFeedback = {
+                type: 'error',
+                message:
+                    'Enter a positive USD amount for the corporate voucher.'
+            };
+            return;
+        }
+        isLoggingCorpVoucher = true;
+        try {
+            const res = await fetch('/api/treasury/corporate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    outflowCategory: corpCategory,
+                    sourceAsset: corpAsset,
+                    amountUsd: amtUsd,
+                    vendorOrBeneficiary: corpVendor.trim(),
+                    invoiceOrMemo: corpMemo.trim(),
+                    logOnly: corpLogOnly
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(
+                    data.error || 'Failed to record corporate outflow voucher.'
+                );
+            }
+            if (data.reconciliation) {
+                corporateReconciliation = data.reconciliation;
+            }
+            corpVoucherFeedback = {
+                type: 'success',
+                message: `✓ Recorded ${data.outflow.outflowCategory} Voucher (${data.outflow.outflowId} • $${Number(data.outflow.grossUsd).toFixed(2)} USD)`
+            };
+            await syncTaxFortressData();
+        } catch (err: any) {
+            corpVoucherFeedback = {
+                type: 'error',
+                message:
+                    err.message || 'Failed to record corporate outflow voucher.'
+            };
+        } finally {
+            isLoggingCorpVoucher = false;
+        }
+    }
+
+    async function downloadSingleCorporateVoucherPdf(outflow: any) {
+        if (!browser || !outflow) return;
+        try {
+            const pdfDoc = await PDFDocument.create();
+            const page = pdfDoc.addPage([612, 520]);
+            const fontBold = await pdfDoc.embedFont(
+                StandardFonts.HelveticaBold
+            );
+            const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
+            const slateBg = rgb(0.04, 0.05, 0.07);
+            const teal = rgb(0.094, 0.776, 0.647);
+            const dark = rgb(0.1, 0.12, 0.16);
+            const muted = rgb(0.42, 0.46, 0.52);
+
+            const id = String(
+                outflow.outflow_id || outflow.outflowId || 'CORP-VOUCHER'
+            );
+            const category = String(
+                outflow.outflow_category ||
+                    outflow.outflowCategory ||
+                    'ACCOUNTS_PAYABLE_OPEX'
+            );
+            const vendor = String(
+                outflow.vendor_or_beneficiary ||
+                    outflow.vendorOrBeneficiary ||
+                    'Perennia Holdings, LLC'
+            );
+            const memo = String(
+                outflow.invoice_or_memo || outflow.invoiceOrMemo || ''
+            );
+            const asset = String(
+                outflow.source_asset || outflow.sourceAsset || 'USDC'
+            );
+            const qty = Number(
+                outflow.amount_crypto ?? outflow.amountCrypto ?? 0
+            );
+            const grossUsd = Number(
+                outflow.gross_usd ?? outflow.grossUsd ?? 0
+            );
+            const basisUsd = Number(
+                outflow.cost_basis_usd ?? outflow.costBasisUsd ?? grossUsd
+            );
+            const gainUsd = Number(
+                outflow.realized_gain_loss_usd ??
+                    outflow.realizedGainLossUsd ??
+                    0
+            );
+            const txHash = String(outflow.tx_hash || outflow.txHash || id);
+
+            page.drawRectangle({
+                x: 0,
+                y: 440,
+                width: 612,
+                height: 80,
+                color: slateBg
+            });
+            page.drawText(
+                'PERENNIA HOLDINGS, LLC — CORPORATE ACCOUNTING VOUCHER',
+                {
+                    x: 36,
+                    y: 484,
+                    size: 12,
+                    font: fontBold,
+                    color: teal
+                }
+            );
+            page.drawText(
+                `VOUCHER ID: ${id} • SIGNER: ${MASTER_ADMIN_ADDRESS}`,
+                {
+                    x: 36,
+                    y: 462,
+                    size: 8,
+                    font: fontMono,
+                    color: rgb(0.9, 0.92, 0.95)
+                }
+            );
+
+            const rows = [
+                ['CLASSIFICATION', category],
+                ['VENDOR / PAYEE', vendor],
+                ['INVOICE / MEMO', memo],
+                ['DISPOSED CRYPTO', `${qty.toFixed(4)} ${asset}`],
+                ['GROSS USD VALUE', `$${grossUsd.toFixed(2)} USD`],
+                ['HIFO COST BASIS', `$${basisUsd.toFixed(2)} USD`],
+                [
+                    'REALIZED GAIN / LOSS',
+                    `${gainUsd >= 0 ? '+' : ''}$${gainUsd.toFixed(2)} USD`
+                ],
+                ['TX / TRACE HASH', txHash]
+            ];
+
+            let y = 404;
+            for (const [label, val] of rows) {
+                page.drawRectangle({
+                    x: 36,
+                    y: y - 8,
+                    width: 540,
+                    height: 28,
+                    borderColor: rgb(0.84, 0.87, 0.9),
+                    borderWidth: 1
+                });
+                page.drawText(label, {
+                    x: 46,
+                    y: y + 2,
+                    size: 8,
+                    font: fontBold,
+                    color: muted
+                });
+                page.drawText(String(val).slice(0, 62), {
+                    x: 230,
+                    y: y + 2,
+                    size: 8.5,
+                    font: fontMono,
+                    color: dark
+                });
+                y -= 36;
+            }
+
+            const pdfBytes = await pdfDoc.save();
+            const blob = new Blob([pdfBytes as any], {
+                type: 'application/pdf'
+            });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${id}-Corporate-Voucher.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Failed to compile Corporate Voucher PDF:', err);
         }
     }
 
@@ -382,16 +801,13 @@
         if (!canConfirmEscrowActivation) return;
         taxEscrowEnabled = true;
         showEscrowModal = false;
-        // Exact live tax liability with zero hardcoded floor
         escrowLpBalanceUsd = estimatedTaxLiabilityUsd;
-
         if (!nonCpaAcknowledged) {
             nonCpaAcknowledged = true;
             if (browser) {
                 localStorage.setItem(NON_CPA_ACK_STORAGE_KEY, 'true');
             }
         }
-
         const activeAddr =
             identity.activeAddress || 'kaspa:sovereign-tax-fortress';
         if (browser) {
@@ -404,7 +820,6 @@
                 })
             );
         }
-
         ui.triggerMicroBadge(
             'tax_escrow_card',
             escrowReserveMode === 'USDC_RESERVE'
@@ -412,7 +827,6 @@
                 : '50/50 KAS/USDC LP ARMED ✓',
             '#18C6A5'
         );
-
         await fetch('/api/state/action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -511,8 +925,35 @@
         ui.triggerMicroBadge('tax_export_btn', 'HIFO CSV EXPORTED ✓', '#18C6A5');
     }
 
+    function handleRealtimeTaxRefresh() {
+        syncTaxFortressData();
+    }
+
     onMount(() => {
         syncTaxFortressData();
+        if (browser) {
+            window.addEventListener(
+                'perennia:fiat_event',
+                handleRealtimeTaxRefresh
+            );
+            window.addEventListener(
+                'perennia:yield_update',
+                handleRealtimeTaxRefresh
+            );
+        }
+    });
+
+    onDestroy(() => {
+        if (browser) {
+            window.removeEventListener(
+                'perennia:fiat_event',
+                handleRealtimeTaxRefresh
+            );
+            window.removeEventListener(
+                'perennia:yield_update',
+                handleRealtimeTaxRefresh
+            );
+        }
     });
 </script>
 
@@ -520,7 +961,6 @@
     data-testid="tax-fortress-view"
     class="w-full min-h-[calc(100dvh-9rem)] p-4 md:p-6 lg:p-8 font-mono text-white max-w-[1680px] mx-auto pb-24 flex flex-col gap-5"
 >
-    <!-- ONE-TIME COOKIE-STYLE NON-CPA ACKNOWLEDGMENT BANNER -->
     {#if !nonCpaAcknowledged || showNonCpaNoticeDrawer}
         <div
             data-testid="non-cpa-disclaimer-banner"
@@ -579,6 +1019,18 @@
                     class="px-2.5 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase"
                 >
                     {rateCalculation.jurisdictionCode} • {entityType}
+                </span>
+                <span
+                    data-testid="state-tax-rate-badge"
+                    class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[8px] font-mono text-neutral-300 uppercase"
+                >
+                    {rateCalculation.stateComponentPct.toFixed(1)}% STATE TAX ({stateRegion})
+                </span>
+                <span
+                    data-testid="hifo-mode-badge"
+                    class="hidden xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-blue-500/35 text-[8px] font-mono text-blue-400 uppercase"
+                >
+                    PASSIVE HIFO LOT ENGINE • AES-256-GCM LOCAL PII
                 </span>
                 {#if nonCpaAcknowledged}
                     <button
@@ -661,7 +1113,7 @@
                         class="text-xs font-black uppercase tracking-widest text-white"
                     >
                         Tax Authority, Entity Structure &amp; Zero-PII Local
-                        Vault
+                        Profile
                     </span>
                     <span class="text-[9px] text-neutral-400">
                         All 50 US States + International Regimes • Sec. 199A 20%
@@ -676,7 +1128,6 @@
                     )}%
                 </span>
             </div>
-
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="flex flex-col gap-1.5">
                     <label
@@ -754,13 +1205,13 @@
                     </select>
                 </div>
             </div>
-
             <div
                 class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
             >
                 <div class="flex items-center gap-3">
                     <input
                         id="cpaOverrideToggle"
+                        data-testid="cpa-override-toggle"
                         type="checkbox"
                         bind:checked={useCustomOverride}
                         class="w-4 h-4 accent-[#18C6A5] cursor-pointer"
@@ -792,7 +1243,6 @@
                     </div>
                 {/if}
             </div>
-
             <div
                 class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#11161f] border border-amber-500/30 rounded-2xl p-4"
             >
@@ -813,13 +1263,13 @@
                 </div>
                 <div class="flex flex-col gap-1">
                     <label
-                        for="tinEin"
+                        for="tin"
                         class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
                     >
                         Tax ID / EIN / SSN (Local Browser Only)
                     </label>
                     <input
-                        id="tinEin"
+                        id="tin"
                         type="text"
                         bind:value={tinEin}
                         placeholder="XX-XXXXXXX"
@@ -828,13 +1278,13 @@
                 </div>
                 <div class="flex flex-col gap-1">
                     <label
-                        for="businessAddress"
+                        for="address"
                         class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
                     >
                         Domicile Address (Local PDF Stamp Only)
                     </label>
                     <input
-                        id="businessAddress"
+                        id="address"
                         type="text"
                         bind:value={businessAddress}
                         placeholder="Richardson, TX 75080"
@@ -842,7 +1292,6 @@
                     />
                 </div>
             </div>
-
             <div class="flex justify-end gap-3">
                 <button
                     type="button"
@@ -865,7 +1314,6 @@
         </form>
     {/if}
 
-    <!-- 4 SUMMARY TELEMETRY CARDS -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
@@ -875,14 +1323,16 @@
             >
                 Gross Taxable Proceeds (YTD)
             </span>
-            <span class="text-2xl font-black text-white tabular-nums">
+            <span
+                data-testid="gross-taxable-proceeds-display"
+                class="text-2xl font-black text-white tabular-nums"
+            >
                 ${grossTaxableProceedsUsd.toFixed(2)}
             </span>
             <span class="text-[9px] text-neutral-500">
                 {displayedEvents.length} Verified Settlement &amp; Swap Events
             </span>
         </div>
-
         <div
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
         >
@@ -891,7 +1341,10 @@
             >
                 Passive HIFO Cost-Basis Pool
             </span>
-            <span class="text-2xl font-black text-blue-400 tabular-nums">
+            <span
+                data-testid="hifo-cost-basis-pool-display"
+                class="text-2xl font-black text-blue-400 tabular-nums"
+            >
                 ${Number(hifoBundle.summary.openCostBasisUsd || 0).toFixed(2)}
             </span>
             <span class="text-[9px] text-neutral-400">
@@ -902,7 +1355,6 @@
                 ).toFixed(2)}
             </span>
         </div>
-
         <div
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
         >
@@ -932,8 +1384,6 @@
                 >
             </span>
         </div>
-
-        <!-- CARD 4: TAX ESCROW RESERVE (100% USDC VS 50/50 KAS/USDC AUTO-LP) -->
         <div
             class="tactile-card bg-[#0a0d12] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-5 flex flex-col justify-between gap-2 relative"
         >
@@ -1033,13 +1483,32 @@
                 </button>
                 <button
                     type="button"
-                    data-testid="tax-mode-dispositions-btn"
+                    data-testid="tax-mode-disposals-btn"
                     onclick={() => (activeLedgerTab = 'DISPOSITIONS')}
                     class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'DISPOSITIONS' ? 'text-amber-400 border-amber-500/45' : 'text-neutral-400'}"
                 >
                     03. Schedule D Matched Dispositions ({hifoBundle
                         .disposalMatches.length})
                 </button>
+                <button
+                    type="button"
+                    data-testid="tax-tab-external-btn"
+                    onclick={() => (activeLedgerTab = 'EXTERNAL_BASIS')}
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'EXTERNAL_BASIS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
+                >
+                    04. + External Deposit Cost Basis
+                </button>
+                {#if isAdmin}
+                    <button
+                        type="button"
+                        data-testid="tax-tab-corporate-btn"
+                        onclick={() =>
+                            (activeLedgerTab = 'CORPORATE_ACCOUNTING')}
+                        class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'CORPORATE_ACCOUNTING' ? 'text-amber-400 border-amber-500/50' : 'text-amber-400/70'}"
+                    >
+                        05. Corporate OPEX &amp; Owner's Draw
+                    </button>
+                {/if}
             </div>
             <span class="text-[9px] text-neutral-400 uppercase">
                 Accounting: Passive HIFO (Highest Cost-Basis Consumed First)
@@ -1057,7 +1526,7 @@
                             <th class="py-3 px-3">Event Type</th>
                             <th class="py-3 px-3">Asset &amp; Qty</th>
                             <th class="py-3 px-3">Spot FMV</th>
-                            <th class="py-3 px-3">Proceeds (USD)</th>
+                            <th class="py-3 px-3">USD Value</th>
                             <th class="py-3 px-3">HIFO Basis</th>
                             <th class="py-3 px-3">Realized Gain/Loss</th>
                             <th class="py-3 px-3 text-right">Audit Trail</th>
@@ -1211,7 +1680,7 @@
                     </tbody>
                 </table>
             </div>
-        {:else}
+        {:else if activeLedgerTab === 'DISPOSITIONS'}
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse text-xs">
                     <thead>
@@ -1224,7 +1693,8 @@
                             <th class="py-3 px-3">Proceeds (USD)</th>
                             <th class="py-3 px-3">Matched Cost Basis</th>
                             <th class="py-3 px-3">Realized Gain / Loss</th>
-                            <th class="py-3 px-3 text-right">Schedule D Term</th
+                            <th class="py-3 px-3 text-right"
+                                >Schedule D Term</th
                             >
                         </tr>
                     </thead>
@@ -1272,9 +1742,9 @@
                                 <td
                                     class="py-3 px-3 text-right text-neutral-300"
                                 >
-                                    {match.holdingPeriodDays}d ({match.isLongTerm
-                                        ? 'LONG-TERM'
-                                        : 'SHORT-TERM'})
+                                    {match.isLongTerm
+                                        ? `PART II LONG-TERM (${match.holdingPeriodDays}D)`
+                                        : `PART I SHORT-TERM (${match.holdingPeriodDays}D)`}
                                 </td>
                             </tr>
                         {/each}
@@ -1292,11 +1762,333 @@
                     </tbody>
                 </table>
             </div>
+        {:else if activeLedgerTab === 'EXTERNAL_BASIS'}
+            <!-- EXTERNAL L1 DEPOSIT COST-BASIS REGISTRATION -->
+            <div
+                data-testid="external-cost-basis-card"
+                class="bg-[#11161f] border border-white/10 rounded-2xl p-6 max-w-2xl flex flex-col gap-4"
+            >
+                <div class="flex flex-col gap-1 border-b border-white/10 pb-3">
+                    <h3
+                        class="text-xs font-black uppercase tracking-widest text-[#18C6A5]"
+                    >
+                        Register External L1 Deposit Cost Basis (Form 8949 / Schedule D Protection)
+                    </h3>
+                    <span class="text-[9px] text-neutral-400">
+                        Creates an OPEN HIFO tax lot for crypto transferred into your Sovereign Vault from an external wallet or hardware rig so Form 8949 only taxes true net gain.
+                    </span>
+                </div>
+
+                {#if extBasisFeedback}
+                    <div
+                        class="p-3 rounded-xl border text-[10px] font-bold {extBasisFeedback.type === 'success' ? 'bg-[#0a0d12] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-red-950/30 border-red-500/45 text-red-400'}"
+                    >
+                        {extBasisFeedback.message}
+                    </div>
+                {/if}
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="flex flex-col gap-1">
+                        <label
+                            for="extTickerInput"
+                            class="text-[9px] font-bold uppercase text-neutral-400"
+                        >
+                            Asset Ticker (e.g., BTC, KAS, ETH, SOL)
+                        </label>
+                        <input
+                            id="extTickerInput"
+                            data-testid="ext-basis-ticker-input"
+                            type="text"
+                            bind:value={extAssetTicker}
+                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white uppercase outline-none"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label
+                            for="extQtyInput"
+                            class="text-[9px] font-bold uppercase text-neutral-400"
+                        >
+                            Deposited Token Quantity
+                        </label>
+                        <input
+                            id="extQtyInput"
+                            data-testid="ext-basis-qty-input"
+                            type="number"
+                            min="0"
+                            step="any"
+                            bind:value={extAmountTokens}
+                            placeholder="0.50"
+                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        />
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="flex flex-col gap-1">
+                        <label
+                            for="extBasisUsdInput"
+                            class="text-[9px] font-bold uppercase text-neutral-400"
+                        >
+                            Total Historical Cost Basis (USD)
+                        </label>
+                        <input
+                            id="extBasisUsdInput"
+                            data-testid="ext-basis-usd-input"
+                            type="number"
+                            min="0"
+                            step="any"
+                            bind:value={extTotalCostBasisUsd}
+                            placeholder="42500.00"
+                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label
+                            for="extDateInput"
+                            class="text-[9px] font-bold uppercase text-neutral-400"
+                        >
+                            Original Acquisition Date
+                        </label>
+                        <input
+                            id="extDateInput"
+                            type="date"
+                            bind:value={extAcquiredDate}
+                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        />
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="extTxInput"
+                        class="text-[9px] font-bold uppercase text-neutral-400"
+                    >
+                        Source Deposit Transaction Hash (Optional)
+                    </label>
+                    <input
+                        id="extTxInput"
+                        type="text"
+                        bind:value={extSourceTxHash}
+                        placeholder="0x... or Kaspa / BTC TXID"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    />
+                </div>
+
+                <button
+                    type="button"
+                    data-testid="ext-basis-submit-btn"
+                    onclick={registerExternalDepositCostBasis}
+                    disabled={isRegisteringExtLot}
+                    class="tactile-btn w-full py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5] cursor-pointer"
+                >
+                    {isRegisteringExtLot
+                        ? 'Recording OPEN HIFO Tax Lot...'
+                        : 'Register External Deposit HIFO Lot ✓'}
+                </button>
+            </div>
+        {:else if activeLedgerTab === 'CORPORATE_ACCOUNTING' && isAdmin}
+            <!-- CORPORATE ACCOUNTS PAYABLE (OPEX) vs. OWNER'S DRAW ACCOUNTING -->
+            {@const corpOutflows =
+                corporateReconciliation?.corporateOutflows || []}
+            <div
+                data-testid="tax-corporate-accounting-panel"
+                class="flex flex-col gap-4"
+            >
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col">
+                        <span class="text-[8px] text-neutral-400 uppercase"
+                            >LLC Gross Earned Revenue</span
+                        >
+                        <span class="text-base font-black text-white mt-0.5">
+                            ${grossBusinessIncomeUsd.toFixed(2)} USD
+                        </span>
+                    </div>
+                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col">
+                        <span class="text-[8px] text-neutral-400 uppercase"
+                            >Deductible OPEX (Schedule C/1120)</span
+                        >
+                        <span class="text-base font-black text-amber-400 mt-0.5">
+                            -$${totalDeductibleOpexUsd.toFixed(2)} USD
+                        </span>
+                    </div>
+                    <div class="bg-[#11161f] border border-[#18C6A5]/40 rounded-xl p-3.5 flex flex-col">
+                        <span class="text-[8px] text-[#18C6A5] uppercase"
+                            >Net Taxable LLC Income</span
+                        >
+                        <span
+                            data-testid="tax-net-llc-income-usd"
+                            class="text-base font-black text-[#18C6A5] mt-0.5"
+                        >
+                            ${netTaxableBusinessIncomeUsd.toFixed(2)} USD
+                        </span>
+                    </div>
+                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col">
+                        <span class="text-[8px] text-neutral-400 uppercase"
+                            >Owner's Draws &amp; Tax Escrow</span
+                        >
+                        <span class="text-xs font-bold text-white mt-1">
+                            Draws: ${totalOwnersDrawUsd.toFixed(2)} • Escrow: ${totalTaxEscrowUsd.toFixed(
+                                2
+                            )}
+                        </span>
+                    </div>
+                </div>
+
+                {#if corpVoucherFeedback}
+                    <div
+                        class="p-3 rounded-xl border text-[10px] font-bold {corpVoucherFeedback.type === 'success' ? 'bg-[#0a0d12] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-red-950/30 border-red-500/45 text-red-400'}"
+                    >
+                        {corpVoucherFeedback.message}
+                    </div>
+                {/if}
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    <div class="lg:col-span-6 bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col gap-3.5">
+                        <span class="text-xs font-black uppercase tracking-widest text-amber-400">
+                            Log Corporate Outflow Voucher (Schedule C / Form 1120)
+                        </span>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {#each [
+                                {
+                                    id: 'ACCOUNTS_PAYABLE_OPEX',
+                                    label: 'Deductible OPEX'
+                                },
+                                {
+                                    id: 'OWNERS_DRAW_DISTRIBUTION',
+                                    label: "Owner's Draw"
+                                },
+                                {
+                                    id: 'TAX_ESCROW_RESERVE',
+                                    label: 'Tax Escrow'
+                                }
+                            ] as cat (cat.id)}
+                                <button
+                                    type="button"
+                                    onclick={() =>
+                                        (corpCategory = cat.id as any)}
+                                    class="py-2 px-2.5 rounded-xl text-[9px] font-black uppercase border cursor-pointer {corpCategory ===
+                                    cat.id
+                                        ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]'
+                                        : 'bg-[#0a0d12] text-neutral-400 border-white/10'}"
+                                >
+                                    {cat.label}
+                                </button>
+                            {/each}
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="flex flex-col gap-1">
+                                <span class="text-[9px] font-bold uppercase text-neutral-400">
+                                    Amount (USD)
+                                </span>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="any"
+                                    bind:value={corpAmountUsd}
+                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                                />
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <span class="text-[9px] font-bold uppercase text-neutral-400">
+                                    Source Asset
+                                </span>
+                                <select
+                                    bind:value={corpAsset}
+                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                >
+                                    <option value="USDC"
+                                        >USDC (Treasury Fee Vault)</option
+                                    >
+                                    <option value="KAS"
+                                        >KAS (Pool Fee Vault)</option
+                                    >
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] font-bold uppercase text-neutral-400">
+                                Vendor / Beneficiary
+                            </span>
+                            <input
+                                type="text"
+                                bind:value={corpVendor}
+                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                            />
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] font-bold uppercase text-neutral-400">
+                                Invoice # / Accounting Memo
+                            </span>
+                            <input
+                                type="text"
+                                bind:value={corpMemo}
+                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                            />
+                        </div>
+
+                        <button
+                            type="button"
+                            data-testid="tax-record-corp-voucher-btn"
+                            onclick={recordCorporateOutflowVoucher}
+                            disabled={isLoggingCorpVoucher}
+                            class="tactile-btn w-full py-3 rounded-xl text-xs font-black uppercase text-[#18C6A5] border-[#18C6A5] cursor-pointer"
+                        >
+                            {isLoggingCorpVoucher
+                                ? 'Recording Corporate Voucher...'
+                                : `Record ${corpCategory} Voucher ($${Number(corpAmountUsd || 0).toFixed(2)} USD) ✓`}
+                        </button>
+                    </div>
+
+                    <div class="lg:col-span-6 bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
+                        <span class="text-xs font-black uppercase tracking-widest text-white">
+                            Perennia Holdings, LLC — Corporate Vouchers
+                        </span>
+                        <div class="flex flex-col gap-2 max-h-80 overflow-y-auto hide-scrollbar">
+                            {#each corpOutflows as v (v.outflow_id)}
+                                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                                    <div class="flex flex-col">
+                                        <span class="font-bold text-white">
+                                            {v.outflow_category} • {v.vendor_or_beneficiary}
+                                        </span>
+                                        <span class="text-[9px] text-neutral-400">
+                                            {v.outflow_id} • {v.invoice_or_memo}
+                                        </span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-black text-[#18C6A5]">
+                                            ${Number(v.gross_usd || 0).toFixed(
+                                                2
+                                            )}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onclick={() =>
+                                                downloadSingleCorporateVoucherPdf(
+                                                    v
+                                                )}
+                                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                                        >
+                                            [PDF ↓]
+                                        </button>
+                                    </div>
+                                </div>
+                            {/each}
+                            {#if corpOutflows.length === 0}
+                                <div class="py-8 text-center text-[10px] text-neutral-500 uppercase">
+                                    No corporate outflow vouchers recorded yet.
+                                </div>
+                            {/if}
+                        </div>
+                    </div>
+                </div>
+            </div>
         {/if}
     </div>
 </div>
 
-<!-- TAX ESCROW RESERVE CONFIGURATION MODAL (MODE A: 100% USDC VS MODE B: 50/50 KAS/USDC AUTO-LP) -->
 {#if showEscrowModal}
     <div
         class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono"
@@ -1330,8 +2122,6 @@
                     ✕
                 </button>
             </div>
-
-            <!-- MODE SELECTOR: MODE A (100% USDC) VS MODE B (50/50 KAS/USDC LP) -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                     type="button"
@@ -1362,7 +2152,6 @@
                         impermanent loss.
                     </span>
                 </button>
-
                 <button
                     type="button"
                     data-testid="escrow-mode-lp-btn"
@@ -1393,7 +2182,6 @@
                     </span>
                 </button>
             </div>
-
             {#if escrowReserveMode === 'KAS_USDC_LP'}
                 <div
                     transition:slide={{ duration: 150 }}
@@ -1430,14 +2218,11 @@
                     </label>
                 </div>
             {/if}
-
-            <!-- MANDATORY NON-CPA DISCLAIMER INSIDE MODAL -->
             <div
                 class="bg-[#11161f] border border-white/10 rounded-xl p-3 text-[9px] text-neutral-400 leading-relaxed"
             >
                 {NON_CPA_PROTOCOL_DISCLAIMER}
             </div>
-
             <div class="flex gap-3 pt-1">
                 <button
                     type="button"

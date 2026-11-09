@@ -15,3 +15,6 @@ repomix*.xml
 
 playwright-report/
 audit-activity.mjs
+frontend-dist.tar.gz
+.auth-sync.env
+test-results/
