@@ -2,13 +2,13 @@ import { identity } from '$lib/stores/identity.svelte';
 import { treasury } from '$lib/stores/treasury.svelte';
 import { ui } from '$lib/stores/ui.svelte';
 export const MASTER_ADMIN_ADDRESS =
-    'kaspa:qpra0t9ul8hd7m7pw4td6ax3unlf2vyc2fzit9p9yulhsnk7quakmpj4lpw7';
+    'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
 export const walletState = $state({
     address: '',
     devAdminBypass: false
 });
 export function getIsCorporateAdmin(): boolean {
-    return Boolean(identity.isCorporateAdmin || walletState.devAdminBypass);
+    return Boolean(identity.isCorporateAdmin);
 }
 export interface UniversalL1SigningRequest {
     intentType: 'DEX_SWAP' | 'FIAT_OFFRAMP' | 'L1_TRANSFER';

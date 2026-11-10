@@ -174,7 +174,7 @@ async function runMainnetReadinessAudit(): Promise<Record<string, any>> {
                 wallet:
                     env.PERENNIA_MASTER_TREASURY_KAS ||
                     env.MASTER_ADMIN_ADDRESS ||
-                    'kaspa:qpra0t9ul8hd7m7pw4td6ax3unlf2vyc2fzit9p9yulhsnk7quakmpj4lpw7',
+                    'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7',
                 action: 'GET_SYSTEM_TREASURY_CONFIG',
                 payload: {}
             }),
@@ -253,7 +253,7 @@ async function runMainnetReadinessAudit(): Promise<Record<string, any>> {
         env.PERENNIA_MASTER_TREASURY_KAS ||
         env.MASTER_ADMIN_ADDRESS ||
         nodeAirlock?.coldVaultAddress ||
-        'kaspa:qpra0t9ul8hd7m7pw4td6ax3unlf2vyc2fzit9p9yulhsnk7quakmpj4lpw7';
+        'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
     checks.push({
         id: 'hot_kas_l1_signer',
         category: 'TREASURY_SECURITY',
@@ -334,7 +334,7 @@ async function runMainnetReadinessAudit(): Promise<Record<string, any>> {
         nodeAirlock: nodeAirlock || {
             hotSignerAddress: isValidKaspaAddress(masterKasAddr)
                 ? masterKasAddr
-                : 'kaspa:qpra0t9ul8hd7m7pw4td6ax3unlf2vyc2fzit9p9yulhsnk7quakmpj4lpw7',
+                : 'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7',
             coldVaultAddress: masterKasAddr,
             hotBalanceKas: 0,
             hotCeilingKas: 5000,

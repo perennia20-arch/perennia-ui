@@ -5,7 +5,7 @@ const TEST_MNEMONIC_24 =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art';
 const TEST_VAULT_PASSWORD = 'PerenniaSovereignVaultPassword2026!';
 const MASTER_DIRECTOR_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+    'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
 const KASPA_BURN_ADDRESS =
     'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
 
@@ -15,7 +15,7 @@ async function seedUnlockedSovereignSession(
 ) {
     const kaspaAddress = options?.isDirector
         ? MASTER_DIRECTOR_ADDRESS
-        : 'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+        : 'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
 
     await page.addInitScript(
         ({ kasAddr, mnemonic }) => {

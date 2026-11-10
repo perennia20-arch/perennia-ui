@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 const TEST_MNEMONIC_24 =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art';
 const MASTER_DIRECTOR_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+    'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
 
 const MOCK_PYTH_RWA_FEEDS = [
     {

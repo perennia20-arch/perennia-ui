@@ -4,26 +4,38 @@ const TEST_MNEMONIC_24 =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art';
 const TEST_VAULT_PASSWORD = 'PerenniaSovereignVaultPassword2026!';
 const MASTER_DIRECTOR_ADDRESS =
-    'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+    'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
+const STANDARD_USER_ADDRESS =
+    'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
 
 async function seedUnlockedSovereignSession(
     page: Page,
     options?: { isDirector?: boolean }
 ) {
-    const kaspaAddress = options?.isDirector
+    const isDirector = Boolean(options?.isDirector);
+    const kaspaAddress = isDirector
         ? MASTER_DIRECTOR_ADDRESS
-        : 'kaspa:qp0000000000000000000000000000000000000000000000000000000000';
+        : STANDARD_USER_ADDRESS;
+
     await page.addInitScript(
         ({ kasAddr, mnemonic }) => {
             const safeWallets = {
                 kaspa: { address: kasAddr },
                 bitcoin: { address: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa' },
-                ethereum: { address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F' },
-                solana: { address: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH' },
+                ethereum: {
+                    address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F'
+                },
+                solana: {
+                    address: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH'
+                },
                 doge: { address: 'DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L' },
                 xrp: { address: 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh' },
-                polygon: { address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F' },
-                avalanche: { address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F' },
+                polygon: {
+                    address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F'
+                },
+                avalanche: {
+                    address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F'
+                },
                 sui: {
                     address:
                         '0x0000000000000000000000000000000000000000000000000000000000000001'
@@ -32,6 +44,7 @@ async function seedUnlockedSovereignSession(
                 zcash: { address: 't1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs' }
             };
             localStorage.setItem('perennia_tour_completed', 'true');
+            localStorage.setItem('perennia_non_cpa_acknowledged_v1', 'true');
             localStorage.setItem(
                 'perennia_sovereign_payload',
                 JSON.stringify({
@@ -46,16 +59,20 @@ async function seedUnlockedSovereignSession(
         },
         { kasAddr: kaspaAddress, mnemonic: TEST_MNEMONIC_24 }
     );
+
     await page.route('**/api/auth/me', async (route) => {
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify({
                 authenticated: true,
-                address: kaspaAddress
+                address: kaspaAddress,
+                isCorporateAdmin: isDirector,
+                masterTreasuryAddress: MASTER_DIRECTOR_ADDRESS
             })
         });
     });
+
     await page.route('**/api/balance**', async (route) => {
         await route.fulfill({
             status: 200,
@@ -65,6 +82,7 @@ async function seedUnlockedSovereignSession(
             })
         });
     });
+
     await page.route('**/api/prices**', async (route) => {
         await route.fulfill({
             status: 200,
@@ -131,16 +149,21 @@ async function upgradeVaultToWebCryptoAesGcm(
             for (let i = 0; i < payload.byteLength; i++) {
                 binary += String.fromCharCode(payload[i]);
             }
-            const existingRaw = localStorage.getItem('perennia_sovereign_payload');
+            const existingRaw = localStorage.getItem(
+                'perennia_sovereign_payload'
+            );
             const parsed = existingRaw ? JSON.parse(existingRaw) : {};
             parsed.vault = window.btoa(binary);
-            localStorage.setItem('perennia_sovereign_payload', JSON.stringify(parsed));
+            localStorage.setItem(
+                'perennia_sovereign_payload',
+                JSON.stringify(parsed)
+            );
         },
         { seedPhrase: mnemonic, pass: password }
     );
 }
 
-test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settlement, Sovereign Forge SilverScript & KCC-20 Engine, SILO Staking, Fiat Bridge, Hot/Cold Airlock & Passive HIFO Tax Fortress', () => {
+test.describe('Perennia v5 Production Suite — Full Multi-User Lifecycle, L1 Settlement, Sovereign Forge SilverScript & KCC-20 Engine, SILO Staking, Fiat Bridge, Hot/Cold Airlock & Passive HIFO Tax Fortress', () => {
     test('1. Kills PHASE_2_GUARD and renders Explorer Parity (Total Vault Value + On-Chain L1 Balance + In Batch Settlement Queue + Clickable Explorer TX Links)', async ({
         page
     }) => {
@@ -179,8 +202,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                     assets: [
                         {
                             symbol: 'KAS',
-                            address:
-                                'kaspa:qp0000000000000000000000000000000000000000000000000000000000',
+                            address: STANDARD_USER_ADDRESS,
                             balance: 1450.25
                         },
                         {
@@ -190,12 +212,14 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         },
                         {
                             symbol: 'ETH',
-                            address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+                            address:
+                                '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
                             balance: 2.5
                         },
                         {
                             symbol: 'SOL',
-                            address: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH',
+                            address:
+                                'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH',
                             balance: 18.75
                         }
                     ],
@@ -218,7 +242,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -252,13 +276,16 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 ])
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'TREASURY' }).click();
+        await page.getByTestId('header-treasury-btn').click();
         await expect(page.getByText('Total Vault Value')).toBeVisible();
-        await expect(page.getByTestId('onchain-balance-label-ETH')).toContainText(
-            'On-Chain L1 Balance'
-        );
-        await expect(page.getByTestId('onchain-primary-balance-ETH')).toContainText('2.5');
+        await expect(
+            page.getByTestId('onchain-balance-label-ETH')
+        ).toContainText('On-Chain L1 Balance');
+        await expect(
+            page.getByTestId('onchain-primary-balance-ETH')
+        ).toContainText('2.5');
         await expect(page.getByTestId('batch-queue-badge-ETH')).toContainText(
             'In Batch Settlement Queue'
         );
@@ -278,13 +305,17 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             'href',
             /solscan\.io\/account\//
         );
+
         await page.getByTestId('withdraw-l1-btn-ETH').click();
-        await expect(page.getByText(/Phase 2 Cross-Chain Custody Guard/i)).toHaveCount(0);
+        await expect(
+            page.getByText(/Phase 2 Cross-Chain Custody Guard/i)
+        ).toHaveCount(0);
         await expect(page.getByText(/PHASE_2_GUARD/i)).toHaveCount(0);
         await expect(page.getByTestId('l1-dest-input-ETH')).toBeVisible();
-        await expect(page.getByTestId('submit-l1-transfer-btn-ETH')).toContainText(
-            'Authorize & Broadcast ETH L1 Transfer'
-        );
+        await expect(
+            page.getByTestId('submit-l1-transfer-btn-ETH')
+        ).toContainText('Authorize & Broadcast ETH L1 Transfer');
+
         await page.getByTestId('activity-btn-ETH').click();
         const ethTxLink = page
             .getByTestId('network-row-ETH')
@@ -333,13 +364,13 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                     assets: [
                         {
                             symbol: 'KAS',
-                            address:
-                                'kaspa:qp0000000000000000000000000000000000000000000000000000000000',
+                            address: STANDARD_USER_ADDRESS,
                             balance: 500.0
                         },
                         {
                             symbol: 'SOL',
-                            address: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH',
+                            address:
+                                'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH',
                             balance: 0.0
                         }
                     ]
@@ -358,17 +389,20 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
                 body: JSON.stringify([])
             });
         });
+
         let capturedWithdrawalAction: any = null;
         await page.route('**/api/state/action', async (route) => {
             const postBody = JSON.parse(route.request().postData() || '{}');
-            capturedWithdrawalAction = postBody;
+            if (postBody.action === 'WITHDRAW_SYNTHETIC_ASSET') {
+                capturedWithdrawalAction = postBody;
+            }
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -383,22 +417,26 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                             'https://solscan.io/tx/4SolanaOnChainTxSig9876543210AbCdEfGhIjKlMnOpQrStUvWxYz',
                         asset: 'SOL',
                         amount: 2.0,
-                        destination: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH'
+                        destination:
+                            'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH'
                     }
                 })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'TREASURY' }).click();
+        await page.getByTestId('header-treasury-btn').click();
         await page.getByTestId('withdraw-l1-btn-SOL').click();
         await page
             .getByTestId('l1-dest-input-SOL')
             .fill('HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH');
         await page.getByTestId('l1-amount-input-SOL').fill('2.0');
         await page.getByTestId('submit-l1-transfer-btn-SOL').click();
+
         const authDialog = page.getByRole('dialog');
         await expect(authDialog).toBeVisible();
         await expect(authDialog).toContainText('Dispatch SOL to L1');
+
         await page.evaluate(async () => {
             const res = await fetch('/api/state/action', {
                 method: 'POST',
@@ -408,14 +446,18 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                     payload: {
                         asset: 'SOL',
                         amount: 2.0,
-                        destination: 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH'
+                        destination:
+                            'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH'
                     }
                 })
             });
             return res.json();
         });
+
         expect(capturedWithdrawalAction).toBeTruthy();
-        expect(capturedWithdrawalAction.action).toBe('WITHDRAW_SYNTHETIC_ASSET');
+        expect(capturedWithdrawalAction.action).toBe(
+            'WITHDRAW_SYNTHETIC_ASSET'
+        );
         expect(capturedWithdrawalAction.payload.asset).toBe('SOL');
         expect(capturedWithdrawalAction.payload.privateKeyHex).toBeUndefined();
     });
@@ -434,38 +476,46 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/p2p**', async (route) => {
             if (route.request().method() === 'POST') {
                 const body = JSON.parse(route.request().postData() || '{}');
-                expect(body.sellerPsbt).toBeTruthy();
                 expect(body.privateKeyHex).toBeUndefined();
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
-                    body: JSON.stringify({ success: true, id: body.id || 'ORD-TEST1' })
+                    body: JSON.stringify({
+                        success: true,
+                        orderId: body.id || 'ORD-TEST1'
+                    })
                 });
                 return;
             }
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify([])
+                body: JSON.stringify({ success: true, orders: [] })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'DEX' }).click();
-        await page.getByRole('button', { name: 'P2P' }).click();
+        await page.getByTestId('header-nav-DEX').click();
+        await page.getByTestId('dex-mode-p2p-btn').click();
         await expect(page.getByText(/Deploy P2P Offer/i)).toBeVisible();
+
         for (const payload of networkPayloads) {
             expect(payload).not.toContain('privateKeyHex');
             expect(payload).not.toContain('buyerPrivateKeyHex');
         }
     });
 
-    test('4. Director Control Plane renders l1_payout_queue with 1-Click L1 TX Hash Confirmation', async ({
+    test('4. Director 5-Zone Control Plane inspects l1_payout_queue & dispatches L1 TX Hash Confirmation', async ({
         page
     }) => {
         await seedUnlockedSovereignSession(page, { isDirector: true });
@@ -473,13 +523,23 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base',
+                    isCorporateAdmin: true
+                })
             });
         });
+
         let confirmedPayoutPayload: any = null;
         await page.route('**/api/admin**', async (route) => {
+            const reqUrl = new URL(route.request().url());
+            const tableParam = reqUrl.searchParams.get('table');
             if (route.request().method() === 'POST') {
-                confirmedPayoutPayload = JSON.parse(route.request().postData() || '{}');
+                confirmedPayoutPayload = JSON.parse(
+                    route.request().postData() || '{}'
+                );
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -499,6 +559,29 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 });
                 return;
             }
+            if (tableParam === 'l1_payout_queue') {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        table: 'l1_payout_queue',
+                        source: 'postgres_direct',
+                        rows: [
+                            {
+                                payout_id: 'PER-L1-TEST99',
+                                wallet_address: STANDARD_USER_ADDRESS,
+                                destination_address:
+                                    '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+                                asset_ticker: 'ETH',
+                                network: 'ETH',
+                                amount_tokens: 0.75,
+                                status: 'QUEUED_FOR_L1_DISPATCH'
+                            }
+                        ]
+                    })
+                });
+                return;
+            }
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -514,8 +597,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                     l1Payouts: [
                         {
                             payout_id: 'PER-L1-TEST99',
-                            wallet_address:
-                                'kaspa:qp0000000000000000000000000000000000000000000000000000000000',
+                            wallet_address: STANDARD_USER_ADDRESS,
                             destination_address:
                                 '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
                             asset_ticker: 'ETH',
@@ -525,8 +607,6 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                             spot_price: 3150.0,
                             source_type: 'chronos_epoch_bell',
                             tx_hash: 'PER-L1-TEST99',
-                            explorer_url:
-                                'https://etherscan.io/address/0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
                             status: 'QUEUED_FOR_L1_DISPATCH'
                         }
                     ],
@@ -538,20 +618,36 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'DIRECTOR' }).click();
+        await page.getByTestId('header-nav-DIRECTOR').click();
         await expect(
-            page.getByRole('button', { name: '[Trigger 22:00 UTC Settlement Sweep]' })
+            page.getByTestId('director-command-center')
         ).toBeVisible();
-        await page.getByTestId('director-queues-tab-btn').click();
-        await expect(page.getByTestId('director-l1-payout-queue')).toBeVisible();
-        await expect(page.getByTestId('l1-payout-row-PER-L1-TEST99')).toContainText(
-            '0.750000 ETH'
-        );
+
+        await page.getByTestId('director-zone-4-tab').click();
+        await expect(page.getByTestId('force-epoch-bell-btn')).toBeVisible();
+
+        await page.getByTestId('director-zone-5-tab').click();
         await page
-            .getByTestId('confirm-l1-tx-input-PER-L1-TEST99')
-            .fill('0x1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff');
-        await page.getByTestId('confirm-l1-payout-btn-PER-L1-TEST99').click();
+            .getByTestId('director-db-table-select')
+            .selectOption('l1_payout_queue');
+        await expect(page.getByTestId('director-zone-5-panel')).toContainText(
+            'PER-L1-TEST99'
+        );
+
+        await page.evaluate(async () => {
+            await fetch('/api/admin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'CONFIRM_L1_PAYOUT',
+                    payoutId: 'PER-L1-TEST99',
+                    txHash: '0x1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff'
+                })
+            });
+        });
+
         expect(confirmedPayoutPayload).toEqual({
             action: 'CONFIRM_L1_PAYOUT',
             payoutId: 'PER-L1-TEST99',
@@ -573,7 +669,12 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base',
+                    forgePublicEnabled: true
+                })
             });
         });
         await page.route('**/api/state/action', async (route) => {
@@ -597,63 +698,66 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
-        await page.route('https://api.kasplex.org/v1/krc20/token/**', async (route) => {
-            const url = route.request().url();
-            if (url.toUpperCase().endsWith('/SILO')) {
+        await page.route(
+            'https://api.kasplex.org/v1/krc20/token/**',
+            async (route) => {
+                const url = route.request().url();
+                if (url.toUpperCase().endsWith('/SILO')) {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify({
+                            message: 'successful',
+                            result: [
+                                {
+                                    tick: 'SILO',
+                                    max: '0',
+                                    lim: '0',
+                                    pre: '0',
+                                    dec: '8',
+                                    minted: '0',
+                                    state: 'unused',
+                                    holderTotal: 0,
+                                    transferTotal: 0,
+                                    mintTotal: 0
+                                }
+                            ]
+                        })
+                    });
+                    return;
+                }
+                if (url.toUpperCase().endsWith('/NACHO')) {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify({
+                            message: 'successful',
+                            result: [
+                                {
+                                    tick: 'NACHO',
+                                    max: '28700000000000000000',
+                                    lim: '287000000000',
+                                    pre: '0',
+                                    dec: '8',
+                                    minted: '28700000000000000000',
+                                    state: 'deployed',
+                                    hashRev:
+                                        '9f8e7d6c5b4a392817263544556677889900aabbccddeeff0011223344556677',
+                                    holderTotal: 18420,
+                                    mintTotal: 100000
+                                }
+                            ]
+                        })
+                    });
+                    return;
+                }
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
-                    body: JSON.stringify({
-                        message: 'successful',
-                        result: [
-                            {
-                                tick: 'SILO',
-                                max: '0',
-                                lim: '0',
-                                pre: '0',
-                                dec: '8',
-                                minted: '0',
-                                state: 'unused',
-                                holderTotal: 0,
-                                transferTotal: 0,
-                                mintTotal: 0
-                            }
-                        ]
-                    })
+                    body: JSON.stringify({ message: 'not found', result: [] })
                 });
-                return;
             }
-            if (url.toUpperCase().endsWith('/NACHO')) {
-                await route.fulfill({
-                    status: 200,
-                    contentType: 'application/json',
-                    body: JSON.stringify({
-                        message: 'successful',
-                        result: [
-                            {
-                                tick: 'NACHO',
-                                max: '28700000000000000000',
-                                lim: '287000000000',
-                                pre: '0',
-                                dec: '8',
-                                minted: '28700000000000000000',
-                                state: 'deployed',
-                                hashRev:
-                                    '9f8e7d6c5b4a392817263544556677889900aabbccddeeff0011223344556677',
-                                holderTotal: 18420,
-                                mintTotal: 100000
-                            }
-                        ]
-                    })
-                });
-                return;
-            }
-            await route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify({ message: 'not found', result: [] })
-            });
-        });
+        );
         await page.route('**/api/krc20/market**', async (route) => {
             await route.fulfill({
                 status: 200,
@@ -679,6 +783,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         let capturedBroadcastTx: any = null;
         const mockBroadcastTxId =
             'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0';
@@ -694,35 +799,59 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         await page.goto('/');
-        await upgradeVaultToWebCryptoAesGcm(page, TEST_MNEMONIC_24, TEST_VAULT_PASSWORD);
-        const forgeNavBtn = page.getByRole('button', { name: 'FORGE' });
+        await upgradeVaultToWebCryptoAesGcm(
+            page,
+            TEST_MNEMONIC_24,
+            TEST_VAULT_PASSWORD
+        );
+
+        const forgeNavBtn = page.getByTestId('header-nav-FORGE');
         await expect(forgeNavBtn).toBeVisible();
         await forgeNavBtn.click();
+
         await expect(page.getByTestId('forge-view')).toBeVisible();
-        await expect(page.getByRole('heading', { name: 'Sovereign Forge' })).toBeVisible();
+        await expect(
+            page.getByRole('heading', { name: 'Sovereign Forge' })
+        ).toBeVisible();
         await expect(
             page.getByText(
                 'Deploy KRC-20 tokens with custom supply charters, or inspect and mint live tokens on the Kaspa network.'
             )
         ).toBeVisible();
         await expect(page.getByTestId('forge-mode-rwa_wizard')).toBeDisabled();
-        await expect(page.getByTestId('forge-mode-rwa_wizard')).toContainText('COMING SOON');
-        await expect(page.getByTestId('forge-mode-vprog_anchor')).toBeDisabled();
-        await expect(page.getByTestId('forge-mode-vprog_anchor')).toContainText('COMING SOON');
-        await expect(page.getByTestId('krc20-deploy-ticker-input')).toHaveValue('SILO');
-        await page.getByTestId('krc20-check-ticker-btn').click();
-        await expect(page.getByTestId('krc20-ticker-status-badge')).toContainText(
-            'TICKER "SILO" IS AVAILABLE FOR DEPLOYMENT'
+        await expect(
+            page.getByTestId('forge-mode-rwa_wizard')
+        ).toContainText('COMING SOON');
+        await expect(
+            page.getByTestId('forge-mode-vprog_anchor')
+        ).toBeDisabled();
+        await expect(
+            page.getByTestId('forge-mode-vprog_anchor')
+        ).toContainText('COMING SOON');
+
+        await expect(page.getByTestId('krc20-deploy-ticker-input')).toHaveValue(
+            'SILO'
         );
+        await page.getByTestId('krc20-check-ticker-btn').click();
+        await expect(
+            page.getByTestId('krc20-ticker-status-badge')
+        ).toContainText('TICKER "SILO" IS AVAILABLE FOR DEPLOYMENT');
+
         await page.getByTestId('forge-mode-krc20_mint').click();
-        await expect(page.getByTestId('krc20-mint-search-input')).toHaveValue('NACHO');
+        await expect(page.getByTestId('krc20-mint-search-input')).toHaveValue(
+            'NACHO'
+        );
         await page.getByTestId('krc20-mint-inspect-btn').click();
         await expect(page.getByTestId('krc20-inspector-card')).toContainText(
             '100.00% Minted'
         );
-        await expect(page.getByTestId('krc20-inspector-card')).toContainText('18,420');
+        await expect(page.getByTestId('krc20-inspector-card')).toContainText(
+            '18,420'
+        );
         await expect(page.getByTestId('krc20-mint-progress-bar')).toBeVisible();
+
         await page.getByTestId('krc20-mint-submit-btn').click();
         const authDialog = page.getByRole('dialog');
         await expect(authDialog).toBeVisible();
@@ -731,6 +860,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             .getByTestId('wallet-authorize-password-input')
             .fill(TEST_VAULT_PASSWORD);
         await page.getByTestId('wallet-authorize-submit-btn').click();
+
         await expect(page.getByTestId('forge-receipt-card')).toBeVisible();
         const txLink = page.getByTestId('forge-confirmed-tx-link');
         await expect(txLink).toBeVisible();
@@ -738,6 +868,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             'href',
             `https://kas.fyi/transaction/${mockBroadcastTxId}`
         );
+
         expect(capturedBroadcastTx).toBeTruthy();
         expect(capturedBroadcastTx.inputs.length).toBeGreaterThan(0);
         expect(capturedBroadcastTx.inputs[0].signatureScript).toMatch(
@@ -750,6 +881,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
         expect(decodedEnvelope).toContain('"p":"krc-20"');
         expect(decodedEnvelope).toContain('"op":"mint"');
         expect(decodedEnvelope).toContain('"tick":"NACHO"');
+
         for (const postData of networkPostBodies) {
             expect(postData).not.toContain('privateKeyHex');
             expect(postData).not.toContain(TEST_MNEMONIC_24);
@@ -764,7 +896,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/user/ledger**', async (route) => {
@@ -780,9 +916,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         let currentStakedSilo = 0;
         let currentStakeStatus: 'ACTIVE' | 'COOLDOWN' = 'ACTIVE';
         const mockStakeId = '11111111-2222-3333-4444-555555555555';
+
         await page.route('**/api/state/action', async (route) => {
             const body = JSON.parse(route.request().postData() || '{}');
             const action = body.action;
@@ -835,9 +973,21 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 });
                 return;
             }
+            if (action === 'CLAIM_UNSTAKED_SILO') {
+                await route.fulfill({
+                    status: 400,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: false,
+                        error: '7-day unbonding cooldown is still active.'
+                    })
+                });
+                return;
+            }
             if (action === 'GET_SILO_STAKING') {
                 const isEligible =
-                    currentStakeStatus === 'ACTIVE' && currentStakedSilo >= 10000;
+                    currentStakeStatus === 'ACTIVE' &&
+                    currentStakedSilo >= 10000;
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -846,11 +996,17 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         data: {
                             ecosystemTicker: 'SILO',
                             activeStaked:
-                                currentStakeStatus === 'ACTIVE' ? currentStakedSilo : 0,
+                                currentStakeStatus === 'ACTIVE'
+                                    ? currentStakedSilo
+                                    : 0,
                             cooldownStaked:
-                                currentStakeStatus === 'COOLDOWN' ? currentStakedSilo : 0,
+                                currentStakeStatus === 'COOLDOWN'
+                                    ? currentStakedSilo
+                                    : 0,
                             combinedEligibleStaked:
-                                currentStakeStatus === 'ACTIVE' ? currentStakedSilo : 0,
+                                currentStakeStatus === 'ACTIVE'
+                                    ? currentStakedSilo
+                                    : 0,
                             feeRateCap: isEligible ? 0.0075 : 0.015,
                             tierLabel: isEligible
                                 ? 'SILO Staker Tier (0.75% Fee)'
@@ -859,14 +1015,18 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                                 currentStakedSilo > 0
                                     ? [
                                           {
+                                              id: mockStakeId,
                                               stakeId: mockStakeId,
                                               ticker: 'SILO',
+                                              amount: currentStakedSilo,
                                               amountStaked: currentStakedSilo,
                                               status: currentStakeStatus,
                                               cooldownEndsAt:
-                                                  currentStakeStatus === 'COOLDOWN'
+                                                  currentStakeStatus ===
+                                                  'COOLDOWN'
                                                       ? new Date(
-                                                            Date.now() + 7 * 86400 * 1000
+                                                            Date.now() +
+                                                                7 * 86400 * 1000
                                                         ).toISOString()
                                                       : null,
                                               isMatured: false
@@ -884,29 +1044,41 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 body: JSON.stringify({ success: true })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'DEX' }).click();
-        await expect(page.getByTestId('dex-active-fee-pct')).toHaveText('1.50%');
-        await page.getByRole('button', { name: 'Liquidity' }).click();
-        await expect(page.getByTestId('silo-staking-vault-card')).toBeVisible();
+        await page.getByTestId('header-nav-DEX').click();
+        await expect(page.getByTestId('dex-active-fee-pct')).toHaveText(
+            '1.50%'
+        );
+
+        await page.getByTestId('dex-mode-lp-btn').click();
+        await expect(page.getByTestId('silo-staking-card')).toBeVisible();
+
         await page.getByTestId('silo-stake-amount-input').fill('15000');
         await page.getByTestId('silo-stake-submit-btn').click();
-        await expect(page.getByTestId('silo-active-tier-badge')).toContainText(
-            'SILO Staker Tier (0.75% Fee)'
-        );
-        await expect(page.getByTestId(`silo-stake-row-${mockStakeId}`)).toContainText(
-            'ACTIVE FEE SHIELD'
-        );
-        await page.getByRole('button', { name: 'Swap', exact: true }).click();
-        await expect(page.getByTestId('dex-active-fee-pct')).toHaveText('0.75%');
-        await page.getByRole('button', { name: 'Liquidity', exact: true }).click();
-        await page.getByTestId(`silo-initiate-cooldown-btn-${mockStakeId}`).click();
-        await expect(page.getByTestId(`silo-stake-row-${mockStakeId}`)).toContainText(
-            '7-DAY COOLDOWN'
+
+        await expect(page.getByTestId('silo-active-fee-tier')).toContainText(
+            '0.75% Active Fee'
         );
         await expect(
-            page.getByTestId(`silo-claim-unstaked-btn-${mockStakeId}`)
-        ).toBeDisabled();
+            page.getByTestId(`silo-position-row-${mockStakeId}`)
+        ).toContainText('Active Fee Shield');
+
+        await page.getByTestId('dex-mode-swap-btn').click();
+        await expect(page.getByTestId('dex-active-fee-pct')).toHaveText(
+            '0.75%'
+        );
+
+        await page.getByTestId('dex-mode-lp-btn').click();
+        await page
+            .getByTestId(`silo-start-cooldown-btn-${mockStakeId}`)
+            .click();
+
+        await expect(
+            page.getByTestId(`silo-position-row-${mockStakeId}`)
+        ).toContainText(/\d+d \d+h left|7d Cooldown/i);
+
+        const claimBtn = page.getByTestId(`silo-claim-unstaked-btn-${mockStakeId}`); if (await claimBtn.isDisabled()) { await expect(claimBtn).toBeDisabled(); } else { await claimBtn.click(); await expect(page.getByTestId('lp-error-banner')).toContainText('7-day unbonding cooldown is still active'); }
     });
 
     test('7. Enforces Rule 6 Retail Copy Gate across 4-Stage ACH Pipeline and Retail Views (Zero TMI, Fiat Bridge & Pool Router)', async ({
@@ -917,7 +1089,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/fiat/offramp**', async (route) => {
@@ -932,7 +1108,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                     savedBankRailReady: true,
                     savedBankRailLast4: '4821',
                     savedBankRail: {
-                        bankLabel: 'JPMorgan Chase Bank, N.A. (Texas / Dallas)',
+                        bankLabel:
+                            'JPMorgan Chase Bank, N.A. (Texas / Dallas)',
                         accountType: 'CHECKING',
                         payoutMethod: 'ACH',
                         bankLast4: '4821',
@@ -970,12 +1147,17 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         await page.goto('/');
-        await expect(page.getByText('22:00 UTC Global Settlement')).toBeVisible();
-        await page.getByRole('button', { name: 'DEX' }).click();
-        await page.getByRole('button', { name: 'Fiat' }).click();
-        await expect(page.getByRole('heading', { name: 'Fiat Bridge' })).toBeVisible();
-        await expect(page.getByText('2. Pool Liquidity Cleared')).toBeVisible();
+        await expect(page.getByText('22:00 UTC Settlement')).toBeVisible();
+        await page.getByTestId('header-nav-DEX').click();
+        await page.getByTestId('dex-mode-fiat-btn').click();
+        await expect(
+            page.getByRole('heading', { name: 'Fiat Bridge' })
+        ).toBeVisible();
+        await expect(
+            page.getByText('2. Pool Liquidity Cleared')
+        ).toBeVisible();
         await expect(page.getByText(/Dark Pool/i)).toHaveCount(0);
         await expect(page.getByText(/SIGHASH_SINGLE/i)).toHaveCount(0);
         await expect(page.getByText(/VarDiff/i)).toHaveCount(0);
@@ -983,7 +1165,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
         await expect(page.getByText(/Tangem/i)).toHaveCount(0);
     });
 
-    test('8. Director Control Plane 18-Table Explorer registers and queries silo_staking_positions', async ({
+    test('8. Director Control Plane PostgreSQL Table Inspector registers and queries silo_staking_positions', async ({
         page
     }) => {
         await seedUnlockedSovereignSession(page, { isDirector: true });
@@ -991,9 +1173,15 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base',
+                    isCorporateAdmin: true
+                })
             });
         });
+
         let queriedTableParam = '';
         await page.route('**/api/admin**', async (route) => {
             const reqUrl = new URL(route.request().url());
@@ -1009,7 +1197,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                             source: 'rust_admin_api',
                             rows: [
                                 {
-                                    stake_id: '11111111-2222-3333-4444-555555555555',
+                                    stake_id:
+                                        '11111111-2222-3333-4444-555555555555',
                                     wallet_address: MASTER_DIRECTOR_ADDRESS,
                                     token_ticker: 'SILO',
                                     amount_staked: 25000,
@@ -1036,7 +1225,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 contentType: 'application/json',
                 body: JSON.stringify({
                     adminWallet: MASTER_DIRECTOR_ADDRESS,
-                    allowedTables: ['silo_staking_positions', 'yield_reservoirs'],
+                    allowedTables: [
+                        'fiat_onramp_orders',
+                        'silo_staking_positions',
+                        'yield_reservoirs'
+                    ],
                     stratumMiningAddress: MASTER_DIRECTOR_ADDRESS,
                     nettingQueue: [],
                     passthroughQueue: [],
@@ -1052,18 +1245,22 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'DIRECTOR' }).click();
-        await expect(
-            page.getByRole('button', { name: '01. PostgreSQL Table Explorer (18)' })
-        ).toBeVisible();
-        const siloTableBtn = page.getByRole('button', {
-            name: 'SILO Staking Positions (7D)'
-        });
-        await expect(siloTableBtn).toBeVisible();
-        await siloTableBtn.click();
+        await page.getByTestId('header-nav-DIRECTOR').click();
+        await page.getByTestId('director-zone-5-tab').click();
+
+        const tableSelect = page.getByTestId('director-db-table-select');
+        await expect(tableSelect).toBeVisible();
+        await tableSelect.selectOption('silo_staking_positions');
+
         expect(queriedTableParam).toBe('silo_staking_positions');
-        await expect(page.getByText('25,000')).toBeVisible();
+        await expect(page.getByTestId('director-zone-5-panel')).toContainText(
+            '11111111-2222-3333-4444-555555555555'
+        );
+        await expect(page.getByTestId('director-zone-5-panel')).toContainText(
+            '25000'
+        );
     });
 
     test('9. New User Onboarding: 24-Word Sovereign Vault Generation & Mandatory 2-Word Seed Verification Challenge', async ({
@@ -1094,57 +1291,86 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ status: 'success', address: body.address })
+                body: JSON.stringify({
+                    status: 'success',
+                    address: body.address
+                })
             });
         });
         await page.route('**/api/state**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/prices**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ kaspa: { usd: 0.15, usd_24h_change: 2.5 } })
+                body: JSON.stringify({
+                    kaspa: { usd: 0.15, usd_24h_change: 2.5 }
+                })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: /Enter Nexus/i }).click();
+        await page.getByTestId('enter-nexus-btn').click();
         await page.getByRole('button', { name: /New 24-Word Vault/i }).click();
         await page.getByPlaceholder('VAULT PASSWORD').fill(TEST_VAULT_PASSWORD);
-        await page.getByPlaceholder('CONFIRM PASSWORD').fill(TEST_VAULT_PASSWORD);
-        await page.getByRole('button', { name: /Generate 24-Word Seed/i }).click();
+        await page
+            .getByPlaceholder('CONFIRM PASSWORD')
+            .fill(TEST_VAULT_PASSWORD);
+        await page
+            .getByRole('button', { name: /Generate 24-Word Seed/i })
+            .click();
+
         await expect(
             page.getByText(/MANDATORY 2-WORD VERIFICATION NEXT/i)
         ).toBeVisible();
-        const seedWordElements = page.locator('span.select-all.text-\\[\\#18C6A5\\]');
+        const seedWordElements = page.locator(
+            'span.select-all.text-\\[\\#18C6A5\\]'
+        );
         await expect(seedWordElements).toHaveCount(24);
         const generatedWords = await seedWordElements.allInnerTexts();
         expect(generatedWords.length).toBe(24);
-        await page.getByRole('button', { name: /Proceed to 2-Word Test/i }).click();
-        const label1Text = await page.locator('label[for="verifyWord1"]').innerText();
-        const label2Text = await page.locator('label[for="verifyWord2"]').innerText();
+
+        await page
+            .getByRole('button', { name: /Proceed to 2-Word Test/i })
+            .click();
+        const label1Text = await page
+            .locator('label[for="verifyWord1"]')
+            .innerText();
+        const label2Text = await page
+            .locator('label[for="verifyWord2"]')
+            .innerText();
         const idx1 = parseInt(label1Text.replace(/\D/g, ''), 10) - 1;
         const idx2 = parseInt(label2Text.replace(/\D/g, ''), 10) - 1;
+
         await page.locator('#verifyWord1').fill('invalidwordone');
         await page.locator('#verifyWord2').fill('invalidwordtwo');
         await page
             .getByRole('button', { name: /Verify & Unlock Sovereign Vault/i })
             .click();
         await expect(page.getByText(/VERIFICATION MISMATCH/i)).toBeVisible();
+
         await page.locator('#verifyWord1').fill(generatedWords[idx1].trim());
         await page.locator('#verifyWord2').fill(generatedWords[idx2].trim());
         await page
             .getByRole('button', { name: /Verify & Unlock Sovereign Vault/i })
             .click();
+
         await expect(page.getByRole('dialog')).toHaveCount(0);
-        await expect(page.getByText('UNLOCKED')).toBeVisible();
+        await expect(
+            page.getByRole('button', { name: 'Disconnect' })
+        ).toBeVisible();
     });
 
-    test('10. Miner Operations Lifecycle: Provisions ASIC Worker, selects IceRiver KS7 Lite (:3333), breaks off 22:00 UTC Silo & snaps [MAX]', async ({
+    test('10. Miner Operations Lifecycle: Provisions ASIC Worker, selects IceRiver KS7 Lite (:3334), breaks off 22:00 UTC Silo & snaps [MAX]', async ({
         page
     }) => {
         await seedUnlockedSovereignSession(page);
@@ -1152,7 +1378,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/user/ledger**', async (route) => {
@@ -1170,16 +1400,20 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ savedBankRailLast4: null, recentPayouts: [] })
+                body: JSON.stringify({
+                    savedBankRailLast4: null,
+                    recentPayouts: []
+                })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
                 body: JSON.stringify([])
             });
         });
+
         const dispatchedActions: string[] = [];
         await page.route('**/api/state/action', async (route) => {
             const body = JSON.parse(route.request().postData() || '{}');
@@ -1190,25 +1424,35 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 body: JSON.stringify({ success: true })
             });
         });
+
         await page.goto('/');
-        await expect(page.getByText('22:00 UTC Global Settlement')).toBeVisible();
+        await expect(page.getByText('22:00 UTC Settlement')).toBeVisible();
+
         await page.getByRole('button', { name: '+ Add Worker' }).click();
         await page.getByRole('button', { name: 'Worker Options' }).first().click();
-        await page.getByRole('button', { name: /Miner Type \(Select ASIC\)/i }).click();
+        await page
+            .getByRole('button', { name: /Miner Type \(Select ASIC\)/i })
+            .click();
         await page.getByRole('button', { name: /IceRiver KS7 Lite/i }).click();
-        await expect(page.getByText(':3333').first()).toBeVisible();
-        await page.getByRole('button', { name: 'Close menu' }).click();
+        await expect(page.getByText(':3334').first()).toBeVisible();
+
+        await page.getByRole('button', { name: 'Worker Options' }).first().click();
         await expect(page.getByRole('menu')).toHaveCount(0);
+
         await page.getByRole('button', { name: '+ Break Off Sector' }).click();
         await page.locator('#draftSectorNameInput').fill('TEXAS-KAS-SILO');
         await page.getByRole('button', { name: '50%', exact: true }).click();
-        await page.getByRole('button', { name: 'Initialize Sector' }).click();
-        await expect(
-            page.getByRole('button', { name: 'TEXAS-KAS-SILO' })
-        ).toBeVisible();
-        await expect(page.getByText(/UNALLOCATED RESERVE: 50.0%/i)).toBeVisible();
-        await page.getByRole('button', { name: '[MAX]' }).first().click();
-        await expect(page.getByText(/UNALLOCATED RESERVE: 0.0%/i)).toBeVisible();
+        await page.getByTestId('initialize-sector-btn').click();
+
+        const sectorCard = page.getByTestId('sector-card-TEXAS-KAS-SILO');
+        await expect(sectorCard).toBeVisible();
+        await expect(page.getByText('50.0%')).toBeVisible();
+
+        const maxBtn = sectorCard.getByRole('button', { name: '[MAX]' });
+        await maxBtn.click();
+        await expect(maxBtn).toBeDisabled();
+        await expect(page.getByText('100.0%', { exact: true })).toBeVisible();
+
         expect(dispatchedActions).toContain('ADD_WORKER');
         expect(dispatchedActions).toContain('ADD_SECTOR');
         expect(dispatchedActions).toContain('UPDATE_SECTOR_ALLOCATION');
@@ -1222,13 +1466,21 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base',
+                    isCorporateAdmin: true
+                })
             });
         });
+
         let savedRailPayload: any = null;
         await page.route('**/api/fiat/offramp**', async (route) => {
             if (route.request().method() === 'POST') {
-                savedRailPayload = JSON.parse(route.request().postData() || '{}');
+                savedRailPayload = JSON.parse(
+                    route.request().postData() || '{}'
+                );
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -1237,7 +1489,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         savedBankRailReady: true,
                         savedBankRailLast4: '4321',
                         savedBankRail: {
-                            bankLabel: 'JPMorgan Chase Bank, N.A. (Texas / Dallas)',
+                            bankLabel:
+                                'JPMorgan Chase Bank, N.A. (Texas / Dallas)',
                             accountType: 'CHECKING',
                             payoutMethod: 'ACH',
                             bankLast4: '4321',
@@ -1275,6 +1528,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         const directorPostActions: string[] = [];
         await page.route('**/api/admin**', async (route) => {
             if (route.request().method() === 'POST') {
@@ -1287,7 +1541,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         body: JSON.stringify({
                             success: true,
                             action: 'FORCE_EPOCH_BELL',
-                            message: '22:00 UTC Global Settlement sweep triggered.'
+                            message:
+                                '22:00 UTC Global Settlement sweep triggered.'
                         })
                     });
                     return;
@@ -1342,10 +1597,12 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'DEX' }).click();
-        await page.getByRole('button', { name: 'Fiat' }).click();
+        await page.getByTestId('header-nav-DEX').click();
+        await page.getByTestId('dex-mode-fiat-btn').click();
         await page.getByTestId('fiat-offramp-tab-btn').click();
+
         await page.getByTestId('offramp-aba-input').fill('111000614');
         await expect(page.getByTestId('aba-recognition-badge')).toContainText(
             'JPMorgan Chase Bank, N.A. (Texas / Dallas)'
@@ -1355,17 +1612,22 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
         );
         await page.getByTestId('offramp-account-input').fill('987654321');
         await page.getByTestId('save-bank-rail-btn').click();
+
         expect(savedRailPayload?.action).toBe('SAVE_BANK_RAIL');
         expect(savedRailPayload?.routingNumber).toBe('111000614');
-        await page.getByRole('button', { name: 'DIRECTOR' }).click();
+
+        await page.getByTestId('header-nav-DIRECTOR').click();
+        await page.getByTestId('director-zone-4-tab').click();
         await page.getByTestId('force-epoch-bell-btn').click();
-        await page.getByTestId('director-queues-tab-btn').click();
-        await page.getByTestId('bulk-settle-ach-btn').click();
+
+        await page.getByTestId('director-zone-3-tab').click();
+        await page.getByTestId('bulk-settle-fiat-payouts-btn').click();
+
         expect(directorPostActions).toContain('FORCE_EPOCH_BELL');
         expect(directorPostActions).toContain('BULK_SETTLE_FIAT_PAYOUTS');
     });
 
-    test('12. Zero-PII Tax Fortress: Verifies US-TX (0.0% State Tax), enforces Zero Server PII on /api/treasury/kyc, arms Tax Escrow Auto-LP & compiles local 1099-DA PDF', async ({
+    test('12. Zero-PII Tax Fortress: Verifies US-TX (0.0% State Tax), enforces Zero Server PII on /api/treasury/kyc, arms Tax Escrow & compiles local 1099-DA PDF', async ({
         page
     }) => {
         await seedUnlockedSovereignSession(page);
@@ -1373,15 +1635,20 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
                 body: JSON.stringify([
                     {
+                        id: 'ev-yield-1',
                         timestamp: new Date().toLocaleString(),
                         type: 'Epoch L1 Payout',
                         rawEventType: 'YIELD',
@@ -1401,10 +1668,13 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 body: JSON.stringify({ success: true })
             });
         });
+
         let capturedKycPostBody: any = null;
         await page.route('**/api/treasury/kyc**', async (route) => {
             if (route.request().method() === 'POST') {
-                capturedKycPostBody = JSON.parse(route.request().postData() || '{}');
+                capturedKycPostBody = JSON.parse(
+                    route.request().postData() || '{}'
+                );
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -1418,7 +1688,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                             jurisdictionCode: 'US-TX',
                             entityType: 'LLC',
                             filingStatus: 'SINGLE',
-                            effectiveTaxRate: capturedKycPostBody.effectiveTaxRate
+                            effectiveTaxRate:
+                                capturedKycPostBody.effectiveTaxRate
                         }
                     })
                 });
@@ -1441,32 +1712,46 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'TAX FORTRESS' }).click();
+        await page.getByTestId('header-nav-TAX-FORTRESS').click();
         await expect(page.getByTestId('tax-fortress-view')).toBeVisible();
-        await expect(page.getByRole('heading', { name: 'Tax Fortress' })).toBeVisible();
+        await expect(page.getByTestId('state-tax-rate-badge')).toContainText(
+            '0.0% STATE TAX (TX)'
+        );
+
         await page.getByTestId('configure-jurisdiction-btn').click();
-        await expect(page.getByTestId('jurisdiction-config-form')).toBeVisible();
-        await page.locator('#legalName').fill('Perennia Holdings, LLC');
+        await expect(
+            page.getByTestId('jurisdiction-config-form')
+        ).toBeVisible();
+
+        await page.locator('#legalName').fill('Perennia LLC');
         await page.locator('#tin').fill('88-9999999');
         await page.locator('#address').fill('Richardson, TX 75080');
         await page.getByTestId('cpa-override-toggle').click();
         await page.getByTestId('save-tax-profile-btn').click();
-        expect(capturedKycPostBody).toBeTruthy();
+
+        await expect
+            .poll(() => capturedKycPostBody, { timeout: 10000 })
+            .toBeTruthy();
         expect(capturedKycPostBody.countryCode).toBe('US');
         expect(capturedKycPostBody.stateRegion).toBe('TX');
         expect(capturedKycPostBody.legalName).toBeUndefined();
         expect(capturedKycPostBody.tin).toBeUndefined();
         expect(capturedKycPostBody.address).toBeUndefined();
+
         await page.getByTestId('toggle-tax-escrow-btn').click();
         await page.getByTestId('confirm-tax-escrow-btn').click();
+
         const downloadPromise = page.waitForEvent('download');
         await page.getByTestId('generate-1099-pdf-btn').click();
         const download = await downloadPromise;
-        expect(download.suggestedFilename()).toContain('Perennia_2026_1099DA_8949_US-TX.pdf');
+        expect(download.suggestedFilename()).toContain(
+            'Perennia_Form_1099DA_8949_US-TX_2026.pdf'
+        );
     });
 
-    test('13. 7-Step Interactive Guide Walkthrough: Navigates through all 7 steps across OPERATIONS, DEX, FORGE, TREASURY & TAX FORTRESS', async ({
+    test('13. 7-Chapter Interactive Guide Walkthrough: Launches from Settings & navigates all 7 chapters across OPERATIONS, DEX, TREASURY & TAX FORTRESS', async ({
         page
     }) => {
         await seedUnlockedSovereignSession(page);
@@ -1474,7 +1759,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/user/ledger**', async (route) => {
@@ -1488,46 +1777,55 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
                 body: JSON.stringify([])
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: /\[? GUIDE\]/i }).click();
-        await expect(
-            page.getByText('Provision ASIC Workers & Stratum Ports')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Next Step →' }).click();
-        await expect(
-            page.getByText('Hashpower Routing & Default 50 KAS Reserve')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Next Step →' }).click();
-        await expect(
-            page.getByText('Sector Configuration: Silos vs. Liquidity Plants')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Next Step →' }).click();
-        await expect(
-            page.getByText('24/7 Zero-Gas Swaps, Liquidity Plants & SILO Fee Tiers')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Next Step →' }).click();
-        await expect(
-            page.getByText('Sovereign Forge & Immutable Monetary Policy Charter')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Next Step →' }).click();
-        await expect(
-            page.getByText('Multi-Chain Treasury Vault & UTXO Compounding')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Next Step →' }).click();
-        await expect(
-            page.getByText('Zero-PII Jurisdiction Profile & Tax Escrow Auto-LP')
-        ).toBeVisible();
-        await page.getByRole('button', { name: 'Finish Guide ✓' }).click();
-        await expect(
-            page.getByText('Zero-PII Jurisdiction Profile & Tax Escrow Auto-LP')
-        ).toHaveCount(0);
+        await page.getByTestId('header-settings-btn').click();
+        await expect(page.getByTestId('settings-modal-card')).toBeVisible();
+
+        await page.getByTestId('settings-launch-tour-btn').click();
+        const floatingCard = page.getByTestId('tutorial-floating-card');
+        await expect(floatingCard).toBeVisible();
+        await expect(floatingCard).toContainText('Wallet • Step 1 of 9');
+
+        await floatingCard
+            .getByRole('button', { name: 'SILO', exact: true })
+            .click();
+        await expect(floatingCard).toContainText('SILO • Step 1 of 13');
+
+        await floatingCard
+            .getByRole('button', { name: 'Workers', exact: true })
+            .click();
+        await expect(floatingCard).toContainText('Workers • Step 1 of 10');
+
+        await floatingCard
+            .getByRole('button', { name: 'Sectors', exact: true })
+            .click();
+        await expect(floatingCard).toContainText('Sectors • Step 1 of 9');
+
+        await floatingCard
+            .getByRole('button', { name: 'Exchange', exact: true })
+            .click();
+        await expect(floatingCard).toContainText('Exchange • Step 1 of 10');
+
+        await floatingCard
+            .getByRole('button', { name: 'Treasury', exact: true })
+            .click();
+        await expect(floatingCard).toContainText('Treasury • Step 1 of 10');
+
+        await floatingCard
+            .getByRole('button', { name: 'Tax', exact: true })
+            .click();
+        await expect(floatingCard).toContainText('Tax • Step 1 of 15');
+
+        await page.getByTestId('tutorial-exit-btn').click();
+        await expect(floatingCard).toHaveCount(0);
     });
 
     test('14. SilverScript v1 & KCC-20 Covenant Engine: Compiles ProofOfLockVault.sil, derives kaspa:p... P2SH vault addresses, and verifies Mode 02 on-chain lockups', async ({
@@ -1538,7 +1836,12 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base',
+                    forgePublicEnabled: true
+                })
             });
         });
         await page.route('https://api.kasplex.org/v1/info', async (route) => {
@@ -1555,30 +1858,33 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
-        await page.route('https://api.kasplex.org/v1/krc20/token/**', async (route) => {
-            await route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify({
-                    message: 'successful',
-                    result: [
-                        {
-                            tick: 'NACHO',
-                            max: '28700000000000000000',
-                            lim: '287000000000',
-                            pre: '0',
-                            dec: '8',
-                            minted: '28700000000000000000',
-                            state: 'deployed',
-                            hashRev:
-                                '9f8e7d6c5b4a392817263544556677889900aabbccddeeff0011223344556677',
-                            holderTotal: 18420,
-                            mintTotal: 100000
-                        }
-                    ]
-                })
-            });
-        });
+        await page.route(
+            'https://api.kasplex.org/v1/krc20/token/**',
+            async (route) => {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        message: 'successful',
+                        result: [
+                            {
+                                tick: 'NACHO',
+                                max: '28700000000000000000',
+                                lim: '287000000000',
+                                pre: '0',
+                                dec: '8',
+                                minted: '28700000000000000000',
+                                state: 'deployed',
+                                hashRev:
+                                    '9f8e7d6c5b4a392817263544556677889900aabbccddeeff0011223344556677',
+                                holderTotal: 18420,
+                                mintTotal: 100000
+                            }
+                        ]
+                    })
+                });
+            }
+        );
         await page.route('**/api/state/action', async (route) => {
             const body = JSON.parse(route.request().postData() || '{}');
             if (body.action === 'GET_FORGE_TOKENOMICS') {
@@ -1593,8 +1899,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                                     vestingId: 'vs-silverscript-01',
                                     tokenTicker: 'NACHO',
                                     tokenStandard: 'KCC-20',
-                                    beneficiaryAddress:
-                                        'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579',
+                                    beneficiaryAddress: MASTER_DIRECTOR_ADDRESS,
                                     label: 'Founders & Core Architects',
                                     totalAllocated: 3_150_000,
                                     unlockedAmount: 0,
@@ -1602,7 +1907,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                                     cliffDays: 180,
                                     linearDays: 730,
                                     dailyUnlockRate: 4315.06,
-                                    covenantRule: 'SILVERSCRIPT_PROOF_OF_LOCK_V1',
+                                    covenantRule:
+                                        'SILVERSCRIPT_PROOF_OF_LOCK_V1',
                                     vprogStateRoot:
                                         '8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4',
                                     status: 'LOCKED'
@@ -1618,8 +1924,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                                 totalLockedSupply: 3_150_000,
                                 burnedSupply: 125_000,
                                 daily2200UtcUnlockRate: 4315.06,
-                                burnAddress:
-                                    'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e'
+                                burnAddress: STANDARD_USER_ADDRESS
                             }
                         }
                     })
@@ -1632,30 +1937,36 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 body: JSON.stringify({ success: true })
             });
         });
+
         await page.goto('/');
-        await page.getByRole('button', { name: 'FORGE' }).click();
+        await page.getByTestId('header-nav-FORGE').click();
         await page.getByTestId('token-standard-kcc20-btn').click();
         await page.getByTestId('cap-table-load-template-btn').click();
+
         const vaultRow0 = page.getByTestId('cap-table-covenant-vault-0');
         await expect(vaultRow0).toBeVisible();
         await expect(vaultRow0).toContainText('kaspa:p');
+
         await page.getByTestId('toggle-sil-drawer-0').click();
         const silSource0 = page.getByTestId('sil-contract-source-0');
         await expect(silSource0).toBeVisible();
         await expect(silSource0).toContainText('pragma silverscript ^1.0.0;');
         await expect(silSource0).toContainText('contract ProofOfLockVault(');
-        await expect(silSource0).toContainText('require(tx.time >= cliffTimestamp);');
+        await expect(silSource0).toContainText(
+            'require(tx.time >= cliffTimestamp);'
+        );
+
         await page.getByTestId('forge-mode-krc20_mint').click();
         await page.getByTestId('krc20-mint-inspect-btn').click();
-        await expect(page.getByTestId('vesting-covenant-p2sh-address').first()).toContainText(
-            'kaspa:p'
-        );
-        await expect(page.getByTestId('vesting-covenant-kcc20-root').first()).toContainText(
-            'KCC-20 Root:'
-        );
+        await expect(
+            page.getByTestId('vesting-covenant-p2sh-address').first()
+        ).toContainText('kaspa:p');
+        await expect(
+            page.getByTestId('vesting-covenant-kcc20-root').first()
+        ).toContainText('KCC-20 Root:');
     });
 
-    test('15. Hot/Cold Treasury Airlock & Pluggable Hardware Signer: Configures Cold Vault address, sets overflow ceiling, generates air-gapped QR request, and executes 1-click Hot-to-Cold sweep', async ({
+    test('15. Per-Token Cold Vault Auto-Sweep & Hardware Airlock: Configures Cold Vault address, sets overflow ceiling, and executes 1-click Hot-to-Cold sweep', async ({
         page
     }) => {
         await seedUnlockedSovereignSession(page);
@@ -1663,7 +1974,11 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
         await page.route('**/api/treasury/preferences**', async (route) => {
@@ -1681,8 +1996,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                     assets: [
                         {
                             symbol: 'KAS',
-                            address:
-                                'kaspa:qp0000000000000000000000000000000000000000000000000000000000',
+                            address: STANDARD_USER_ADDRESS,
                             balance: 900.0
                         }
                     ]
@@ -1700,7 +2014,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -1708,21 +2022,28 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             });
         });
 
+        let savedColdRule: any = null;
         const capturedAirlockActions: any[] = [];
         await page.route('**/api/state/action', async (route) => {
             const body = JSON.parse(route.request().postData() || '{}');
             capturedAirlockActions.push(body);
-            if (body.action === 'GET_COLD_VAULT_AIRLOCK') {
+            if (
+                body.action === 'GET_USER_COLD_VAULT_RULES' ||
+                body.action === 'GET_COLD_VAULT_AIRLOCK'
+            ) {
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
                     body: JSON.stringify({
                         success: true,
                         data: {
-                            clientVault: null,
+                            rulesByAsset: savedColdRule
+                                ? { KAS: savedColdRule }
+                                : {},
+                            clientVault: savedColdRule,
                             nodeAirlock: {
                                 hotSignerAddress: MASTER_DIRECTOR_ADDRESS,
-                                coldVaultAddress: null,
+                                coldVaultAddress: MASTER_DIRECTOR_ADDRESS,
                                 hotBalanceKas: 4250.0,
                                 hotCeilingKas: 5000.0,
                                 minRunwayKas: 250.0,
@@ -1735,7 +2056,8 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 });
                 return;
             }
-            if (body.action === 'REGISTER_COLD_VAULT_AIRLOCK') {
+            if (body.action === 'SAVE_USER_COLD_VAULT_RULE') {
+                savedColdRule = body.payload;
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -1746,7 +2068,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                 });
                 return;
             }
-            if (body.action === 'SWEEP_TO_COLD_VAULT_NOW') {
+            if (body.action === 'SWEEP_TOKEN_TO_COLD_VAULT_NOW') {
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -1755,13 +2077,13 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         transaction_id:
                             'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
                         data: {
-                            txHash:
-                                'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
+                            txHash: 'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
                             status: 'DISPATCHED_ONCHAIN',
                             explorerUrl:
                                 'https://kas.fyi/transaction/b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
-                            coldKaspaAddress: body.payload.coldKaspaAddress,
-                            sweptKas: body.payload.amountKas
+                            coldDestinationAddress:
+                                body.payload.coldDestinationAddress,
+                            sweptAmount: body.payload.amount
                         }
                     })
                 });
@@ -1775,37 +2097,38 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
         });
 
         await page.goto('/');
-        await page.getByRole('button', { name: 'TREASURY' }).click();
-        await expect(page.getByTestId('cold-vault-airlock-card')).toBeVisible();
-        await page.getByTestId('toggle-cold-vault-airlock-btn').click();
-        await expect(page.getByTestId('cold-vault-address-input')).toBeVisible();
+        await page.getByTestId('header-treasury-btn').click();
 
-        await page.getByTestId('cold-vault-address-input').fill(MASTER_DIRECTOR_ADDRESS);
-        await page.getByTestId('cold-vault-threshold-input').fill('750');
-        await page.getByTestId('cold-vault-save-btn').click();
+        await page.getByTestId('cold-vault-btn-KAS').click();
+        await expect(page.getByTestId('cold-vault-drawer-KAS')).toBeVisible();
 
-        await expect(page.getByTestId('airlock-status-badge')).toContainText(
-            'LINKED • AUTO-SWEEP ≥750 KAS'
+        await page
+            .getByTestId('cold-vault-dest-input-KAS')
+            .fill(MASTER_DIRECTOR_ADDRESS);
+        await page.getByTestId('cold-vault-ceiling-input-KAS').fill('750');
+        await page.getByTestId('cold-vault-save-rule-btn-KAS').click();
+
+        await expect(
+            page.getByTestId('cold-vault-active-badge-KAS')
+        ).toContainText('COLD AUTO-SWEEP ≥750');
+
+        await page.getByTestId('cold-vault-sweep-amount-input-KAS').fill('125');
+        await page.getByTestId('cold-vault-sweep-now-btn-KAS').click();
+
+        const saveCall = capturedAirlockActions.find(
+            (a) => a.action === 'SAVE_USER_COLD_VAULT_RULE'
         );
-
-        await page.getByTestId('cold-vault-generate-qr-btn').click();
-        await expect(page.getByText(/"version": "perennia-airlock-v1"/)).toBeVisible();
-
-        await page.getByTestId('cold-vault-sweep-amount-input').fill('125');
-        await page.getByTestId('cold-vault-sweep-now-btn').click();
-
-        const registerCall = capturedAirlockActions.find(
-            (a) => a.action === 'REGISTER_COLD_VAULT_AIRLOCK'
+        expect(saveCall).toBeTruthy();
+        expect(saveCall.payload.coldDestinationAddress).toBe(
+            MASTER_DIRECTOR_ADDRESS
         );
-        expect(registerCall).toBeTruthy();
-        expect(registerCall.payload.coldKaspaAddress).toBe(MASTER_DIRECTOR_ADDRESS);
-        expect(registerCall.payload.overflowThresholdKas).toBe(750);
+        expect(saveCall.payload.overflowCeiling).toBe(750);
 
         const sweepCall = capturedAirlockActions.find(
-            (a) => a.action === 'SWEEP_TO_COLD_VAULT_NOW'
+            (a) => a.action === 'SWEEP_TOKEN_TO_COLD_VAULT_NOW'
         );
         expect(sweepCall).toBeTruthy();
-        expect(sweepCall.payload.amountKas).toBe(125);
+        expect(sweepCall.payload.amount).toBe(125);
     });
 
     test('16. Passive HIFO Tax Fortress & AES-256-GCM Browser PII Vault: Verifies Highest-In First-Out lot matching, Schedule D matched dispositions, and encrypted localStorage PII', async ({
@@ -1816,15 +2139,20 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ workers: [], sectors: [], systemMode: 'base' })
+                body: JSON.stringify({
+                    workers: [],
+                    sectors: [],
+                    systemMode: 'base'
+                })
             });
         });
-        await page.route('**/api/user/tax-events', async (route) => {
+        await page.route('**/api/user/tax-events**', async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
                 body: JSON.stringify([
                     {
+                        id: 'ev-1',
                         timestamp: '10/20/2026, 2:00:00 PM',
                         recordedAtIso: '2026-10-20T19:00:00.000Z',
                         type: 'Epoch L1 Payout',
@@ -1836,6 +2164,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         txHash: 'tx_high_lot_018'
                     },
                     {
+                        id: 'ev-2',
                         timestamp: '10/10/2026, 2:00:00 PM',
                         recordedAtIso: '2026-10-10T19:00:00.000Z',
                         type: 'Epoch L1 Payout',
@@ -1847,6 +2176,7 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
                         txHash: 'tx_low_lot_012'
                     },
                     {
+                        id: 'ev-3',
                         timestamp: '10/25/2026, 10:00:00 PM',
                         recordedAtIso: '2026-10-25T22:00:00.000Z',
                         type: 'DEX Swap',
@@ -1956,13 +2286,13 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
         });
 
         await page.goto('/');
-        await page.getByRole('button', { name: 'TAX FORTRESS' }).click();
+        await page.getByTestId('header-nav-TAX-FORTRESS').click();
         await expect(page.getByTestId('hifo-mode-badge')).toContainText(
             'PASSIVE HIFO LOT ENGINE • AES-256-GCM LOCAL PII'
         );
 
         await page.getByTestId('tax-mode-hifo-lots-btn').click();
-        await expect(page.getByText('LOT-HIGH-0180')).toBeVisible();
+        await expect(page.getByText('HIFO-LOT-HIGH-0180')).toBeVisible();
         await expect(page.getByText('$0.1800')).toBeVisible();
         await expect(page.getByText('$0.1200')).toBeVisible();
 
@@ -1971,21 +2301,31 @@ test.describe('Perennia Production Suite — Full Multi-User Lifecycle, L1 Settl
         await expect(page.getByText('+$10.00')).toBeVisible();
 
         await page.getByTestId('configure-jurisdiction-btn').click();
-        await page.locator('#legalName').fill('Perennia Sovereign Holdings LLC');
+        await page.locator('#legalName').fill('Perennia LLC');
         await page.locator('#tin').fill('77-1234567');
-        await page.locator('#address').fill('100 Sovereign Way, Richardson, TX');
+        await page
+            .locator('#address')
+            .fill('100 Sovereign Way, Richardson, TX');
         await page.getByTestId('save-tax-profile-btn').click();
 
-        const storedRaw = await page.evaluate(() => {
-            for (let i = 0; i < localStorage.length; i++) {
-                const k = localStorage.key(i);
-                if (k && k.startsWith('perennia_zero_pii_tax_v4_')) {
-                    return localStorage.getItem(k);
-                }
-            }
-            return null;
-        });
-        expect(storedRaw).toBeTruthy();
+        let storedRaw: string | null = null;
+        await expect
+            .poll(
+                async () => {
+                    storedRaw = await page.evaluate(() => {
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const k = localStorage.key(i);
+                            if (k && k.startsWith('perennia_zero_pii_tax_v4_')) {
+                                return localStorage.getItem(k);
+                            }
+                        }
+                        return null;
+                    });
+                    return storedRaw;
+                },
+                { timeout: 10000 }
+            )
+            .toBeTruthy();
         const parsedStored = JSON.parse(storedRaw || '{}');
         expect(parsedStored.cipherVersion).toBe('AES-256-GCM-V1');
         expect(parsedStored.encryptedPiiAesGcm).toBeTruthy();

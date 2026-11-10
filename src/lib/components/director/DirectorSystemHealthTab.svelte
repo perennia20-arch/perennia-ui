@@ -515,7 +515,7 @@
                     id="sysColdKasAddr"
                     type="text"
                     bind:value={coldKasAddress}
-                    placeholder="kaspa:qpra0t9ul8hd7m7pw4td6ax3unlf2vyc2fzit9p9yulhsnk7quakmpj4lpw7"
+                    placeholder="kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7"
                     class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2 text-[10px] text-white outline-none"
                 />
             </div>

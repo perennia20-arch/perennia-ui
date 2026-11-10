@@ -1209,8 +1209,15 @@
             const res = await fetch('/api/auth/me');
             if (res.ok) {
                 const data = await res.json();
-                if (typeof data.isCorporateAdmin === 'boolean') {
-                    identity.serverVerifiedAdmin = data.isCorporateAdmin;
+                identity.serverVerifiedAdmin = Boolean(
+                    data.authenticated && data.isCorporateAdmin
+                );
+                identity.serverAuthenticatedAddress =
+                    data.authenticated && data.address
+                        ? identity.normalizeKaspaAddress(data.address)
+                        : null;
+                if (!unlockedInTab && ui.activeTab === 'DIRECTOR') {
+                    ui.activeTab = 'OPERATIONS';
                 }
                 if (data.masterTreasuryAddress) {
                     identity.masterTreasuryAddress =

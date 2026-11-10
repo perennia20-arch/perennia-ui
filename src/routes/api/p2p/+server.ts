@@ -239,7 +239,7 @@ export const POST: RequestHandler = async ({
             body.makerWallet ||
             body.seller ||
             body.wallet ||
-            'kaspa:qpra0t9ul8hd7m7pw4td6ax3unlf2vyc2fzit9p9yulhsnk7quakmpj4lpw7';
+            'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
         if (action === 'CREATE_ORDER' || action === 'CREATE') {
             const offerAsset = String(
                 body.offerAsset || body.sellToken || 'KAS'

@@ -40,7 +40,7 @@ const DATABASE_URL =
 	process.env.DATABASE_URL || 'postgres://postgres:password@192.168.50.100:5432/perennia';
 
 const MASTER_TREASURY_ADDRESS =
-	'kaspa:qrc3ezl770p2cjlfc3tjp6vqlldt6lgh3e80d6rm4rchtt0yrrpgzqave8579';
+	'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
 const PRIMARY_PERSONAL_VAULT =
 	'kaspa:qrsmsx90uctxg5lnjra64vad98kwuhq7xxhk0f7q5g245tyerxznj21vwe0hx';
 

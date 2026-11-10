@@ -15,14 +15,18 @@ class IdentityStore {
     forgePublicEnabled = $state(false);
     masterTreasuryAddress = $state<string>('');
     serverVerifiedAdmin = $state<boolean>(false);
+    serverAuthenticatedAddress = $state<string | null>(null);
 
     get isCorporateAdmin(): boolean {
-        if (this.serverVerifiedAdmin) return true;
-        if (!this.activeAddress || !this.masterTreasuryAddress) return false;
-        return (
-            this.normalizeKaspaAddress(this.activeAddress) ===
-            this.normalizeKaspaAddress(this.masterTreasuryAddress)
-        );
+        if (!this.isWalletConnected || !this.isVaultUnlocked) return false;
+        if (!this.serverVerifiedAdmin) return false;
+        if (this.activeAddress && this.serverAuthenticatedAddress) {
+            return (
+                this.normalizeKaspaAddress(this.activeAddress) ===
+                this.normalizeKaspaAddress(this.serverAuthenticatedAddress)
+            );
+        }
+        return true;
     }
 
     get canAccessForge(): boolean {
@@ -65,13 +69,24 @@ class IdentityStore {
             ]);
             if (meRes.ok) {
                 const meData = await meRes.json();
-                if (typeof meData.isCorporateAdmin === 'boolean') {
-                    this.serverVerifiedAdmin = meData.isCorporateAdmin;
-                }
+                this.serverVerifiedAdmin = Boolean(
+                    meData.authenticated && meData.isCorporateAdmin
+                );
+                this.serverAuthenticatedAddress =
+                    meData.authenticated && meData.address
+                        ? this.normalizeKaspaAddress(meData.address)
+                        : null;
                 if (meData.masterTreasuryAddress) {
                     this.masterTreasuryAddress =
                         this.normalizeKaspaAddress(meData.masterTreasuryAddress) || '';
                 }
+            } else if (meRes.status === 401 || meRes.status === 403) {
+                this.serverVerifiedAdmin = false;
+        this.serverAuthenticatedAddress = null;
+        if (ui.activeTab === 'DIRECTOR') {
+            ui.activeTab = 'OPERATIONS';
+        }
+                this.serverAuthenticatedAddress = null;
             }
             if (fiatRes.ok) {
                 const fiatData = await fiatRes.json();
