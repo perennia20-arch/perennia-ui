@@ -396,7 +396,7 @@ function sanitizeCustomerFacingFiatError(err: any): {
     }
     return {
         userMessage:
-            'Unable to complete your purchase right now. Your bank account was not charged — please try again shortly.',
+            'Unable to complete your purchase right now. Your bank account was not charged â€” please try again shortly.',
         httpStatus: 500
     };
 }
@@ -666,7 +666,7 @@ function calculateOnrampCostPlusQuote(params: {
 
     const isInstitutionalWire =
         principalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS ||
-        railUpper.includes('WIRE') ||
+        (railUpper !== 'SOVEREIGN_WIRE_ACH' && railUpper.includes('WIRE')) ||
         railUpper.includes('BRIDGE') ||
         explicitMethod === 'wire';
 
@@ -690,12 +690,12 @@ function calculateOnrampCostPlusQuote(params: {
 
     const tierBadgeLabel =
         tierName === 'INSTITUTIONAL_WIRE'
-            ? '🏛️ Institutional Wire Tier (0.20% Net • $0 Gateway Fee)'
+            ? 'ðŸ›ï¸ Institutional Wire Tier (0.20% Net â€¢ $0 Gateway Fee)'
             : tierName === 'PRO_MINER'
               ? loyalMinerOrSubscriber
-                  ? '⛏️ Pro & Miner Loyalty Tier (0.35% Net • $2.50 Floor)'
-                  : '⚡ Pro Volume Tier (0.35% Net • $2.50 Floor)'
-              : '🛡️ Retail Tier (0.85% Net • $2.50 Floor)';
+                  ? 'â›ï¸ Pro & Miner Loyalty Tier (0.35% Net â€¢ $2.50 Floor)'
+                  : 'âš¡ Pro Volume Tier (0.35% Net â€¢ $2.50 Floor)'
+              : 'ðŸ›¡ï¸ Retail Tier (0.85% Net â€¢ $2.50 Floor)';
 
     const perenniaFeeCents = Math.max(
         MIN_FEE_FLOOR_CENTS,
@@ -788,10 +788,10 @@ function calculateOnrampCostPlusQuote(params: {
 
     const routingTopology =
         resolvedMethod === 'wire'
-            ? `Direct Domestic Wire → Column N.A. / Mercury (*${MERCURY_COLUMN_WIRE_COORDINATES.accountLast4}) → ${ticker}`
+            ? `Direct Domestic Wire â†’ Column N.A. / Mercury (*${MERCURY_COLUMN_WIRE_COORDINATES.accountLast4}) â†’ ${ticker}`
             : resolvedMethod === 'card'
-              ? `Stripe Card Gross-Up (2.9% + $0.30) → Mercury (*${MERCURY_COLUMN_WIRE_COORDINATES.accountLast4}) → ${ticker}`
-              : `Stripe ACH Gross-Up (0.8% Capped @ $5.00) → Mercury (*${MERCURY_COLUMN_WIRE_COORDINATES.accountLast4}) → ${ticker}`;
+              ? `Stripe Card Gross-Up (2.9% + $0.30) â†’ Mercury (*${MERCURY_COLUMN_WIRE_COORDINATES.accountLast4}) â†’ ${ticker}`
+              : `Stripe ACH Gross-Up (0.8% Capped @ $5.00) â†’ Mercury (*${MERCURY_COLUMN_WIRE_COORDINATES.accountLast4}) â†’ ${ticker}`;
 
     let circuitBreakerTripped = false;
     let circuitBreakerReason: string | undefined = undefined;
@@ -1190,7 +1190,7 @@ async function createStripeCryptoOnrampSessionIfConfigured(params: {
         }
     } catch (err) {
         console.warn(
-            '⚠️ [STRIPE CRYPTO ONRAMP SESSION NOTICE]: Falling back to direct ACH / sandbox session:',
+            'âš ï¸ [STRIPE CRYPTO ONRAMP SESSION NOTICE]: Falling back to direct ACH / sandbox session:',
             err
         );
     }
@@ -2866,7 +2866,7 @@ export const POST: RequestHandler = async ({
                     }
                 } catch (stripeChargeErr) {
                     console.warn(
-                        '⚠️ [STRIPE CHARGE FALLBACK]: Continuing with session order:',
+                        'âš ï¸ [STRIPE CHARGE FALLBACK]: Continuing with session order:',
                         stripeChargeErr
                     );
                 }
@@ -3113,7 +3113,7 @@ export const POST: RequestHandler = async ({
             ...sessionRecord
         });
     } catch (error: any) {
-        console.error('🚨 [FIAT ON-RAMP SERVER ERROR]:', error);
+        console.error('ðŸš¨ [FIAT ON-RAMP SERVER ERROR]:', error);
         const sanitized = sanitizeCustomerFacingFiatError(error);
         return json(
             { error: sanitized.userMessage },
