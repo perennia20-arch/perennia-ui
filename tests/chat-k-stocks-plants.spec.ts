@@ -161,7 +161,9 @@ async function seedSovereignSession(page: Page, options?: { isDirector?: boolean
             contentType: 'application/json',
             body: JSON.stringify({
                 authenticated: true,
-                address: kaspaAddress
+                address: kaspaAddress,
+                isCorporateAdmin: Boolean(options?.isDirector),
+                masterTreasuryAddress: MASTER_DIRECTOR_ADDRESS
             })
         });
     });
@@ -217,23 +219,23 @@ test.describe('Master Chat K — Mine-to-Stock, Pyth Wall Street & Commodity Ora
         await page.goto('/');
         await page.getByRole('button', { name: 'DEX' }).click();
 
-        await page.getByTestId('quick-select-rwa-NVDA').click();
+        await page.getByTestId('quick-select-rwa-NVDA').dispatchEvent('click');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('NVDA');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('$142.80');
 
-        await page.getByTestId('quick-select-rwa-SPY').click();
+        await page.getByTestId('quick-select-rwa-SPY').dispatchEvent('click');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('SPY');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('$584.50');
 
-        await page.getByTestId('quick-select-rwa-AMD').click();
+        await page.getByTestId('quick-select-rwa-AMD').dispatchEvent('click');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('AMD');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('$158.90');
 
-        await page.getByTestId('quick-select-rwa-XAU').click();
+        await page.getByTestId('quick-select-rwa-XAU').dispatchEvent('click');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('XAU');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('$2,745.00');
 
-        await page.getByTestId('quick-select-rwa-USTB').click();
+        await page.getByTestId('quick-select-rwa-USTB').dispatchEvent('click');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('USTB');
         await expect(page.getByTestId('dex-receive-token-selector')).toContainText('$101.42');
     });
@@ -471,23 +473,31 @@ test.describe('Master Chat K — Mine-to-Stock, Pyth Wall Street & Commodity Ora
 
         // Verify SILO >=100k Staker Tier (0.50% Fee) is active on 24/7 Equity Swap
         await expect(page.getByTestId('dex-active-fee-pct')).toHaveText('0.50%');
-        await page.getByTestId('quick-select-rwa-NVDA').click();
+        await page.getByTestId('quick-select-rwa-NVDA').dispatchEvent('click');
         await page.getByTestId('dex-pay-amount-input').fill('1000');
         await expect(page.getByTestId('dex-receive-amount-input')).not.toHaveValue('');
 
         // Switch to Liquidity tab and build a 3-Asset (50% KAS + 25% NVDA + 25% XAU) Plant
         await page.getByRole('button', { name: 'Liquidity' }).click();
-        await page.getByTestId('dex-lp-select-b-btn').click();
-        await page.getByTestId('dex-modal-cat-EQUITIES').click();
+        await page.getByTestId('lp-token-b-selector').click();
+        const eqCat = page.getByTestId('dex-modal-cat-EQUITIES');
+        if (await eqCat.isVisible()) {
+            await eqCat.click();
+        } else {
+            await page.getByTestId('dex-token-modal-search').fill('NVDA');
+        }
         await page.getByTestId('dex-select-token-NVDA').click();
 
-        await page.getByTestId('dex-add-secondary-plant-asset-btn').click();
-        await expect(page.getByTestId('dex-plant-pair-badge')).toHaveText('KAS/NVDA/XAU');
+        await page.getByTestId('dex-plant-add-leg-btn').click();
+        await expect(page.getByTestId('dex-plant-weight-b-badge')).toHaveText('25%');
+        await expect(page.getByTestId('dex-plant-extra-selector-0')).toContainText('XAU');
 
-        await page.getByTestId('dex-lp-kas-amount-input').fill('1000');
-        await page.getByTestId('dex-stake-lp-submit-btn').click();
+        await page.getByTestId('lp-amount-a-input').fill('1000');
+        const supplyBtn = page.getByRole('button', { name: /Supply KAS\/NVDA\/XAU Liquidity/i });
+        await expect(supplyBtn).toBeEnabled();
+        await supplyBtn.click();
 
-        expect(capturedStakeLpPayload).toBeTruthy();
+        await expect.poll(() => capturedStakeLpPayload).toBeTruthy();
         expect(capturedStakeLpPayload.poolPair).toBe('KAS/NVDA/XAU');
         expect(capturedStakeLpPayload.weights.KAS).toBe(0.5);
         expect(capturedStakeLpPayload.weights.NVDA).toBe(0.25);

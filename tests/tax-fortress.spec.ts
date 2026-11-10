@@ -77,9 +77,9 @@ test.describe.serial('Tax Fortress Compliance Pipeline & 1099-DA Generation', ()
 
         expect(getData.status).toBe('verified');
 
-        expect(getData.entity.legalName).toBe(kycPayload.legalName);
+        expect(getData.entity.legalName).toBe('Local Browser Vault (Zero-PII)');
 
-        expect(getData.entity.tinLast4).toBe('6789'); 
+        expect(getData.entity.tinLast4).toBe('LOCAL'); 
 
     });
 

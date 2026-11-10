@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import Redis from 'ioredis';
 import pkg from 'pg';
 import * as bip39 from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english.js';
+import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';

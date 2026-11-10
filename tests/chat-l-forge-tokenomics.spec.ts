@@ -57,7 +57,9 @@ async function seedUnlockedSovereignSession(
             contentType: 'application/json',
             body: JSON.stringify({
                 authenticated: true,
-                address: kaspaAddress
+                address: kaspaAddress,
+                isCorporateAdmin: Boolean(options?.isDirector),
+                masterTreasuryAddress: MASTER_DIRECTOR_ADDRESS
             })
         });
     });
@@ -317,7 +319,7 @@ test.describe('Chat L — The Sovereign Forge v5: Modular Tokenomics Studio, Mul
         expect(broadcastedPayloads[0]).toContain('"op":"deploy"');
         expect(broadcastedPayloads[0]).toContain('"tick":"BEDRCK"');
         expect(broadcastedPayloads[1]).toContain('"op":"transfer"');
-        expect(broadcastedPayloads[1]).toContain('"cov":"TIMELOCK_ESCROW_COVENANT"');
+        expect(broadcastedPayloads[1]).toContain('"cov":"SILVERSCRIPT_PROOF_OF_LOCK_V1"');
         expect(broadcastedPayloads[2]).toContain('"op":"transfer"');
 
         expect(registeredTokenomicsPayload).toBeTruthy();
@@ -462,7 +464,7 @@ test.describe('Chat L — The Sovereign Forge v5: Modular Tokenomics Studio, Mul
         await page.getByTestId('submit-retroactive-upgrade-btn').click();
 
         await expect(page.getByTestId('retro-upgrade-status-banner')).toContainText(
-            'Retroactive Ecosystem Upgrade bound to NACHO'
+            'Retroactive KCC-20 SilverScript Upgrade bound to NACHO'
         );
         expect(capturedRetroAction?.action).toBe('RETROACTIVE_FORGE_UPGRADE');
         expect(capturedRetroAction?.payload?.ticker).toBe('NACHO');
