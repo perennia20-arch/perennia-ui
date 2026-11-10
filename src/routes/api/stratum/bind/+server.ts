@@ -2,6 +2,7 @@ import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
+import { validateKaspaBech32mAddress } from '$lib/crypto/kaspaAddress';
 import {
     isWalletMasterAdmin,
     resolveMasterTreasuryKasAddressOptional,
@@ -45,21 +46,66 @@ function resolveStratumTierEndpoint(hashrateTh: number): {
     };
 }
 
+let workerSchemaVerified = false;
+
 async function ensureWorkerProfilesSchema() {
+    if (workerSchemaVerified) return;
+
     await dbPool.query(`
         CREATE TABLE IF NOT EXISTS worker_profiles (
-            worker_id VARCHAR(255) PRIMARY KEY,
+            worker_identity VARCHAR(255) PRIMARY KEY,
+            worker_id VARCHAR(255),
             wallet_address VARCHAR(255) NOT NULL,
             worker_name VARCHAR(128) NOT NULL DEFAULT 'Rig01',
             hardware_model VARCHAR(128) NOT NULL DEFAULT 'IceRiver KS',
+            hashrate_ths DOUBLE PRECISION NOT NULL DEFAULT 0.0,
             current_hashrate DOUBLE PRECISION NOT NULL DEFAULT 0.0,
             valid_shares BIGINT NOT NULL DEFAULT 0,
             rejected_shares BIGINT NOT NULL DEFAULT 0,
+            acceptance_pct DOUBLE PRECISION NOT NULL DEFAULT 100.0,
             blocks_found BIGINT NOT NULL DEFAULT 0,
             stratum_port INTEGER NOT NULL DEFAULT 3332,
-            last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            last_share_ts BIGINT NOT NULL DEFAULT 0,
+            streak_started_ts BIGINT NOT NULL DEFAULT 0,
+            effective_fee_rate DOUBLE PRECISION NOT NULL DEFAULT 0.01,
+            status VARCHAR(32) NOT NULL DEFAULT 'online',
+            last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
     `);
+
+    const alterMigrations = [
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS worker_identity VARCHAR(255)`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS worker_id VARCHAR(255)`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS hardware_model VARCHAR(128) NOT NULL DEFAULT 'IceRiver KS'`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS hashrate_ths DOUBLE PRECISION NOT NULL DEFAULT 0.0`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS current_hashrate DOUBLE PRECISION NOT NULL DEFAULT 0.0`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS stratum_port INTEGER NOT NULL DEFAULT 3332`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'online'`,
+        `ALTER TABLE worker_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`
+    ];
+
+    for (const stmt of alterMigrations) {
+        await dbPool.query(stmt).catch(() => {});
+    }
+
+    await dbPool
+        .query(
+            `UPDATE worker_profiles
+             SET worker_id = worker_identity
+             WHERE worker_id IS NULL AND worker_identity IS NOT NULL`
+        )
+        .catch(() => {});
+
+    await dbPool
+        .query(
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_profiles_identity_uniq
+             ON worker_profiles (worker_identity)`
+        )
+        .catch(() => {});
+
+    workerSchemaVerified = true;
 }
 
 async function hasDirectorClearance(
@@ -84,12 +130,13 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
     const sessionWallet = sessionId
         ? await redis.get(`session:${sessionId}`).catch(() => null)
         : null;
-
-    const requestedWallet = url.searchParams.get('wallet') || sessionWallet || '';
+    const requestedWallet =
+        url.searchParams.get('wallet') || sessionWallet || '';
     const cleanWallet = normalizeKaspaBase32Strict(requestedWallet);
-
     const boundCoinbaseRaw =
-        (await redis.get('perennia:stratum:mining_address').catch(() => null)) ||
+        (await redis
+            .get('perennia:stratum:mining_address')
+            .catch(() => null)) ||
         (env.PERENNIA_HOT_KAS_ADDRESS || '').trim() ||
         resolveMasterTreasuryKasAddressOptional() ||
         '';
@@ -105,12 +152,24 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             try {
                 await ensureWorkerProfilesSchema();
                 const res = await dbPool.query(
-                    `SELECT worker_id, wallet_address, worker_name, hardware_model,
-                            current_hashrate, valid_shares, rejected_shares,
-                            blocks_found, stratum_port, last_seen
+                    `SELECT COALESCE(worker_id, worker_identity) AS worker_id,
+                            worker_identity,
+                            wallet_address,
+                            worker_name,
+                            COALESCE(hardware_model, 'IceRiver KS') AS hardware_model,
+                            CASE
+                                WHEN COALESCE(current_hashrate, 0) > 0 THEN current_hashrate
+                                ELSE COALESCE(hashrate_ths, 0) * 1e12
+                            END AS current_hashrate,
+                            COALESCE(hashrate_ths, 0) AS hashrate_ths,
+                            valid_shares,
+                            rejected_shares,
+                            blocks_found,
+                            COALESCE(stratum_port, 3332) AS stratum_port,
+                            COALESCE(last_seen, updated_at) AS last_seen
                      FROM worker_profiles
                      WHERE LOWER(REPLACE(TRIM(wallet_address), 'kaspa:', '')) = $1
-                     ORDER BY last_seen DESC NULLS LAST`,
+                     ORDER BY COALESCE(last_seen, updated_at) DESC NULLS LAST`,
                     [cleanWallet]
                 );
                 workers = res.rows;
@@ -140,7 +199,6 @@ export const POST: RequestHandler = async ({
     const sessionWallet = sessionId
         ? await redis.get(`session:${sessionId}`).catch(() => null)
         : null;
-
     const isDirector = await hasDirectorClearance(request, sessionWallet);
 
     if (!sessionWallet && !isDirector) {
@@ -170,26 +228,24 @@ export const POST: RequestHandler = async ({
                     { status: 403 }
                 );
             }
-
             const rawCoinbase = String(
                 body.miningAddress || body.coinbaseAddress || body.wallet || ''
             ).trim();
-            const cleanCoinbase = normalizeKaspaBase32Strict(rawCoinbase);
-            if (!cleanCoinbase || cleanCoinbase.length < 55) {
+            const prefixedCandidate = normalizeKaspaAddressStrict(rawCoinbase);
+            const bech32Check = validateKaspaBech32mAddress(prefixedCandidate);
+            if (!bech32Check.valid) {
                 return json(
                     {
-                        error: 'INVALID_KASPA_ADDRESS: Provide a valid Bech32m Kaspa address for the Stratum coinbase wallet.'
+                        error: `INVALID_KASPA_ADDRESS: ${bech32Check.error || 'Provide a valid Bech32m Kaspa address for the Stratum coinbase wallet.'}`
                     },
                     { status: 400 }
                 );
             }
-
-            const prefixedCoinbase = normalizeKaspaAddressStrict(cleanCoinbase);
+            const prefixedCoinbase = bech32Check.normalized;
             await redis.set(
                 'perennia:stratum:mining_address',
                 prefixedCoinbase
             );
-
             await dbPool
                 .query(
                     `UPDATE system_treasury_config
@@ -199,7 +255,6 @@ export const POST: RequestHandler = async ({
                     [prefixedCoinbase]
                 )
                 .catch(() => {});
-
             return json({
                 success: true,
                 action: 'SET_POOL_COINBASE',
@@ -210,15 +265,19 @@ export const POST: RequestHandler = async ({
         const rawWallet = String(
             body.wallet || body.walletAddress || sessionWallet || ''
         ).trim();
-        const cleanWallet = normalizeKaspaBase32Strict(rawWallet);
-        if (!cleanWallet || cleanWallet.length < 55) {
+        const candidatePrefixed = normalizeKaspaAddressStrict(rawWallet);
+        const walletValidation = validateKaspaBech32mAddress(candidatePrefixed);
+        if (!walletValidation.valid) {
             return json(
                 {
-                    error: 'INVALID_KASPA_ADDRESS: Valid Kaspa miner payout address is required.'
+                    error: `INVALID_KASPA_ADDRESS: ${walletValidation.error || 'Valid Kaspa miner payout address is required.'}`
                 },
                 { status: 400 }
             );
         }
+
+        const prefixedWallet = walletValidation.normalized;
+        const cleanWallet = normalizeKaspaBase32Strict(prefixedWallet);
 
         if (
             !isDirector &&
@@ -233,7 +292,6 @@ export const POST: RequestHandler = async ({
             );
         }
 
-        const prefixedWallet = normalizeKaspaAddressStrict(cleanWallet);
         const rawWorkerName = String(
             body.workerName || body.name || 'Rig01'
         ).trim();
@@ -250,26 +308,46 @@ export const POST: RequestHandler = async ({
             0,
             Number(body.estimatedHashrateTh ?? body.hashRate ?? 0.4)
         );
-
         const tierSpec = resolveStratumTierEndpoint(estimatedHashrateTh);
         const workerId = `${prefixedWallet}.${sanitizedWorkerName}`;
 
         await ensureWorkerProfilesSchema();
         await dbPool.query(
-            `INSERT INTO worker_profiles
-             (worker_id, wallet_address, worker_name, hardware_model, current_hashrate, stratum_port, last_seen)
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-             ON CONFLICT (worker_id) DO UPDATE SET
+            `INSERT INTO worker_profiles (
+                 worker_identity,
+                 worker_id,
+                 wallet_address,
+                 worker_name,
+                 hardware_model,
+                 hashrate_ths,
+                 current_hashrate,
+                 stratum_port,
+                 last_seen,
+                 updated_at
+             )
+             VALUES ($1, $1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (worker_identity) DO UPDATE SET
+                worker_id = EXCLUDED.worker_id,
                 wallet_address = EXCLUDED.wallet_address,
                 worker_name = EXCLUDED.worker_name,
                 hardware_model = EXCLUDED.hardware_model,
+                hashrate_ths = CASE
+                    WHEN worker_profiles.hashrate_ths > 0 THEN worker_profiles.hashrate_ths
+                    ELSE EXCLUDED.hashrate_ths
+                END,
+                current_hashrate = CASE
+                    WHEN worker_profiles.current_hashrate > 0 THEN worker_profiles.current_hashrate
+                    ELSE EXCLUDED.current_hashrate
+                END,
                 stratum_port = EXCLUDED.stratum_port,
-                last_seen = CURRENT_TIMESTAMP`,
+                last_seen = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP`,
             [
                 workerId,
                 prefixedWallet,
                 sanitizedWorkerName,
                 hardwareModel,
+                estimatedHashrateTh,
                 estimatedHashrateTh * 1e12,
                 tierSpec.externalPort
             ]
