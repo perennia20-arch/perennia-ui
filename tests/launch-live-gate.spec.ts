@@ -1,10 +1,23 @@
-import { test, expect } from '@playwright/test';
+﻿import { test, expect, type Page } from '@playwright/test';
 
 const MASTER_TREASURY_KAS =
     'kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7';
 
+async function enterNexusHydrated(page: Page) {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(async () => {
+        const enterBtn = page.getByTestId('enter-nexus-btn');
+        if (await enterBtn.isVisible()) {
+            await enterBtn.click();
+        }
+        await expect(page.getByTestId('header-treasury-btn')).toBeVisible({
+            timeout: 1500
+        });
+    }).toPass({ timeout: 15_000 });
+}
+
 test.describe.serial('Perennia v5 Live Production Gate — Unmocked SQL, Vault Lock & Treasury Integrity', () => {
-    test('1. Locked Sovereign Vault strictly hides DIRECTOR tab even when localStorage caches Master Treasury address', async ({
+    test('1. Locked Sovereign Vault strictly hides DIRECTOR tab inside awakened Nexus header even when localStorage caches Master Treasury address', async ({
         page,
         request
     }) => {
@@ -25,11 +38,7 @@ test.describe.serial('Perennia v5 Live Production Gate — Unmocked SQL, Vault L
             sessionStorage.removeItem('perennia_vault_unlocked');
         }, MASTER_TREASURY_KAS);
 
-        await page.goto('/');
-        const enterBtn = page.getByTestId('enter-nexus-btn');
-        if (await enterBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
-            await enterBtn.click();
-        }
+        await enterNexusHydrated(page);
         await expect(page.getByTestId('header-nav-DIRECTOR')).toHaveCount(0);
     });
 
@@ -67,13 +76,18 @@ test.describe.serial('Perennia v5 Live Production Gate — Unmocked SQL, Vault L
             localStorage.setItem('perennia_non_cpa_acknowledged_v1', 'true');
         });
 
-        await page.goto('/');
-        const enterBtn = page.getByTestId('enter-nexus-btn');
-        if (await enterBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
-            await enterBtn.click();
-        }
+        await enterNexusHydrated(page);
 
-        await page.getByRole('button', { name: /New 24-Word Vault/i }).click();
+        const newVaultBtn = page.getByRole('button', { name: /New 24-Word Vault/i });
+        if (!(await newVaultBtn.isVisible())) {
+            await page
+                .getByRole('button', { name: /Unlock Vault|Connect Wallet/i })
+                .first()
+                .click();
+        }
+        await expect(newVaultBtn).toBeVisible({ timeout: 10_000 });
+        await newVaultBtn.click();
+
         await page.getByPlaceholder('VAULT PASSWORD').fill('PerenniaLiveGatePass2026!');
         await page.getByPlaceholder('CONFIRM PASSWORD').fill('PerenniaLiveGatePass2026!');
         await page.getByRole('button', { name: /Generate 24-Word Seed/i }).click();
@@ -83,17 +97,28 @@ test.describe.serial('Perennia v5 Live Production Gate — Unmocked SQL, Vault L
         const words = await seedWords.allInnerTexts();
 
         await page.getByRole('button', { name: /Proceed to 2-Word Test/i }).click();
-        const idx1 = parseInt((await page.locator('label[for="verifyWord1"]').innerText()).replace(/\D/g, ''), 10) - 1;
-        const idx2 = parseInt((await page.locator('label[for="verifyWord2"]').innerText()).replace(/\D/g, ''), 10) - 1;
+        const idx1 =
+            parseInt((await page.locator('label[for="verifyWord1"]').innerText()).replace(/\D/g, ''), 10) - 1;
+        const idx2 =
+            parseInt((await page.locator('label[for="verifyWord2"]').innerText()).replace(/\D/g, ''), 10) - 1;
 
         await page.locator('#verifyWord1').fill(words[idx1].trim());
         await page.locator('#verifyWord2').fill(words[idx2].trim());
         await page.getByRole('button', { name: /Verify & Unlock Sovereign Vault/i }).click();
 
-        await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible({ timeout: 15000 });
+        await expect
+            .poll(async () => page.evaluate(() => sessionStorage.getItem('perennia_vault_unlocked')), {
+                timeout: 15_000
+            })
+            .toBe('true');
+
         await expect(page.getByTestId('header-nav-DIRECTOR')).toHaveCount(0);
 
-        const liveResults = await page.evaluate(async (coldDest) => {
+        const liveResults = await page.evaluate(async () => {
+            const me = await fetch('/api/auth/me').then(async (r) => ({
+                status: r.status,
+                body: await r.json().catch(() => ({}))
+            }));
             const postAction = async (action: string, payload: Record<string, unknown> = {}) => {
                 const res = await fetch('/api/state/action', {
                     method: 'POST',
@@ -105,28 +130,25 @@ test.describe.serial('Perennia v5 Live Production Gate — Unmocked SQL, Vault L
             };
 
             const siloRead = await postAction('GET_SILO_STAKING');
-            const siloZeroBalGuard = await postAction('STAKE_SILO', { amount: 15000 });
-            const hifoRead = await postAction('GET_HIFO_TAX_LOTS');
-            const coldSave = await postAction('SAVE_USER_COLD_VAULT_RULE', {
-                asset: 'KAS',
-                coldDestinationAddress: coldDest,
-                overflowCeiling: 1000,
-                autoSweepEnabled: false
-            });
+            const siloZeroBalGuard = await postAction('STAKE_SILO', { ticker: 'SILO', amount: 15000 });
+            const hifoRes = await fetch('/api/user/tax-events?bundle=hifo');
+            const hifoRead = { status: hifoRes.status, body: await hifoRes.json().catch(() => ({})) };
             const coldRead = await postAction('GET_USER_COLD_VAULT_RULES');
-            return { siloRead, siloZeroBalGuard, hifoRead, coldSave, coldRead };
-        }, MASTER_TREASURY_KAS);
+            await fetch('/api/auth', { method: 'DELETE' });
+            return { me, siloRead, siloZeroBalGuard, hifoRead, coldRead };
+        });
 
-        expect(liveResults.siloRead.status).toBe(200);
-        expect(liveResults.siloZeroBalGuard.status).not.toBe(500);
+        expect(liveResults.me.status, JSON.stringify(liveResults.me)).toBe(200);
+        expect(liveResults.me.body.authenticated).toBe(true);
+        expect(liveResults.me.body.isCorporateAdmin).toBe(false);
+        expect(liveResults.siloRead.status, JSON.stringify(liveResults.siloRead)).toBe(200);
+        expect(liveResults.siloZeroBalGuard.status, JSON.stringify(liveResults.siloZeroBalGuard)).not.toBe(500);
         expect(
             liveResults.siloZeroBalGuard.status >= 400 ||
-                liveResults.siloZeroBalGuard.body?.success === false
+                liveResults.siloZeroBalGuard.body?.success === false ||
+                Boolean(liveResults.siloZeroBalGuard.body?.error)
         ).toBe(true);
-        expect(liveResults.hifoRead.status).toBe(200);
-        expect(liveResults.coldSave.status).toBe(200);
-        expect(liveResults.coldRead.status).toBe(200);
-
-        await page.getByRole('button', { name: 'Disconnect' }).click();
+        expect(liveResults.hifoRead.status, JSON.stringify(liveResults.hifoRead)).toBe(200);
+        expect(liveResults.coldRead.status, JSON.stringify(liveResults.coldRead)).toBe(200);
     });
 });

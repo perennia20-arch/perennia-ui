@@ -982,6 +982,9 @@ export const POST: RequestHandler = async ({
             env.RUST_BACKEND_URL ||
             `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
 
+        let rustRejectionStatus: number | null = null;
+        let rustRejectionBody: Record<string, unknown> | null = null;
+
         try {
             const rustRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
                 method: 'POST',
@@ -1000,6 +1003,21 @@ export const POST: RequestHandler = async ({
             if (rustRes.ok) {
                 const data = await rustRes.json();
                 return json(data, { status: 200 });
+            }
+            if (rustRes.status >= 400 && rustRes.status < 500) {
+                rustRejectionStatus = rustRes.status;
+                const rawErr = await rustRes.text().catch(() => '');
+                if (rawErr.trim()) {
+                    try {
+                        const parsed = JSON.parse(rawErr);
+                        rustRejectionBody =
+                            parsed && typeof parsed === 'object'
+                                ? parsed
+                                : { success: false, error: String(parsed) };
+                    } catch {
+                        rustRejectionBody = { success: false, error: rawErr.trim() };
+                    }
+                }
             }
         } catch {
             // Fall through to direct PostgreSQL handling when Rust node is unreachable
@@ -1903,6 +1921,16 @@ export const POST: RequestHandler = async ({
                     }
                 },
                 { status: 200 }
+            );
+        }
+
+        if (rustRejectionStatus !== null) {
+            return json(
+                rustRejectionBody || {
+                    success: false,
+                    error: 'Rust state engine rejected the action.'
+                },
+                { status: rustRejectionStatus }
             );
         }
 
