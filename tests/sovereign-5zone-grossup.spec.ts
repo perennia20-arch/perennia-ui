@@ -66,6 +66,7 @@ async function assertResponseOk(res: APIResponse, label: string): Promise<void> 
 }
 
 test.describe('Perennia Sovereign 5-Zone & Zero-Loss Gross-Up Suite', () => {
+	test.beforeEach(async ({ request }) => { await request.get('/'); });
     test('1. Pillar 1: Tiered Gross-Up Math, $625+ ACH Auto-Default & $100k+ Mercury Wire Gate', async ({
         request,
         baseURL

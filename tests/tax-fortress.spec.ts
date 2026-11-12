@@ -17,11 +17,12 @@ dotenv.config();
 
 const TEST_WALLET = 'kaspa:qtestprototypewalletforash00000000000000000000000000000000000';
 
-const ADMIN_KEY = process.env.PERENNIA_ADMIN_KEY || 'perennia_test_key';
+const ADMIN_KEY = process.env.PERENNIA_ADMIN_KEY || process.env.INTERNAL_ADMIN_TOKEN || 'perennia_test_key';
 
 
 
 test.describe.serial('Tax Fortress Compliance Pipeline & 1099-DA Generation', () => {
+	test.beforeEach(async ({ request }) => { await request.get('/'); });
 
 
 

@@ -204,7 +204,7 @@ async function executeZeroFeeMinerWorkflow(
                         ticker: targetAsset.ticker,
                         name: targetAsset.name,
                         assetClass: targetAsset.assetClass,
-                        spotPrice: 0,
+                        spotPrice: ({KAS:0.15,USDC:1,BTC:95000,ETH:3200,SOL:180,USD:1}[targetAsset.ticker] || 1),
                         theme: { hex: targetAsset.hex, pastel: '#99f6e4' }
                     },
                     payoutAddress: seat.kaspaAddress,
@@ -242,9 +242,7 @@ async function executeZeroFeeMinerWorkflow(
         headers,
         data: {
             wallet: seat.kaspaAddress,
-            amountKas: 500,
-            kasAmount: 500,
-            amountAsset: 500,
+            grossUsd: 500, routingNumber: bankSpec.routing, accountNumber: accountNum,
             sourceMode: 'onchain_kas',
             sourceAsset: 'KAS',
             payoutMethod: 'ach',
@@ -253,7 +251,7 @@ async function executeZeroFeeMinerWorkflow(
             preFlightOnly: true
         }
     });
-    expect(preFlightRes.ok()).toBe(true);
+    expect(preFlightRes.ok(), await preFlightRes.text()).toBe(true);
     const preFlightJson = await preFlightRes.json();
     expect(preFlightJson.preFlightVerified).toBe(true);
 
@@ -299,12 +297,8 @@ test.describe('Perennia v4 — 100-User Parallel Zero-Fee Mainnet Rehearsal', ()
         });
     }
 
-    test(`Seat #${(COHORT_SIZE + 1).toString().padStart(3, '0')}: Interactive Browser Audit (Retail ABA Mod-10 Recognition, Rule 6 Gate & US-TX 0.0% Tax Fortress)`, async ({
-        browser
-    }) => {
-        const retailSeat = deriveDeterministicMinerSeat(999);
-        const retailContext = await browser.newContext();
-        const retailPage = await retailContext.newPage();
+    test(`Seat #${(COHORT_SIZE + 1).toString().padStart(3, '0')}: Interactive Browser Audit (Retail ABA Mod-10 Recognition, Rule 6 Gate & US-TX 0.0% Tax Fortress)`, async ({ page: retailPage }) => {
+		const retailSeat = deriveDeterministicMinerSeat(999);
 
         await retailPage.route('**/api/broadcast', async (route) => {
             await route.fulfill({
@@ -358,8 +352,8 @@ test.describe('Perennia v4 — 100-User Parallel Zero-Fee Mainnet Rehearsal', ()
         await retailPage.goto('/');
         await expect(retailPage.getByText('UNLOCKED')).toBeVisible();
 
-        await retailPage.getByRole('button', { name: 'DEX', exact: true }).click();
-        await retailPage.getByRole('button', { name: 'Fiat', exact: true }).click();
+        await retailPage.getByTestId('header-nav-DEX').click();
+        await retailPage.getByTestId('dex-mode-fiat-btn').click();
         await retailPage.getByTestId('fiat-offramp-tab-btn').click();
 
         const editRailBtn = retailPage.getByTestId('edit-bank-rail-btn');
@@ -373,12 +367,12 @@ test.describe('Perennia v4 — 100-User Parallel Zero-Fee Mainnet Rehearsal', ()
         await expect(retailPage.getByText(/Dark Pool/i)).toHaveCount(0);
 
         await retailPage
-            .getByRole('button', { name: 'TAX FORTRESS', exact: true })
+            .getByTestId('header-nav-TAX-FORTRESS')
             .click();
         await expect(retailPage.getByTestId('state-tax-rate-badge')).toContainText(
             '0.0% STATE TAX (TX)'
         );
 
-        await retailContext.close();
+        
     });
 });

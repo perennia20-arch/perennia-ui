@@ -153,7 +153,7 @@ test.describe.serial('PERENNIA v5 — Two-Way Zero-Loss Gross-Up Fiat Rails & Fu
     test.beforeAll(async ({ playwright }) => {
         const baseURL =
             process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
-        const api = await playwright.request.newContext({ baseURL });
+        const api = await playwright.request.newContext({ baseURL, ...(process.env.PLAYWRIGHT_HTTP_USER && process.env.PLAYWRIGHT_HTTP_PASS ? { httpCredentials: { username: process.env.PLAYWRIGHT_HTTP_USER, password: process.env.PLAYWRIGHT_HTTP_PASS } } : {}) });
         try {
             const challengeRes = await api.post('/api/auth/challenge', {
                 data: { address: REHEARSAL_WALLET }
@@ -197,7 +197,7 @@ test.describe.serial('PERENNIA v5 — Two-Way Zero-Loss Gross-Up Fiat Rails & Fu
         if (!rehearsalSessionToken) return;
         const baseURL =
             process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
-        const api = await playwright.request.newContext({ baseURL });
+        const api = await playwright.request.newContext({ baseURL, ...(process.env.PLAYWRIGHT_HTTP_USER && process.env.PLAYWRIGHT_HTTP_PASS ? { httpCredentials: { username: process.env.PLAYWRIGHT_HTTP_USER, password: process.env.PLAYWRIGHT_HTTP_PASS } } : {}) });
         try {
             await api.delete('/api/auth', {
                 headers: {

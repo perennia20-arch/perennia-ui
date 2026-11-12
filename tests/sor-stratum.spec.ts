@@ -99,10 +99,11 @@ let sessionCookie = '';
 let liveKasSpotUsd = 0.15;
 
 test.describe.serial('Smart Order Router & Stratum Binding Automation (v5 Live Node)', () => {
+	test.beforeEach(async ({ request }) => { await request.get('/'); });
     test.beforeAll(async ({ playwright }) => {
         const baseURL =
             process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
-        const api = await playwright.request.newContext({ baseURL });
+        const api = await playwright.request.newContext({ baseURL, ...(process.env.PLAYWRIGHT_HTTP_USER && process.env.PLAYWRIGHT_HTTP_PASS ? { httpCredentials: { username: process.env.PLAYWRIGHT_HTTP_USER, password: process.env.PLAYWRIGHT_HTTP_PASS } } : {}) });
 
         try {
             // Verify strict Kaspa Bech32m charset compliance (no o/b/i/1 characters)
@@ -185,7 +186,7 @@ test.describe.serial('Smart Order Router & Stratum Binding Automation (v5 Live N
         if (!sessionCookie) return;
         const baseURL =
             process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
-        const api = await playwright.request.newContext({ baseURL });
+        const api = await playwright.request.newContext({ baseURL, ...(process.env.PLAYWRIGHT_HTTP_USER && process.env.PLAYWRIGHT_HTTP_PASS ? { httpCredentials: { username: process.env.PLAYWRIGHT_HTTP_USER, password: process.env.PLAYWRIGHT_HTTP_PASS } } : {}) });
         try {
             await api.delete('/api/auth', {
                 headers: { Cookie: sessionCookie }
