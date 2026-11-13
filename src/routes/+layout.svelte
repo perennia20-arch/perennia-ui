@@ -1270,6 +1270,13 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         if (epochClockInterval) clearInterval(epochClockInterval);
         clearTimeout(globalDiscoverTimer);
     });
+
+	// perennia_sw_auto_update
+	$effect(() => {
+		if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+			navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.update().catch(() => {}))).catch(() => {});
+		}
+	});
 </script>
 
 <div class="theme-wrapper min-h-[100dvh] bg-app">

@@ -76,7 +76,10 @@ test('3-Mode Fingerprint/Both/Password unlock + Settings control, Header gear ri
 
   // 6. Open Settings (⚙) -> Switch mode to BOTH -> Reload -> Verify BOTH Password + Fingerprint required
   await page.getByTestId('header-settings-btn').click();
-  await expect(page.getByTestId('settings-vault-auth-section')).toBeVisible();
+  const secEl = page.getByTestId('settings-vault-auth-section');
+  await expect(secEl).toBeVisible();
+  const secBox = await secEl.boundingBox();
+  expect(Boolean(secBox && secBox.y > 0 && secBox.y < 360)).toBe(true);
   await page.getByTestId('settings-auth-mode-both').click();
   await expect(page.getByTestId('settings-auth-feedback')).toContainText('Both');
   await page.reload();

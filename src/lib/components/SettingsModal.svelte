@@ -280,6 +280,29 @@ import { pwa } from '$lib/stores/pwa.svelte';
             </div>
 
             <div class="p-6 flex flex-col gap-5 max-h-[72vh] overflow-y-auto hide-scrollbar">
+<div data-testid="settings-vault-auth-section" class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
+  <div class="flex items-center justify-between gap-2">
+    <span class="text-xs font-mono font-black uppercase tracking-wider text-white">Vault Unlock</span>
+    <div class="flex items-center gap-2">
+      <span class="text-[10px] font-mono font-bold text-[#18C6A5]">{smAuthMode === 'fingerprint' ? 'Fingerprint' : smAuthMode === 'both' ? 'Fingerprint + Password' : 'Password Only'}</span>
+      {#if smHasBio && !smPendingEnrollMode}<button type="button" data-testid="settings-relink-bio-btn" onclick={() => { smPendingEnrollMode = smAuthMode === 'both' ? 'both' : 'fingerprint'; smAuthFeedback = ''; smAuthError = ''; }} class="text-[9px] font-mono text-neutral-400 hover:text-white underline cursor-pointer">Re-scan</button>{/if}
+    </div>
+  </div>
+  <div class="grid grid-cols-3 gap-2">
+    <button type="button" data-testid="settings-auth-mode-fingerprint" onclick={() => selectSettingsVaultMode('fingerprint')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'fingerprint' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Fingerprint</button>
+    <button type="button" data-testid="settings-auth-mode-both" onclick={() => selectSettingsVaultMode('both')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'both' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Both</button>
+    <button type="button" data-testid="settings-auth-mode-password" onclick={() => selectSettingsVaultMode('password')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'password' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Password</button>
+  </div>
+  {#if smPendingEnrollMode}
+    <div data-testid="settings-bio-enroll-box" class="flex flex-col sm:flex-row gap-2 pt-1">
+      <input data-testid="settings-bio-password-input" type="password" bind:value={smEnrollPassword} onkeydown={(e) => e.key === 'Enter' && confirmSettingsBioEnroll()} placeholder="Confirm vault password once..." class="flex-1 bg-[#0a0d12] border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-neutral-500 focus:outline-none focus:border-[#18C6A5]" />
+      <button type="button" data-testid="settings-bio-enroll-submit" onclick={confirmSettingsBioEnroll} disabled={smIsEnrolling} class="tactile-btn px-4 py-2 rounded-xl border border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5] text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer">{smIsEnrolling ? 'Scanning...' : 'Enable'}</button>
+    </div>
+  {/if}
+  {#if smAuthFeedback}<p data-testid="settings-auth-feedback" class="text-[10px] font-mono text-[#18C6A5]">{smAuthFeedback}</p>{/if}
+  {#if smAuthError}<p data-testid="settings-auth-error" class="text-[10px] font-mono text-red-400">{smAuthError}</p>{/if}
+</div>
+
                 <!-- INTERACTIVE PLATFORM GUIDE & TOUR LAUNCHER -->
                 {#if !pwa.isStandalone}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-3.5 flex items-center justify-between gap-3"><div class="flex flex-col"><span class="text-[10px] font-black uppercase tracking-widest text-white">Standalone App Mode</span><span class="text-[9px] text-neutral-400">Add to Home Screen or Dock</span></div><button type="button" data-testid="settings-install-app-btn" onclick={() => { settingsStore.showSettingsModal = false; pwa.handleInstallClick(); }} class="tactile-btn mobile-touch-target px-3.5 py-2 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-[9px] font-black uppercase shrink-0">Install App</button></div>{/if}
 <div data-testid="settings-guide-section"
@@ -562,25 +585,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                             {backupStatus.message}
                         </div>
                     {/if}
-                    <div data-testid="settings-vault-auth-section" class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-  <div class="flex items-center justify-between gap-2">
-    <span class="text-xs font-mono font-black uppercase tracking-wider text-white">Vault Unlock</span>
-    <span class="text-[10px] font-mono font-bold text-[#18C6A5]">{smAuthMode === 'fingerprint' ? 'Fingerprint' : smAuthMode === 'both' ? 'Fingerprint + Password' : 'Password Only'}</span>
-  </div>
-  <div class="grid grid-cols-3 gap-2">
-    <button type="button" data-testid="settings-auth-mode-fingerprint" onclick={() => selectSettingsVaultMode('fingerprint')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'fingerprint' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Fingerprint</button>
-    <button type="button" data-testid="settings-auth-mode-both" onclick={() => selectSettingsVaultMode('both')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'both' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Both</button>
-    <button type="button" data-testid="settings-auth-mode-password" onclick={() => selectSettingsVaultMode('password')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'password' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Password</button>
-  </div>
-  {#if smPendingEnrollMode}
-    <div data-testid="settings-bio-enroll-box" class="flex flex-col sm:flex-row gap-2 pt-1">
-      <input data-testid="settings-bio-password-input" type="password" bind:value={smEnrollPassword} onkeydown={(e) => e.key === 'Enter' && confirmSettingsBioEnroll()} placeholder="Confirm vault password once..." class="flex-1 bg-[#0a0d12] border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-neutral-500 focus:outline-none focus:border-[#18C6A5]" />
-      <button type="button" data-testid="settings-bio-enroll-submit" onclick={confirmSettingsBioEnroll} disabled={smIsEnrolling} class="tactile-btn px-4 py-2 rounded-xl border border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5] text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer">{smIsEnrolling ? 'Scanning...' : 'Enable'}</button>
-    </div>
-  {/if}
-  {#if smAuthFeedback}<p data-testid="settings-auth-feedback" class="text-[10px] font-mono text-[#18C6A5]">{smAuthFeedback}</p>{/if}
-  {#if smAuthError}<p data-testid="settings-auth-error" class="text-[10px] font-mono text-red-400">{smAuthError}</p>{/if}
-</div>
+                    
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                         <button
                             type="button"
