@@ -64,6 +64,7 @@ class UiStore {
     hasEntered = $state(false);
     activeTab = $state('OPERATIONS');
     showWalletModal = $state(false);
+	walletInitialView = $state<string | null>(null);
     systemMode = $state<SystemMode>('base');
     adminModeActive = $state(false);
     adminTargetWallet = $state('');

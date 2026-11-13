@@ -1,5 +1,7 @@
 <!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\WalletModal.svelte -->
 <script lang="ts">
+	import { isBiometricSupported, hasBiometricForVault, enrollBiometricVault, unlockBiometricVault, clearBiometricVault } from '$lib/utils/biometricVault';
+	import { tangem } from '$lib/stores/tangem.svelte';
     import { fade, fly } from 'svelte/transition';
     import { browser } from '$app/environment';
     import { onMount } from 'svelte';
@@ -37,7 +39,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
         | 'import_seed'
         | 'create_seed'
         | 'verify_seed'
-        | 'unlock' | 'authorize' | 'watch_only'
+        | 'unlock' | 'authorize' | 'watch_only' | 'tangem'
     >('menu');
     let hasStoredVault = $state(false);
     let password = $state('');
@@ -55,8 +57,77 @@ let isScanningWatchQr = $state(false);
 let watchVideoEl = $state<HTMLVideoElement | null>(null);
 let watchStream: MediaStream | null = null;
 function stopWatchCamera() { isScanningWatchQr = false; if (watchStream) { watchStream.getTracks().forEach((t) => t.stop()); watchStream = null; } }
-async function startWatchQrScan() { if (!browser || !navigator.mediaDevices?.getUserMedia) { localError = 'CAMERA UNAVAILABLE — PASTE KASPA ADDRESS.'; return; } try { watchStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); isScanningWatchQr = true; setTimeout(() => { if (watchVideoEl && watchStream) { watchVideoEl.srcObject = watchStream; watchVideoEl.play().catch(() => {}); } }, 60); const iv = setInterval(async () => { if (!isScanningWatchQr || !watchVideoEl) { clearInterval(iv); return; } const raw = await scanVideoFrameForQrPayload(watchVideoEl).catch(() => null); if (raw) { clearInterval(iv); stopWatchCamera(); watchAddressInput = raw.replace(/^kaspa:/i, 'kaspa:').trim(); } }, 400); } catch { stopWatchCamera(); localError = 'CAMERA PERMISSION DENIED.'; } }
-function handleConnectWatchOnly() { localError = ''; const cand = watchAddressInput.trim().toLowerCase().startsWith('kaspa:') ? watchAddressInput.trim().toLowerCase() : `kaspa:${watchAddressInput.trim().toLowerCase()}`; const v = validateKaspaBech32mAddress(cand); if (!v.valid) { localError = v.error || 'INVALID KASPA BECH32M ADDRESS.'; return; } stopWatchCamera(); if (identity.connectWatchOnlyKaspa(v.normalized)) { watchAddressInput = ''; viewState = 'menu'; ui.showWalletModal = false; } }
+async function startWatchQrScan() { if (!browser || !navigator.mediaDevices?.getUserMedia) { localError = 'CAMERA UNAVAILABLE — PASTE KASPA ADDRESS.'; return; } try { watchStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); isScanningWatchQr = true; setTimeout(() => { if (watchVideoEl && watchStream) { watchVideoEl.srcObject = watchStream; watchVideoEl.play().catch(() => {}); } }, 60); const iv = setInterval(async () => { if (!isScanningWatchQr || !watchVideoEl) { clearInterval(iv); return; } const raw = await scanVideoFrameForQrPayload(watchVideoEl).catch(() => null); if (raw) { clearInterval(iv); stopWatchCamera(); const cleanedQr = raw.replace(/^kaspa:/i, 'kaspa:').split('?')[0].trim(); if (viewState === 'tangem') tangemKasInput = cleanedQr; else watchAddressInput = cleanedQr; } }, 400); } catch { stopWatchCamera(); localError = 'CAMERA PERMISSION DENIED.'; } }
+let bioSupported = $state(false);
+	let hasBioEnrolled = $state(false);
+	let enrollBioOnAuth = $state(true);
+	let isBioBusy = $state(false);
+	let tangemKasInput = $state('');
+	let tangemEvmInput = $state('');
+	let tangemBtcInput = $state('');
+	let showTangemExtras = $state(false);
+	
+	function getStoredVaultKasAddress(): string | null {
+	  if (!browser) return null;
+	  try {
+	    const raw = localStorage.getItem('perennia_sovereign_payload');
+	    if (!raw) return null;
+	    const parsed = JSON.parse(raw);
+	    return parsed?.wallets?.kaspa?.address ? String(parsed.wallets.kaspa.address).trim().toLowerCase() : null;
+	  } catch { return null; }
+	}
+	
+	function refreshBiometricState() {
+	  if (!browser) return;
+	  const addr = getStoredVaultKasAddress();
+	  hasBioEnrolled = hasBiometricForVault(addr);
+	  isBiometricSupported().then((ok) => { bioSupported = ok; }).catch(() => { bioSupported = false; });
+	}
+	
+	$effect(() => {
+	  if (ui.showWalletModal) {
+	    refreshBiometricState();
+	    if (ui.walletInitialView === 'tangem') {
+	      ui.walletInitialView = null;
+	      tangemKasInput = tangem.kaspaAddress;
+	      tangemEvmInput = tangem.evmAddress;
+	      tangemBtcInput = tangem.btcAddress;
+	      localError = ''; statusNotice = '';
+	      viewState = 'tangem';
+	    }
+	  }
+	});
+	
+	function validateAndPairTangem(connectColdSession: boolean) {
+	  localError = ''; statusNotice = '';
+	  const raw = tangemKasInput.trim().toLowerCase();
+	  const cand = raw.startsWith('kaspa:') ? raw : `kaspa:${raw}`;
+	  const v = validateKaspaBech32mAddress(cand);
+	  if (!v.valid) { localError = v.error || 'ENTER A VALID TANGEM KASPA ADDRESS.'; return; }
+	  stopWatchCamera();
+	  tangem.pairCard({ kaspaAddress: v.normalized, evmAddress: tangemEvmInput, btcAddress: tangemBtcInput });
+	  if (connectColdSession) {
+	    identity.connectWatchOnlyKaspa(v.normalized);
+	    viewState = 'menu';
+	    ui.showWalletModal = false;
+	  } else {
+	    statusNotice = 'TANGEM CARD PAIRED FOR SPLITS & COLD SWEEPS.';
+	    if (identity.isWalletConnected) { ui.showWalletModal = false; viewState = 'menu'; }
+	  }
+	}
+	
+	async function handleBiometricUnlock() {
+	  localError = ''; statusNotice = ''; isBioBusy = true;
+	  try {
+	    const secret = await unlockBiometricVault(getStoredVaultKasAddress());
+	    await handleUnlock(secret);
+	  } catch (e: any) {
+	    localError = (e?.message || 'BIOMETRIC UNLOCK CANCELLED.').toUpperCase();
+	    refreshBiometricState();
+	  } finally { isBioBusy = false; }
+	}
+
+	function handleConnectWatchOnly() { localError = ''; const cand = watchAddressInput.trim().toLowerCase().startsWith('kaspa:') ? watchAddressInput.trim().toLowerCase() : `kaspa:${watchAddressInput.trim().toLowerCase()}`; const v = validateKaspaBech32mAddress(cand); if (!v.valid) { localError = v.error || 'INVALID KASPA BECH32M ADDRESS.'; return; } stopWatchCamera(); if (identity.connectWatchOnlyKaspa(v.normalized)) { watchAddressInput = ''; viewState = 'menu'; ui.showWalletModal = false; } }
 
     // 2-Word Verification State
     let verifyWordIndices = $state<[number, number]>([2, 14]);
@@ -497,8 +568,13 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
     }
 
     function handleSecure() {
-        if (tempVaultPayload) {
-            identity.authorizeSovereignVault(tempVaultPayload);
+		if (tempVaultPayload) {
+			identity.authorizeSovereignVault(tempVaultPayload);
+			const createdKas = tempVaultPayload?.wallets?.kaspa?.address;
+			const savedPass = password;
+			if (enrollBioOnAuth && bioSupported && createdKas && savedPass) {
+				enrollBiometricVault(String(createdKas), savedPass).then(() => refreshBiometricState()).catch(() => {});
+			}
             tempVaultPayload = null;
             seedWords = [];
             password = '';
@@ -582,13 +658,14 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
         }
     }
 
-    async function handleUnlock() {
-        localError = '';
-        statusNotice = '';
-        if (!password) {
-            localError = 'PASSWORD REQUIRED.';
-            return;
-        }
+    async function handleUnlock(bioSecret?: string | Event) {
+		localError = '';
+		statusNotice = '';
+		const effectivePass = typeof bioSecret === 'string' && bioSecret.length > 0 ? bioSecret : password;
+		if (!effectivePass) {
+			localError = 'PASSWORD REQUIRED.';
+			return;
+		}
         identity.isConnecting = true;
         identity.walletMessage = 'Decrypting Sovereign Vault...';
         try {
@@ -597,7 +674,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
             );
             if (!rawPayload) throw new Error('No vault found on this device.');
             const vaultPayload = JSON.parse(rawPayload);
-            const mnemonic = await decryptVault(password, vaultPayload.vault);
+            const mnemonic = await decryptVault(effectivePass, vaultPayload.vault);
             const keys = await deriveHoneycombKeys(mnemonic);
             let privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
             const kasAddress = identity.normalizeKaspaAddress(
@@ -639,7 +716,11 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                 );
             identity.walletMessage = 'Hydrating Omni-Chain Balances...';
             identity.authorizeSovereignVault(vaultPayload);
-            password = '';
+			if (typeof bioSecret !== 'string' && enrollBioOnAuth && bioSupported && !hasBiometricForVault(kasAddress)) {
+				await enrollBiometricVault(kasAddress, effectivePass).catch(() => false);
+				hasBioEnrolled = hasBiometricForVault(kasAddress);
+			}
+			password = '';
             ui.showWalletModal = false;
         } catch {
             identity.walletMessage = '';
@@ -699,7 +780,19 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
         return `Sign ${details.payAsset || 'KAS'} Transaction (Local)`;
     }
 
-    async function handleAuthorize() {
+    
+	async function handleBiometricAuthorize() {
+		localError = ''; isBioBusy = true;
+		try {
+			const secret = await unlockBiometricVault(getStoredVaultKasAddress());
+			password = secret;
+			await handleAuthorize();
+		} catch (e: any) {
+			localError = (e?.message || 'BIOMETRIC CONFIRM CANCELLED.').toUpperCase();
+		} finally { password = ''; isBioBusy = false; }
+	}
+
+	async function handleAuthorize() {
         localError = '';
         statusNotice = '';
         if (!password) {
@@ -1281,7 +1374,31 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                         {:else if viewState === 'import_seed'}Import Seed
                         {:else if viewState === 'create_seed'}Save Your 24 Words
                         {:else if viewState === 'verify_seed'}Confirm 2 Words
-                        {:else if viewState === 'watch_only'}
+                        {:else if viewState === 'tangem'}
+<div class="flex flex-col gap-3.5">
+  <p class="text-xs text-neutral-300 leading-relaxed">Pair your Tangem card's Kaspa address to route mining Payout Splits or cold sweeps straight to hardware storage—zero seed phrase required.</p>
+  {#if tangem.isPaired}
+    <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#18C6A5]/10 border border-[#18C6A5]/40 text-xs text-[#18C6A5]"><span class="font-bold truncate">✓ {tangem.shortKaspa}</span><button type="button" onclick={() => { tangem.unpair(); tangemKasInput = ''; tangemEvmInput = ''; tangemBtcInput = ''; statusNotice = 'TANGEM CARD UNPAIRED.'; }} class="text-[10px] text-neutral-300 hover:text-red-400 underline cursor-pointer">Unpair</button></div>
+  {/if}
+  <div class="flex flex-col gap-1.5">
+    <div class="flex items-center justify-between"><span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Tangem Kaspa Address</span><button type="button" onclick={() => (isScanningWatchQr ? stopWatchCamera() : startWatchQrScan())} class="text-[10px] font-bold text-[#18C6A5] hover:underline cursor-pointer">{isScanningWatchQr ? 'Stop Camera' : 'Scan QR'}</button></div>
+    {#if isScanningWatchQr}<div class="rounded-xl overflow-hidden border border-[#18C6A5]/40 bg-black aspect-video"><video bind:this={watchVideoEl} class="w-full h-full object-cover" playsinline muted></video></div>{/if}
+    <input data-testid="tangem-kaspa-input" type="text" bind:value={tangemKasInput} placeholder="kaspa:qr..." class="w-full bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-3 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-[#18C6A5]" />
+  </div>
+  <button type="button" onclick={() => (showTangemExtras = !showTangemExtras)} class="text-left text-[10px] font-bold text-neutral-400 hover:text-white cursor-pointer">{showTangemExtras ? '▾ Hide EVM / BTC Cold Addresses' : '▸ + Optional USDC (EVM) / BTC Cold Addresses'}</button>
+  {#if showTangemExtras}
+    <div class="flex flex-col gap-2">
+      <input data-testid="tangem-evm-input" type="text" bind:value={tangemEvmInput} placeholder="EVM Cold Address (0x...)" class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-[#18C6A5]" />
+      <input data-testid="tangem-btc-input" type="text" bind:value={tangemBtcInput} placeholder="BTC Cold Address (bc1...)" class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-[#18C6A5]" />
+    </div>
+  {/if}
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+    <button type="button" data-testid="tangem-pair-save-btn" onclick={() => validateAndPairTangem(false)} class="tactile-btn mobile-touch-target py-3 px-3 rounded-xl border border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase tracking-wider cursor-pointer">Pair Cold Card</button>
+    <button type="button" data-testid="tangem-connect-cold-btn" onclick={() => validateAndPairTangem(true)} class="tactile-btn mobile-touch-target py-3 px-3 rounded-xl border border-white/15 bg-[#161d29] text-white text-[10px] font-black uppercase tracking-wider cursor-pointer">Log In (Cold Mode)</button>
+  </div>
+  <button type="button" onclick={() => { stopWatchCamera(); viewState = 'menu'; }} class="text-[10px] text-neutral-400 hover:text-white py-1 cursor-pointer">← Back</button>
+</div>
+{:else if viewState === 'watch_only'}
 <form onsubmit={(e) => { e.preventDefault(); handleConnectWatchOnly(); }} class="flex flex-col gap-3.5">
 <p class="text-[10px] text-neutral-300 leading-relaxed uppercase tracking-wider font-bold">Paste or scan any Kaspa address — $0.</p>
 {#if isScanningWatchQr}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2"><video bind:this={watchVideoEl} class="w-full h-44 object-cover rounded-lg bg-black" playsinline></video><button type="button" onclick={stopWatchCamera} class="text-[9px] text-neutral-400 uppercase">Close</button></div>{/if}
@@ -1289,7 +1406,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
 <div class="flex gap-2"><button type="button" onclick={() => { stopWatchCamera(); viewState = 'menu'; localError = ''; }} class="tactile-btn mobile-touch-target w-1/3 p-3 rounded-xl text-neutral-400 text-[10px] font-bold uppercase">Back</button><button type="submit" data-testid="watch-only-connect-btn" class="tactile-btn mobile-touch-target w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase">Watch &rarr;</button></div>
 </form>
 {:else if viewState === 'unlock'}Log In
-                        {:else if viewState === 'watch_only'}Watch Address
+                        {:else if viewState === 'watch_only'}Watch Address{:else if viewState === 'tangem'}Tangem Card
 {:else if viewState === 'authorize'}Confirm
                         {/if}
                     </h2>
@@ -1381,6 +1498,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                             >
                                 <span>Import Backup (.json)</span>
                             </button>
+<button type="button" data-testid="wallet-tangem-btn" onclick={() => { localError = ''; statusNotice = ''; tangemKasInput = tangem.kaspaAddress; tangemEvmInput = tangem.evmAddress; tangemBtcInput = tangem.btcAddress; viewState = 'tangem'; }} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border border-[#18C6A5]/45 bg-[#18C6A5]/10 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-between"><span>Tangem Card</span><span class="text-[9px] opacity-80">{tangem.isPaired ? 'Paired ✓' : 'Cold Hardware →'}</span></button>
 <button type="button" data-testid="wallet-watch-only-btn" onclick={() => { localError = ''; statusNotice = ''; viewState = 'watch_only'; }} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border-amber-500/35 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"><span>Watch Address / QR</span></button>
 
                             {#if !ui.isTutorialActive}

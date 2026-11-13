@@ -1,5 +1,6 @@
 <!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\views\TreasuryVault.svelte -->
 <script lang="ts">
+	import { tangem } from '$lib/stores/tangem.svelte';
     import { onMount, onDestroy, untrack } from 'svelte';
     import { slide } from 'svelte/transition';
     import { browser } from '$app/environment';
@@ -1779,6 +1780,28 @@
     class="w-full min-h-[100dvh] bg-app text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto relative"
     data-tour="treasury-vault"
 >
+<div data-testid="treasury-tangem-bar" class="w-full max-w-[1480px] px-3 sm:px-6 pt-3">
+  <div class="w-full bg-[#0a0d12] border border-white/10 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2.5">
+      <span class="w-2 h-2 rounded-full {tangem.isPaired ? 'bg-[#18C6A5]' : 'bg-neutral-600'}"></span>
+      <span class="text-xs font-black uppercase tracking-wider text-white">Tangem Card</span>
+      {#if tangem.isPaired}<span class="text-xs text-[#18C6A5] font-bold">{tangem.shortKaspa}</span>{:else}<span class="text-xs text-neutral-400">Pair hardware card for cold sweeps &amp; mining splits</span>{/if}
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      {#if tangem.isPaired}
+        <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 text-[10px]">
+          <span class="px-2 text-neutral-400 font-bold">Auto-Sweep:</span>
+          {#each [[0, 'Off'], [1000, '1k KAS'], [10000, '10k KAS'], [50000, '50k KAS']] as [thr, lbl]}
+            <button type="button" data-testid="tangem-sweep-{thr}" onclick={() => tangem.setAutoSweep(Number(thr))} class="px-2 py-1 rounded-lg font-bold cursor-pointer {tangem.autoSweepMinKas === Number(thr) ? 'bg-[#18C6A5]/20 text-[#18C6A5]' : 'text-neutral-400 hover:text-white'}">{lbl}</button>
+          {/each}
+        </div>
+        <button type="button" onclick={() => navigator.clipboard?.writeText(tangem.kaspaAddress)} class="px-3 py-1.5 rounded-xl bg-[#11161f] border border-white/10 text-[10px] font-bold text-neutral-200 hover:text-white cursor-pointer">Copy Cold Address</button>
+      {/if}
+      <button type="button" data-testid="treasury-tangem-card-btn" onclick={() => { ui.walletInitialView = 'tangem'; ui.showWalletModal = true; }} class="tactile-btn px-3.5 py-1.5 rounded-xl border border-[#18C6A5]/45 bg-[#18C6A5]/15 text-[#18C6A5] text-[10px] font-black uppercase tracking-wider cursor-pointer">{tangem.isPaired ? 'Manage Card' : 'Pair Tangem'}</button>
+    </div>
+  </div>
+</div>
+
     {#if !identity.isWalletConnected}
         <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#06080b]/95 p-6 text-center gap-4">
             <h2 class="text-2xl md:text-4xl font-black uppercase tracking-[0.2em] text-neutral-400">

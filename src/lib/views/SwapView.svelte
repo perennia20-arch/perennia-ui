@@ -1291,17 +1291,14 @@
                 <button
                     type="button"
                     data-testid="dex-mode-fiat-btn"
-                    onclick={() => {
-                        activeDexTab = 'fiat';
-                        swapError = null;
-                    }}
+                    onclick={() => { isTokenModalOpen = false; showDexProvidersModal = false; swapError = null; activeDexTab = 'fiat'; }}
                     class="text-[11px] font-black uppercase tracking-widest pb-1 transition-all cursor-pointer border-b-2 {activeDexTab ===
                     'fiat'
                         ? 'text-[#18C6A5] border-[#18C6A5]'
                         : 'text-neutral-500 hover:text-neutral-300 border-transparent'}"
                 >
-                    Fiat
-                </button>
+							Buy / Sell
+						</button>
             </div>
             <button type="button" data-testid="dex-settings-btn" onclick={() => (showDexProvidersModal = true)} class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-mono font-bold text-neutral-300 hover:text-white flex items-center gap-1.5 cursor-pointer"><span>&#9881;</span><span>{slippagePct === 0.5 ? 'Auto' : `${slippagePct.toFixed(1)}%`}</span></button>
         </div>

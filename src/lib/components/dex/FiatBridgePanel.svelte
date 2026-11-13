@@ -1135,7 +1135,7 @@
             >
                 <div class="flex items-center justify-between flex-wrap gap-2">
                     <label
-                        for="onrampUsdInput"
+                        for="onrampFiatAmountUsd"
                         class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
                     >
                         Amount (USD)
@@ -1169,7 +1169,7 @@
                             >$</span
                         >
                         <input
-                            id="onrampUsdInput"
+                            id="onrampFiatAmountUsd"
                             data-testid="fiat-onramp-usd-input"
                             type="number"
                             min="10"
@@ -1212,7 +1212,7 @@
                             Total
                         </span>
                         <span
-                            data-testid="fiat-onramp-fee-breakdown" class:hidden={!(parseFloat(onrampUsdInput) > 0)}
+                            data-testid="fiat-onramp-fee-breakdown" class:hidden={!(parseFloat(onrampFiatAmountUsd) > 0)}
                             class="text-[#18C6A5] font-black"
                         >
                             ${onrampCostPlusQuote.totalGrossChargeUsd.toFixed(

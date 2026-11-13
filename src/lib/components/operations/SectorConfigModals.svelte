@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tangem } from '$lib/stores/tangem.svelte';
+	import { ui } from '$lib/stores/ui.svelte';
     import { fade } from 'svelte/transition';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
     import type {
@@ -498,7 +500,8 @@
                                   : `Destination ${draftSettlementConfig.targetAsset.ticker} L1 Address`}
                         </label>
                     </div>
-                    <input
+                    <div class="flex items-center justify-between gap-2 mb-1.5">{#if tangem.isPaired}<button type="button" data-testid="split-use-tangem-btn" onclick={() => (draftSettlementConfig.payoutAddress = tangem.kaspaAddress)} class="px-2.5 py-1 rounded-lg border text-[10px] font-mono font-bold cursor-pointer transition-all {draftSettlementConfig.payoutAddress === tangem.kaspaAddress ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/15 bg-[#11161f] text-neutral-300 hover:text-white'}">{draftSettlementConfig.payoutAddress === tangem.kaspaAddress ? `✓ Tangem (${tangem.shortKaspa})` : `Use Tangem (${tangem.shortKaspa})`}</button>{:else}<button type="button" data-testid="split-pair-tangem-btn" onclick={() => { ui.walletInitialView = 'tangem'; ui.showWalletModal = true; }} class="px-2.5 py-1 rounded-lg border border-white/10 bg-[#11161f] text-[10px] font-mono font-bold text-[#18C6A5] hover:border-[#18C6A5]/50 cursor-pointer">+ Pair Tangem Card</button>{/if}</div>
+<input
                         id="draftDestWallet"
                         type="text"
                         bind:value={draftSettlementConfig.payoutAddress}
