@@ -1349,7 +1349,7 @@
             class="flex flex-col gap-4 lg:col-span-6 xl:col-span-8 relative z-10 min-w-0"
             data-tour="sector-matrix"
         >
-            {#if identity.isWalletConnected || ui.isTutorialActive}
+            
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div
                         class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
@@ -1488,14 +1488,14 @@
                         </div>
                     </div>
                 </div>
-            {/if}
+            
 
             <div
-                class="flex flex-col gap-5 flex-1 border border-white/10 rounded-[32px] bg-[#0a0d12] p-5 sm:p-6 min-h-[480px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
+                class="flex flex-col gap-5 flex-1 border border-white/10 rounded-[32px] bg-[#0a0d12] p-5 sm:p-6 min-h-[260px] lg:min-h-[420px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
                 style="background-image: radial-gradient(ellipse at 50% 0%, rgba(24, 198, 165, 0.06), transparent 60%), linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px); background-size: 100% 100%, 30px 30px, 30px 30px;"
             >
                 {#if operations.sectors.length === 0}
-                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 z-0">
+                    <div class="relative z-10 flex flex-col items-center justify-center text-center py-10 px-4">
                         <h2 class="text-3xl md:text-5xl font-light uppercase tracking-[0.1em] text-white/30 mb-8 drop-shadow-lg text-center">
                             <br />
                             <span class="text-[#18C6A5]/50">Payout Splits</span>

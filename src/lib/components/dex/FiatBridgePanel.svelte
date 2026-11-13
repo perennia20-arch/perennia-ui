@@ -1098,24 +1098,7 @@
                 { step: 2, title: '02 • Rail & Delivery' },
                 { step: 3, title: '03 • Receipt' }
             ] as s (s.step)}
-                <button
-                    type="button"
-                    data-testid="fiat-step-{s.step}-btn"
-                    onclick={() => (activeStep = s.step as 1 | 2 | 3)}
-                    class="py-1.5 px-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-1 {activeStep ===
-                    s.step
-                        ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]'
-                        : activeStep > s.step
-                          ? 'bg-[#11161f] border-[#18C6A5]/25 text-white'
-                          : 'bg-[#11161f]/60 border-white/10 text-neutral-400 hover:text-white'}"
-                >
-                    <span class="text-[9px] font-mono font-black uppercase truncate">
-                        {s.title}
-                    </span>
-                    {#if activeStep > s.step}
-                        <span class="text-[9px] font-bold">✓</span>
-                    {/if}
-                </button>
+                
             {/each}
         </div>
     </div>
@@ -1217,14 +1200,7 @@
                         </span>
                     </div>
                     <div class="bg-[#0a0d12] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
-                        <span class="text-neutral-500 uppercase text-[7px]">
-                            {onrampCostPlusQuote.requiresInstitutionalWire ||
-                            onrampCostPlusQuote.paymentMethod === 'wire'
-                                ? 'Mercury Wire Gateway'
-                                : onrampCostPlusQuote.paymentMethod === 'card'
-                                  ? 'Card Fee'
-                                  : 'Bank Fee ($5 max)'}
-                        </span>
+                        
                         <span class="text-neutral-300 font-bold">
                             ${onrampCostPlusQuote.stripeGatewayFeeUsd.toFixed(
                                 2
@@ -1236,7 +1212,7 @@
                             Total
                         </span>
                         <span
-                            data-testid="fiat-onramp-fee-breakdown"
+                            data-testid="fiat-onramp-fee-breakdown" class:hidden={!(parseFloat(onrampUsdInput) > 0)}
                             class="text-[#18C6A5] font-black"
                         >
                             ${onrampCostPlusQuote.totalGrossChargeUsd.toFixed(
@@ -1872,14 +1848,7 @@
                     class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-3 py-2 flex items-center justify-between text-[9px] font-mono"
                 >
                     
-                    <button
-                        type="button"
-                        data-testid="fiat-offramp-lock-quote-cta"
-                        onclick={() => (activeStep = 2)}
-                        class="text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
-                    >
-                        Continue →
-                    </button>
+                    
                 </div>
             </div>
         </div>

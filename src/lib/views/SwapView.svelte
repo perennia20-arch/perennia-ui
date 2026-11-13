@@ -858,7 +858,12 @@
     }
 
     async function executeSupplyLiquidity() {
-        swapError = null;
+		swapError = null;
+		if (!identity.isWalletConnected) { ui.showWalletModal = true; return; }
+		if ((parseFloat(lpAmountA) || 0) > 0 && !(parseFloat(lpAmountB) > 0) && Number(lpTokenA?.spotPrice) > 0 && Number(lpTokenB?.spotPrice) > 0) {
+			const calcB = ((parseFloat(lpAmountA) * Number(lpTokenA.spotPrice)) * ((Number(lpWeightPctB) || 50) / 50)) / Number(lpTokenB.spotPrice);
+			lpAmountB = calcB >= 1 ? calcB.toFixed(2) : Number(calcB.toPrecision(4)).toString();
+		}
         const amtA = parseFloat(lpAmountA) || 0;
         const amtB = parseFloat(lpAmountB) || 0;
         if (amtA <= 0 || amtB <= 0) {
@@ -1238,23 +1243,7 @@
         </div>
 
         <!-- Hidden Playwright test hooks so chat-k-stocks-plants.spec.ts remains 100% green without cluttering the UI -->
-        <div class="sr-only">
-            {#each ['NVDA', 'SPY', 'QQQ', 'AMD', 'XAU', 'USTB'] as rwaTick (rwaTick)}
-                <button
-                    type="button"
-                    data-testid="quick-select-rwa-{rwaTick}"
-                    onclick={() => {
-                        if (payTicker === rwaTick) {
-                            payTicker = 'KAS';
-                        }
-                        receiveTicker = rwaTick;
-                        activeDexTab = 'swap';
-                    }}
-                >
-                    {rwaTick}
-                </button>
-            {/each}
-        </div>
+        
 
         <div
             class="w-full bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-2 overflow-x-auto hide-scrollbar shadow-xl"
@@ -1277,11 +1266,7 @@
                 </button>
                 <button
                     type="button"
-                    data-testid="dex-mode-lp-btn"
-                    onclick={() => {
-                        activeDexTab = 'liquidity';
-                        swapError = null;
-                    }}
+                    data-testid="dex-mode-lp-btn" onclick={() => { isTokenModalOpen = false; showDexProvidersModal = false; swapError = null; activeDexTab = 'liquidity'; }}
                     class="text-[11px] font-black uppercase tracking-widest pb-1 transition-all cursor-pointer border-b-2 {activeDexTab ===
                     'liquidity'
                         ? 'text-[#18C6A5] border-[#18C6A5]'

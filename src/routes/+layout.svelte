@@ -1277,7 +1277,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         <EntryView {enterNexus} />
     {:else}
         <div
-            class="app-wrapper min-h-[100dvh] max-lg:h-[100dvh] max-lg:max-h-[100dvh] max-lg:overflow-hidden w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden {appAwakened ? 'glow-active' : 'dormant'}"
+            class="app-wrapper min-h-[100dvh]  w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden {appAwakened ? 'glow-active' : 'dormant'}"
         >
             <header
                 class="min-h-[3.75rem] lg:h-20 bg-[#070b0e]/95 backdrop-blur-md flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
@@ -1678,7 +1678,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     <span>
                         </span>
                     <span
-                        data-testid="global-fiat-fee-breakdown"
+                        data-testid="global-fiat-fee-breakdown" class:hidden={!(parseFloat(globalFiatUsdInput) > 0)}
                         class="text-[#18C6A5] font-bold"
                     >
                         Total: ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(

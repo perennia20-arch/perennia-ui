@@ -508,10 +508,10 @@
                                 : 'bg-[#0a0d12] border-white/10 text-neutral-400 hover:text-white'}"
                         >
                             <span class="text-[10px] font-black uppercase">
-                                {opt.days === 0 ? 'Flex' : `${opt.days}d`}
+                                {opt.days === 0 ? 'Flex ' : `${opt.days}d `}
                             </span>
                             <span class="text-[8px] text-[#18C6A5] font-bold">
-                                {opt.multiplier}
+                                 {opt.multiplier}x
                             </span>
                         </button>
                     {/each}
