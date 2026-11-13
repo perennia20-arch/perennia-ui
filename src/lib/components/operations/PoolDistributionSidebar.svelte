@@ -68,7 +68,7 @@
     class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0d12] border border-white/10 rounded-[32px] p-4 shadow-2xl pb-8 w-full relative z-10"
     data-tour="bell-telemetry"
 >
-    {#if identity.isWalletConnected}
+    {#if identity.isWalletConnected || ui.isTutorialActive}
         <div class="w-full flex flex-col">
             <div
                 class="flex items-center justify-between border-b border-white/10 pb-2.5 mb-3 pointer-events-none"

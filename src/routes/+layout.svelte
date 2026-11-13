@@ -1498,8 +1498,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         {#if !identity.isWalletConnected}
                             <button
                                 type="button"
-                                onclick={() => (ui.showWalletModal = true)}
-                                class="tactile-btn px-4 md:px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
+                                data-testid="header-unlock-vault-btn" onclick={() => (ui.showWalletModal = true)} class="tactile-btn px-2.5 sm:px-4 md:px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                             >
                                 {i18n.t('header.unlock_vault')}

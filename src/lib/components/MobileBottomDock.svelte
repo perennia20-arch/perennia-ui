@@ -13,6 +13,7 @@
     return base;
   });
 </script>
+{#if !ui.isTutorialActive}
 <nav aria-label="Mobile Bottom Navigation" data-testid="mobile-bottom-dock" class="lg:hidden fixed bottom-0 inset-x-0 z-[80] frosted-carbon-dock font-mono">
   <div class="grid gap-1 pt-1.5" style="grid-template-columns: repeat({tabs.length}, minmax(0, 1fr));">
     {#each tabs as tab (tab.id)}
@@ -23,3 +24,4 @@
       </button>
     {/each}
   </div></nav>
+{/if}

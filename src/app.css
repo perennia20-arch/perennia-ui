@@ -447,3 +447,6 @@ html.theme-light .frosted-carbon-dock { background: rgba(246, 243, 233, 0.94) !i
   select, textarea, input.w-full:not([type="range"]), input.flex-1:not([type="range"]) { font-size: max(16px, 1em); }
   .mobile-touch-target { min-height: 44px; min-width: 44px; }
 }
+
+body.tutorial-active [class*="bg-[#06080b]/9"], body.tutorial-active [class*="bg-[#050505]/9"] { background-color: rgba(6, 8, 11, 0.46) !important; backdrop-filter: blur(2px) !important; }
+@media (max-width: 1023px) { body.tutorial-active [role="dialog"], body.tutorial-active [data-testid="settings-modal-card"] { max-height: calc(100dvh - 12rem) !important; } }

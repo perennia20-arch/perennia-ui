@@ -1298,7 +1298,7 @@
     let hashratePath = $derived(
         buildSvgPath(displayHashHistory, 200, 240, true)
     );
-    let pricePath = $derived(buildSvgPath(kasHistory, 200, 240, false));
+    let pricePath = $derived(buildSvgPath(kasHistory.length > 1 ? kasHistory : (ui.isTutorialActive ? [0.158, 0.161, 0.159, 0.163, 0.162, 0.165] : kasHistory), 200, 240, false));
     let activePriceDeltaPct = $derived(
         priceTimeframeDelta !== null
             ? priceTimeframeDelta
@@ -1349,7 +1349,7 @@
             class="flex flex-col gap-4 lg:col-span-6 xl:col-span-8 relative z-10 min-w-0"
             data-tour="sector-matrix"
         >
-            {#if identity.isWalletConnected}
+            {#if identity.isWalletConnected || ui.isTutorialActive}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div
                         class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
