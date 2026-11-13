@@ -1,5 +1,5 @@
-// Perennia Network-First PWA Service Worker (perennia-pwa-1794613201728)
-const CACHE_NAME = 'perennia-pwa-1794613201728';
+// Perennia Network-First PWA Service Worker (perennia-pwa-1794613453148)
+const CACHE_NAME = 'perennia-pwa-1794613453148';
 const PRECACHE_URLS = ['/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {

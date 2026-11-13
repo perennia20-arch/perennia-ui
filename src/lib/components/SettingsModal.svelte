@@ -303,6 +303,8 @@ import { pwa } from '$lib/stores/pwa.svelte';
   {#if smAuthError}<p data-testid="settings-auth-error" class="text-[10px] font-mono text-red-400">{smAuthError}</p>{/if}
 </div>
 
+
+
                 <!-- INTERACTIVE PLATFORM GUIDE & TOUR LAUNCHER -->
                 {#if !pwa.isStandalone}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-3.5 flex items-center justify-between gap-3"><div class="flex flex-col"><span class="text-[10px] font-black uppercase tracking-widest text-white">Standalone App Mode</span><span class="text-[9px] text-neutral-400">Add to Home Screen or Dock</span></div><button type="button" data-testid="settings-install-app-btn" onclick={() => { settingsStore.showSettingsModal = false; pwa.handleInstallClick(); }} class="tactile-btn mobile-touch-target px-3.5 py-2 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-[9px] font-black uppercase shrink-0">Install App</button></div>{/if}
 <div data-testid="settings-guide-section"
