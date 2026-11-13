@@ -220,7 +220,7 @@ let mobileFleetExpanded = $state(false);
     >
         <div class="flex items-center justify-between">
             <h2 class="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                Master Pool Telemetry
+                
             </h2>
             <span
                 class="w-2 h-2 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] shadow-[0_0_8px_rgba(24,198,165,0.8)] animate-pulse' : 'bg-neutral-600'}"
@@ -236,7 +236,7 @@ let mobileFleetExpanded = $state(false);
         </div>
         <div class="flex items-center justify-between border-t border-white/10 pt-2.5">
             <span class="text-[9px] uppercase tracking-wider text-neutral-400 font-bold font-mono">
-                Verified Shares
+                Shares
             </span>
             <span class="text-xs font-mono font-black text-amber-400 leading-none tabular-nums whitespace-nowrap">
                 {totalShares.toLocaleString()}
@@ -244,16 +244,16 @@ let mobileFleetExpanded = $state(false);
         </div>
     </div>
 
-    <div data-testid="mobile-worker-pills-bar" class="lg:hidden flex items-center gap-2 overflow-x-auto hide-scrollbar py-0.5"><button type="button" onclick={() => (mobileFleetExpanded = !mobileFleetExpanded)} class="tactile-btn mobile-touch-target shrink-0 px-3 py-2 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-mono font-black uppercase flex items-center gap-1.5"><span>Workers ({displayedWorkers.filter((w) => w.isOnline && w.hashRate > 0).length}/{displayedWorkers.length})</span><span>{mobileFleetExpanded ? '▴' : '▾'}</span></button>{#each displayedWorkers as pillW (pillW.id)}<button type="button" onclick={() => { mobileFleetExpanded = true; }} class="shrink-0 px-3 py-2 rounded-xl bg-[#0a0d12] border border-white/10 flex items-center gap-2 text-[10px] font-mono"><span class="w-2 h-2 rounded-full {pillW.isOnline && pillW.hashRate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span><span class="font-bold text-white">{pillW.name}</span><span class="text-[#18C6A5] tabular-nums">{pillW.hashRate.toFixed(2)}T</span></button>{/each}</div><div class="grid grid-cols-2 lg:grid-cols-1 gap-2.5"><button type="button" onclick={createManualWorker} disabled={!identity.isWalletConnected || identity.isWatchOnly} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Add Worker</button><button type="button" onclick={onOpenSectorModal} disabled={!identity.isWalletConnected || identity.isWatchOnly || unallocatedPercentage <= 0} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Break Off Sector</button></div>
+    <div data-testid="mobile-worker-pills-bar" class="lg:hidden flex items-center gap-2 overflow-x-auto hide-scrollbar py-0.5"><button type="button" onclick={() => (mobileFleetExpanded = !mobileFleetExpanded)} class="tactile-btn mobile-touch-target shrink-0 px-3 py-2 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-mono font-black uppercase flex items-center gap-1.5"><span>Miners ({displayedWorkers.filter((w) => w.isOnline && w.hashRate > 0).length}/{displayedWorkers.length})</span><span>{mobileFleetExpanded ? '▴' : '▾'}</span></button>{#each displayedWorkers as pillW (pillW.id)}<button type="button" onclick={() => { mobileFleetExpanded = true; }} class="shrink-0 px-3 py-2 rounded-xl bg-[#0a0d12] border border-white/10 flex items-center gap-2 text-[10px] font-mono"><span class="w-2 h-2 rounded-full {pillW.isOnline && pillW.hashRate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span><span class="font-bold text-white">{pillW.name}</span><span class="text-[#18C6A5] tabular-nums">{pillW.hashRate.toFixed(2)}T</span></button>{/each}</div><div class="grid grid-cols-2 lg:grid-cols-1 gap-2.5"><button type="button" onclick={createManualWorker} disabled={!identity.isWalletConnected || identity.isWatchOnly} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Miner</button><button type="button" onclick={onOpenSectorModal} disabled={!identity.isWalletConnected || identity.isWatchOnly || unallocatedPercentage <= 0} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Split</button></div>
 
     <div class="{mobileFleetExpanded || ui.isTutorialActive || activeWorkerMenu !== null || displayedWorkers.length === 0 ? 'flex' : 'hidden lg:flex'} flex-col gap-2.5 mt-1 lg:mt-2">
         {#if displayedWorkers.length === 0}
             <div class="flex-1 border border-dashed border-white/10 rounded-2xl flex items-center justify-center bg-[#0a0d12] p-6 text-center pointer-events-none min-h-[150px]">
                 <p class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold leading-relaxed">
                     {#if !identity.isWalletConnected}
-                        Connect wallet
+                        Log in
                     {:else}
-                        No hardware provisioned
+                        No miners yet
                     {/if}
                 </p>
             </div>
@@ -338,7 +338,7 @@ let mobileFleetExpanded = $state(false);
                             onclick={() => renameWorkerAction(worker)}
                             class="w-full text-left px-3.5 py-2.5 rounded-xl text-[11px] uppercase tracking-widest font-black text-neutral-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer flex items-center justify-between gap-2"
                         >
-                            <span class="pointer-events-none shrink-0">Rename Worker</span>
+                            <span class="pointer-events-none shrink-0">Rename</span>
                             <span class="text-[10px] font-mono text-neutral-400 pointer-events-none truncate">{worker.name} ✎</span>
                         </button>
                         <button
@@ -355,7 +355,7 @@ let mobileFleetExpanded = $state(false);
                         >
                             <div class="flex flex-col gap-0.5 pointer-events-none">
                                 <span class="text-[11px] uppercase tracking-widest font-black text-white">
-                                    Miner Type (Select ASIC)
+                                    Model
                                 </span>
                                 <span class="text-[10px] font-mono text-[#18C6A5] font-bold">
                                     {formatHardwareName(worker)}
@@ -430,7 +430,7 @@ let mobileFleetExpanded = $state(false);
                                     Stratum Address ({formatPortTierLabel(portTelemetry.port, portTelemetry.tierLabel)})
                                 </span>
                                 <span class="text-[9px] font-mono font-black {isStratumCopied ? 'text-[#18C6A5]' : 'text-[#18C6A5]/80 group-hover:text-[#18C6A5]'}">
-                                    {isStratumCopied ? '✓ COPIED' : '[Click to Copy]'}
+                                    {isStratumCopied ? '✓ COPIED' : 'Copy'}
                                 </span>
                             </div>
                             <span class="text-xs font-mono font-bold text-[#18C6A5] break-all leading-snug pointer-events-none">
@@ -451,7 +451,7 @@ let mobileFleetExpanded = $state(false);
                                     Wallet.Worker
                                 </span>
                                 <span class="text-[9px] font-mono font-black {isWalletCopied ? 'text-blue-400' : 'text-blue-400/80 group-hover:text-blue-400'}">
-                                    {isWalletCopied ? '✓ COPIED' : '[Click to Copy]'}
+                                    {isWalletCopied ? '✓ COPIED' : 'Copy'}
                                 </span>
                             </div>
                             <span class="text-[11px] font-mono font-bold text-blue-400 break-all leading-snug pointer-events-none">
@@ -464,7 +464,7 @@ let mobileFleetExpanded = $state(false);
                             onclick={() => deleteWorkerAction(worker.id)}
                             class="w-full text-left px-3.5 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors cursor-pointer"
                         >
-                            Delete Worker
+                            Remove
                         </button>
                     </div>
                 {/if}
@@ -472,7 +472,7 @@ let mobileFleetExpanded = $state(false);
                 <div class="grid grid-cols-3 items-end gap-1.5 border-t border-white/10 pt-2.5 mt-0.5">
                     <div class="flex flex-col min-w-0">
                         <span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">
-                            Live Hash
+                            Hashrate
                         </span>
                         <span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.hashRate > 0 ? 'text-white' : 'text-neutral-500'}">
                             {worker.hashRate.toFixed(2)} <span class="text-[9px] text-neutral-400 font-normal">TH/s</span>

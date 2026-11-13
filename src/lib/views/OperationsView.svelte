@@ -1328,7 +1328,7 @@
 {/if}
 
 <div class="w-full h-full p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto bg-transparent" role="presentation">
-<div data-testid="mobile-kpi-ribbon" class="lg:hidden flex items-stretch gap-2.5 overflow-x-auto snap-x snap-mandatory hide-scrollbar -mx-1 px-1 pb-1 font-mono"><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>Pool Hash</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{displayHashrate.toFixed(2)} <span class="text-[9px] text-[#18C6A5]">TH/s</span></span></div><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">KAS / USD</span><div class="flex items-baseline gap-1.5 mt-0.5"><span class="text-sm font-black text-white tabular-nums">${treasury.getAsset('KAS').spotPrice.toFixed(4)}</span><span class="text-[8px] font-bold {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">{activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%</span></div></div><div class="snap-start shrink-0 min-w-[152px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">DAA / Consensus</span><span class="text-xs font-black text-blue-400 tabular-nums mt-0.5 truncate">{operations.virtualDaaScore > 0 ? operations.virtualDaaScore.toLocaleString() : operations.networkDifficulty > 0 ? operations.networkDifficulty.toExponential(2) : (operations.globalNodeStatus === 'connected' ? 'DAG ONLINE' : 'STANDBY')}</span></div><div class="snap-start shrink-0 min-w-[158px] bg-[#0a0d12] border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">22:00 UTC Bell</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{operations.formatEpochCountdown()}</span></div></div>
+<div data-testid="mobile-kpi-ribbon" class="lg:hidden flex items-stretch gap-2.5 overflow-x-auto snap-x snap-mandatory hide-scrollbar -mx-1 px-1 pb-1 font-mono"><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>Hashrate</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{displayHashrate.toFixed(2)} <span class="text-[9px] text-[#18C6A5]">TH/s</span></span></div><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">KAS / USD</span><div class="flex items-baseline gap-1.5 mt-0.5"><span class="text-sm font-black text-white tabular-nums">${treasury.getAsset('KAS').spotPrice.toFixed(4)}</span><span class="text-[8px] font-bold {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">{activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%</span></div></div><div class="snap-start shrink-0 min-w-[152px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">Blocks</span><span class="text-xs font-black text-blue-400 tabular-nums mt-0.5 truncate">{operations.virtualDaaScore > 0 ? operations.virtualDaaScore.toLocaleString() : operations.networkDifficulty > 0 ? operations.networkDifficulty.toExponential(2) : (operations.globalNodeStatus === 'connected' ? 'DAG ONLINE' : 'STANDBY')}</span></div><div class="snap-start shrink-0 min-w-[158px] bg-[#0a0d12] border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">Next Payout</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{operations.formatEpochCountdown()}</span></div></div>
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
         <WorkerFleetPanel
             {displayedWorkers}
@@ -1361,7 +1361,7 @@
                                     <div
                                         class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"
                                     ></div>
-                                    Live Hash Power
+                                    Hashrate
                                 </span>
                                 <span class="text-2xl font-mono font-light text-white tracking-tight mt-0.5 whitespace-nowrap tabular-nums">
                                     {displayHashrate.toFixed(2)}
@@ -1424,7 +1424,7 @@
                             <div class="flex flex-col pointer-events-none">
                                 <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
                                     <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                                    KAS / USD Price
+                                    KAS Price
                                 </span>
                                 <div class="flex items-baseline gap-2 mt-0.5">
                                     <span class="text-2xl font-mono font-light text-white tracking-tight tabular-nums">
@@ -1497,8 +1497,8 @@
                 {#if operations.sectors.length === 0}
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 z-0">
                         <h2 class="text-3xl md:text-5xl font-light uppercase tracking-[0.1em] text-white/30 mb-8 drop-shadow-lg text-center">
-                            Single-Sided<br />
-                            <span class="text-[#18C6A5]/50">Liquidity Routing</span>
+                            <br />
+                            <span class="text-[#18C6A5]/50">Payout Splits</span>
                         </h2>
                         <div class="relative w-24 h-24 rounded-full bg-[#18C6A5]/5 border border-[#18C6A5]/20 flex items-center justify-center mb-6 shadow-inner">
                             <svg
@@ -1512,9 +1512,9 @@
                             </svg>
                         </div>
                         <p class="text-[11px] uppercase tracking-widest text-neutral-400 font-bold text-center leading-relaxed">
-                            100% Direct L1 KAS Stream Active (Auto-Payout at 50 KAS)<br />
+                            100% KAS → Wallet (50 KAS min • 1% fee)<br />
                             <span class="text-[10px] font-mono text-neutral-500 font-normal mt-2 block">
-                                Click "+ Break Off Sector" to route hashpower into any Asset Silo or 50% KAS Liquidity Plant
+                                
                             </span>
                         </p>
                     </div>
@@ -1524,7 +1524,7 @@
                             <div class="flex flex-col gap-3" data-testid="settlement-silos-section">
                                 <div class="flex items-center justify-between border-b border-[#18C6A5]/25 pb-2">
                                     <h3 class="text-[10px] font-bold uppercase tracking-widest text-[#18C6A5]">
-                                        Settlement Silos
+                                        Token Splits
                                     </h3>
                                     <span class="text-[9px] font-mono text-neutral-400">
                                         {siloSectors.length} Active Silo{siloSectors.length === 1 ? '' : 's'}
@@ -1570,7 +1570,7 @@
                             <div class="flex flex-col gap-3 mt-2" data-testid="liquidity-plants-section">
                                 <div class="flex items-center justify-between border-b border-blue-500/25 pb-2">
                                     <h3 class="text-[10px] font-bold uppercase tracking-widest text-blue-400">
-                                        Liquidity Plants
+                                        Pool Splits
                                     </h3>
                                     <span class="text-[9px] font-mono text-neutral-400">
                                         {plantSectors.length} Active Plant{plantSectors.length === 1 ? '' : 's'}

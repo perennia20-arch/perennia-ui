@@ -1782,14 +1782,14 @@
     {#if !identity.isWalletConnected}
         <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#06080b]/95 p-6 text-center gap-4">
             <h2 class="text-2xl md:text-4xl font-black uppercase tracking-[0.2em] text-neutral-400">
-                WALLET LOCKED
+                Log In Required
             </h2>
             <button
                 type="button"
                 onclick={() => (ui.showWalletModal = true)}
                 class="tactile-btn px-6 py-3 rounded-xl text-[#18C6A5] border-[#18C6A5]/40 text-xs font-black uppercase tracking-widest cursor-pointer"
             >
-                Unlock Wallet
+                Log In
             </button>
         </div>
     {/if}
@@ -2635,7 +2635,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/10 pt-5">
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Wallet Balance (On-Chain)
+                            In Wallet
                         </span>
                         <span class="text-xs font-mono font-black text-[#18C6A5] tabular-nums">
                             ${totalOnChainUsd.toLocaleString(undefined, {
@@ -2648,7 +2648,7 @@
                     </div>
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Pending Settlement
+                            Pending
                         </span>
                         <span class="text-xs font-mono font-black text-amber-400 tabular-nums">
                             ${totalBatchQueueUsd.toLocaleString(undefined, {
@@ -2661,7 +2661,7 @@
                     </div>
                     <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Staked in Liquidity Pools
+                            In Pools
                         </span>
                         <span class="text-xs font-mono font-black text-blue-400 tabular-nums">
                             ${totalStakedLpUsd.toLocaleString(undefined, {
@@ -2738,7 +2738,7 @@
                             Perennia Wallet
                         </span>
                         <span class="text-[9px] text-neutral-500 mt-0.5">
-                            Manage networks, token balances, and cold storage rules
+                            
                         </span>
                     </div>
                 </button>
@@ -2879,7 +2879,7 @@
                         }}
                         class="tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
                     >
-                        {isManagingNetworks ? 'Done Chains' : 'Manage Chains'}
+                        {isManagingNetworks ? 'Done' : 'Chains'}
                     </button>
                 </div>
             </div>

@@ -96,7 +96,7 @@
         cooldownStaked: 0,
         combinedEligibleStaked: 0,
         feeRateCap: 0.015,
-        tierLabel: '1.50% Standard Tier',
+        tierLabel: '1.50%',
         positions: []
     });
 
@@ -1331,7 +1331,7 @@
                             )}
                         class="tactile-btn px-3 py-1 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
                     >
-                        [Download Wire Slip PDF ↓]
+                        Wire PDF
                     </button>
                 {/if}
                 {#if lastSwapExplorerUrl && lastSwapExplorerUrl !== '#'}
@@ -1381,7 +1381,7 @@
                     <span
                         class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
                     >
-                        You Pay
+                        Pay
                     </span>
                     <div class="flex items-center gap-1.5">
                         {#each [0.25, 0.5, 0.75, 1.0] as pct}
@@ -1463,7 +1463,7 @@
                         })}
                     </span>
                     <span>
-                        Available: {payToken.availableBalance.toLocaleString(
+                        Balance: {payToken.availableBalance.toLocaleString(
                             undefined,
                             {
                                 minimumFractionDigits: 2,
@@ -1498,7 +1498,7 @@
                         class="text-[10px] font-black uppercase tracking-widest"
                         style="color: {ambientSecondaryHex};"
                     >
-                        You Receive (Est.)
+                        You Get
                     </span>
                     <span
                         class="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-400"
@@ -1590,7 +1590,7 @@
                         })}
                     </span>
                     <span>
-                        Available: {receiveToken.availableBalance.toLocaleString(
+                        Balance: {receiveToken.availableBalance.toLocaleString(
                             undefined,
                             {
                                 minimumFractionDigits: 2,
@@ -1610,7 +1610,7 @@
                     <span
                         class="text-neutral-400 uppercase tracking-widest font-bold"
                     >
-                        Live Oracle Rate
+                        Rate
                     </span>
                     <span
                         data-testid="dex-oracle-rate-readout"
@@ -1626,7 +1626,7 @@
                     <span
                         class="text-neutral-400 uppercase tracking-widest font-bold"
                     >
-                        Active Fee Tier
+                        Fee
                     </span>
                     <span class="text-white font-bold">
                         <span data-testid="dex-active-fee-pct"
@@ -1668,9 +1668,9 @@
                     {#if isExecuting}
                         Executing {payToken.ticker} → {receiveToken.ticker} Swap...
                     {:else if !payAmount || parseFloat(payAmount) <= 0}
-                        Enter Swap Amount
+                        Enter Amount
                     {:else}
-                        Review &amp; Execute {payToken.ticker} → {receiveToken.ticker}
+                        Swap {payToken.ticker} → {receiveToken.ticker}
                         Swap
                     {/if}
                 </button>

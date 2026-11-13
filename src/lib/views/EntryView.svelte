@@ -31,11 +31,11 @@ import { pwa } from '$lib/stores/pwa.svelte';
     style="background-image: radial-gradient(ellipse at 50% 35%, rgba(24, 198, 165, 0.10), transparent 65%);"
 >
     <h1 class="subliminal-text text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-[0_0_15px_rgba(255,255,255,0.08)] mb-4 text-center">
-        Welcome to Perennia
+        PERENNIA
     </h1>
 
     <p class="text-[#18C6A5]/85 tracking-[0.4em] uppercase text-[10px] md:text-xs mb-12 text-center">
-        Tokenize Anything. Liquidate Everything.
+        
     </p>
 
     <div class="flex flex-col items-center gap-4 z-10 max-w-sm w-full px-6">
@@ -47,17 +47,17 @@ import { pwa } from '$lib/stores/pwa.svelte';
             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
         >
             <span class="relative z-10 text-neutral-300 group-hover:text-[#18C6A5] font-black tracking-[0.3em] uppercase text-xs transition-colors duration-300 pointer-events-none flex items-center justify-center gap-2">
-                Enter Nexus
+                Open App
             </span>
         </button>
 {#if !pwa.isStandalone}
-<button type="button" data-testid="entry-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target w-full px-6 py-3.5 rounded-2xl border border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-[0.22em] flex items-center justify-center gap-2"><span>&#x2B07; Install Standalone App</span></button>
+<button type="button" data-testid="entry-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target w-full px-6 py-3.5 rounded-2xl border border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-[0.22em] flex items-center justify-center gap-2"><span>&#x2B07; Install App</span></button>
 {/if}
     </div>
 
     <div class="absolute bottom-8 opacity-60 flex flex-col items-center gap-2 pointer-events-none">
         <p class="text-neutral-500 text-[9px] uppercase tracking-widest font-mono">
-            Sovereign Matrix Subsystem • Perennia LLC
+            
         </p>
         <div class="w-px h-8 bg-gradient-to-b from-white/15 to-transparent"></div>
     </div>

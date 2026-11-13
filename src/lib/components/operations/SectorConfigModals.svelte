@@ -158,7 +158,7 @@
             <div class="p-6 border-b border-white/10 bg-[#11161f] flex justify-between items-center shrink-0">
                 <div class="flex flex-col">
                     <h2 class="text-white font-black uppercase tracking-widest text-lg leading-none">
-                        Deploy Sector
+                        New Payout Split
                     </h2>
                     <span
                         data-testid="sector-architecture-badge"
@@ -185,7 +185,7 @@
                         for="draftSectorNameInput"
                         class="text-[10px] text-neutral-400 uppercase tracking-widest font-bold ml-1"
                     >
-                        Sector Identifier
+                        Name
                     </label>
                     <input
                         id="draftSectorNameInput"
@@ -199,7 +199,7 @@
                 <div class="flex flex-col gap-3">
                     <div class="flex justify-between items-end">
                         <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                            Work Share Allocation
+                            Hashrate %
                         </span>
                         <div class="flex items-center gap-2">
                             <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1 shadow-inner">
@@ -240,7 +240,7 @@
                                     ))}
                                 class="tactile-btn py-2 rounded-lg text-[10px] font-mono font-bold text-neutral-300 hover:text-white cursor-pointer"
                             >
-                                {pct === 100 ? 'MAX REM' : `${pct}%`}
+                                {pct === 100 ? 'MAX' : `${pct}%`}
                             </button>
                         {/each}
                     </div>
@@ -250,10 +250,10 @@
                     <div class="flex items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-[10px] font-black text-white uppercase tracking-widest">
-                                Target Asset Routing Matrix
+                                Get Paid In
                             </span>
                             <span class="text-[9px] text-neutral-400">
-                                1 Asset = Silo • 2+ Assets = 50% KAS Liquidity Plant
+                                
                             </span>
                         </div>
                         {#if isDraftMultiAssetPlant && draftSelectedAssets.length > 2}
@@ -262,7 +262,7 @@
                                 onclick={() => onEqualizeSecondaryWeights('create')}
                                 class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase text-blue-400 border-blue-500/35 cursor-pointer"
                             >
-                                [Equalize 50% Split]
+                                50/50
                             </button>
                         {/if}
                     </div>
@@ -351,7 +351,7 @@
                                 }}
                                 class="tactile-btn w-full py-2.5 rounded-xl border-blue-500/40 text-blue-400 text-[10px] font-black uppercase tracking-widest cursor-pointer"
                             >
-                                + Add 2nd Asset (Auto-Transform into 50% KAS Liquidity Plant)
+                                + Pair Token (50% KAS Pool)
                             </button>
                         </div>
                     {:else}
@@ -364,7 +364,7 @@
                                     ⚡ {draftSelectedAssets.length}-Asset Liquidity Plant ({draftInternalPairsCount} Internal Pairs)
                                 </span>
                                 <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[8px] font-mono font-bold text-[#18C6A5]">
-                                    w_KAS = 50.0% LOCKED
+                                    50% KAS
                                 </span>
                             </div>
                             <div
@@ -377,10 +377,10 @@
                                     </span>
                                     <div class="flex flex-col">
                                         <span class="text-xs font-bold text-white">
-                                            KAS (Permanent Anchor Reserve)
+                                            KAS (50%)
                                         </span>
                                         <span class="text-[8px] font-mono text-neutral-400">
-                                            Constant-Mean Invariant Anchor
+                                            
                                         </span>
                                     </div>
                                 </div>
@@ -462,7 +462,7 @@
                                     }}
                                     class="tactile-btn w-full py-2.5 rounded-xl border-blue-500/40 text-blue-400 text-[10px] font-black uppercase tracking-widest cursor-pointer"
                                 >
-                                    + Add Another Secondary Asset to Liquidity Plant
+                                    + Add Token
                                 </button>
                             {/if}
                         </div>
@@ -481,7 +481,7 @@
                             </span>
                         </div>
                         <p class="text-[9px] text-neutral-400 leading-relaxed">
-                            At the 22:00 UTC Global Settlement, if this silo has accrued ≥$25.00 USD in KAS and your AES-256-GCM bank rail is saved, Chronos automatically converts your KAS into an ACH/Wire payout in the Treasury Dispatch Queue.
+                            Paid daily at 22:00 UTC ($25 min).
                         </p>
                     </div>
                 {/if}
@@ -510,7 +510,7 @@
                 <div class="flex items-center justify-between bg-[#11161f] border border-white/10 rounded-xl p-4">
                     <div class="flex flex-col">
                         <span class="text-xs uppercase tracking-widest text-neutral-200 font-bold">
-                            Auto-Settlement Pipeline
+                            Schedule
                         </span>
                         <span class="text-[10px] text-neutral-400 leading-tight mt-0.5">
                             {isDraftMultiAssetPlant
@@ -574,7 +574,7 @@
                     class="tactile-btn flex-[2] py-3.5 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white font-black uppercase tracking-widest text-xs rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                 >
-                    Initialize Sector
+                    Save Split
                 </button>
             </div>
         </div>
@@ -604,7 +604,7 @@
                         for="editSectorNameInput"
                         class="text-[10px] text-neutral-400 uppercase tracking-widest font-bold ml-1"
                     >
-                        Sector Identifier
+                        Name
                     </label>
                     <input
                         id="editSectorNameInput"
@@ -618,7 +618,7 @@
                 {#if !isEditMultiAssetPlant}
                     <div class="flex flex-col gap-2">
                         <span class="text-[10px] text-neutral-400 uppercase tracking-widest font-bold ml-1 block">
-                            Target Asset Route (1 Asset = Settlement Silo)
+                            Get Paid In
                         </span>
                         <button
                             type="button"
@@ -661,7 +661,7 @@
                             }}
                             class="tactile-btn w-full py-2.5 rounded-xl border-blue-500/40 text-blue-400 text-[10px] font-black uppercase tracking-widest cursor-pointer"
                         >
-                            + Add 2nd Asset (Transform into 50% KAS Liquidity Plant)
+                            + Pair Token (50% KAS Pool)
                         </button>
                     </div>
                 {:else}
@@ -676,7 +676,7 @@
                                     onclick={() => onEqualizeSecondaryWeights('edit')}
                                     class="text-[8px] font-mono text-[#18C6A5] hover:underline cursor-pointer"
                                 >
-                                    [Equalize]
+                                    50/50
                                 </button>
                             {/if}
                         </div>
@@ -728,7 +728,7 @@
                                 }}
                                 class="tactile-btn w-full py-2 rounded-xl border-blue-500/40 text-blue-400 text-[9px] font-black uppercase tracking-widest cursor-pointer"
                             >
-                                + Add Secondary Asset
+                                + Add Token
                             </button>
                         {/if}
                     </div>
@@ -752,7 +752,7 @@
                     <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3">
                         <div class="flex flex-col">
                             <span class="text-[9px] font-mono uppercase tracking-wider text-neutral-400">
-                                Accrued Queue Balance
+                                Pending
                             </span>
                             <span class="text-xs font-mono font-bold text-white tabular-nums">
                                 {modalPendingKas.toFixed(6)} KAS
@@ -769,7 +769,7 @@
                             disabled={isPullingOutKey === settlementModalSilo.id}
                             class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40"
                         >
-                            [Reclaim to KAS Ledger]
+                            Move to KAS
                         </button>
                     </div>
                 {/if}
@@ -795,7 +795,7 @@
                     class="tactile-btn flex-[2] py-3 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white font-black uppercase tracking-widest text-xs rounded-xl cursor-pointer disabled:opacity-40"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                 >
-                    Update Protocol
+                    Save
                 </button>
             </div>
         </div>
@@ -828,7 +828,7 @@
                             : 'Select Target Asset'}
                     </h3>
                     <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
-                        Crypto • Wall Street Equities • Gold/T-Bills • Mineable KRC-20s
+                        
                     </span>
                 </div>
                 <div class="w-8"></div>

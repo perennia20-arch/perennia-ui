@@ -1502,7 +1502,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                             >
                                 {i18n.t('header.unlock_vault')}
-                                <span class="sr-only">Unlock Vault</span>
+                                <span class="sr-only">Log In</span>
                             </button>
                         {:else}
                             <div
@@ -1721,7 +1721,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         {i18n.t('dex.you_receive')}
                     </span>
                     <span class="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-400">
-                        {selectedGlobalTargetAsset.assetClass.toUpperCase()} • 24/7 ORACLE
+                        {selectedGlobalTargetAsset.assetClass.toUpperCase()} 
                     </span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
@@ -1896,7 +1896,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             ? 'bg-[#161d29] text-white border border-white/15'
                             : 'text-neutral-400 hover:text-white'}"
                     >
-                        Wallet (L1)
+                        Wallet
                     </button>
                     <button
                         type="button"
@@ -1909,7 +1909,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             ? 'bg-[#161d29] text-white border border-white/15'
                             : 'text-neutral-400 hover:text-white'}"
                     >
-                        Platform ($0 Gas)
+                        Balance ($0 Gas)
                     </button>
                     <button
                         type="button"
@@ -1943,7 +1943,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            ACH ($5 Cap @ $625+)
+                            Bank ACH ($5 max)
                         </button>
                         <button
                             type="button"
@@ -1958,7 +1958,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            Card (2.9%+$0.30)
+                            Card (2.9%)
                         </button>
                         <button
                             type="button"
@@ -1974,7 +1974,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-amber-400 border-amber-500/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            Mercury Wire ($100k+)
+                            Wire ($100k+)
                         </button>
                     </div>
                     {#if globalFiatGatewayMethod !== 'wire' && !globalCostPlusPreview.requiresInstitutionalWire}
@@ -2018,10 +2018,10 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         <div class="flex items-center justify-between">
                             <span class="text-amber-400 font-black uppercase">
-                                🏛️ Column N.A. / Mercury Wire (*9901)
+                                Wire Details ($0 Fee)
                             </span>
                             <span class="text-[#18C6A5] font-bold">
-                                0.20% Institutional Tier • $0 Gateway Fee
+                                
                             </span>
                         </div>
                         <div class="grid grid-cols-2 gap-2 text-[8px]">
@@ -2052,14 +2052,14 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         <div class="flex items-center justify-between">
                             <span class="text-[9px] font-bold uppercase text-neutral-300">
-                                Bank Account Details
+                                Bank Account
                             </span>
                             <button
                                 type="button"
                                 onclick={fillTestBankCredentials}
                                 class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
                             >
-                                [Use Test Bank]
+                                Test Bank
                             </button>
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2068,7 +2068,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     for="inlineAbaRouting"
                                     class="text-[8px] font-bold uppercase text-neutral-400"
                                 >
-                                    9-Digit Routing Number
+                                    Routing #
                                 </label>
                                 <input
                                     id="inlineAbaRouting"
@@ -2166,7 +2166,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     )}
                                 class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
                             >
-                                [Receipt PDF ↓]
+                                Receipt PDF
                             </button>
                         </div>
                     </div>

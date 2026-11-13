@@ -1,15 +1,20 @@
 import { test, expect } from '@playwright/test';
-test('Tutorial spotlight features live UI without covering mobile or desktop screen', async ({ page }) => {
+test('Plain-English UI & 3-Step Quick Start (Do / Get / Fee) without jargon', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/');
+  await expect(page.locator('body')).not.toContainText('Enter Nexus');
   await page.getByTestId('enter-nexus-btn').click();
+  await expect(page.locator('body')).toContainText('Perennia Wallet');
+  await expect(page.locator('body')).not.toContainText('11-Chain Sovereign');
+  await expect(page.locator('body')).not.toContainText('Sovereign Matrix');
   await page.getByTestId('wallet-modal-tour-launch-btn').click();
   const card = page.getByTestId('tutorial-floating-card'), spot = page.getByTestId('tutorial-spotlight-cutout');
-  for (const ch of [1, 2, 3, 4, 5, 6, 7]) {
-    if (ch > 1) await card.getByRole('button', { name: ch === 2 ? 'SILO' : ch === 3 ? 'Workers' : ch === 4 ? 'Sectors' : ch === 5 ? 'Exchange' : ch === 6 ? 'Treasury' : 'Tax' }).click();
-    await expect(spot).toBeVisible(); await expect(card).toBeVisible();
-    const cb = await card.boundingBox(), sb = await spot.boundingBox();
-    expect((cb?.height || 999) < 235).toBeTruthy(); expect((sb?.width || 0) >= 24).toBeTruthy();
-  }
-  await page.setViewportSize({ width: 1600, height: 1000 }); await page.waitForTimeout(250);
-  await expect(spot).toBeVisible();
+  await expect(card).toContainText('1/3 • Mine'); await expect(spot).toBeVisible();
+  await page.getByTestId('tutorial-continue-btn').click();
+  await expect(card).toContainText('2/3 • Trade');
+  await page.getByTestId('tutorial-continue-btn').click();
+  await expect(card).toContainText('3/3 • Wallet');
+  await page.getByTestId('tutorial-continue-btn').click();
+  await expect(card).toBeHidden();
+  await page.setViewportSize({ width: 1600, height: 1000 }); await page.waitForTimeout(200);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

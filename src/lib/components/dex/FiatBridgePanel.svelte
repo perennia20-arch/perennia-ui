@@ -807,7 +807,7 @@
             offrampSourceMode === 'ledger_kas' ||
             offrampSourceMode === 'ledger_usdc';
         if (isLedgerSale && parsedCrypto > offrampAvailableSourceBalance + 1e-8) {
-            offrampError = `Insufficient ${offrampAssetTicker} in Platform Balance (${offrampAvailableSourceBalance.toFixed(4)} available).`;
+            offrampError = `Insufficient ${offrampAssetTicker} in Balance (${offrampAvailableSourceBalance.toFixed(4)} available).`;
             return;
         }
         try {
@@ -1081,7 +1081,7 @@
                     ? 'text-[#18C6A5] border-[#18C6A5]/45'
                     : 'text-neutral-400 border-transparent'}"
             >
-                Buy with USD
+                Buy
             </button>
             <button
                 type="button"
@@ -1096,7 +1096,7 @@
                     ? 'text-[#18C6A5] border-[#18C6A5]/45'
                     : 'text-neutral-400 border-transparent'}"
             >
-                Sell for USD
+                Sell
             </button>
         </div>
         <div class="grid grid-cols-3 gap-1.5">
@@ -1162,7 +1162,7 @@
                         for="onrampUsdInput"
                         class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
                     >
-                        USD Principal to Convert
+                        Pay (USD)
                     </label>
                     <div class="flex items-center gap-1 flex-wrap">
                         {#each [
@@ -1215,7 +1215,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-white/10 text-[9px] font-mono">
                     <div class="bg-[#0a0d12] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
                         <span class="text-neutral-500 uppercase text-[7px]">
-                            Perennia Tier Fee ({onrampCostPlusQuote.protocolFeeFloorPct.toFixed(
+                            Fee ({onrampCostPlusQuote.protocolFeeFloorPct.toFixed(
                                 2
                             )}%)
                         </span>
@@ -1240,7 +1240,7 @@
                     </div>
                     <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-2.5 py-1.5 flex flex-col">
                         <span class="text-[#18C6A5] uppercase text-[7px] font-bold">
-                            Total Gross Charge
+                            Total
                         </span>
                         <span
                             data-testid="fiat-onramp-fee-breakdown"
@@ -1276,10 +1276,10 @@
                         class="text-[10px] font-black uppercase tracking-widest transition-colors duration-300"
                         style="color: {activeThemeHex};"
                     >
-                        You Receive (100% Principal Converted)
+                        You Get
                     </span>
                     <span class="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-400">
-                        {onrampAssetObj.assetClass.toUpperCase()} • 24/7 ORACLE
+                        {onrampAssetObj.assetClass.toUpperCase()} 
                     </span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
@@ -1461,7 +1461,7 @@
                         ? 'bg-[#161d29] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
-                    Wallet (L1)
+                    Wallet
                 </button>
                 <button
                     type="button"
@@ -1474,7 +1474,7 @@
                         ? 'bg-[#161d29] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
-                    Platform ($0 Gas)
+                    Balance ($0 Gas)
                 </button>
                 <button
                     type="button"
@@ -1524,7 +1524,7 @@
                             ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        ACH Direct Debit ($5 Cap @ $625+)
+                        Bank ACH ($5 max)
                     </button>
                     <button
                         type="button"
@@ -1540,7 +1540,7 @@
                             ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Domestic Card (2.9%+$0.30)
+                        Card (2.9%)
                     </button>
                     <button
                         type="button"
@@ -1555,7 +1555,7 @@
                             ? 'bg-[#161d29] text-amber-400 border-amber-500/45'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Mercury Wire ($100k+ • 0.20%)
+                        Wire (0.20%)
                     </button>
                 </div>
                 {#if onrampGatewayMethod !== 'wire' && !onrampCostPlusQuote.requiresInstitutionalWire}
@@ -1585,10 +1585,10 @@
                 >
                     <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2">
                         <span class="text-amber-400 font-black uppercase tracking-wider">
-                            🏛️ Column N.A. / Mercury Institutional Wire Coordinates ($0 Gateway Fee)
+                            Wire Details ($0 Fee)
                         </span>
                         <span class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
-                            ZERO CHARGEBACK RAIL
+                            
                         </span>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1651,14 +1651,14 @@
                 >
                     <div class="flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase text-neutral-300">
-                            Bank Account Details (ACH Direct Debit)
+                            Bank Account
                         </span>
                         <button
                             type="button"
                             onclick={fillTestBankCredentials}
                             class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
                         >
-                            [Use Test Bank]
+                            Test Bank
                         </button>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1667,7 +1667,7 @@
                                 for="onrampAbaInput"
                                 class="text-[8px] font-bold uppercase text-neutral-400"
                             >
-                                9-Digit Routing Number
+                                Routing #
                             </label>
                             <input
                                 id="onrampAbaInput"
@@ -1835,7 +1835,7 @@
                                 )}
                             class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
                         >
-                            [Download Wire Slip PDF ↓]
+                            Wire PDF
                         </button>
                     </div>
                 </div>
@@ -1907,7 +1907,7 @@
                         class="text-[10px] font-black uppercase tracking-widest transition-colors duration-300"
                         style="color: {activeThemeHex};"
                     >
-                        You Sell ({offrampAssetTicker})
+                        Sell ({offrampAssetTicker})
                     </span>
                     <div class="flex items-center gap-1 flex-wrap">
                         {#each [
@@ -2013,7 +2013,7 @@
                         class="hover:underline uppercase cursor-pointer"
                         style="color: {activeThemeHex};"
                     >
-                        Available: {offrampAvailableSourceBalance.toFixed(2)} [MAX]
+                        Available: {offrampAvailableSourceBalance.toFixed(2)} MAX
                     </button>
                 </div>
                 {#if isOfframpDropdownOpen}
@@ -2075,7 +2075,7 @@
             >
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                        Net USD Payout to Bank
+                        You Get (USD)
                     </span>
                     <span
                         data-testid="fiat-offramp-fee-breakdown"
@@ -2134,7 +2134,7 @@
                         ? 'bg-[#161d29] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
-                    Self-Custody Wallet ({treasury
+                    Wallet ({treasury
                         .getAsset(offrampAssetTicker)
                         .onChain.toFixed(2)})
                 </button>
@@ -2146,7 +2146,7 @@
                         ? 'bg-[#161d29] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
-                    Platform Balance ({treasury
+                    Balance ({treasury
                         .getAsset(offrampAssetTicker)
                         .synthetic.toFixed(2)})
                 </button>
@@ -2208,7 +2208,7 @@
                             onclick={fillTestBankCredentials}
                             class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
                         >
-                            [Use Test Bank]
+                            Test Bank
                         </button>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2217,7 +2217,7 @@
                                 for="offrampRouting"
                                 class="text-[8px] font-bold uppercase text-neutral-400"
                             >
-                                9-Digit Routing Number
+                                Routing #
                             </label>
                             <input
                                 id="offrampRouting"
@@ -2350,7 +2350,7 @@
                             onclick={simulateOfframpConfirmNow}
                             class="tactile-btn px-2.5 py-1.5 rounded-lg text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
                         >
-                            [Verify Settlement]
+                            Verify
                         </button>
                         <button
                             type="button"
@@ -2358,7 +2358,7 @@
                             onclick={() => downloadAchPayoutReceiptPdf(pass)}
                             class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
                         >
-                            [Receipt PDF ↓]
+                            Receipt PDF
                         </button>
                     </div>
                 </div>
@@ -2421,7 +2421,7 @@
         <div class="border-t border-white/10 pt-3 flex flex-col gap-2">
             <div class="flex items-center justify-between">
                 <span class="text-[9px] font-black uppercase tracking-widest text-neutral-400">
-                    Recent USD Orders
+                    Orders
                 </span>
                 <button
                     type="button"
@@ -2447,7 +2447,7 @@
                                         downloadAchPayoutReceiptPdf(p)}
                                     class="tactile-btn px-2 py-0.5 rounded text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
                                 >
-                                    [PDF ↓]
+                                    PDF
                                 </button>
                                 <span class="font-bold text-[#18C6A5]">
                                     +${Number(p.net_fiat_usd || 0).toFixed(2)}

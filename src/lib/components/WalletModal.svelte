@@ -1276,21 +1276,21 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                 <div class="flex items-center gap-2.5">
                     <span class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"></span>
                     <h2 class="text-xs font-black tracking-widest uppercase text-[#18C6A5]">
-                        {#if viewState === 'menu'}Sovereign Matrix Vault
-                        {:else if viewState === 'create_pass'}Create Sovereign Vault
-                        {:else if viewState === 'import_seed'}Import Recovery Seed
-                        {:else if viewState === 'create_seed'}Step 1 of 2 • Backup 24-Word Seed
-                        {:else if viewState === 'verify_seed'}Step 2 of 2 • 2-Word Verification
+                        {#if viewState === 'menu'}Perennia Wallet
+                        {:else if viewState === 'create_pass'}Create Wallet
+                        {:else if viewState === 'import_seed'}Import Seed
+                        {:else if viewState === 'create_seed'}Save Your 24 Words
+                        {:else if viewState === 'verify_seed'}Confirm 2 Words
                         {:else if viewState === 'watch_only'}
 <form onsubmit={(e) => { e.preventDefault(); handleConnectWatchOnly(); }} class="flex flex-col gap-3.5">
-<p class="text-[10px] text-neutral-300 leading-relaxed uppercase tracking-wider font-bold">Monitor live ASIC workers, L1 KAS balances, and Tangem cold vaults on mobile with zero seed phrase exposure. Signing uses QR Airlock or Vault import.</p>
-{#if isScanningWatchQr}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2"><video bind:this={watchVideoEl} class="w-full h-44 object-cover rounded-lg bg-black" playsinline></video><button type="button" onclick={stopWatchCamera} class="text-[9px] text-neutral-400 uppercase">[Close Camera]</button></div>{/if}
+<p class="text-[10px] text-neutral-300 leading-relaxed uppercase tracking-wider font-bold">Paste or scan any Kaspa address — $0.</p>
+{#if isScanningWatchQr}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2"><video bind:this={watchVideoEl} class="w-full h-44 object-cover rounded-lg bg-black" playsinline></video><button type="button" onclick={stopWatchCamera} class="text-[9px] text-neutral-400 uppercase">Close</button></div>{/if}
 <div class="flex gap-2"><input type="text" data-testid="watch-only-address-input" bind:value={watchAddressInput} placeholder="kaspa:qp... or kaspa:qr..." spellcheck="false" class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl font-mono outline-none" /><button type="button" onclick={startWatchQrScan} class="tactile-btn mobile-touch-target px-3.5 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase shrink-0">QR</button></div>
-<div class="flex gap-2"><button type="button" onclick={() => { stopWatchCamera(); viewState = 'menu'; localError = ''; }} class="tactile-btn mobile-touch-target w-1/3 p-3 rounded-xl text-neutral-400 text-[10px] font-bold uppercase">Back</button><button type="submit" data-testid="watch-only-connect-btn" class="tactile-btn mobile-touch-target w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase">Enter Watch-Only &rarr;</button></div>
+<div class="flex gap-2"><button type="button" onclick={() => { stopWatchCamera(); viewState = 'menu'; localError = ''; }} class="tactile-btn mobile-touch-target w-1/3 p-3 rounded-xl text-neutral-400 text-[10px] font-bold uppercase">Back</button><button type="submit" data-testid="watch-only-connect-btn" class="tactile-btn mobile-touch-target w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase">Watch &rarr;</button></div>
 </form>
-{:else if viewState === 'unlock'}Unlock Sovereign Vault
-                        {:else if viewState === 'watch_only'}Watch-Only / Tangem Airlock
-{:else if viewState === 'authorize'}Authorize Transaction
+{:else if viewState === 'unlock'}Log In
+                        {:else if viewState === 'watch_only'}Watch Address
+{:else if viewState === 'authorize'}Confirm
                         {/if}
                     </h2>
                 </div>
@@ -1335,7 +1335,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                     class="tactile-btn w-full flex items-center justify-between p-4 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] cursor-pointer"
                                     style="background-image: radial-gradient(ellipse at left, rgba(24, 198, 165, 0.16), transparent 70%);"
                                 >
-                                    <span class="text-xs font-black tracking-widest uppercase">Unlock Saved Vault</span>
+                                    <span class="text-xs font-black tracking-widest uppercase">Log In</span>
                                     <span class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"></span>
                                 </button>
                                 <div class="h-px w-full bg-white/10 my-0.5"></div>
@@ -1354,7 +1354,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                     class="tactile-btn p-4 rounded-xl border-white/10 hover:border-[#18C6A5]/40 text-center cursor-pointer"
                                 >
                                     <span class="text-[10px] font-black tracking-widest text-[#18C6A5] uppercase block">
-                                        New 24-Word Vault
+                                        Create Wallet — $0
                                     </span>
                                 </button>
                                 <button
@@ -1368,7 +1368,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                     class="tactile-btn p-4 rounded-xl border-white/10 text-center cursor-pointer"
                                 >
                                     <span class="text-[10px] font-bold tracking-widest text-neutral-300 hover:text-white uppercase block">
-                                        Import Seed Phrase
+                                        Import 12 / 24 Words
                                     </span>
                                 </button>
                             </div>
@@ -1379,9 +1379,9 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 disabled={identity.isConnecting}
                                 class="tactile-btn w-full py-3 px-4 rounded-xl border-white/10 text-neutral-300 hover:text-white text-[10px] font-bold uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
                             >
-                                <span>Import Encrypted Vault (.json)</span>
+                                <span>Import Backup (.json)</span>
                             </button>
-<button type="button" data-testid="wallet-watch-only-btn" onclick={() => { localError = ''; statusNotice = ''; viewState = 'watch_only'; }} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border-amber-500/35 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"><span>Watch-Only Kaspa / Tangem QR</span></button>
+<button type="button" data-testid="wallet-watch-only-btn" onclick={() => { localError = ''; statusNotice = ''; viewState = 'watch_only'; }} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border-amber-500/35 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"><span>Watch Address / QR</span></button>
 
                             {#if !ui.isTutorialActive}
                                 <button
@@ -1391,13 +1391,13 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                     class="tactile-btn w-full py-3 px-3 rounded-xl border-[#18C6A5]/35 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase tracking-wider whitespace-nowrap cursor-pointer flex items-center justify-center mt-0.5"
                                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.12), transparent 70%);"
                                 >
-                                    <span>[? New Here? Take the Interactive Tour →]</span>
+                                    <span>3-Step Quick Start →</span>
                                 </button>
                             {/if}
 
-                            <div class="pt-3 mt-1 border-t border-white/5 text-center select-none pointer-events-none">
+                            <div class="hidden pt-3 mt-1 border-t border-white/5 text-center select-none pointer-events-none">
                                 <span class="text-[8px] font-mono uppercase tracking-[0.16em] text-neutral-500 leading-relaxed block">
-                                    11-Chain Sovereign Vault • {pwa.isMobile ? 'Extension-Free Native Mobile Signing & Tangem QR Airlock' : '100% Browser-Side Schnorr Signing'}</span>
+                                    {pwa.isMobile ? 'Extension-Free Native Mobile Signing & Tangem QR Airlock' : '100% Browser-Side Schnorr Signing'}</span>
                             </div>
                         </div>
                     </div>
@@ -1411,7 +1411,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                         in:fade={{ duration: 150 }}
                     >
                         <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
-                            Restore an existing 12 or 24-word recovery phrase.
+                            Enter 12 or 24 words
                         </p>
                         <textarea
                             bind:value={importSeed}
@@ -1422,7 +1422,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                         ></textarea>
                         <div class="h-px w-full bg-white/10 my-0.5"></div>
                         <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
-                            Set a local password (8+ chars) to lock this vault on your device.
+                            Password (8+ chars)
                         </p>
                         <input
                             type="password"
@@ -1459,7 +1459,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 class="tactile-btn w-2/3 p-3 border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer disabled:opacity-40"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
                             >
-                                Import Vault
+                                Import
                             </button>
                         </div>
                     </form>
@@ -1474,7 +1474,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                         in:fade={{ duration: 150 }}
                     >
                         <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
-                            Create a local password (minimum 8 characters) to encrypt your vault on this device.
+                            Set password (8+ chars)
                         </p>
                         <input
                             type="password"
@@ -1511,7 +1511,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 class="tactile-btn w-2/3 p-3 border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer disabled:opacity-40"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
                             >
-                                Generate 24-Word Seed →
+                                Continue →
                             </button>
                         </div>
                     </form>
@@ -1519,7 +1519,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                     <div class="flex flex-col gap-3.5" in:fade={{ duration: 150 }}>
                         <div class="border border-amber-500/40 bg-amber-950/20 p-3.5 rounded-xl flex flex-col gap-1">
                             <span class="text-[10px] text-amber-400 uppercase tracking-widest font-black">
-                                ⚠ MANDATORY 2-WORD VERIFICATION NEXT
+                                Save all 24 words in order
                             </span>
                             <span class="text-[9px] text-neutral-300 leading-relaxed">
                                 Write down all 24 words in order right now. Your raw seed phrase will NEVER be shown again after setup, and <strong class="text-white">you will be tested on 2 random words (#{verifyWordIndices[0] + 1} &amp; #{verifyWordIndices[1] + 1}) on the next screen</strong> before unlocking your vault.
@@ -1583,7 +1583,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                             class="tactile-btn w-full py-3.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] font-black text-[10px] uppercase tracking-widest cursor-pointer"
                             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                         >
-                            I Wrote Down My Seed — Proceed to 2-Word Test →
+                            Continue →
                         </button>
                     </div>
                 {:else if viewState === 'verify_seed'}
@@ -1597,10 +1597,10 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                     >
                         <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-1">
                             <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                                Confirm Your Recovery Phrase Backup
+                                
                             </span>
                             <span class="text-[9px] text-neutral-400 leading-relaxed">
-                                Enter the exact words from your 24-word recovery phrase for the two positions below. Once verified, the raw seed is permanently wiped from memory.
+                                
                             </span>
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1656,7 +1656,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 class="tactile-btn w-2/3 py-3.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                             >
-                                Verify &amp; Unlock Sovereign Vault ✓
+                                Verify &amp; Log In ✓
                             </button>
                         </div>
                     </form>
@@ -1671,7 +1671,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                     >
                         <div class="flex justify-between items-start gap-2">
                             <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
-                                Enter your vault password to unlock this session.
+                                Password
                             </p>
                             <button
                                 type="button"
@@ -1692,7 +1692,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 }}
                                 class="text-[8px] text-red-400/70 hover:text-red-400 uppercase tracking-widest font-bold border border-red-500/20 bg-red-500/5 px-2 py-1 rounded transition-colors shrink-0 cursor-pointer"
                             >
-                                Reset Vault
+                                Reset
                             </button>
                         </div>
                         <input
@@ -1722,7 +1722,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 class="tactile-btn w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                             >
-                                Unlock Vault →
+                                Log In →
                             </button>
                         </div>
                         <div class="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
@@ -1731,14 +1731,14 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 onclick={() => exportEncryptedVaultJson()}
                                 class="tactile-btn py-2 px-3 rounded-lg text-[9px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
                             >
-                                Export .JSON Backup
+                                Export .json
                             </button>
                             <button
                                 type="button"
                                 onclick={() => backupFileInput?.click()}
                                 class="tactile-btn py-2 px-3 rounded-lg text-[9px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
                             >
-                                Restore .JSON File
+                                Import .json
                             </button>
                         </div>
                         {#if !ui.isTutorialActive}
@@ -1747,7 +1747,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 onclick={startGuidedTourFromModal}
                                 class="tactile-btn w-full py-2.5 px-3 rounded-xl border-[#18C6A5]/35 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase tracking-wider whitespace-nowrap cursor-pointer"
                             >
-                                [? Take the Interactive Platform Tour →]
+                                3-Step Quick Start →
                             </button>
                         {/if}
                     </form>
@@ -1807,7 +1807,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                             {#if identity.pendingTransactionDetails.destinationAddress && identity.pendingTransactionDetails.actionType !== 'CREATE_P2P' && identity.pendingTransactionDetails.actionType !== 'FILL_P2P'}
                                 <div class="flex flex-col gap-1 pt-0.5">
                                     <span class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">
-                                        Destination L1 Target
+                                        To
                                     </span>
                                     <span class="text-[10px] text-[#18C6A5] break-all leading-relaxed">
                                         {identity.pendingTransactionDetails.destinationAddress}
@@ -1815,8 +1815,8 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 </div>
                             {/if}
                         </div>
-                        {#if identity.isWatchOnly && airlockQrDataUrl}<div class="bg-[#11161f] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center"><span class="text-[9px] font-black uppercase tracking-widest text-amber-400">Tangem / QR Airlock Signing Payload</span><img src={airlockQrDataUrl} alt="Airlock QR" class="w-36 h-36 rounded-xl bg-white p-1.5" /><span class="text-[9px] text-neutral-400">Scan with your air-gapped signer or import an encrypted vault to sign on this device.</span></div>{/if}
-<p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest text-center mt-1 font-bold">Enter Vault Password to Sign Locally in Browser</p>
+                        {#if identity.isWatchOnly && airlockQrDataUrl}<div class="bg-[#11161f] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center"><span class="text-[9px] font-black uppercase tracking-widest text-amber-400">Scan QR to Sign</span><img src={airlockQrDataUrl} alt="Airlock QR" class="w-36 h-36 rounded-xl bg-white p-1.5" /><span class="text-[9px] text-neutral-400"></span></div>{/if}
+<p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest text-center mt-1 font-bold">Password</p>
                         <input
                             type="password"
                             data-testid="wallet-authorize-password-input"
@@ -1842,7 +1842,7 @@ function handleConnectWatchOnly() { localError = ''; const cand = watchAddressIn
                                 class="tactile-btn w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                             >
-                                Sign &amp; Broadcast
+                                Confirm
                             </button>
                         </div>
                     </form>

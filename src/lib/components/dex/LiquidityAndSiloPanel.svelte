@@ -191,7 +191,7 @@
                         style="background-color: {tokenBHex}; box-shadow: 0 0 10px {tokenBHex}80;"
                     ></span>
                     <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                        Supply Liquidity
+                        Add Liquidity
                     </h3>
                 </div>
                 {#if extraPlantLegs.length < 3}
@@ -201,7 +201,7 @@
                         onclick={() => onAddSecondaryPlantLeg('XAU')}
                         class="tactile-btn px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
                     >
-                        + Add Asset
+                        + Token
                     </button>
                 {/if}
             </div>
@@ -214,7 +214,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <span class="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-                            Anchor Deposit
+                            Deposit
                         </span>
                         <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black">
                             50% KAS
@@ -267,7 +267,7 @@
                         ).toFixed(2)}
                     </span>
                     <span>
-                        Available: {lpTokenA.availableBalance.toLocaleString(
+                        Balance: {lpTokenA.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )} KAS
@@ -300,7 +300,7 @@
                             class="text-[10px] font-black uppercase tracking-widest"
                             style="color: {tokenBHex};"
                         >
-                            Paired Asset
+                            Token
                         </span>
                         <span
                             data-testid="dex-plant-weight-b-badge"
@@ -411,7 +411,7 @@
                         ).toFixed(2)}
                     </span>
                     <span>
-                        Available: {lpTokenB.availableBalance.toLocaleString(
+                        Balance: {lpTokenB.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )}
@@ -449,7 +449,7 @@
                             onclick={() => onRemoveSecondaryPlantLeg(idx)}
                             class="text-[9px] text-neutral-400 hover:text-red-400 cursor-pointer"
                         >
-                            ✕ Remove
+                            Remove
                         </button>
                     </div>
 
@@ -486,7 +486,7 @@
             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3 flex flex-col gap-2">
                 <div class="flex items-center justify-between text-[9px] px-1">
                     <span class="font-bold uppercase tracking-widest text-neutral-400">
-                        Lock Duration
+                        Lock
                     </span>
                     <span class="font-bold text-[#18C6A5]">
                         Total Value: ${lpTotalUsdValue.toFixed(2)} USD
@@ -551,7 +551,7 @@
             {#if lpPositions.length > 0}
                 <div class="flex flex-col gap-2 pt-2 border-t border-white/10">
                     <span class="text-[9px] font-black uppercase tracking-widest text-neutral-400 px-1">
-                        Active Positions ({lpPositions.length})
+                        Your Pools ({lpPositions.length})
                     </span>
                     {#each lpPositions as pos (pos.id)}
                         <div
@@ -749,7 +749,7 @@
                         {DEFAULT_ECOSYSTEM_TICKER}
                     </span>
                     <span>
-                        Available: {siloAsset.availableBalance.toLocaleString(
+                        Balance: {siloAsset.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 2 }
                         )}
@@ -793,7 +793,7 @@
                         <span class="font-black uppercase tracking-widest">
                             Staked Positions
                         </span>
-                        <span>7-Day Unstake Cooldown</span>
+                        <span>7d unstake</span>
                     </div>
                     {#each siloStakingTelemetry.positions as pos (pos.id)}
                         <div

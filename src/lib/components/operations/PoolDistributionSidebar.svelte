@@ -76,7 +76,7 @@
                 <h2
                     class="text-[10px] font-bold uppercase tracking-widest text-neutral-400"
                 >
-                    Pool Distribution
+                    Payout Split
                 </h2>
             </div>
             <div class="flex flex-col items-center pointer-events-auto">
@@ -170,7 +170,7 @@
                             <div
                                 class="text-center text-[9px] font-mono text-neutral-400 uppercase tracking-widest py-2 px-2 border border-dashed border-white/10 rounded-xl"
                             >
-                                100% Direct L1 KAS Stream
+                                100% KAS
                             </div>
                         {/if}
                     </div>
@@ -191,7 +191,7 @@
                         <span
                             class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] animate-pulse shrink-0"
                         ></span>
-                        22:00 UTC Settlement
+                        Next Payout
                     </span>
                 </div>
                 <div
@@ -210,7 +210,7 @@
                     <span
                         class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 truncate"
                     >
-                        Your Active Buckets
+                        Pending Splits
                     </span>
                     <span class="text-[8px] font-mono text-neutral-500 shrink-0">
                         {userActiveBuckets.length} Active
@@ -227,12 +227,12 @@
                             <span
                                 class="text-[9px] font-mono text-neutral-400 uppercase tracking-wider"
                             >
-                                No Active Batch Buckets
+                                No pending splits
                             </span>
                             <span
                                 class="text-[8px] font-mono text-neutral-500 leading-relaxed"
                             >
-                                Break off a non-KAS sector to route yield into a 22:00 UTC batch bucket.
+                                
                             </span>
                         </div>
                     {:else}
@@ -329,7 +329,7 @@
                                             )}
                                         class="tactile-btn mobile-touch-target w-full py-2.5 lg:py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] hover:text-white cursor-pointer"
                                     >
-                                        [Boost +{neededKas.toFixed(1)} KAS in DEX]
+                                        Boost +{neededKas.toFixed(1)} KAS
                                     </button>
                                 {/if}
                             </div>

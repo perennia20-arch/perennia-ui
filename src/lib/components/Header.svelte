@@ -53,7 +53,7 @@
                 {#if identity.activeAddress}
                     {identity.activeAddress.slice(0, 12)}...{identity.activeAddress.slice(-4)}
                 {:else}
-                    UNLOCK VAULT
+                    LOG IN
                 {/if}
             </button>
             {#if showToast}

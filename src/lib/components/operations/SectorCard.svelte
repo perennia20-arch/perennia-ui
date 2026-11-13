@@ -221,7 +221,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                 {sectorPendingKas.toFixed(6)} <span class="text-[#18C6A5]">KAS</span>
             </span>
             <span class="text-[7px] font-mono uppercase tracking-widest text-neutral-500">
-                Accrued in Queue
+                Pending
             </span>
         </div>
     </div>
@@ -308,7 +308,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
         </div>
         <div class="flex items-center justify-between gap-2 border-t border-white/10 pt-2 mt-0.5 min-w-0">
             <span class="text-[8px] font-mono uppercase tracking-wider text-neutral-400 shrink-0">
-                Daily Yield
+                Per Day
             </span>
             <span class="text-[10px] font-mono font-bold text-white tabular-nums truncate text-right">
                 ~{dailyKas.toFixed(1)} KAS/d
@@ -345,7 +345,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                     class="tactile-btn px-2 py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-wider text-[#18C6A5] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0 whitespace-nowrap"
                     title="Snap sector allocation to consume all remaining unallocated hashpower (100% total)"
                 >
-                    [MAX]
+                    MAX
                 </button>
             </div>
             <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 shrink-0">

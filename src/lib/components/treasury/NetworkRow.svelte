@@ -91,7 +91,7 @@
         explorerUrl?: string;
     } | null>(null);
 
-    // Per-Token Cold Storage Auto-Sweep State
+    // Per-Token Cold Sweep State
     let coldDestinationInput = $state('');
     let coldVaultLabelInput = $state('Perennia Cold Vault');
     let coldOverflowCeilingInput = $state(500);
@@ -894,7 +894,7 @@
         }
         withdrawalFeedback = {
             type: 'error',
-            message: `Insufficient ${targetTicker} balance in selected source. On-Chain L1: ${onChainBal.toFixed(6)} ${targetTicker} | In Batch Settlement Queue: ${ledgerBal.toFixed(6)} ${targetTicker}.`
+            message: `Insufficient ${targetTicker} balance in selected source. On-Chain L1: ${onChainBal.toFixed(6)} ${targetTicker} | pending: ${ledgerBal.toFixed(6)} ${targetTicker}.`
         };
     }
 
@@ -1146,14 +1146,14 @@
                                 class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-widest cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                             >
-                                [+ Buy with USD]
+                                Buy
                             </button>
                             <button
                                 type="button"
                                 onclick={(e) => openQuickAction(e, 'deposit')}
                                 class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
                             >
-                                [Receive QR]
+                                Receive
                             </button>
                             <button
                                 type="button"
@@ -1161,7 +1161,7 @@
                                 onclick={(e) => openQuickAction(e, 'withdraw')}
                                 class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
                             >
-                                [Send / Withdraw L1]
+                                Send
                             </button>
                             <button
                                 type="button"
@@ -1169,7 +1169,7 @@
                                 onclick={(e) => openQuickAction(e, 'cold_vault')}
                                 class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
                             >
-                                [Cold Vault]
+                                Cold
                             </button>
                             <button
                                 type="button"
@@ -1177,7 +1177,7 @@
                                 onclick={(e) => openQuickAction(e, 'history')}
                                 class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
                             >
-                                [Activity]
+                                History
                             </button>
                             {#if asset.ticker === 'KAS'}
                                 <button
@@ -1252,7 +1252,7 @@
                     class="text-[8px] font-mono uppercase tracking-widest text-neutral-400"
                     data-testid="onchain-balance-label-{asset.ticker || asset.symbol}"
                 >
-                    On-Chain L1 Balance
+                    Balance
                 </span>
                 {#if displayUnit === 'token'}
                     <span
@@ -1275,7 +1275,7 @@
                             >
                                 +{asset.synthetic.toLocaleString(undefined, {
                                     maximumFractionDigits: 4
-                                })} In Batch Settlement Queue
+                                })} pending
                             </span>
                         {/if}
                         {#if asset.stakedBalance > 0}
@@ -1316,7 +1316,7 @@
                                 +${(
                                     (asset.synthetic || 0) *
                                     (asset.spotPrice || 0)
-                                ).toFixed(2)} In Batch Settlement Queue
+                                ).toFixed(2)} pending
                             </span>
                         {/if}
                         <span>
@@ -1392,7 +1392,7 @@
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'deposit' ? 'text-[#18C6A5]' : 'text-neutral-500 hover:text-white'}"
                             >
-                                Receive QR &amp; Address
+                                Receive
                             </button>
                             <button
                                 type="button"
@@ -1403,7 +1403,7 @@
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'withdraw' ? 'text-amber-400' : 'text-neutral-500 hover:text-white'}"
                             >
-                                Send / Withdraw to L1
+                                Send
                             </button>
                             <button
                                 type="button"
@@ -1414,7 +1414,7 @@
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5]' : 'text-neutral-500 hover:text-white'}"
                             >
-                                Cold Storage Auto-Sweep
+                                Cold Sweep
                             </button>
                             <button
                                 type="button"
@@ -1427,7 +1427,7 @@
                                 }}
                                 class="text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeRoutingTab === 'history' ? 'text-blue-400' : 'text-neutral-500 hover:text-white'}"
                             >
-                                Live Activity &amp; Payouts
+                                History
                             </button>
                         </div>
                         <button
@@ -1495,7 +1495,7 @@
                                         class="flex flex-col items-center justify-center text-neutral-400 hover:text-white gap-2 cursor-pointer"
                                     >
                                         <span class="text-[9px] uppercase tracking-widest font-mono font-bold text-center">
-                                            Unlock Vault for QR
+                                            Log In for QR
                                         </span>
                                     </button>
                                 {/if}
@@ -1696,10 +1696,9 @@
                                 "
                             >
                                 {#if isDispatchingWithdrawal}
-                                    Awaiting Sovereign Vault Signature...
+                                    Signing...
                                 {:else}
-                                    Authorize &amp; Broadcast {activeSendAssetObj.ticker}
-                                    L1 Transfer
+                                    Send {activeSendAssetObj.ticker}
                                 {/if}
                             </button>
                         </div>
@@ -1712,7 +1711,7 @@
                             {#if filteredSubAssets.length > 0}
                                 <div class="flex flex-col gap-1.5">
                                     <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
-                                        Configure Cold Storage Auto-Sweep for Asset on {asset.name}
+                                        Configure Cold Sweep for Asset on {asset.name}
                                     </span>
                                     <div class="flex flex-wrap gap-2 bg-[#0a0d12] p-1.5 rounded-xl border border-white/10">
                                         <button
@@ -1771,10 +1770,10 @@
                                     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
                                         <div class="flex flex-col">
                                             <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                                                {activeSendAssetObj.ticker} Cold Storage Auto-Sweep (Perennia Cold Vault / Hardware Vault)
+                                                {activeSendAssetObj.ticker} Cold Sweep (Perennia Cold Vault / Hardware Vault)
                                             </span>
                                             <span class="text-[8px] font-mono text-neutral-400">
-                                                Automatically sweeps excess settled {activeSendAssetObj.ticker} above your ceiling directly to cold storage
+                                                Auto-sweeps {activeSendAssetObj.ticker} above your ceiling directly to cold storage
                                             </span>
                                         </div>
                                         {#if activeTokenColdRule?.lastSweepTxid}
@@ -1803,7 +1802,7 @@
                                                     onclick={stopColdQrCameraScanner}
                                                     class="text-neutral-400 hover:text-white cursor-pointer"
                                                 >
-                                                    [Stop Camera ✕]
+                                                    Close
                                                 </button>
                                             </div>
                                             <video
@@ -1834,7 +1833,7 @@
                                                         class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-blue-400 border-blue-500/35 cursor-pointer"
                                                         title="Bind your derived Perennia Sovereign L1 address"
                                                     >
-                                                        [Use My L1 Address]
+                                                        Use Mine
                                                     </button>
                                                 {/if}
                                                 <button
@@ -1917,7 +1916,7 @@
                                                 Auto-Sweep Above {coldOverflowCeilingInput} {activeSendAssetObj.ticker}
                                             </span>
                                             <span class="text-[8px] font-mono text-neutral-400">
-                                                Automatically dispatches settled {activeSendAssetObj.ticker} above your ceiling to Cold Storage
+                                                Auto-sweeps {activeSendAssetObj.ticker} above your ceiling to Cold Storage
                                             </span>
                                         </div>
                                         <button
@@ -2045,7 +2044,7 @@
                                         class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
                                         title="Export immutable {asset.ticker} activity as CSV"
                                     >
-                                        [Export Activity CSV]
+                                        CSV
                                     </button>
                                     <button
                                         type="button"
@@ -2053,7 +2052,7 @@
                                         class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer"
                                         title="Export immutable {asset.ticker} activity as JSON"
                                     >
-                                        [Export JSON]
+                                        JSON
                                     </button>
                                     {#if asset.ticker === 'KAS'}
                                         <button
@@ -2250,7 +2249,7 @@
                                                 }}
                                                 class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap"
                                             >
-                                                [+ Buy with USD]
+                                                Buy
                                             </button>
                                             <button
                                                 type="button"
@@ -2262,7 +2261,7 @@
                                                     )}
                                                 class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap"
                                             >
-                                                [Send / Withdraw {token.symbol}]
+                                                Send {token.symbol}
                                             </button>
                                             <button
                                                 type="button"
@@ -2275,7 +2274,7 @@
                                                     )}
                                                 class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap"
                                             >
-                                                [Cold Vault]
+                                                Cold
                                             </button>
                                             <button
                                                 type="button"
@@ -2315,7 +2314,7 @@
                                             <span class="text-amber-400">
                                                 (+{Number(
                                                     token.synthetic
-                                                ).toFixed(4)} In Batch Settlement Queue)
+                                                ).toFixed(4)} pending)
                                             </span>
                                         {/if}
                                         <span>

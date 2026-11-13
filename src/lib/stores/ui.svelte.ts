@@ -130,7 +130,7 @@ class UiStore {
         this.hasCheckedTourPrompt = true;
         const completed = localStorage.getItem('perennia_tour_completed');
         if (!completed) {
-            this.showTutorialPrompt = true;
+            this.showTutorialPrompt = false;
         }
     }
 
@@ -382,7 +382,7 @@ class UiStore {
         if (this.isTutorialActive) {
             this.completeTutorial();
         } else {
-            this.showTutorialPrompt = true;
+            this.showTutorialPrompt = false;
         }
     }
 

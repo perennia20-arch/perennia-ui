@@ -160,7 +160,7 @@
                         style="background-color: {buyHex}; box-shadow: 0 0 10px {buyHex}80;"
                     ></span>
                     <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                        Deploy P2P Offer
+                        Create Offer
                     </h3>
                 </div>
                 <span class="text-[9px] font-bold text-neutral-400">
@@ -178,7 +178,7 @@
             >
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-                        You Offer
+                        Offer
                     </span>
                     <div class="flex items-center gap-1">
                         {#each [0.25, 0.5, 0.75, 1.0] as pct}
@@ -256,7 +256,7 @@
                         })}
                     </span>
                     <span>
-                        Available: {p2pSellToken.availableBalance.toLocaleString(
+                        Balance: {p2pSellToken.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )}
@@ -289,14 +289,14 @@
                         class="text-[10px] font-black uppercase tracking-widest transition-colors duration-300"
                         style="color: {buyHex};"
                     >
-                        You Require
+                        Ask
                     </span>
                     <button
                         type="button"
                         onclick={matchSpotAskAmount}
                         class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-bold text-neutral-300 hover:text-white cursor-pointer"
                     >
-                        Match Spot
+                        Spot
                     </button>
                 </div>
 
@@ -363,7 +363,7 @@
                         })}
                     </span>
                     <span>
-                        Available: {p2pBuyToken.availableBalance.toLocaleString(
+                        Balance: {p2pBuyToken.availableBalance.toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )}
@@ -404,7 +404,7 @@
                 <div class="flex items-center gap-2.5">
                     <span class="w-2 h-2 rounded-full bg-[#18C6A5]"></span>
                     <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                        Open P2P Offers
+                        Open Offers
                     </h3>
                 </div>
                 <span class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 text-[9px] font-bold text-neutral-300 uppercase">
@@ -415,10 +415,10 @@
             {#if p2pOrders.length === 0}
                 <div class="py-14 text-center border border-dashed border-white/10 rounded-2xl bg-[#11161f]/40 flex flex-col items-center gap-2">
                     <span class="text-xs font-bold uppercase tracking-widest text-neutral-400">
-                        No Open P2P Offers
+                        No Open Offers
                     </span>
                     <span class="text-[10px] text-neutral-500">
-                        Deploy an offer on the left to list on the orderbook.
+                        
                     </span>
                 </div>
             {:else}
@@ -508,7 +508,7 @@
                                             background-image: radial-gradient(ellipse at center, {orderBuyHex}28, transparent 70%);
                                         "
                                     >
-                                        Fill Offer →
+                                        Fill
                                     </button>
                                 {/if}
                             </div>

@@ -1013,7 +1013,7 @@
                 <h1
                     class="text-sm md:text-base font-black uppercase tracking-widest text-white"
                 >
-                    Zero-PII Tax Fortress &amp; Passive HIFO Cost-Basis Engine
+                    Taxes
                 </h1>
                 <span
                     class="px-2.5 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase"
@@ -1030,7 +1030,7 @@
                     data-testid="hifo-mode-badge"
                     class="hidden xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-blue-500/35 text-[8px] font-mono text-blue-400 uppercase"
                 >
-                    PASSIVE HIFO LOT ENGINE • AES-256-GCM LOCAL PII
+                    
                 </span>
                 {#if nonCpaAcknowledged}
                     <button
@@ -1040,7 +1040,7 @@
                         class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 hover:border-amber-500/40 text-neutral-400 hover:text-amber-400 text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors"
                         title="View Protocol Non-CPA Disclaimer"
                     >
-                        [ⓘ Non-CPA Notice]
+                        Notice
                     </button>
                 {/if}
             </div>
@@ -1091,7 +1091,7 @@
                     onclick={handleExportHifoCsv}
                     class="tactile-btn px-3.5 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
                 >
-                    Export HIFO CSV ↓
+                    Export CSV
                 </button>
             </div>
         </div>
@@ -1321,7 +1321,7 @@
             <span
                 class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
             >
-                Gross Taxable Proceeds (YTD)
+                Proceeds (YTD)
             </span>
             <span
                 data-testid="gross-taxable-proceeds-display"
@@ -1339,7 +1339,7 @@
             <span
                 class="text-[9px] font-bold uppercase tracking-widest text-blue-400"
             >
-                Passive HIFO Cost-Basis Pool
+                Cost Basis
             </span>
             <span
                 data-testid="hifo-cost-basis-pool-display"
@@ -1362,7 +1362,7 @@
                 <span
                     class="text-[9px] font-bold uppercase tracking-widest text-[#18C6A5]"
                 >
-                    Effective Tax Rate ({rateCalculation.jurisdictionCode})
+                    Tax Rate ({rateCalculation.jurisdictionCode})
                 </span>
                 {#if rateCalculation.qbiDiscountApplied}
                     <span
@@ -1430,7 +1430,7 @@
                         onclick={() => (showEscrowModal = true)}
                         class="tactile-btn px-2 py-1 rounded-lg text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
                     >
-                        [Mode]
+                        Mode
                     </button>
                     {#if taxEscrowEnabled || escrowLpBalanceUsd > 0}
                         <button
@@ -1440,7 +1440,7 @@
                             disabled={isWithdrawingEscrowLp}
                             class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
                         >
-                            [Withdraw Now]
+                            Withdraw
                         </button>
                     {/if}
                 </div>
@@ -1468,7 +1468,7 @@
                     onclick={() => (activeLedgerTab = 'EXECUTIONS')}
                     class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'EXECUTIONS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
                 >
-                    01. Real-Time Execution Ledger ({displayedEvents.length})
+                    Activity ({displayedEvents.length})
                 </button>
                 <button
                     type="button"
@@ -1476,7 +1476,7 @@
                     onclick={() => (activeLedgerTab = 'HIFO_LOTS')}
                     class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'HIFO_LOTS' ? 'text-blue-400 border-blue-500/45' : 'text-neutral-400'}"
                 >
-                    02. Passive HIFO Cost-Basis Lots ({hifoBundle.lots.length})
+                    Tax Lots ({hifoBundle.lots.length})
                 </button>
                 <button
                     type="button"
@@ -1484,7 +1484,7 @@
                     onclick={() => (activeLedgerTab = 'DISPOSITIONS')}
                     class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'DISPOSITIONS' ? 'text-amber-400 border-amber-500/45' : 'text-neutral-400'}"
                 >
-                    03. Schedule D Matched Dispositions ({hifoBundle
+                    Gains (8949) ({hifoBundle
                         .disposalMatches.length})
                 </button>
                 <button
@@ -1493,7 +1493,7 @@
                     onclick={() => (activeLedgerTab = 'EXTERNAL_BASIS')}
                     class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'EXTERNAL_BASIS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
                 >
-                    04. + External Deposit Cost Basis
+                    + Add Basis
                 </button>
                 {#if isAdmin}
                     <button
@@ -1503,12 +1503,12 @@
                             (activeLedgerTab = 'CORPORATE_ACCOUNTING')}
                         class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'CORPORATE_ACCOUNTING' ? 'text-amber-400 border-amber-500/50' : 'text-amber-400/70'}"
                     >
-                        05. Corporate OPEX &amp; Owner's Draw
+                        LLC Expenses
                     </button>
                 {/if}
             </div>
             <span class="text-[9px] text-neutral-400 uppercase">
-                Accounting: Passive HIFO (Highest Cost-Basis Consumed First)
+                
             </span>
         </div>
 
@@ -1769,10 +1769,10 @@
                     <h3
                         class="text-xs font-black uppercase tracking-widest text-[#18C6A5]"
                     >
-                        Register External L1 Deposit Cost Basis (Form 8949 / Schedule D Protection)
+                        Add Deposit Cost Basis
                     </h3>
                     <span class="text-[9px] text-neutral-400">
-                        Creates an OPEN HIFO tax lot for crypto transferred into your Sovereign Vault from an external wallet or hardware rig so Form 8949 only taxes true net gain.
+                        
                     </span>
                 </div>
 
@@ -2102,7 +2102,7 @@
                     <span
                         class="text-xs font-black uppercase tracking-widest text-[#18C6A5]"
                     >
-                        Configure Tax Escrow Reserve Mode
+                        Tax Reserve Mode
                     </span>
                     <span class="text-[9px] text-neutral-400 mt-0.5">
                         Estimated Liability: ${estimatedTaxLiabilityUsd.toFixed(
