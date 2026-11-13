@@ -1,7 +1,9 @@
 <!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\SettingsModal.svelte -->
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { decryptVault } from '$lib/utils/crypto';
+	import { type VaultAuthMode, isBiometricSupported, hasBiometricForVault, getVaultAuthMode, setVaultAuthMode, enrollBiometricVault } from '$lib/utils/biometricVault';
     import { fade, slide } from 'svelte/transition';
-    import { browser } from '$app/environment';
     import { settingsStore } from '$lib/stores/settings.svelte';
     import {
         i18n,
@@ -63,7 +65,77 @@ import { pwa } from '$lib/stores/pwa.svelte';
         ui.showTutorialPrompt = true;
     }
 
-    function exportEncryptedVaultBackup() {
+    let smBioSupported = $state(false);
+	let smVaultKasAddr = $state<string | null>(null);
+	let smHasBio = $state(false);
+	let smAuthMode = $state<VaultAuthMode>('password');
+	let smPendingEnrollMode = $state<VaultAuthMode | null>(null);
+	let smEnrollPassword = $state('');
+	let smAuthFeedback = $state('');
+	let smAuthError = $state('');
+	let smIsEnrolling = $state(false);
+	
+	function syncSettingsAuthState() {
+	  if (!browser) return;
+	  try {
+	    const raw = localStorage.getItem('perennia_sovereign_payload');
+	    const parsed = raw ? JSON.parse(raw) : null;
+	    smVaultKasAddr = parsed?.wallets?.kaspa?.address ? String(parsed.wallets.kaspa.address).trim().toLowerCase() : null;
+	  } catch { smVaultKasAddr = null; }
+	  smHasBio = hasBiometricForVault(smVaultKasAddr);
+	  smAuthMode = getVaultAuthMode(smVaultKasAddr);
+	  isBiometricSupported().then((ok) => { smBioSupported = ok; }).catch(() => { smBioSupported = false; });
+	}
+	
+	$effect(() => {
+	  if (settingsStore.showSettingsModal) {
+	    smAuthFeedback = ''; smAuthError = ''; smPendingEnrollMode = null; smEnrollPassword = '';
+	    syncSettingsAuthState();
+	  }
+	});
+	
+	function selectSettingsVaultMode(target: VaultAuthMode) {
+	  smAuthFeedback = ''; smAuthError = '';
+	  if (!smVaultKasAddr) { smAuthError = 'Create or import a wallet first to configure unlock mode.'; return; }
+	  if (target === 'password') {
+	    setVaultAuthMode('password');
+	    smPendingEnrollMode = null;
+	    syncSettingsAuthState();
+	    smAuthFeedback = 'Updated: Password-only unlock.';
+	    return;
+	  }
+	  if (!smBioSupported) { smAuthError = 'Fingerprint / biometric sensor not available on this device.'; return; }
+	  if (smHasBio) {
+	    setVaultAuthMode(target);
+	    smPendingEnrollMode = null;
+	    syncSettingsAuthState();
+	    smAuthFeedback = target === 'fingerprint' ? 'Updated: Fingerprint unlock active.' : 'Updated: Fingerprint + Password (Both) active.';
+	    return;
+	  }
+	  smPendingEnrollMode = target;
+	}
+	
+	async function confirmSettingsBioEnroll() {
+	  smAuthError = ''; smAuthFeedback = '';
+	  if (!smPendingEnrollMode || !smVaultKasAddr) return;
+	  if (!smEnrollPassword) { smAuthError = 'Enter your vault password once to link Fingerprint.'; return; }
+	  smIsEnrolling = true;
+	  try {
+	    const raw = localStorage.getItem('perennia_sovereign_payload');
+	    const parsed = raw ? JSON.parse(raw) : null;
+	    if (!parsed?.vault) throw new Error('Vault not found.');
+	    await decryptVault(smEnrollPassword, parsed.vault);
+	    await enrollBiometricVault(smVaultKasAddr, smEnrollPassword, smPendingEnrollMode);
+	    const chosen = smPendingEnrollMode;
+	    smEnrollPassword = ''; smPendingEnrollMode = null;
+	    syncSettingsAuthState();
+	    smAuthFeedback = chosen === 'fingerprint' ? '✓ Fingerprint unlock enabled!' : '✓ Fingerprint + Password enabled!';
+	  } catch (e: any) {
+	    smAuthError = e?.message?.includes('cancelled') ? 'Fingerprint scan cancelled.' : 'Incorrect vault password.';
+	  } finally { smIsEnrolling = false; }
+	}
+
+	function exportEncryptedVaultBackup() {
         if (!browser) return;
         backupStatus = null;
         const raw = localStorage.getItem('perennia_sovereign_payload');
@@ -490,7 +562,26 @@ import { pwa } from '$lib/stores/pwa.svelte';
                             {backupStatus.message}
                         </div>
                     {/if}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                    <div data-testid="settings-vault-auth-section" class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+  <div class="flex items-center justify-between gap-2">
+    <span class="text-xs font-mono font-black uppercase tracking-wider text-white">Vault Unlock</span>
+    <span class="text-[10px] font-mono font-bold text-[#18C6A5]">{smAuthMode === 'fingerprint' ? 'Fingerprint' : smAuthMode === 'both' ? 'Fingerprint + Password' : 'Password Only'}</span>
+  </div>
+  <div class="grid grid-cols-3 gap-2">
+    <button type="button" data-testid="settings-auth-mode-fingerprint" onclick={() => selectSettingsVaultMode('fingerprint')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'fingerprint' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Fingerprint</button>
+    <button type="button" data-testid="settings-auth-mode-both" onclick={() => selectSettingsVaultMode('both')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'both' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Both</button>
+    <button type="button" data-testid="settings-auth-mode-password" onclick={() => selectSettingsVaultMode('password')} class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'password' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}">Password</button>
+  </div>
+  {#if smPendingEnrollMode}
+    <div data-testid="settings-bio-enroll-box" class="flex flex-col sm:flex-row gap-2 pt-1">
+      <input data-testid="settings-bio-password-input" type="password" bind:value={smEnrollPassword} onkeydown={(e) => e.key === 'Enter' && confirmSettingsBioEnroll()} placeholder="Confirm vault password once..." class="flex-1 bg-[#0a0d12] border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-neutral-500 focus:outline-none focus:border-[#18C6A5]" />
+      <button type="button" data-testid="settings-bio-enroll-submit" onclick={confirmSettingsBioEnroll} disabled={smIsEnrolling} class="tactile-btn px-4 py-2 rounded-xl border border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5] text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer">{smIsEnrolling ? 'Scanning...' : 'Enable'}</button>
+    </div>
+  {/if}
+  {#if smAuthFeedback}<p data-testid="settings-auth-feedback" class="text-[10px] font-mono text-[#18C6A5]">{smAuthFeedback}</p>{/if}
+  {#if smAuthError}<p data-testid="settings-auth-error" class="text-[10px] font-mono text-red-400">{smAuthError}</p>{/if}
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                         <button
                             type="button"
                             onclick={exportEncryptedVaultBackup}

@@ -1,9 +1,12 @@
 import { browser } from '$app/environment';
 
+export type VaultAuthMode = 'fingerprint' | 'both' | 'password';
+
 const DB_NAME = 'perennia_biometric_enclave_v1';
 const STORE_NAME = 'enclave';
 const RECORD_KEY = 'sovereign_primary';
 const LS_BIO_ADDR = 'perennia_bio_enabled_addr';
+const LS_AUTH_MODE = 'perennia_vault_auth_mode';
 
 interface BioEnclaveRecord {
   kasAddress: string;
@@ -12,6 +15,10 @@ interface BioEnclaveRecord {
   cipherB64: string;
   deviceKey: CryptoKey;
   createdAt: number;
+}
+
+function emitModeChanged() {
+  if (browser) window.dispatchEvent(new CustomEvent('perennia:auth-mode-changed'));
 }
 
 function toB64(bytes: Uint8Array): string {
@@ -59,24 +66,19 @@ async function idbGet(): Promise<BioEnclaveRecord | null> {
   });
 }
 
-function isMockBio(): boolean {
+export function isMockBiometrics(): boolean {
   return browser && Boolean((window as any).__perenniaMockBiometrics);
 }
 
 export async function isBiometricSupported(): Promise<boolean> {
   if (!browser) return false;
-  if (isMockBio()) return true;
+  if (isMockBiometrics()) return true;
   if (!window.isSecureContext || typeof window.PublicKeyCredential === 'undefined') return false;
   try {
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
   } catch {
     return false;
   }
-}
-
-export function getBiometricBoundAddress(): string | null {
-  if (!browser) return null;
-  return localStorage.getItem(LS_BIO_ADDR);
 }
 
 export function hasBiometricForVault(kasAddress?: string | null): boolean {
@@ -87,18 +89,34 @@ export function hasBiometricForVault(kasAddress?: string | null): boolean {
   return bound.toLowerCase() === kasAddress.trim().toLowerCase();
 }
 
-export async function enrollBiometricVault(kasAddress: string, secretPass: string): Promise<boolean> {
+export function getVaultAuthMode(kasAddress?: string | null): VaultAuthMode {
+  if (!browser) return 'password';
+  const saved = localStorage.getItem(LS_AUTH_MODE) as VaultAuthMode | null;
+  if (saved === 'password') return 'password';
+  if (hasBiometricForVault(kasAddress)) {
+    return saved === 'both' ? 'both' : 'fingerprint';
+  }
+  return 'password';
+}
+
+export function setVaultAuthMode(mode: VaultAuthMode): void {
+  if (!browser) return;
+  localStorage.setItem(LS_AUTH_MODE, mode);
+  emitModeChanged();
+}
+
+export async function enrollBiometricVault(kasAddress: string, secretPass: string, mode: VaultAuthMode = 'fingerprint'): Promise<boolean> {
   if (!browser || !kasAddress || !secretPass) return false;
   const cleanAddr = kasAddress.trim().toLowerCase();
   let credIdB64 = 'mock-cred-id';
-  if (!isMockBio()) {
+  if (!isMockBiometrics()) {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const userId = new TextEncoder().encode(cleanAddr.slice(-32));
     const shortLabel = cleanAddr.replace(/^kaspa:/, '').slice(0, 8) + '...' + cleanAddr.slice(-6);
     const cred = (await navigator.credentials.create({
       publicKey: {
         challenge,
-        rp: { name: 'Perennia' },
+        rp: { name: 'Perennia', id: window.location.hostname },
         user: { id: userId, name: shortLabel, displayName: `Perennia (${shortLabel})` },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' },
@@ -112,7 +130,7 @@ export async function enrollBiometricVault(kasAddress: string, secretPass: strin
         timeout: 60000
       }
     })) as PublicKeyCredential | null;
-    if (!cred || !cred.rawId) throw new Error('Biometric enrollment cancelled.');
+    if (!cred || !cred.rawId) throw new Error('Fingerprint setup cancelled.');
     credIdB64 = toB64(new Uint8Array(cred.rawId));
   }
   const deviceKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
@@ -129,6 +147,8 @@ export async function enrollBiometricVault(kasAddress: string, secretPass: strin
     createdAt: Date.now()
   });
   localStorage.setItem(LS_BIO_ADDR, cleanAddr);
+  localStorage.setItem(LS_AUTH_MODE, mode === 'password' ? 'fingerprint' : mode);
+  emitModeChanged();
   return true;
 }
 
@@ -137,23 +157,24 @@ export async function unlockBiometricVault(expectedKasAddress?: string | null): 
   const rec = await idbGet();
   if (!rec || !rec.deviceKey) {
     localStorage.removeItem(LS_BIO_ADDR);
-    throw new Error('Biometric login not set up on this device.');
+    throw new Error('Fingerprint not set up on this device.');
   }
   if (expectedKasAddress && rec.kasAddress !== expectedKasAddress.trim().toLowerCase()) {
-    throw new Error('Biometric key belongs to a different wallet.');
+    throw new Error('Fingerprint belongs to a different wallet.');
   }
-  if (!isMockBio()) {
+  if (!isMockBiometrics()) {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const credId = fromB64(rec.credIdB64);
     const assertion = await navigator.credentials.get({
       publicKey: {
         challenge,
-        allowCredentials: [{ id: credId as BufferSource, type: 'public-key', transports: ['internal'] }],
+        rpId: window.location.hostname,
+        allowCredentials: [{ id: credId as BufferSource, type: 'public-key' }],
         userVerification: 'required',
         timeout: 60000
       }
     });
-    if (!assertion) throw new Error('Biometric verification cancelled.');
+    if (!assertion) throw new Error('Fingerprint scan cancelled.');
   }
   const iv = fromB64(rec.ivB64);
   const cipher = fromB64(rec.cipherB64);
@@ -164,6 +185,7 @@ export async function unlockBiometricVault(expectedKasAddress?: string | null): 
 export async function clearBiometricVault(): Promise<void> {
   if (!browser) return;
   localStorage.removeItem(LS_BIO_ADDR);
+  localStorage.setItem(LS_AUTH_MODE, 'password');
   try {
     const db = await openBioDb();
     await new Promise<void>((res) => {
@@ -173,4 +195,5 @@ export async function clearBiometricVault(): Promise<void> {
       tx.onerror = () => { db.close(); res(); };
     });
   } catch {}
+  emitModeChanged();
 }

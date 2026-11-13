@@ -209,6 +209,15 @@ let mobileFleetExpanded = $state(false);
             '#18C6A5'
         );
     }
+
+	function formatWorkerShares(val?: number | null): string {
+		const n = Math.max(0, Number(val) || 0);
+		if (n < 100_000) return n.toLocaleString();
+		if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}K`;
+		if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+		if (n < 1_000_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+		return `${(n / 1_000_000_000_000).toFixed(2)}T`;
+	}
 </script>
 
 <div
@@ -469,32 +478,26 @@ let mobileFleetExpanded = $state(false);
                     </div>
                 {/if}
 
-                <div class="grid grid-cols-3 items-end gap-1.5 border-t border-white/10 pt-2.5 mt-0.5">
-                    <div class="flex flex-col min-w-0">
-                        <span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">
-                            Hashrate
-                        </span>
-                        <span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.hashRate > 0 ? 'text-white' : 'text-neutral-500'}">
-                            {worker.hashRate.toFixed(2)} <span class="text-[9px] text-neutral-400 font-normal">TH/s</span>
-                        </span>
-                    </div>
-                    <div class="flex flex-col items-center min-w-0">
-                        <span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">
-                            Blocks
-                        </span>
-                        <span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.blocksFound && worker.blocksFound > 0 ? 'text-blue-400 drop-shadow-[0_0_5px_rgba(96,165,250,0.5)]' : 'text-neutral-500'}">
-                            {worker.blocksFound || 0}
-                        </span>
-                    </div>
-                    <div class="flex flex-col items-end min-w-0">
-                        <span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">
-                            Shares
-                        </span>
-                        <span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.sharesContributed && worker.sharesContributed > 0 ? 'text-amber-400 drop-shadow-[0_0_5px_rgba(245,158,11,0.5)]' : 'text-neutral-500'}">
-                            {(worker.sharesContributed || 0).toLocaleString()}
-                        </span>
-                    </div>
-                </div>
+                <div data-testid="worker-metrics-row" class="grid grid-cols-[auto_auto_minmax(0,1fr)] items-end justify-between gap-2.5 border-t border-white/10 pt-2.5 mt-0.5">
+	<div data-testid="worker-col-hashrate" class="flex flex-col min-w-0 shrink-0">
+		<span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">Hashrate</span>
+		<span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.hashRate > 0 ? 'text-white' : 'text-neutral-500'}">
+			{worker.hashRate.toFixed(2)} <span class="text-[9px] text-neutral-400 font-normal">TH/s</span>
+		</span>
+	</div>
+	<div data-testid="worker-col-blocks" class="flex flex-col items-center min-w-0 shrink-0 px-1" title="{(worker.blocksFound || 0).toLocaleString()} blocks">
+		<span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">Blocks</span>
+		<span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.blocksFound && worker.blocksFound > 0 ? 'text-blue-400 drop-shadow-[0_0_5px_rgba(96,165,250,0.5)]' : 'text-neutral-500'}">
+			{(worker.blocksFound || 0) >= 100_000 ? formatWorkerShares(worker.blocksFound) : (worker.blocksFound || 0).toLocaleString()}
+		</span>
+	</div>
+	<div data-testid="worker-col-shares" class="flex flex-col items-end min-w-0 overflow-hidden" title="{(worker.sharesContributed || 0).toLocaleString()} shares">
+		<span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">Shares</span>
+		<span class="max-w-full truncate text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.sharesContributed && worker.sharesContributed > 0 ? 'text-amber-400 drop-shadow-[0_0_5px_rgba(245,158,11,0.5)]' : 'text-neutral-500'}">
+			{formatWorkerShares(worker.sharesContributed)}
+		</span>
+	</div>
+</div>
             </div>
         {/each}
     </div>

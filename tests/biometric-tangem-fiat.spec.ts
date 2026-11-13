@@ -1,75 +1,103 @@
 import { test, expect } from '@playwright/test';
 
-const VALID_KAS = 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
 const TEST_SEED = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
-test('Trade Buy/Sell Fiat tab, Thumbprint/Face ID login, and Tangem hardware integration', async ({ page }) => {
+test('3-Mode Fingerprint/Both/Password unlock + Settings control, Header gear right of wallet, Worker Blocks/Shares non-overlap, and zero Tangem branding', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
   await page.addInitScript(() => { (window as any).__perenniaMockBiometrics = true; });
   await page.route('**/api/auth/challenge', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'perennia-biometric-auth-nonce' }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'perennia-bio-nonce' }) });
   });
   await page.route('**/api/auth', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
+  });
+  await page.route('**/api/state**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          workers: [{ id: 'W1', type: 'physical', name: 'KS7lite2', stratumUrl: 'stratum+tcp://perennia.io:3333', walletWorker: 'kaspa:test.KS7lite2', hashRate: 4.02, isOnline: true, hardwareType: 'IceRiver KS7 Lite', sharesContributed: 119495600, validShares: 119495600, rejectedShares: 0, acceptancePct: 100, blocksFound: 1842 }],
+          sectors: []
+        })
+      });
+    } else { await route.continue(); }
   });
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   await page.getByTestId('enter-nexus-btn').click();
 
-  // 1. Pair Tangem Card & Log In Cold Mode from WalletModal
-  await page.getByTestId('wallet-tangem-btn').click();
-  await page.getByTestId('tangem-kaspa-input').fill(VALID_KAS);
-  await page.getByTestId('tangem-connect-cold-btn').click();
-
-  // 2. Verify Mine -> Payout Splits 1-tap Use Tangem fills payout address
-  await page.getByTestId('ops-new-split-btn').click();
-  const useTangemBtn = page.getByTestId('split-use-tangem-btn');
-  await expect(useTangemBtn).toBeVisible();
-  await useTangemBtn.click();
-  await expect(useTangemBtn).toContainText('✓ Tangem');
-  await page.keyboard.press('Escape');
-
-  // 3. Verify Trade -> Buy / Sell (Fiat) tab mounts & updates live without errors
-  await page.getByTestId('header-nav-DEX').click();
-  const fiatTabBtn = page.getByTestId('dex-mode-fiat-btn');
-  await expect(fiatTabBtn).toContainText('Buy / Sell');
-  await fiatTabBtn.click();
-  await expect(page.getByTestId('fiat-bridge-panel')).toBeVisible();
-  const usdInput = page.getByTestId('fiat-onramp-usd-input');
-  await expect(usdInput).toBeVisible();
-  await usdInput.fill('250');
-  await expect(page.getByTestId('fiat-onramp-fee-breakdown')).toBeVisible();
-  await expect(page.getByTestId('fiat-generate-pass-cta')).toBeVisible();
-  await page.getByTestId('fiat-offramp-tab-btn').click();
-  await expect(page.getByTestId('fiat-bridge-panel')).toBeVisible();
-
-  // 4. Verify Wallet -> Tangem Cold Card bar & Auto-Sweep
-  await page.getByTestId('header-treasury-btn').click();
-  await expect(page.getByTestId('treasury-tangem-bar')).toBeVisible();
-  await page.getByTestId('tangem-sweep-10000').click();
-
-  // 5. Import Sovereign Vault with Biometrics enabled, lock session, then Log In via Thumbprint!
-  await page.getByTestId('treasury-tangem-card-btn').click();
-  await page.locator('button', { hasText: '← Back' }).click();
+  // 1. Verify zero Tangem trial button in WalletModal & Import Wallet in Fingerprint-only mode
+  await expect(page.getByTestId('wallet-tangem-btn')).toHaveCount(0);
   await page.locator('button', { hasText: /Import|Restore/i }).first().click();
+  await page.getByTestId('setup-mode-fingerprint').click();
   const pwInputs = page.locator('input[type="password"]');
-  await pwInputs.nth(0).fill('SovereignPass123!');
-  await pwInputs.nth(1).fill('SovereignPass123!');
+  await pwInputs.nth(0).fill('ComplicatedVaultPass#2026!');
+  await pwInputs.nth(1).fill('ComplicatedVaultPass#2026!');
   await page.locator('textarea').first().fill(TEST_SEED);
   await page.locator('button', { hasText: /Import|Restore|Secure/i }).last().click();
-  await expect(page.getByTestId('treasury-tangem-bar')).toBeVisible();
-  // Simulate returning session (reload clears in-memory session while keeping encrypted vault + IndexedDB bio key)
+
+  // 2. Verify Settings Gear is positioned strictly to the RIGHT of Wallet pill in header
+  const gearBtn = page.getByTestId('header-settings-btn');
+  const walletPill = page.locator('header').locator('button', { hasText: /kaspa:|0x|Wallet/i }).last();
+  const gearBox = await gearBtn.boundingBox();
+  const walletBox = await walletPill.boundingBox();
+  expect(gearBox && walletBox && gearBox.x > walletBox.x + walletBox.width - 2).toBe(true);
+
+  // 3. Verify Worker Blocks (1,842) and Shares (119.50M) do NOT overlap
+  const blocksCol = page.getByTestId('worker-col-blocks').first();
+  const sharesCol = page.getByTestId('worker-col-shares').first();
+  await expect(sharesCol).toContainText('119.50M');
+  const bBox = await blocksCol.boundingBox();
+  const sBox = await sharesCol.boundingBox();
+  expect(bBox && sBox && bBox.x + bBox.width <= sBox.x).toBe(true);
+
+  // 4. Verify Trade Buy / Sell tab works & Wallet has zero Tangem bar
+  await page.getByTestId('header-nav-DEX').click();
+  await page.getByTestId('dex-mode-fiat-btn').click();
+  await expect(page.getByTestId('fiat-bridge-panel')).toBeVisible();
+  await page.getByTestId('header-treasury-btn').click();
+  await expect(page.getByTestId('treasury-tangem-bar')).toHaveCount(0);
+
+  // 5. Reload -> Verify Fingerprint-Only mode hides password field & unlocks in 1 tap!
   await page.reload();
   const enterBtn = page.getByTestId('enter-nexus-btn');
   if (await enterBtn.isVisible().catch(() => false)) await enterBtn.click();
-  const bioBtn = page.getByTestId('biometric-unlock-btn');
-  if (!(await bioBtn.isVisible().catch(() => false))) {
-    await page.locator('header button', { hasText: /Log In|Unlock|Wallet|Connect/i }).first().click();
+  const bioUnlockBtn = page.getByTestId('biometric-unlock-btn');
+  if (!(await bioUnlockBtn.isVisible().catch(() => false))) {
+    await page.getByTestId('header-unlock-vault-btn').click();
   }
-  await expect(bioBtn).toBeVisible();
-  await bioBtn.click();
-  await expect(bioBtn).toBeHidden({ timeout: 10000 });
+  await expect(bioUnlockBtn).toBeVisible();
+  await expect(page.getByTestId('vault-unlock-password-input')).toHaveCount(0);
+  await bioUnlockBtn.click();
+  await expect(bioUnlockBtn).toBeHidden({ timeout: 10000 });
+
+  // 6. Open Settings (⚙) -> Switch mode to BOTH -> Reload -> Verify BOTH Password + Fingerprint required
+  await page.getByTestId('header-settings-btn').click();
+  await expect(page.getByTestId('settings-vault-auth-section')).toBeVisible();
+  await page.getByTestId('settings-auth-mode-both').click();
+  await expect(page.getByTestId('settings-auth-feedback')).toContainText('Both');
+  await page.reload();
+  if (await enterBtn.isVisible().catch(() => false)) await enterBtn.click();
+  if (!(await page.getByTestId('unlock-both-mode-badge').isVisible().catch(() => false))) {
+    await page.getByTestId('header-unlock-vault-btn').click();
+  }
+  await expect(page.getByTestId('unlock-both-mode-badge')).toBeVisible();
+  await page.getByTestId('vault-unlock-password-input').fill('ComplicatedVaultPass#2026!');
+  await page.getByTestId('vault-unlock-submit-btn').click();
+  await expect(page.getByTestId('unlock-both-mode-badge')).toBeHidden({ timeout: 10000 });
+
+  // 7. Open Settings (⚙) -> Switch mode to PASSWORD -> Reload -> Verify Password-only
+  await page.getByTestId('header-settings-btn').click();
+  await page.getByTestId('settings-auth-mode-password').click();
+  await page.reload();
+  if (await enterBtn.isVisible().catch(() => false)) await enterBtn.click();
+  if (!(await page.getByTestId('vault-unlock-password-input').isVisible().catch(() => false))) {
+    await page.getByTestId('header-unlock-vault-btn').click();
+  }
+  await expect(page.getByTestId('biometric-unlock-btn')).toHaveCount(0);
+  await expect(page.getByTestId('vault-unlock-password-input')).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
