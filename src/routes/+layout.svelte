@@ -1277,7 +1277,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         <EntryView {enterNexus} />
     {:else}
         <div
-            class="app-wrapper min-h-[100dvh]  w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden {appAwakened ? 'glow-active' : 'dormant'}"
+            class="app-wrapper min-h-[100dvh]  w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-clip {appAwakened ? 'glow-active' : 'dormant'}"
         >
             <header
                 class="min-h-[3.75rem] lg:h-20 bg-[#070b0e]/95 backdrop-blur-md flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
@@ -1560,8 +1560,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     </div>
                 </div>
             </header>
-            <main class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain relative pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:pb-24 mt-0 lg:mt-2">
-                <div class="w-full h-full relative z-10">
+            <main class="flex-1 w-full relative pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:pb-24 mt-0 lg:mt-2">
+                <div class="w-full relative z-10">
                     {@render children()}
                 </div>
             </main>

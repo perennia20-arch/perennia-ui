@@ -1776,7 +1776,7 @@
 </script>
 
 <div
-    class="w-full h-full min-h-[100dvh] bg-app text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto relative"
+    class="w-full min-h-[100dvh] bg-app text-neutral-300 font-mono flex flex-col items-center pb-24 overflow-y-auto relative"
     data-tour="treasury-vault"
 >
     {#if !identity.isWalletConnected}

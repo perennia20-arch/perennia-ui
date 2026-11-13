@@ -2,7 +2,7 @@
     import { ui } from '$lib/stores/ui.svelte';
 </script>
 
-<div class="w-full h-full min-h-[100dvh] bg-app text-white font-mono flex flex-col items-center justify-center p-6">
+<div class="w-full min-h-[100dvh] bg-app text-white font-mono flex flex-col items-center justify-center p-6">
     <div
         class="tactile-card w-full max-w-md bg-[#0a0d12] border border-white/10 rounded-[28px] p-10 flex flex-col items-center text-center gap-6 shadow-2xl relative overflow-hidden"
         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"

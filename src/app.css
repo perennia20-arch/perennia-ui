@@ -459,3 +459,9 @@ p:empty { display: none !important; }
 .text-\[10px\] { font-size: 0.85rem !important; line-height: 1.36 !important; }
 .text-\[11px\] { font-size: 0.91rem !important; line-height: 1.4 !important; }
 @media (min-width: 1024px) { .text-\[8px\], .text-\[9px\] { font-size: 0.81rem !important; } .text-\[10px\] { font-size: 0.88rem !important; } }
+
+/* PERENNIA_NATIVE_SCROLL */
+html { overflow-x: clip; overflow-y: auto; height: auto; }
+body { overflow-x: clip; overflow-y: visible; min-height: 100dvh; height: auto; }
+.theme-wrapper, .app-wrapper { overflow-x: clip; overflow-y: visible; height: auto; }
+main { overflow-y: visible; }
