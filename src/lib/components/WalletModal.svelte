@@ -672,6 +672,10 @@ let bioSupported = $state(false);
 				identity.walletMessage = 'Scan fingerprint to verify...';
 				await unlockBiometricVault(vaultPayload?.wallets?.kaspa?.address);
 			}
+			if (typeof bioSecret !== 'string' && hasBioEnrolled && vaultAuthMode === 'both') {
+				identity.walletMessage = 'Scan fingerprint to verify...';
+				await unlockBiometricVault(vaultPayload?.wallets?.kaspa?.address);
+			}
             const keys = await deriveHoneycombKeys(mnemonic);
             let privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
             const kasAddress = identity.normalizeKaspaAddress(
@@ -718,6 +722,7 @@ let bioSupported = $state(false);
 				refreshBiometricState();
 			}
 			password = '';
+			forcePasswordFallback = false;
 			forcePasswordFallback = false;
             ui.showWalletModal = false;
         } catch {
