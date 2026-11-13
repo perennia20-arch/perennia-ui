@@ -7,6 +7,9 @@
     import { blake2b } from '@noble/hashes/blake2.js';
     import { schnorr } from '@noble/curves/secp256k1.js';
     import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
+import { validateKaspaBech32mAddress } from '$lib/crypto/kaspaAddress';
+import { renderAirgappedQrDataUrl, scanVideoFrameForQrPayload } from '$lib/crypto/pluggableSigner';
+import { pwa } from '$lib/stores/pwa.svelte';
     import {
         ui,
         SANDBOX_MNEMONIC_WORDS,
@@ -34,8 +37,7 @@
         | 'import_seed'
         | 'create_seed'
         | 'verify_seed'
-        | 'unlock'
-        | 'authorize'
+        | 'unlock' | 'authorize' | 'watch_only'
     >('menu');
     let hasStoredVault = $state(false);
     let password = $state('');
@@ -47,6 +49,14 @@
     let derivedBtc = $state('');
     let localError = $state('');
     let statusNotice = $state('');
+let watchAddressInput = $state('');
+let airlockQrDataUrl = $state('');
+let isScanningWatchQr = $state(false);
+let watchVideoEl = $state<HTMLVideoElement | null>(null);
+let watchStream: MediaStream | null = null;
+function stopWatchCamera() { isScanningWatchQr = false; if (watchStream) { watchStream.getTracks().forEach((t) => t.stop()); watchStream = null; } }
+async function startWatchQrScan() { if (!browser || !navigator.mediaDevices?.getUserMedia) { localError = 'CAMERA UNAVAILABLE — PASTE KASPA ADDRESS.'; return; } try { watchStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); isScanningWatchQr = true; setTimeout(() => { if (watchVideoEl && watchStream) { watchVideoEl.srcObject = watchStream; watchVideoEl.play().catch(() => {}); } }, 60); const iv = setInterval(async () => { if (!isScanningWatchQr || !watchVideoEl) { clearInterval(iv); return; } const raw = await scanVideoFrameForQrPayload(watchVideoEl).catch(() => null); if (raw) { clearInterval(iv); stopWatchCamera(); watchAddressInput = raw.replace(/^kaspa:/i, 'kaspa:').trim(); } }, 400); } catch { stopWatchCamera(); localError = 'CAMERA PERMISSION DENIED.'; } }
+function handleConnectWatchOnly() { localError = ''; const cand = watchAddressInput.trim().toLowerCase().startsWith('kaspa:') ? watchAddressInput.trim().toLowerCase() : `kaspa:${watchAddressInput.trim().toLowerCase()}`; const v = validateKaspaBech32mAddress(cand); if (!v.valid) { localError = v.error || 'INVALID KASPA BECH32M ADDRESS.'; return; } stopWatchCamera(); if (identity.connectWatchOnlyKaspa(v.normalized)) { watchAddressInput = ''; viewState = 'menu'; ui.showWalletModal = false; } }
 
     // 2-Word Verification State
     let verifyWordIndices = $state<[number, number]>([2, 14]);
@@ -1247,7 +1257,7 @@
 
 {#if ui.showWalletModal}
     <div
-        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#06080b]/95 backdrop-blur-md p-4 font-mono"
+        class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-[#06080b]/95 backdrop-blur-md p-0 sm:p-4 font-mono"
         transition:fade={{ duration: 150 }}
         onclick={handleBackdropClick}
         onkeydown={(e) => e.key === 'Escape' && handleBackdropClick()}
@@ -1255,7 +1265,7 @@
         tabindex="0"
     >
         <div
-            class="w-full {viewState === 'create_seed' || viewState === 'verify_seed' ? 'max-w-lg' : 'max-w-md'} rounded-[28px] border border-white/15 bg-[#0a0d12] shadow-2xl p-6 text-white transition-all duration-200 relative overflow-hidden"
+            class="w-full {viewState === 'create_seed' || viewState === 'verify_seed' ? 'max-w-lg' : 'max-w-md'} max-h-[92dvh] overflow-y-auto rounded-t-[28px] sm:rounded-[28px] border-t sm:border border-white/15 bg-[#0a0d12] shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 text-white transition-all duration-200 relative overflow-hidden"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
             transition:fly={{ y: 10, duration: 200 }}
             onclick={(e) => e.stopPropagation()}
@@ -1271,8 +1281,16 @@
                         {:else if viewState === 'import_seed'}Import Recovery Seed
                         {:else if viewState === 'create_seed'}Step 1 of 2 • Backup 24-Word Seed
                         {:else if viewState === 'verify_seed'}Step 2 of 2 • 2-Word Verification
-                        {:else if viewState === 'unlock'}Unlock Sovereign Vault
-                        {:else if viewState === 'authorize'}Authorize Transaction
+                        {:else if viewState === 'watch_only'}
+<form onsubmit={(e) => { e.preventDefault(); handleConnectWatchOnly(); }} class="flex flex-col gap-3.5">
+<p class="text-[10px] text-neutral-300 leading-relaxed uppercase tracking-wider font-bold">Monitor live ASIC workers, L1 KAS balances, and Tangem cold vaults on mobile with zero seed phrase exposure. Signing uses QR Airlock or Vault import.</p>
+{#if isScanningWatchQr}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2"><video bind:this={watchVideoEl} class="w-full h-44 object-cover rounded-lg bg-black" playsinline></video><button type="button" onclick={stopWatchCamera} class="text-[9px] text-neutral-400 uppercase">[Close Camera]</button></div>{/if}
+<div class="flex gap-2"><input type="text" data-testid="watch-only-address-input" bind:value={watchAddressInput} placeholder="kaspa:qp... or kaspa:qr..." spellcheck="false" class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl font-mono outline-none" /><button type="button" onclick={startWatchQrScan} class="tactile-btn mobile-touch-target px-3.5 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase shrink-0">QR</button></div>
+<div class="flex gap-2"><button type="button" onclick={() => { stopWatchCamera(); viewState = 'menu'; localError = ''; }} class="tactile-btn mobile-touch-target w-1/3 p-3 rounded-xl text-neutral-400 text-[10px] font-bold uppercase">Back</button><button type="submit" data-testid="watch-only-connect-btn" class="tactile-btn mobile-touch-target w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase">Enter Watch-Only &rarr;</button></div>
+</form>
+{:else if viewState === 'unlock'}Unlock Sovereign Vault
+                        {:else if viewState === 'watch_only'}Watch-Only / Tangem Airlock
+{:else if viewState === 'authorize'}Authorize Transaction
                         {/if}
                     </h2>
                 </div>
@@ -1363,6 +1381,7 @@
                             >
                                 <span>Import Encrypted Vault (.json)</span>
                             </button>
+<button type="button" data-testid="wallet-watch-only-btn" onclick={() => { localError = ''; statusNotice = ''; viewState = 'watch_only'; }} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border-amber-500/35 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"><span>Watch-Only Kaspa / Tangem QR</span></button>
 
                             {#if !ui.isTutorialActive}
                                 <button
@@ -1378,8 +1397,7 @@
 
                             <div class="pt-3 mt-1 border-t border-white/5 text-center select-none pointer-events-none">
                                 <span class="text-[8px] font-mono uppercase tracking-[0.16em] text-neutral-500 leading-relaxed block">
-                                    11-Chain Non-Custodial Sovereign Vault • 100% Browser-Side Signing
-                                </span>
+                                    11-Chain Sovereign Vault • {pwa.isMobile ? 'Extension-Free Native Mobile Signing & Tangem QR Airlock' : '100% Browser-Side Schnorr Signing'}</span>
                             </div>
                         </div>
                     </div>
@@ -1797,9 +1815,8 @@
                                 </div>
                             {/if}
                         </div>
-                        <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest text-center mt-1 font-bold">
-                            Enter Vault Password to Sign Locally in Browser
-                        </p>
+                        {#if identity.isWatchOnly && airlockQrDataUrl}<div class="bg-[#11161f] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center"><span class="text-[9px] font-black uppercase tracking-widest text-amber-400">Tangem / QR Airlock Signing Payload</span><img src={airlockQrDataUrl} alt="Airlock QR" class="w-36 h-36 rounded-xl bg-white p-1.5" /><span class="text-[9px] text-neutral-400">Scan with your air-gapped signer or import an encrypted vault to sign on this device.</span></div>{/if}
+<p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest text-center mt-1 font-bold">Enter Vault Password to Sign Locally in Browser</p>
                         <input
                             type="password"
                             data-testid="wallet-authorize-password-input"

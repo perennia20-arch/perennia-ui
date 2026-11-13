@@ -1,34 +1,32 @@
-
 <!doctype html>
-
 <html lang="en">
-
 <head>
-
 <meta charset="utf-8" />
-
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="text-scale" content="scale" />
-
+<meta name="theme-color" content="#070b0e" />
+<meta name="application-name" content="Perennia" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Perennia" />
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+<link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
 <script>
-
-// ⚡ FAIL-SAFE: Prevent raw CommonJS polyfills from crashing the browser runtime
-
 if (typeof exports === 'undefined') { window.exports = {}; }
-
 if (typeof global === 'undefined') { window.global = window; }
-
+window.__perenniaInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  window.__perenniaInstallPrompt = e;
+  window.dispatchEvent(new CustomEvent('perennia:install-ready'));
+});
 </script>
-
 %sveltekit.head%
-
 </head>
-
 <body data-sveltekit-preload-data="hover">
-
 <div style="display: contents">%sveltekit.body%</div>
-
 </body>
-
 </html>

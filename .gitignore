@@ -18,3 +18,5 @@ audit-activity.mjs
 frontend-dist.tar.gz
 .auth-sync.env
 test-results/
+.backups/
+.perennia-*.mjs

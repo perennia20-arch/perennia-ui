@@ -959,7 +959,7 @@
 
 <div
     data-testid="tax-fortress-view"
-    class="w-full min-h-[calc(100dvh-9rem)] p-4 md:p-6 lg:p-8 font-mono text-white max-w-[1680px] mx-auto pb-24 flex flex-col gap-5"
+    class="w-full min-h-[calc(100dvh-9rem)] p-3 sm:p-4 md:p-6 lg:p-8 font-mono text-white max-w-[1680px] mx-auto pb-24 flex flex-col gap-5"
 >
     {#if !nonCpaAcknowledged || showNonCpaNoticeDrawer}
         <div
@@ -1464,12 +1464,9 @@
         <div
             class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3"
         >
-            <div class="flex flex-wrap items-center gap-2">
-                <button
-                    type="button"
-                    data-testid="tax-mode-executions-btn"
+            <div class="flex flex-nowrap lg:flex-wrap items-center gap-2 overflow-x-auto hide-scrollbar w-full lg:w-auto pb-1 lg:pb-0"><button type="button" data-testid="tax-mode-executions-btn"
                     onclick={() => (activeLedgerTab = 'EXECUTIONS')}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'EXECUTIONS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'EXECUTIONS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
                 >
                     01. Real-Time Execution Ledger ({displayedEvents.length})
                 </button>
@@ -1477,7 +1474,7 @@
                     type="button"
                     data-testid="tax-mode-hifo-lots-btn"
                     onclick={() => (activeLedgerTab = 'HIFO_LOTS')}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'HIFO_LOTS' ? 'text-blue-400 border-blue-500/45' : 'text-neutral-400'}"
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'HIFO_LOTS' ? 'text-blue-400 border-blue-500/45' : 'text-neutral-400'}"
                 >
                     02. Passive HIFO Cost-Basis Lots ({hifoBundle.lots.length})
                 </button>
@@ -1485,7 +1482,7 @@
                     type="button"
                     data-testid="tax-mode-disposals-btn"
                     onclick={() => (activeLedgerTab = 'DISPOSITIONS')}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'DISPOSITIONS' ? 'text-amber-400 border-amber-500/45' : 'text-neutral-400'}"
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'DISPOSITIONS' ? 'text-amber-400 border-amber-500/45' : 'text-neutral-400'}"
                 >
                     03. Schedule D Matched Dispositions ({hifoBundle
                         .disposalMatches.length})
@@ -1494,7 +1491,7 @@
                     type="button"
                     data-testid="tax-tab-external-btn"
                     onclick={() => (activeLedgerTab = 'EXTERNAL_BASIS')}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'EXTERNAL_BASIS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'EXTERNAL_BASIS' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400'}"
                 >
                     04. + External Deposit Cost Basis
                 </button>
@@ -1504,7 +1501,7 @@
                         data-testid="tax-tab-corporate-btn"
                         onclick={() =>
                             (activeLedgerTab = 'CORPORATE_ACCOUNTING')}
-                        class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer {activeLedgerTab === 'CORPORATE_ACCOUNTING' ? 'text-amber-400 border-amber-500/50' : 'text-amber-400/70'}"
+                        class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer {activeLedgerTab === 'CORPORATE_ACCOUNTING' ? 'text-amber-400 border-amber-500/50' : 'text-amber-400/70'}"
                     >
                         05. Corporate OPEX &amp; Owner's Draw
                     </button>
@@ -2091,11 +2088,11 @@
 
 {#if showEscrowModal}
     <div
-        class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono"
+        class="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono"
         transition:fade={{ duration: 150 }}
     >
         <div
-            class="w-full max-w-[580px] bg-[#0a0d12] border border-[#18C6A5]/50 rounded-[28px] p-6 shadow-2xl flex flex-col gap-4"
+            class="w-full max-w-[580px] max-h-[90dvh] overflow-y-auto bg-[#0a0d12] border-t sm:border border-[#18C6A5]/50 rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 shadow-2xl flex flex-col gap-4"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 65%);"
         >
             <div

@@ -141,7 +141,7 @@
         <!-- LEFT COLUMN: DEPLOY P2P OFFER CARD -->
         <div
             data-testid="p2p-deploy-offer-card"
-            class="lg:col-span-5 bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
+            class="lg:col-span-5 bg-[#0a0d12] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
             style="
                 border-color: {buyHex}45;
                 background-image:
@@ -397,7 +397,7 @@
         <!-- RIGHT COLUMN: OPEN P2P ORDERBOOK -->
         <div
             data-testid="p2p-orderbook-card"
-            class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-4"
+            class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-4"
             style="background-image: radial-gradient(ellipse at top right, {buyHex}14, transparent 65%);"
         >
             <div class="flex items-center justify-between gap-2 pb-2 border-b border-white/10">

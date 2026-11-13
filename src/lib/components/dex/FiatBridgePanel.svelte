@@ -1031,7 +1031,7 @@
 
 <div
     data-testid="fiat-bridge-panel"
-    class="w-full max-w-[660px] mx-auto bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-4 transition-all duration-300"
+    class="w-full max-w-[660px] mx-auto bg-[#0a0d12] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-4 transition-all duration-300"
     style="
         border-color: {activeThemeHex}45;
         background-image:

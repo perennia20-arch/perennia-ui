@@ -173,7 +173,7 @@
         <!-- LEFT COLUMN: LIQUIDITY POOL PROVISIONING -->
         <div
             data-testid="dex-liquidity-plant-card"
-            class="lg:col-span-7 bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
+            class="lg:col-span-7 bg-[#0a0d12] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
             style="
                 border-color: {tokenBHex}45;
                 background-image:
@@ -592,7 +592,7 @@
         <!-- RIGHT COLUMN: STREAMLINED SILO FEE TIER STAKING -->
         <div
             data-testid="silo-staking-card"
-            class="lg:col-span-5 bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
+            class="lg:col-span-5 bg-[#0a0d12] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
             style="
                 border-color: {siloHex}45;
                 background-image:

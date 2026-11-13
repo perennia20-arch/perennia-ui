@@ -12,6 +12,7 @@ class IdentityStore {
     isVaultUnlockPending = $state(false);
     pendingTransactionDetails = $state<any>(null);
     isVaultUnlocked = $state(false);
+	isWatchOnly = $state(false);
     forgePublicEnabled = $state(false);
     masterTreasuryAddress = $state<string>('');
     serverVerifiedAdmin = $state<boolean>(false);
@@ -109,7 +110,9 @@ class IdentityStore {
         );
         this.activeWalletType = 'sovereign';
         this.isVaultUnlocked = true;
-        if (browser) {
+		this.isWatchOnly = false;
+		if (browser) {
+			sessionStorage.removeItem('perennia_watch_only_address');
             sessionStorage.setItem('perennia_active_wallet_type', 'sovereign');
             sessionStorage.setItem('perennia_vault_unlocked', 'true');
             localStorage.setItem(
@@ -188,7 +191,22 @@ class IdentityStore {
         ui.showWalletModal = true;
     }
 
-    disconnect() {
+    connectWatchOnlyKaspa(rawAddr: string): boolean {
+		const norm = this.normalizeKaspaAddress(rawAddr);
+		if (!norm || norm.length < 60) return false;
+		this.sovereignKeys = { kaspa: { address: norm } };
+		this.activeAddress = norm;
+		this.activeWalletType = 'sovereign';
+		this.isVaultUnlocked = false;
+		this.isWatchOnly = true;
+		this.isWalletConnected = true;
+		this.serverVerifiedAdmin = false;
+		if (browser) { sessionStorage.setItem('perennia_watch_only_address', norm); sessionStorage.removeItem('perennia_vault_unlocked'); }
+		return true;
+	}
+	disconnect() {
+		this.isWatchOnly = false;
+		if (browser) sessionStorage.removeItem('perennia_watch_only_address');
         fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
         this.activeAddress = null;
         this.isWalletConnected = false;

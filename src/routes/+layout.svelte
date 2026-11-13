@@ -26,6 +26,9 @@
     import WalletModal from '$lib/components/WalletModal.svelte';
     import SettingsModal from '$lib/components/SettingsModal.svelte';
     import TutorialOverlay from '$lib/components/TutorialOverlay.svelte';
+import { pwa } from '$lib/stores/pwa.svelte';
+import InstallAppModal from '$lib/components/InstallAppModal.svelte';
+import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
     let { children } = $props();
     const BACKEND_BASE = '';
@@ -732,8 +735,15 @@
     }
 
     async function loadStateFromServer(targetWallet: string | null = null) {
-        if (!browser || !identity.activeAddress || !identity.isWalletConnected)
-            return;
+	if (!browser || !identity.activeAddress || !identity.isWalletConnected) return;
+	if (identity.isWatchOnly) {
+		try {
+			const [wRes, bRes] = await Promise.all([fetch(`/api/stratum/bind?publicWorkers=1&wallet=${encodeURIComponent(identity.activeAddress)}`), fetch(`/api/balance?address=${encodeURIComponent(identity.activeAddress)}`)]);
+			if (wRes.ok) { const wd = await wRes.json(); operations.globalNodeStatus = wd.online ? 'connected' : 'offline'; operations.workers = (wd.workers || []).map((r: any) => ({ id: String(r.worker_id || r.worker_name || 'RIG'), type: 'physical', name: String(r.worker_name || 'Rig'), stratumUrl: `stratum+tcp://pool.perennia.io:${r.stratum_port || 3332}`, walletWorker: `${identity.activeAddress}.${r.worker_name || 'Rig'}`, hashRate: Number(r.hashrate_ths || (Number(r.current_hashrate || 0) / 1e12) || 0), isOnline: Number(r.current_hashrate || r.hashrate_ths || 0) > 0, hardwareType: r.hardware_model || 'IceRiver KS', sharesContributed: Number(r.valid_shares || 0), validShares: Number(r.valid_shares || 0), rejectedShares: Number(r.rejected_shares || 0), blocksFound: Number(r.blocks_found || 0) })); }
+			if (bRes.ok) { const bd = await bRes.json(); if (typeof bd.balance === 'number') treasury.updateAsset('KAS', { onChain: bd.balance, address: identity.activeAddress }); }
+		} catch {}
+		isLoaded = true; return;
+	}
         try {
             const url = targetWallet
                 ? `${BACKEND_BASE}/api/state?target=${encodeURIComponent(targetWallet)}`
@@ -765,6 +775,7 @@
                 ) {
                     operations.blockRewardKas = parsed.blockRewardKas;
                 }
+	if (typeof parsed.virtualDaaScore === 'number' && parsed.virtualDaaScore > 0) operations.virtualDaaScore = parsed.virtualDaaScore;
                 isServerReachable = true;
                 isLoaded = true;
             } else {
@@ -1198,6 +1209,7 @@
     let epochClockInterval: ReturnType<typeof setInterval>;
 
     onMount(async () => {
+	pwa.init();
         operations.tickEpochClock();
         epochClockInterval = setInterval(() => {
             operations.tickEpochClock();
@@ -1246,8 +1258,9 @@
         } catch {
             // Ignore auth check error at boot
         }
-        fetchPriceData();
-        settingsStore.applyTheme();
+        if (!identity.isWalletConnected && browser) { const savedWatchAddr = sessionStorage.getItem('perennia_watch_only_address'); if (savedWatchAddr && identity.connectWatchOnlyKaspa(savedWatchAddr)) { hasEntered = true; ui.hasEntered = true; } }
+	fetchPriceData();
+	settingsStore.applyTheme();
         priceInterval = setInterval(fetchPriceData, 15000);
     });
 
@@ -1263,10 +1276,10 @@
         <EntryView {enterNexus} />
     {:else}
         <div
-            class="app-wrapper min-h-[100dvh] w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden {appAwakened ? 'glow-active' : 'dormant'}"
+            class="app-wrapper min-h-[100dvh] max-lg:h-[100dvh] max-lg:max-h-[100dvh] max-lg:overflow-hidden w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-hidden {appAwakened ? 'glow-active' : 'dormant'}"
         >
             <header
-                class="min-h-[4.5rem] lg:h-20 bg-[#06080b] flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 py-2 lg:py-0"
+                class="min-h-[3.75rem] lg:h-20 bg-[#070b0e]/95 backdrop-blur-md flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
             >
                 <div
                     class="w-full max-w-[1720px] px-3 sm:px-5 lg:px-8 flex flex-wrap lg:flex-nowrap justify-between items-center h-full gap-2.5"
@@ -1289,15 +1302,7 @@
                                 title="Node Status: {operations.globalNodeStatus.toUpperCase()}"
                             ></span>
                         </div>
-                        <div class="hidden sm:flex flex-col">
-                            <span
-                                class="font-black tracking-[0.2em] text-base md:text-lg uppercase text-white leading-none"
-                            >
-                                PERENNIA
-                            </span>
-                            <span
-                                class="text-[8px] font-mono uppercase tracking-widest text-neutral-500 mt-0.5"
-                            >
+                        <div class="flex flex-col"><span class="font-black tracking-[0.14em] sm:tracking-[0.2em] text-xs sm:text-base md:text-lg uppercase text-white leading-none">PERENNIA</span><span class="hidden sm:block text-[8px] font-mono uppercase tracking-widest text-neutral-500 mt-0.5">
                                 {operations.globalNodeStatus === 'connected'
                                     ? i18n.t('header.node_online')
                                     : i18n.t('header.mining_settlement')}
@@ -1306,7 +1311,7 @@
                     </button>
                     <nav
                         aria-label="Primary Command Navigation"
-                        class="order-3 lg:order-2 w-full lg:w-auto flex items-center justify-start lg:justify-center overflow-x-auto hide-scrollbar"
+                        class="hidden lg:flex lg:order-2 lg:w-auto items-center justify-center overflow-x-auto hide-scrollbar"
                     >
                         <div
                             class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 p-1 rounded-2xl min-w-max shadow-inner"
@@ -1439,7 +1444,8 @@
                                 </button>
                             </div>
                         {/if}
-                        <div class="relative">
+                        {#if !pwa.isStandalone}<button type="button" data-testid="header-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target px-2.5 sm:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-wider text-white border-white/15 hover:border-[#18C6A5]/50 flex items-center gap-1.5 whitespace-nowrap" title="Install Perennia Standalone App"><svg class="w-3.5 h-3.5 text-[#18C6A5] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" /></svg><span class="hidden sm:inline">Install App</span><span class="sm:hidden">App</span></button>{/if}
+<div class="relative">
                             {#if ui.microBadges['global_fiat_btn']}
                                 <div
                                     class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-xl"
@@ -1457,7 +1463,7 @@
                                 title="Buy Crypto with USD"
                             >
                                 <span class="text-xs font-black">$</span>
-                                <span>{i18n.t('header.buy_crypto')}</span>
+                                <span class="hidden sm:inline">{i18n.t('header.buy_crypto')}</span><span class="sm:hidden">Buy</span>
                             </button>
                         </div>
                         <button
@@ -1466,7 +1472,7 @@
                             data-testid="header-settings-btn"
                             onclick={() =>
                                 (settingsStore.showSettingsModal = true)}
-                            class="tactile-btn w-9 h-9 rounded-xl {settingsStore.showSettingsModal || ui.isTutorialActive ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400 hover:text-white'} flex items-center justify-center cursor-pointer shrink-0"
+                            class="tactile-btn mobile-touch-target w-10 h-10 lg:w-9 lg:h-9 rounded-xl {settingsStore.showSettingsModal || ui.isTutorialActive ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400 hover:text-white'} flex items-center justify-center cursor-pointer shrink-0"
                             title="System Parameters & Interactive Guide"
                         >
                             <svg
@@ -1530,7 +1536,7 @@
                                             identity.activeAddress.length - 4
                                         )}
                                     </span>
-                                    <span class="sr-only">UNLOCKED</span>
+                                    {#if identity.isWatchOnly}<span class="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[8px] font-black uppercase">WATCH</span>{/if}<span class="sr-only">UNLOCKED</span>
                                 </button>
                                 <button
                                     type="button"
@@ -1558,19 +1564,19 @@
                     </div>
                 </div>
             </header>
-            <main class="flex-1 overflow-y-auto relative pb-24 mt-2">
+            <main class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain relative pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:pb-24 mt-0 lg:mt-2">
                 <div class="w-full h-full relative z-10">
                     {@render children()}
                 </div>
             </main>
-        </div>
-    {/if}
+<MobileBottomDock />
+</div>
+{/if}
 </div>
 
 {#if ui.showFiatModal}
     <div
-        data-testid="global-fiat-modal"
-        class="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono overflow-y-auto"
+        data-testid="global-fiat-modal" class="fixed inset-0 z-[9990] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono overflow-y-auto"
         transition:fade={{ duration: 150 }}
     >
         <button
@@ -1580,7 +1586,7 @@
             class="fixed inset-0 w-full h-full bg-transparent border-none cursor-default"
         ></button>
         <div
-            class="relative z-10 w-full max-w-[580px] bg-[#0a0d12] border rounded-[28px] p-6 md:p-7 flex flex-col gap-3.5 my-auto transition-all duration-300"
+            class="relative z-10 w-full max-w-[580px] max-h-[92dvh] overflow-y-auto bg-[#0a0d12] border-t sm:border rounded-t-[28px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] sm:pb-7 flex flex-col gap-3.5 sm:my-auto transition-all duration-300"
             style="
                 border-color: {targetAssetHex}45;
                 background-image:
@@ -2217,6 +2223,7 @@
 
 <WalletModal />
 <SettingsModal />
+<InstallAppModal />
 <TutorialOverlay />
 
 <style>

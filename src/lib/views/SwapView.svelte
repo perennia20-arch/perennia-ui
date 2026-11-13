@@ -1174,7 +1174,7 @@
 <div
     data-testid="swap-view"
     data-tour="dex-workspace"
-    class="w-full min-h-[calc(100dvh-9rem)] p-4 md:p-8 font-mono text-white flex flex-col items-center pb-24"
+    class="w-full min-h-[calc(100dvh-9rem)] p-3 sm:p-4 md:p-8 font-mono text-white flex flex-col items-center pb-24"
 >
     <!-- TOP CENTERED SEARCH BAR & SUB-NAVIGATION -->
     <div class="w-full max-w-[540px] flex flex-col gap-3 mb-5">
@@ -1240,10 +1240,10 @@
         </div>
 
         <div
-            class="w-full bg-[#0a0d12] border border-white/10 rounded-2xl px-5 py-3 flex items-center justify-between shadow-xl"
+            class="w-full bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-2 overflow-x-auto hide-scrollbar shadow-xl"
             style="background-image: radial-gradient(ellipse at top right, {ambientSecondaryHex}14, transparent 70%);"
         >
-            <div class="flex items-center gap-6">
+            <div class="flex items-center gap-3.5 sm:gap-6 shrink-0">
                 <button
                     type="button"
                     data-testid="dex-mode-swap-btn"
@@ -1351,7 +1351,7 @@
     {#if activeDexTab === 'swap'}
         <!-- CENTERED AMBIENT-GLOW SWAP STATION CARD -->
         <div
-            class="w-full max-w-[540px] bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-7 shadow-2xl flex flex-col gap-3 relative overflow-hidden {tileSweepActive ? 'shimmer-flash' : ''}"
+            class="w-full max-w-[540px] bg-[#0a0d12] border border-white/10 rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3 relative overflow-hidden {tileSweepActive ? 'shimmer-flash' : ''}"
             style="
                 background-image:
                     radial-gradient(ellipse at top left, {ambientPrimaryHex}18, transparent 60%),
@@ -1745,7 +1745,7 @@
 <!-- UNIVERSAL ASSET SELECTION DRAWER MODAL -->
 {#if isTokenModalOpen}
     <div
-        class="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono"
+        class="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono"
         transition:fade={{ duration: 150 }}
     >
         <button
@@ -1756,7 +1756,7 @@
         ></button>
 
         <div
-            class="relative z-10 w-full max-w-[490px] bg-[#0a0d12] border border-white/15 rounded-[28px] shadow-2xl flex flex-col overflow-hidden h-[580px]"
+            class="relative z-10 w-full max-w-[490px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-[28px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden h-[82dvh] sm:h-[580px] pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
             transition:slide={{ duration: 180 }}
         >
             <div

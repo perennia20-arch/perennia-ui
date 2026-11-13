@@ -42,6 +42,7 @@
     } = $props();
 
     let copiedMenuField = $state<string | null>(null);
+let mobileFleetExpanded = $state(false);
 
     function markInlineCopied(key: string) {
         copiedMenuField = key;
@@ -214,8 +215,7 @@
     class="flex flex-col gap-3.5 lg:col-span-3 xl:col-span-2 relative {activeWorkerMenu !== null ? 'z-[70]' : 'z-20'}"
     data-tour="workers-panel"
 >
-    <div
-        class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 shadow-inner flex flex-col gap-3"
+    <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 shadow-inner {ui.isTutorialActive ? 'flex' : 'hidden lg:flex'} flex-col gap-3"
         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 65%);"
     >
         <div class="flex items-center justify-between">
@@ -244,25 +244,9 @@
         </div>
     </div>
 
-    <button
-        type="button"
-        onclick={createManualWorker}
-        disabled={!identity.isWalletConnected}
-        class="tactile-btn w-full text-white text-[11px] font-bold uppercase tracking-widest py-3.5 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-        + Add Worker
-    </button>
+    <div data-testid="mobile-worker-pills-bar" class="lg:hidden flex items-center gap-2 overflow-x-auto hide-scrollbar py-0.5"><button type="button" onclick={() => (mobileFleetExpanded = !mobileFleetExpanded)} class="tactile-btn mobile-touch-target shrink-0 px-3 py-2 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-mono font-black uppercase flex items-center gap-1.5"><span>Workers ({displayedWorkers.filter((w) => w.isOnline && w.hashRate > 0).length}/{displayedWorkers.length})</span><span>{mobileFleetExpanded ? '▴' : '▾'}</span></button>{#each displayedWorkers as pillW (pillW.id)}<button type="button" onclick={() => { mobileFleetExpanded = true; }} class="shrink-0 px-3 py-2 rounded-xl bg-[#0a0d12] border border-white/10 flex items-center gap-2 text-[10px] font-mono"><span class="w-2 h-2 rounded-full {pillW.isOnline && pillW.hashRate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span><span class="font-bold text-white">{pillW.name}</span><span class="text-[#18C6A5] tabular-nums">{pillW.hashRate.toFixed(2)}T</span></button>{/each}</div><div class="grid grid-cols-2 lg:grid-cols-1 gap-2.5"><button type="button" onclick={createManualWorker} disabled={!identity.isWalletConnected || identity.isWatchOnly} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Add Worker</button><button type="button" onclick={onOpenSectorModal} disabled={!identity.isWalletConnected || identity.isWatchOnly || unallocatedPercentage <= 0} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Break Off Sector</button></div>
 
-    <button
-        type="button"
-        onclick={onOpenSectorModal}
-        disabled={!identity.isWalletConnected || unallocatedPercentage <= 0}
-        class="tactile-btn w-full text-white text-[11px] font-bold uppercase tracking-widest py-3.5 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-        + Break Off Sector
-    </button>
-
-    <div class="flex flex-col gap-2.5 mt-2">
+    <div class="{mobileFleetExpanded || ui.isTutorialActive || activeWorkerMenu !== null || displayedWorkers.length === 0 ? 'flex' : 'hidden lg:flex'} flex-col gap-2.5 mt-1 lg:mt-2">
         {#if displayedWorkers.length === 0}
             <div class="flex-1 border border-dashed border-white/10 rounded-2xl flex items-center justify-center bg-[#0a0d12] p-6 text-center pointer-events-none min-h-[150px]">
                 <p class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold leading-relaxed">
@@ -331,7 +315,7 @@
                                 minerTypeSearch = '';
                             }
                         }}
-                        class="text-neutral-300 hover:text-white cursor-pointer p-1.5 rounded-lg bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 transition-colors shrink-0"
+                        class="mobile-touch-target flex items-center justify-center text-neutral-300 hover:text-white cursor-pointer p-2 lg:p-1.5 rounded-lg bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 transition-colors shrink-0"
                         title="Worker Options"
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -346,7 +330,7 @@
                         onkeydown={(e) => e.stopPropagation()}
                         role="menu"
                         tabindex="-1"
-                        class="absolute right-0 top-12 lg:right-auto lg:left-[calc(100%+12px)] lg:top-0 w-[320px] sm:w-[370px] bg-[#11161f] border border-white/20 rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.95)] p-2.5 z-[110] flex flex-col gap-1.5"
+                        class="absolute right-0 top-12 lg:right-auto lg:left-[calc(100%+12px)] lg:top-0 w-[min(330px,calc(100vw-2.5rem))] sm:w-[370px] bg-[#11161f] border border-white/20 rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.95)] p-2.5 z-[110] flex flex-col gap-1.5"
                         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 70%);"
                     >
                         <button

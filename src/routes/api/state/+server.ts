@@ -82,9 +82,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             reservoirRes,
             epochRaw,
             diffRaw,
-            rewardRaw,
-            forgeUnlocked
-        ] = await Promise.all([
+            rewardRaw, daaRaw, forgeUnlocked] = await Promise.all([
             dbPool
                 .query(
                     `SELECT layout_state FROM user_command_centers WHERE wallet_address = $1 OR wallet_address = $2 ORDER BY last_updated DESC NULLS LAST LIMIT 1`,
@@ -112,7 +110,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
                 .catch(() => ({ rows: [] as any[] })),
             redis.get('perennia:settlement:epoch_telemetry').catch(() => null),
             redis.get('oracle:network_difficulty').catch(() => null),
-            redis.get('oracle:block_reward').catch(() => null),
+            redis.get('oracle:block_reward').catch(() => null), redis.get('pool:virtual_daa_score').catch(() => null),
             isForgePubliclyUnlocked()
         ]);
 
@@ -251,7 +249,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             totalYieldKas,
             epochTelemetry,
             networkDifficulty: networkDifficulty > 0 ? networkDifficulty : undefined,
-            blockRewardKas: blockRewardKas > 0 ? blockRewardKas : undefined
+            blockRewardKas: blockRewardKas > 0 ? blockRewardKas : undefined, virtualDaaScore: daaRaw ? parseInt(daaRaw, 10) || 0 : 0
         });
     } catch (err: any) {
         console.error('State Hydration Error:', err);

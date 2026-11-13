@@ -108,6 +108,7 @@ class OperationsStore {
     lastMutationTime = $state<number>(0);
     networkDifficulty = $state<number>(0);
     blockRewardKas = $state<number>(0);
+	virtualDaaScore = $state<number>(0);
     private actionQueue: Promise<any> = Promise.resolve();
     constructor() {
         this.liveEpochSecondsRemaining = this.computeFallbackSecondsTo2200Utc();

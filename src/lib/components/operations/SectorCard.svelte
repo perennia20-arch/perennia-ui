@@ -1,5 +1,6 @@
 <script lang="ts">
     import { ui } from '$lib/stores/ui.svelte';
+import { pwa } from '$lib/stores/pwa.svelte';
     import {
         getChainExplorerAddressUrl,
         getChainExplorerTxUrl
@@ -98,7 +99,7 @@
     let dailyUsd = $derived(estimateSectorDailyUsd(sector));
     let isDragged = $derived(dragSectorId === sector.id);
     let isDropTarget = $derived(dropTargetSectorId === sector.id);
-    let spanClass = $derived((sector.width || 6) === 12 ? 'md:col-span-12' : 'md:col-span-6');
+    let spanClass = $derived((sector.width || 6) === 12 ? 'lg:col-span-12' : 'lg:col-span-6');
     let activeBadge = $derived(ui.microBadges[`sector_${sector.id}`]);
     let resolvedPayoutAddr = $derived(
         sector.settlementConfig?.payoutAddress ||
@@ -125,9 +126,7 @@
     let sectorPendingKas = $derived(Math.max(0, Number(sector.pendingKaspa || 0)));
 </script>
 
-<div
-    draggable="true"
-    data-testid="sector-card-{sector.name}"
+<div draggable={!pwa.isMobile} data-testid="sector-card-{sector.name}"
     ondragstart={(e) => onDragStart(e, sector)}
     ondragend={onDragEnd}
     ondragover={(e) => onDragOver(e, sector.id)}
@@ -191,7 +190,7 @@
                     type="button"
                     onmousedown={(e) => e.stopPropagation()}
                     onclick={() => onToggleWidth(sector.id)}
-                    class="text-neutral-400 hover:text-white transition-colors cursor-pointer w-6 h-6 flex items-center justify-center bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-lg active:scale-[0.96]"
+                    class="text-neutral-400 hover:text-white transition-colors cursor-pointer w-6 h-6 hidden lg:flex items-center justify-center bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-lg active:scale-[0.96]"
                     title="Toggle Full / Half Width"
                 >
                     <span class="font-bold tracking-widest text-[8px]">[ ]</span>
@@ -200,7 +199,7 @@
                     type="button"
                     onmousedown={(e) => e.stopPropagation()}
                     onclick={() => onOpenSettlement(sector)}
-                    class="text-neutral-400 hover:text-white transition-colors cursor-pointer w-6 h-6 flex items-center justify-center bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-full active:scale-[0.96]"
+                    class="text-neutral-400 hover:text-white transition-colors cursor-pointer w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-full active:scale-[0.96]"
                     title="Configure Parameters"
                 >
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,7 +211,7 @@
                     type="button"
                     onmousedown={(e) => e.stopPropagation()}
                     onclick={() => onDeleteSector(sector.id)}
-                    class="text-neutral-400 hover:text-red-400 transition-colors cursor-pointer w-6 h-6 flex items-center justify-center bg-[#11161f] hover:bg-red-950/30 border border-white/10 hover:border-red-500/40 rounded-full active:scale-[0.96]"
+                    class="text-neutral-400 hover:text-red-400 transition-colors cursor-pointer w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center bg-[#11161f] hover:bg-red-950/30 border border-white/10 hover:border-red-500/40 rounded-full active:scale-[0.96]"
                     title="Dismantle Sector"
                 >
                     ✕
@@ -368,7 +367,7 @@
             value={sector.allocationPercentage}
             oninput={(e) => onSliderInput(sector.id, e)}
             onchange={() => onSliderChange(sector.id)}
-            class="w-full custom-range-slider cursor-pointer"
+            class="w-full custom-range-slider touch-pan-y cursor-pointer"
         />
     </div>
 </div>

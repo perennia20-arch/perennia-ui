@@ -11,6 +11,7 @@
         type SupportedCurrency
     } from '$lib/stores/i18n.svelte';
     import { identity } from '$lib/stores/identity.svelte';
+import { pwa } from '$lib/stores/pwa.svelte';
     import { ui, TUTORIAL_CHAPTERS } from '$lib/stores/ui.svelte';
 
     let backupStatus = $state<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -165,7 +166,7 @@
 
 {#if settingsStore.showSettingsModal}
     <div
-        class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+        class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
         transition:fade={{ duration: 150 }}
     >
         <button
@@ -177,7 +178,7 @@
 
         <div
             data-testid="settings-modal-card"
-            class="relative z-10 w-full max-w-[560px] bg-[#0a0d12] border border-white/15 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            class="relative z-10 w-full max-w-[560px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
             transition:slide={{ duration: 200, axis: 'y' }}
         >
             <div class="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
@@ -208,8 +209,8 @@
 
             <div class="p-6 flex flex-col gap-5 max-h-[72vh] overflow-y-auto hide-scrollbar">
                 <!-- INTERACTIVE PLATFORM GUIDE & TOUR LAUNCHER -->
-                <div
-                    data-testid="settings-guide-section"
+                {#if !pwa.isStandalone}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-3.5 flex items-center justify-between gap-3"><div class="flex flex-col"><span class="text-[10px] font-black uppercase tracking-widest text-white">Standalone App Mode</span><span class="text-[9px] text-neutral-400">Install Perennia directly to your Home Screen or Desktop Dock</span></div><button type="button" data-testid="settings-install-app-btn" onclick={() => { settingsStore.showSettingsModal = false; pwa.handleInstallClick(); }} class="tactile-btn mobile-touch-target px-3.5 py-2 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-[9px] font-black uppercase shrink-0">Install App</button></div>{/if}
+<div data-testid="settings-guide-section"
                     class="bg-[#11161f] border border-[#18C6A5]/40 rounded-xl p-4 flex flex-col gap-3"
                     style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
                 >

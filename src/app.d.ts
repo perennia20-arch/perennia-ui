@@ -11,6 +11,7 @@ declare namespace App {
 
 interface Window {
     kasware: any;
+__perenniaInstallPrompt?: any;
     solflare: any;
     ethereum: any;
 }

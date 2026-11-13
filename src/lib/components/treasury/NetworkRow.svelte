@@ -1143,7 +1143,7 @@
                                         '250'
                                     );
                                 }}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-widest cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
+                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-widest cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                             >
                                 [+ Buy with USD]
@@ -1151,7 +1151,7 @@
                             <button
                                 type="button"
                                 onclick={(e) => openQuickAction(e, 'deposit')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Receive QR]
                             </button>
@@ -1159,7 +1159,7 @@
                                 type="button"
                                 data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}"
                                 onclick={(e) => openQuickAction(e, 'withdraw')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Send / Withdraw L1]
                             </button>
@@ -1167,7 +1167,7 @@
                                 type="button"
                                 data-testid="cold-vault-btn-{asset.ticker || asset.symbol}"
                                 onclick={(e) => openQuickAction(e, 'cold_vault')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Cold Vault]
                             </button>
@@ -1175,7 +1175,7 @@
                                 type="button"
                                 data-testid="activity-btn-{asset.ticker || asset.symbol}"
                                 onclick={(e) => openQuickAction(e, 'history')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
+                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
                             >
                                 [Activity]
                             </button>
@@ -1184,7 +1184,7 @@
                                     type="button"
                                     onclick={initiateCompoundKasUtxos}
                                     disabled={isCompoundingUtxos || utxoCount < 2}
-                                    class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer disabled:opacity-40 whitespace-nowrap {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}"
+                                    class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer disabled:opacity-40 whitespace-nowrap {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}"
                                     title="Consolidate multiple Kaspa L1 UTXOs into a single output"
                                 >
                                     {isCompoundingUtxos
@@ -1368,7 +1368,7 @@
                             href={withdrawalFeedback.explorerUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
+                            class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
                         >
                             Verify on Explorer ↗
                         </a>
@@ -1589,7 +1589,7 @@
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             data-testid="withdrawal-explorer-link-{asset.ticker || asset.symbol}"
-                                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
+                                            class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
                                         >
                                             View TX on Explorer ↗
                                         </a>
@@ -1758,7 +1758,7 @@
                                             href={withdrawalFeedback.explorerUrl}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
+                                            class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40"
                                         >
                                             Verify TX ↗
                                         </a>
@@ -2042,7 +2042,7 @@
                                     <button
                                         type="button"
                                         onclick={exportAssetActivityCsv}
-                                        class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
+                                        class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer"
                                         title="Export immutable {asset.ticker} activity as CSV"
                                     >
                                         [Export Activity CSV]
@@ -2050,7 +2050,7 @@
                                     <button
                                         type="button"
                                         onclick={exportAssetActivityJson}
-                                        class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer"
+                                        class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer"
                                         title="Export immutable {asset.ticker} activity as JSON"
                                     >
                                         [Export JSON]
@@ -2187,7 +2187,7 @@
                             coldVaultRulesMap?.[
                                 String(token.symbol || '').toUpperCase()
                             ] || null}
-                        <div class="bg-[#11161f] hover:bg-[#161d29] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-6 md:ml-10">
+                        <div class="bg-[#11161f] hover:bg-[#161d29] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-2 sm:ml-6 md:ml-10">
                             <div
                                 class="flex flex-wrap items-center justify-between p-3.5 cursor-pointer select-none gap-3"
                                 onclick={() => {

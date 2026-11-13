@@ -150,11 +150,11 @@
 
 {#if isSectorModalOpen}
     <div
-        class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/95"
+        class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#050505]/95"
         transition:fade={{ duration: 150 }}
     >
         <div class="absolute inset-0 w-full h-full cursor-default border-none"></div>
-        <div class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-[28px] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col">
+        <div class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-t-[28px] sm:rounded-[28px] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col">
             <div class="p-6 border-b border-white/10 bg-[#11161f] flex justify-between items-center shrink-0">
                 <div class="flex flex-col">
                     <h2 class="text-white font-black uppercase tracking-widest text-lg leading-none">
@@ -583,10 +583,10 @@
 
 {#if settlementModalSilo && editSettlementParams}
     {@const modalPendingKas = Math.max(0, Number(settlementModalSilo.pendingKaspa || 0))}
-    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div class="absolute inset-0 w-full h-full bg-[#050505]/98 cursor-default border-none"></div>
         <div
-            class="relative z-10 w-full max-w-[500px] bg-[#0a0d12] border border-white/15 rounded-[28px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {isEditMultiAssetPlant ? 'border-t-blue-500' : 'border-t-emerald-500'}"
+            class="relative z-10 w-full max-w-[500px] bg-[#0a0d12] border border-white/15 rounded-t-[28px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {isEditMultiAssetPlant ? 'border-t-blue-500' : 'border-t-emerald-500'}"
         >
             <div class="px-6 pt-6 pb-4 border-b border-white/10 bg-[#11161f] shrink-0">
                 <h3 class="text-white font-bold tracking-wide text-base mb-1 text-center truncate">

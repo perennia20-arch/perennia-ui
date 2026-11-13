@@ -1,5 +1,6 @@
 <script lang="ts">
     import { ui } from '$lib/stores/ui.svelte';
+import { pwa } from '$lib/stores/pwa.svelte';
 
     let { enterNexus = undefined }: { enterNexus?: () => void } = $props();
 
@@ -26,7 +27,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-    class="w-full min-h-[100dvh] bg-app flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out] px-4 font-mono"
+    class="w-full min-h-[100dvh] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] bg-app flex flex-col items-center justify-center relative overflow-hidden animate-[fade-in_1.5s_ease-out] px-4 font-mono"
     style="background-image: radial-gradient(ellipse at 50% 35%, rgba(24, 198, 165, 0.10), transparent 65%);"
 >
     <h1 class="subliminal-text text-4xl md:text-6xl lg:text-7xl font-black tracking-[0.25em] text-white uppercase drop-shadow-[0_0_15px_rgba(255,255,255,0.08)] mb-4 text-center">
@@ -49,6 +50,9 @@
                 Enter Nexus
             </span>
         </button>
+{#if !pwa.isStandalone}
+<button type="button" data-testid="entry-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target w-full px-6 py-3.5 rounded-2xl border border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-[0.22em] flex items-center justify-center gap-2"><span>&#x2B07; Install Standalone App</span></button>
+{/if}
     </div>
 
     <div class="absolute bottom-8 opacity-60 flex flex-col items-center gap-2 pointer-events-none">

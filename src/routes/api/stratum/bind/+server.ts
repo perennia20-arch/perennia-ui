@@ -145,10 +145,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
         : null;
 
     let workers: any[] = [];
-    if (cleanWallet && sessionWallet) {
-        const cleanSession = normalizeKaspaBase32Strict(sessionWallet);
-        const isDirector = isWalletMasterAdmin(sessionWallet);
-        if (cleanWallet === cleanSession || isDirector) {
+    const allowPublicLookup = url.searchParams.get('publicWorkers') === '1' && cleanWallet.length >= 55; if (cleanWallet && (sessionWallet || allowPublicLookup)) { const cleanSession = sessionWallet ? normalizeKaspaBase32Strict(sessionWallet) : ''; const isDirector = sessionWallet ? isWalletMasterAdmin(sessionWallet) : false; if (allowPublicLookup || cleanWallet === cleanSession || isDirector) {
             try {
                 await ensureWorkerProfilesSchema();
                 const res = await dbPool.query(

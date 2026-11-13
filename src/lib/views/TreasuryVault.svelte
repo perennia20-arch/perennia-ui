@@ -2569,7 +2569,7 @@
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[28px] shadow-2xl relative overflow-hidden group"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 60%);"
         >
-            <div class="relative z-10 p-8 lg:p-10 flex flex-col gap-6">
+            <div class="relative z-10 p-5 sm:p-8 lg:p-10 flex flex-col gap-5 sm:gap-6">
                 <div class="flex flex-col md:flex-row items-center justify-between gap-8">
                     <div class="flex flex-col items-center md:items-start text-center md:text-left">
                         <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2 flex items-center gap-2">
@@ -2580,7 +2580,7 @@
                         </span>
                         <span
                             data-testid="vault-total-usd-value"
-                            class="text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums"
+                            class="text-3xl sm:text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums break-all sm:break-normal"
                         >
                             ${treasury.totalVaultValue.toLocaleString('en-US', {
                                 minimumFractionDigits:
@@ -2602,7 +2602,7 @@
                     </div>
 
                     <div class="flex flex-col items-end gap-3 self-center lg:self-end relative z-20">
-                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0">
+                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 max-w-full overflow-x-auto hide-scrollbar">
                             {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
                                 <button
                                     type="button"

@@ -327,7 +327,7 @@
                                                 bucket.asset,
                                                 neededKas
                                             )}
-                                        class="tactile-btn w-full py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] hover:text-white cursor-pointer"
+                                        class="tactile-btn mobile-touch-target w-full py-2.5 lg:py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] hover:text-white cursor-pointer"
                                     >
                                         [Boost +{neededKas.toFixed(1)} KAS in DEX]
                                     </button>

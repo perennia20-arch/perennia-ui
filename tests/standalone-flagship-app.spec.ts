@@ -1,0 +1,45 @@
+import { test, expect } from '@playwright/test';
+const VALID_WATCH_KAS = 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
+test('Standalone PWA manifest, icons, service worker bypass, mobile UX & desktop lock', async ({ page, request }) => {
+  const mfRes = await request.get('/manifest.webmanifest');
+  expect(mfRes.status()).toBe(200);
+  const mf = await mfRes.json();
+  expect(mf.display).toBe('standalone');
+  expect(mf.theme_color).toBe('#070b0e');
+  for (const p of ['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/icons/apple-touch-icon.png']) {
+    expect((await request.get(p)).status()).toBe(200);
+  }
+  const swRes = await request.get('/service-worker.js');
+  expect(swRes.status()).toBe(200);
+  const swText = await swRes.text();
+  expect(swText).toContain('/api/'); expect(swText).toContain('/v1/'); expect(swText).toContain('text/event-stream');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const entryInstall = page.getByTestId('entry-install-app-btn');
+  await expect(entryInstall).toBeVisible();
+  const box = await entryInstall.boundingBox(); expect((box?.height || 0) >= 44).toBeTruthy();
+  await entryInstall.click();
+  await expect(page.getByTestId('install-app-modal')).toBeVisible();
+  await page.getByRole('button', { name: 'Got It' }).click();
+  await page.getByTestId('enter-nexus-btn').click();
+  const watchBtn = page.getByTestId('wallet-watch-only-btn');
+  await expect(watchBtn).toBeVisible(); await watchBtn.click();
+  await page.getByTestId('watch-only-address-input').fill(VALID_WATCH_KAS);
+  await page.getByTestId('watch-only-connect-btn').click();
+  await expect(page.getByTestId('mobile-bottom-dock')).toBeVisible();
+  await expect(page.getByTestId('header-install-app-btn')).toBeVisible();
+  await expect(page.getByTestId('mobile-kpi-ribbon')).toBeVisible();
+  await expect(page.getByTestId('mobile-worker-pills-bar')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByTestId('mobile-nav-DEX').click(); await expect(page.getByTestId('swap-view')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByTestId('mobile-nav-TREASURY').click(); await expect(page.locator('[data-tour="treasury-vault"]')).toBeVisible();
+  await page.getByTestId('mobile-nav-TAX-FORTRESS').click(); await expect(page.getByTestId('tax-fortress-view')).toBeVisible();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.getByTestId('header-nav-OPERATIONS').click();
+  await expect(page.getByTestId('mobile-bottom-dock')).toBeHidden();
+  await expect(page.getByTestId('mobile-kpi-ribbon')).toBeHidden();
+  await expect(page.locator('[data-tour="workers-panel"]')).toBeVisible();
+  await expect(page.locator('[data-tour="sector-matrix"]')).toBeVisible();
+  await expect(page.locator('[data-tour="bell-telemetry"]')).toBeVisible();
+});
