@@ -1,5 +1,7 @@
 <!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\dex\LiquidityAndSiloPanel.svelte -->
 <script lang="ts">
+  const _num = (v: unknown): number => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) ? n : 0; };
+  let onQuickSwapPair: (() => void) | undefined = undefined;
     import { fade, slide } from 'svelte/transition';
     import { ui } from '$lib/stores/ui.svelte';
     import {
@@ -34,6 +36,7 @@
         ambientPrimaryHex = '#18C6A5',
         ambientSecondaryHex = '#3B82F6',
         onOpenTokenModal,
+    onQuickSwapForPair = undefined,
         onSetLpPercentageA,
         onSetLpPercentageB,
         onHandleLpInputA,
@@ -84,6 +87,7 @@
                 | 'p2pBuy',
             extraIdx?: number
         ) => void;
+    onQuickSwapForPair?: () => void;
         onSetLpPercentageA: (pct: number) => void;
         onSetLpPercentageB: (pct: number) => void;
         onHandleLpInputA: (e: Event) => void;
@@ -105,11 +109,11 @@
     let siloHex = $derived(siloAsset.theme?.hex || '#18C6A5');
 
     let activeFeePct = $derived(
-        (
+        _num((
             (siloStakingTelemetry.feeRateCap > 0
                 ? siloStakingTelemetry.feeRateCap
                 : 0.015) * 100
-        ).toFixed(2)
+        )).toFixed(2)
     );
 
     let lpTotalUsdValue = $derived.by(() => {
@@ -120,8 +124,8 @@
 
     function formatSpotDisplay(price: number): string {
         if (!Number.isFinite(price) || price <= 0) return '$0.00';
-        if (price < 0.01) return `$${price.toFixed(6)}`;
-        if (price < 1) return `$${price.toFixed(4)}`;
+        if (price < 0.01) return `$${_num(price).toFixed(6)}`;
+        if (price < 1) return `$${_num(price).toFixed(4)}`;
         return `$${price.toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
@@ -131,7 +135,7 @@
     function setSiloPercentage(pct: number) {
         const avail = Number(siloAsset.availableBalance || 0);
         siloStakeAmountInput =
-            avail > 0 ? Number((avail * pct).toFixed(2)).toString() : '0';
+            avail > 0 ? Number(_num((avail * pct)).toFixed(2)).toString() : '0';
     }
 
     function formatCooldownTag(endsAt?: string | number | null): string {
@@ -261,13 +265,13 @@
 
                 <div class="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
                     <span>
-                        ≈ ${(
+                        ≈ ${_num((
                             (parseFloat(lpAmountA) || 0) *
                             (lpTokenA.spotPrice || 0)
-                        ).toFixed(2)}
+                        )).toFixed(2)}
                     </span>
                     <span>
-                        Balance: {lpTokenA.availableBalance.toLocaleString(
+                        Balance: {_num(lpTokenA?.availableBalance).toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )} KAS
@@ -306,7 +310,7 @@
                             data-testid="dex-plant-weight-b-badge"
                             class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-white text-[8px] font-bold"
                         >
-                            {lpWeightPctB.toFixed(0)}%
+                            {_num(lpWeightPctB).toFixed(0)}%
                         </span>
                     </div>
                     <div class="flex items-center gap-1">
@@ -405,13 +409,13 @@
 
                 <div class="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
                     <span>
-                        ≈ ${(
+                        ≈ ${_num((
                             (parseFloat(lpAmountB) || 0) *
                             (lpTokenB.spotPrice || 0)
-                        ).toFixed(2)}
+                        )).toFixed(2)}
                     </span>
                     <span>
-                        Balance: {lpTokenB.availableBalance.toLocaleString(
+                        Balance: {_num(lpTokenB?.availableBalance).toLocaleString(
                             undefined,
                             { maximumFractionDigits: 4 }
                         )}
@@ -441,7 +445,7 @@
                                 Leg {idx + 3}
                             </span>
                             <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-white text-[8px] font-bold">
-                                {leg.weightPct.toFixed(0)}%
+                                {_num(leg.weightPct).toFixed(0)}%
                             </span>
                         </div>
                         <button
@@ -489,7 +493,7 @@
                         Lock
                     </span>
                     <span class="font-bold text-[#18C6A5]">
-                        Total Value: ${lpTotalUsdValue.toFixed(2)} USD
+                        Total Value: ${_num(lpTotalUsdValue).toFixed(2)} USD
                     </span>
                 </div>
                 <div class="grid grid-cols-4 gap-1.5">
@@ -548,25 +552,25 @@
             </div>
 
             <!-- ACTIVE LP POSITIONS (COMPACT) -->
-            {#if lpPositions.length > 0}
+            {#if Array.isArray(lpPositions) && lpPositions.length > 0}
                 <div class="flex flex-col gap-2 pt-2 border-t border-white/10">
                     <span class="text-[9px] font-black uppercase tracking-widest text-neutral-400 px-1">
                         Your Pools ({lpPositions.length})
                     </span>
-                    {#each lpPositions as pos (pos.id)}
+                    {#each (Array.isArray(lpPositions) ? lpPositions : []) as pos (pos.id)}
                         <div
                             data-testid="lp-position-card-{pos.id}"
                             class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 text-[10px]"
                         >
                             <div class="flex flex-col">
                                 <span class="font-black text-white">
-                                    {pos.poolPair} • ${Number(
+                                    {pos.poolPair} • ${_num(Number(
                                         pos.usdValue || 0
-                                    ).toFixed(2)}
+                                    )).toFixed(2)}
                                 </span>
                                 <span class="text-[9px] text-neutral-400">
-                                    {Number(pos.amountA || 0).toFixed(2)} KAS +
-                                    {Number(pos.amountB || 0).toFixed(4)}
+                                    {_num(Number(pos.amountA || 0)).toFixed(2)} KAS +
+                                    {_num(Number(pos.amountB || 0)).toFixed(4)}
                                 </span>
                             </div>
                             <button
@@ -795,7 +799,7 @@
                         </span>
                         <span>7d unstake</span>
                     </div>
-                    {#each siloStakingTelemetry.positions as pos (pos.id)}
+                    {#each (Array.isArray(siloStakingTelemetry?.positions) ? siloStakingTelemetry.positions : []) as pos (pos.id)}
                         <div
                             data-testid="silo-position-row-{pos.id}"
                             class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 text-[10px]"

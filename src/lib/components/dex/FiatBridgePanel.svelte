@@ -1051,7 +1051,7 @@
                     style="background-color: {activeThemeHex}; box-shadow: 0 0 10px {activeThemeHex}80;"
                 ></span>
                 <h3 class="text-white font-black text-xs md:text-sm uppercase tracking-widest">
-                    Fiat Bridge
+                    Buy & Sell Crypto
                 </h3>
                 <span
                     data-testid="fiat-wholesale-floor-badge"

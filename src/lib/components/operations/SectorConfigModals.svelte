@@ -326,7 +326,7 @@
                                             Syndicate Hashpower Pledge Active
                                         </span>
                                         <span class="text-neutral-400">
-                                            Pro-rata daily {draftMineableVaultInfo.tokenTicker} distribution at the 22:00 UTC Global Settlement based on verified ASIC share difficulty.
+                                            Pro-rata daily {draftMineableVaultInfo.tokenTicker} distribution at the next payout based on verified ASIC share difficulty.
                                         </span>
                                     </div>
                                     <button
@@ -481,7 +481,7 @@
                             </span>
                         </div>
                         <p class="text-[9px] text-neutral-400 leading-relaxed">
-                            Paid daily at 22:00 UTC ($25 min).
+                            Paid on next countdown ($25 min).
                         </p>
                     </div>
                 {/if}
@@ -514,7 +514,7 @@
                         </span>
                         <span class="text-[10px] text-neutral-400 leading-tight mt-0.5">
                             {isDraftMultiAssetPlant
-                                ? 'Synchronized to the 22:00 UTC Global Settlement for multi-asset LP rebalancing.'
+                                ? 'Synchronized to the next payout for multi-asset LP rebalancing.'
                                 : 'Route yields directly to your on-chain L1 wallet.'}
                         </span>
                     </div>
@@ -912,7 +912,7 @@
                                         {/if}
                                     </div>
                                     <span class="text-[10px] font-mono text-neutral-400">
-                                        {vaultInfo ? `${vaultInfo.dailyEmissionTokens.toLocaleString()} ${asset.ticker}/d @ 22:00 UTC` : asset.name}
+                                        {vaultInfo ? `${vaultInfo.dailyEmissionTokens.toLocaleString()} ${asset.ticker}/d` : asset.name}
                                     </span>
                                 </div>
                             </div>

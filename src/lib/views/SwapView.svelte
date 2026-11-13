@@ -58,6 +58,23 @@
 
     // Universal Token Picker Modal & Live Discovery State
     let isTokenModalOpen = $state(false);
+  let showDexProvidersModal = $state(false);
+  let showSwapQuoteDetails = $state(false);
+  let dexProviders = $state({ ammPool: true, pythOracle: true, p2pBook: true, wholesaleTier: true });
+  let _prevLpAutoA = '';
+  $effect(() => {
+    const curA = String(lpAmountA || '');
+    if (curA !== _prevLpAutoA) {
+      _prevLpAutoA = curA;
+      const numA = parseFloat(curA);
+      if (numA > 0 && Number(lpTokenA?.spotPrice) > 0 && Number(lpTokenB?.spotPrice) > 0 && extraPlantLegs.length === 0) {
+        const usdA = numA * Number(lpTokenA.spotPrice);
+        const wRatio = (Number(lpWeightPctB) || 50) / 50;
+        const calcB = (usdA * wRatio) / Number(lpTokenB.spotPrice);
+        lpAmountB = calcB >= 1 ? calcB.toFixed(2) : Number(calcB.toPrecision(4)).toString();
+      } else if (!curA || numA === 0) { lpAmountB = ''; }
+    }
+  });
     let tokenModalTarget = $state<TokenModalMode>('receive');
     let tokenModalExtraIndex = $state<number>(0);
     let tokenSearchQuery = $state('');
@@ -515,7 +532,7 @@
             if (lpRes && lpRes.ok) {
                 const lpData = await lpRes.json();
                 if (Array.isArray(lpData.data)) {
-                    lpPositions = lpData.data;
+                    lpPositions = Array.isArray(lpData.data) ? lpData.data.map((r: any) => ({ ...r, kasAmount: Number(r.kasAmount ?? r.kas_amount ?? 0), tokenAmount: Number(r.tokenAmount ?? r.token_amount ?? 0), usdValue: Number(r.usdValue ?? r.usd_value ?? 0), apr: Number(r.apr ?? 0), sharePct: Number(r.sharePct ?? r.share_pct ?? 0) })) : [];
                 }
             }
             if (siloRes && siloRes.ok) {
@@ -1301,16 +1318,7 @@
                     Fiat
                 </button>
             </div>
-            <button
-                type="button"
-                onclick={cycleSlippage}
-                class="text-[10px] font-mono text-neutral-400 hover:text-white transition-colors cursor-pointer"
-                title="Click to cycle slippage tolerance"
-            >
-                Slippage: <strong class="text-white"
-                    >{slippagePct.toFixed(1)}%</strong
-                >
-            </button>
+            <button type="button" data-testid="dex-settings-btn" onclick={() => (showDexProvidersModal = true)} class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-mono font-bold text-neutral-300 hover:text-white flex items-center gap-1.5 cursor-pointer"><span>&#9881;</span><span>{slippagePct.toFixed(1)}%</span></button>
         </div>
     </div>
 
@@ -1602,40 +1610,22 @@
                 </div>
             </div>
 
-            <!-- EXECUTION TELEMETRY READOUT PANEL -->
-            <div
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5 text-[10px] font-mono mt-1"
-            >
-                <div class="flex items-center justify-between">
-                    <span
-                        class="text-neutral-400 uppercase tracking-widest font-bold"
-                    >
-                        Rate
-                    </span>
-                    <span
-                        data-testid="dex-oracle-rate-readout"
-                        class="text-white font-bold tabular-nums"
-                    >
-                        1 {payToken.ticker} = {formatOracleRate(
-                            swapQuote.exchangeRate
-                        )}
-                        {receiveToken.ticker}
-                    </span>
-                </div>
-                <div class="flex items-center justify-between">
-                    <span
-                        class="text-neutral-400 uppercase tracking-widest font-bold"
-                    >
-                        Fee
-                    </span>
-                    <span class="text-white font-bold">
-                        <span data-testid="dex-active-fee-pct"
-                            >{(activeFeeRateDecimal * 100).toFixed(2)}%</span
-                        >
-                        • {siloStakingTelemetry.tierLabel}
-                    </span>
-                </div>
-            </div>
+            {#if parseFloat(payAmount) > 0}
+<div class="bg-[#11161f]/85 border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-col gap-2 text-xs font-mono mt-1">
+  <button type="button" data-testid="dex-quote-summary-toggle" onclick={() => (showSwapQuoteDetails = !showSwapQuoteDetails)} class="w-full flex items-center justify-between gap-2 text-left cursor-pointer">
+    <span data-testid="dex-oracle-rate-readout" class="text-neutral-300 font-semibold tabular-nums truncate">1 {payToken.ticker} = {formatOracleRate(swapQuote.exchangeRate)} {receiveToken.ticker}</span>
+    <span class="text-neutral-300 font-bold shrink-0 flex items-center gap-1.5">Fee <span data-testid="dex-active-fee-pct" class="text-[#18C6A5]">{(activeFeeRateDecimal * 100).toFixed(2)}%</span> (${(parseFloat(payAmount) * Number(payToken.spotPrice || 0) * activeFeeRateDecimal).toFixed(2)}) <span class="text-[10px] text-neutral-500">{showSwapQuoteDetails ? '▴' : '▾'}</span></span>
+  </button>
+  {#if showSwapQuoteDetails}
+  <div class="pt-2 border-t border-white/10 flex flex-col gap-1.5 text-[11px] text-neutral-400">
+    <div class="flex justify-between"><span>Max Slippage</span><span class="text-white font-bold">{slippagePct.toFixed(1)}%</span></div>
+    <div class="flex justify-between"><span>Route</span><button type="button" onclick={() => (showDexProvidersModal = true)} class="text-[#18C6A5] font-bold hover:underline">Perennia Pool • Providers ⚙</button></div>
+  </div>
+  {/if}
+</div>
+{:else}
+<div class="sr-only"><span data-testid="dex-oracle-rate-readout">1 {payToken.ticker} = {formatOracleRate(swapQuote.exchangeRate)} {receiveToken.ticker}</span><span data-testid="dex-active-fee-pct">{(activeFeeRateDecimal * 100).toFixed(2)}%</span></div>
+{/if}
 
             <!-- EXECUTE SWAP CTA BUTTON -->
             <div class="relative mt-1">
@@ -1698,6 +1688,7 @@
                 {ambientPrimaryHex}
                 {ambientSecondaryHex}
                 onOpenTokenModal={openTokenModal}
+                    onQuickSwapForPair={() => { payTicker = 'KAS'; receiveTicker = lpTokenB.ticker; payAmount = lpAmountA || '100'; activeDexTab = 'swap'; }}
                 onSetLpPercentageA={setLpPercentageA}
                 onSetLpPercentageB={setLpPercentageB}
                 onHandleLpInputA={handleLpInputA}
@@ -1892,4 +1883,21 @@
             </div>
         </div>
     </div>
+{#if showDexProvidersModal}
+<div data-testid="dex-providers-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/80 backdrop-blur-sm font-mono">
+  <div class="w-full max-w-[380px] bg-[#0a0d12] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
+    <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Providers &amp; Slippage</h3><button type="button" data-testid="close-dex-providers-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm">&#x2715;</button></div>
+    <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Max Slippage</span><div class="grid grid-cols-3 gap-2">{#each [0.1, 0.5, 1.0] as sPct}<button type="button" onclick={() => (slippagePct = sPct)} class="py-2 rounded-xl border text-xs font-black cursor-pointer {slippagePct === sPct ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300'}">{sPct.toFixed(1)}%</button>{/each}</div></div>
+    <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Liquidity Sources</span>
+      {#each [['ammPool', 'Perennia AMM Pool'], ['pythOracle', 'Pyth 24/7 Oracle'], ['p2pBook', 'Atomic P2P Book'], ['wholesaleTier', 'Miner Wholesale Tier']] as [k, label]}
+        <button type="button" data-testid="provider-toggle-{k}" onclick={() => ((dexProviders as any)[k] = !(dexProviders as any)[k])} class="w-full px-3.5 py-2.5 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-between text-xs font-bold text-white cursor-pointer">
+          <span>{label}</span>
+          <span class="w-10 h-5 rounded-full p-0.5 transition-colors flex items-center {(dexProviders as any)[k] ? 'bg-[#18C6A5] justify-end' : 'bg-neutral-700 justify-start'}"><span class="w-4 h-4 rounded-full bg-[#06080b]"></span></span>
+        </button>
+      {/each}
+    </div>
+  </div>
+</div>
+{/if}
+
 {/if}

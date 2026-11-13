@@ -283,7 +283,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                             </span>
                         {:else if mineableInfo}
                             <span class="text-[8px] font-mono text-[#18C6A5] truncate">
-                                Vault Pool: {mineableInfo.dailyEmissionTokens.toLocaleString()} {targetTicker}/d @ 22:00 UTC
+                                Vault Pool: {mineableInfo.dailyEmissionTokens.toLocaleString()} {targetTicker}/d
                             </span>
                         {:else}
                             <span class="text-[8px] font-mono text-neutral-400 truncate max-w-[180px]">
@@ -299,7 +299,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                     {sector.routeMode === 'auto-lp' ||
                     (sector.settlementConfig?.targetAsset?.ticker &&
                         sector.settlementConfig.targetAsset.ticker !== 'KAS')
-                        ? '22:00 UTC SETTLEMENT'
+                        ? operations.formatEpochCountdown()
                         : sector.settlementConfig?.mode === 'threshold'
                           ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS LIMIT`
                           : sector.settlementConfig?.mode || 'epoch'}

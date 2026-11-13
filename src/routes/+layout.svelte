@@ -1331,11 +1331,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'DEX' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
                                 <span>{i18n.t('nav.exchange')}</span>
-                                <span
-                                    class="hidden xl:inline text-[8px] px-1.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-neutral-400"
-                                >
-                                    DEX
-                                </span>
+                                
                             </button>
                             <button
                                 type="button"
@@ -1679,14 +1675,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 </div>
                 <div class="flex items-center justify-between flex-wrap gap-2 text-[10px] font-mono text-neutral-400 pt-1 border-t border-white/10">
                     <span>
-                        Principal: ${globalCostPlusPreview.guestNetUsd.toFixed(
-                            2
-                        )} • Perennia ({globalCostPlusPreview.protocolFeeFloorPct.toFixed(
-                            2
-                        )}%): ${globalCostPlusPreview.perenniaFeeUsd.toFixed(2)} • Gateway: ${globalCostPlusPreview.stripeGatewayFeeUsd.toFixed(
-                            2
-                        )}
-                    </span>
+                        </span>
                     <span
                         data-testid="global-fiat-fee-breakdown"
                         class="text-[#18C6A5] font-bold"
@@ -1943,7 +1932,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            Bank ACH ($5 max)
+                            Bank ($5 max)
                         </button>
                         <button
                             type="button"
@@ -1958,7 +1947,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            Card (2.9%)
+                            Card
                         </button>
                         <button
                             type="button"
@@ -1974,7 +1963,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-amber-400 border-amber-500/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            Wire ($100k+)
+                            Wire
                         </button>
                     </div>
                     {#if globalFiatGatewayMethod !== 'wire' && !globalCostPlusPreview.requiresInstitutionalWire}

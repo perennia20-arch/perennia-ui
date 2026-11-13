@@ -202,7 +202,7 @@
                 <div
                     class="text-[8px] font-mono text-neutral-400 text-center uppercase tracking-wider"
                 >
-                    22:00 UTC • {operations.localBellTimeLabel}
+                    
                 </div>
             </div>
             <div class="flex flex-col gap-2">
