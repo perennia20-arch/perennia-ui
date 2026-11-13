@@ -72,6 +72,7 @@ class UiStore {
 
     // Global In-Context Fiat Purchase Modal State
     showFiatModal = $state(false);
+    openBuyAfterAuth = $state(false);
     fiatModalTargetTicker = $state('KAS');
     fiatModalAutoStakeSilo = $state(false);
     fiatModalDefaultUsd = $state('250');

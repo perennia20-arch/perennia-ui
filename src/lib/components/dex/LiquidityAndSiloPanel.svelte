@@ -126,7 +126,7 @@
         if (!Number.isFinite(price) || price <= 0) return '$0.00';
         if (price < 0.01) return `$${_num(price).toFixed(6)}`;
         if (price < 1) return `$${_num(price).toFixed(4)}`;
-        return `$${price.toLocaleString(undefined, {
+        return `$${_num(price).toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         })}`;
@@ -527,9 +527,13 @@
                         {ui.microBadges['dex_lp_stake_btn'].label}
                     </div>
                 {/if}
-                <button
-                    type="button"
-                    data-testid="dex-supply-lp-btn"
+                {#if parseFloat(lpAmountB) > 0 && _num(lpTokenB?.availableBalance) < parseFloat(lpAmountB) && onQuickSwapForPair}
+<div class="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-mono mb-2">
+  <span class="text-amber-200">Need {lpAmountB} {lpTokenB.ticker}</span>
+  <button type="button" data-testid="lp-quick-swap-pair-btn" onclick={onQuickSwapForPair} class="px-2.5 py-1 rounded-lg bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] font-black uppercase cursor-pointer">Swap KAS &rarr; {lpTokenB.ticker}</button>
+</div>
+{/if}
+<button type="button" data-testid="dex-supply-lp-btn"
                     onclick={onExecuteSupplyLiquidity}
                     disabled={isProvidingLiquidity ||
                         !(parseFloat(lpAmountA) > 0)}
@@ -564,7 +568,7 @@
                         >
                             <div class="flex flex-col">
                                 <span class="font-black text-white">
-                                    {pos.poolPair} • ${_num(Number(
+                                    {pos.poolPair || 'KAS/Pool'} • ${_num(Number(
                                         pos.usdValue || 0
                                     )).toFixed(2)}
                                 </span>
@@ -748,12 +752,12 @@
                 <div class="flex items-center justify-between text-[10px] text-neutral-400 pt-0.5">
                     <span data-testid="silo-staked-balance-display">
                         Staked: <strong class="text-white"
-                            >{siloStakingTelemetry.combinedEligibleStaked.toLocaleString()}</strong
+                            >{_num(siloStakingTelemetry.combinedEligibleStaked).toLocaleString()}</strong
                         >
                         {DEFAULT_ECOSYSTEM_TICKER}
                     </span>
                     <span>
-                        Balance: {siloAsset.availableBalance.toLocaleString(
+                        Balance: {_num(siloAsset.availableBalance).toLocaleString(
                             undefined,
                             { maximumFractionDigits: 2 }
                         )}
@@ -806,7 +810,7 @@
                         >
                             <div class="flex flex-col">
                                 <span class="font-black text-white">
-                                    {Number(pos.amount || 0).toLocaleString()}
+                                    {_num(Number(pos.amount || 0)).toLocaleString()}
                                     {DEFAULT_ECOSYSTEM_TICKER}
                                 </span>
                                 <span

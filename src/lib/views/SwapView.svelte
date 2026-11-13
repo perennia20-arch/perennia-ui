@@ -532,7 +532,7 @@
             if (lpRes && lpRes.ok) {
                 const lpData = await lpRes.json();
                 if (Array.isArray(lpData.data)) {
-                    lpPositions = Array.isArray(lpData.data) ? lpData.data.map((r: any) => ({ ...r, kasAmount: Number(r.kasAmount ?? r.kas_amount ?? 0), tokenAmount: Number(r.tokenAmount ?? r.token_amount ?? 0), usdValue: Number(r.usdValue ?? r.usd_value ?? 0), apr: Number(r.apr ?? 0), sharePct: Number(r.sharePct ?? r.share_pct ?? 0) })) : [];
+                    lpPositions = Array.isArray(lpData.data) ? lpData.data.map((r: any) => ({ ...r, poolPair: r.poolPair || `${r.tickerA || 'KAS'}/${r.tickerB || 'USDC'}`, amountA: Number(r.amountA ?? r.kasAmount ?? r.kas_amount ?? 0), amountB: Number(r.amountB ?? r.tokenAmount ?? r.token_amount ?? 0), usdValue: Number(r.usdValue ?? r.usd_value ?? 0) })) : [];
                 }
             }
             if (siloRes && siloRes.ok) {
@@ -1224,7 +1224,7 @@
                         }
                         handleUniversalTokenSearch(val);
                     }}
-                    placeholder="Search tokens, equities, or contracts..."
+                    placeholder="Search tokens..."
                     class="w-full bg-transparent text-xs font-mono text-neutral-200 placeholder-neutral-500 outline-none truncate"
                 />
             </div>
@@ -1787,7 +1787,7 @@
                 />
                 {#if isDiscoveringCustomToken}
                     <span class="text-[9px] font-mono text-[#18C6A5] animate-pulse px-1">
-                        Querying live token indexers...
+                        Searching...
                     </span>
                 {:else if discoveryStatusBanner}
                     <span class="text-[9px] font-mono text-[#18C6A5] px-1">
@@ -1883,11 +1883,12 @@
             </div>
         </div>
     </div>
+{/if}
 {#if showDexProvidersModal}
 <div data-testid="dex-providers-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/80 backdrop-blur-sm font-mono">
   <div class="w-full max-w-[380px] bg-[#0a0d12] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
-    <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Providers &amp; Slippage</h3><button type="button" data-testid="close-dex-providers-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm">&#x2715;</button></div>
-    <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Max Slippage</span><div class="grid grid-cols-3 gap-2">{#each [0.1, 0.5, 1.0] as sPct}<button type="button" onclick={() => (slippagePct = sPct)} class="py-2 rounded-xl border text-xs font-black cursor-pointer {slippagePct === sPct ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300'}">{sPct.toFixed(1)}%</button>{/each}</div></div>
+    <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Providers &amp; Slippage</h3><button type="button" data-testid="close-dex-providers-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm cursor-pointer">&#x2715;</button></div>
+    <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Max Slippage</span><div class="grid grid-cols-3 gap-2">{#each [0.1, 0.5, 1.0] as sPct}<button type="button" data-testid="slippage-pill-{sPct}" onclick={() => (slippagePct = sPct)} class="py-2 rounded-xl border text-xs font-black cursor-pointer {slippagePct === sPct ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300'}">{sPct.toFixed(1)}%</button>{/each}</div></div>
     <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Liquidity Sources</span>
       {#each [['ammPool', 'Perennia AMM Pool'], ['pythOracle', 'Pyth 24/7 Oracle'], ['p2pBook', 'Atomic P2P Book'], ['wholesaleTier', 'Miner Wholesale Tier']] as [k, label]}
         <button type="button" data-testid="provider-toggle-{k}" onclick={() => ((dexProviders as any)[k] = !(dexProviders as any)[k])} class="w-full px-3.5 py-2.5 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-between text-xs font-bold text-white cursor-pointer">
@@ -1898,6 +1899,4 @@
     </div>
   </div>
 </div>
-{/if}
-
 {/if}

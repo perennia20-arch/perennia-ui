@@ -48,7 +48,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
     // Global In-Context Fiat Modal State
     let globalFiatUsdInput = $state('650');
-    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('ach');
+    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('card');
+  $effect(() => { if (identity.isWalletConnected && !ui.showWalletModal && ui.openBuyAfterAuth) { ui.openBuyAfterAuth = false; ui.showFiatModal = true; } });
     let lastGlobalAchBucket = $state<'below625' | 'above625' | 'wire100k'>(
         'above625'
     );

@@ -58,7 +58,7 @@
     let payoutMethod = $state<'ach' | 'wire'>('ach');
 
     // Pillar 1 Gateway Method & Rail State
-    let onrampGatewayMethod = $state<OnrampGatewayMethod>('ach');
+    let onrampGatewayMethod = $state<OnrampGatewayMethod>('card');
     let lastAutoAchAmountBucket = $state<'below625' | 'above625' | 'wire100k'>(
         'above625'
     );
