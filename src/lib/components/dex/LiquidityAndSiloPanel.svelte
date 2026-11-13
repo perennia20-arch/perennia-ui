@@ -110,8 +110,8 @@
 
     let activeFeePct = $derived(
         _num((
-            (siloStakingTelemetry.feeRateCap > 0
-                ? siloStakingTelemetry.feeRateCap
+            (_num(siloStakingTelemetry?.feeRateCap) > 0
+                ? _num(siloStakingTelemetry?.feeRateCap)
                 : 0.015) * 100
         )).toFixed(2)
     );
@@ -533,6 +533,9 @@
   <button type="button" data-testid="lp-quick-swap-pair-btn" onclick={onQuickSwapForPair} class="px-2.5 py-1 rounded-lg bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] font-black uppercase cursor-pointer">Swap KAS &rarr; {lpTokenB.ticker}</button>
 </div>
 {/if}
+{#if swapError}
+<div data-testid="lp-inline-error" class="px-3.5 py-2.5 rounded-xl bg-red-500/10 border border-red-500/35 text-red-300 text-xs font-mono mb-2">{swapError}</div>
+{/if}
 <button type="button" data-testid="dex-supply-lp-btn"
                     onclick={onExecuteSupplyLiquidity}
                     disabled={isProvidingLiquidity ||
@@ -546,11 +549,7 @@
                     {#if isProvidingLiquidity}
                         Supplying Liquidity...
                     {:else}
-                        Supply {[
-                            'KAS',
-                            lpTokenB.ticker,
-                            ...extraPlantLegs.map((l) => l.ticker)
-                        ].join('/')} Liquidity →
+                        Add KAS/{lpTokenB.ticker} Liquidity
                     {/if}
                 </button>
             </div>
@@ -561,7 +560,7 @@
                     <span class="text-[9px] font-black uppercase tracking-widest text-neutral-400 px-1">
                         Your Pools ({lpPositions.length})
                     </span>
-                    {#each (Array.isArray(lpPositions) ? lpPositions : []) as pos (pos.id)}
+                    {#each (Array.isArray(lpPositions) ? lpPositions : []) as pos, idx (pos?.id ?? idx)}
                         <div
                             data-testid="lp-position-card-{pos.id}"
                             class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 text-[10px]"
@@ -637,23 +636,23 @@
                         id: 'standard',
                         fee: '1.50%',
                         req: '0 SILO',
-                        active: siloStakingTelemetry.combinedEligibleStaked < 10000
+                        active: _num(siloStakingTelemetry?.combinedEligibleStaked) < 10000
                     },
                     {
                         id: 'shield',
                         fee: '0.75%',
                         req: '10k+ SILO',
                         active:
-                            siloStakingTelemetry.combinedEligibleStaked >=
+                            _num(siloStakingTelemetry?.combinedEligibleStaked) >=
                                 10000 &&
-                            siloStakingTelemetry.combinedEligibleStaked < 100000
+                            _num(siloStakingTelemetry?.combinedEligibleStaked) < 100000
                     },
                     {
                         id: 'sovereign',
                         fee: '0.25%',
                         req: '100k+ SILO',
                         active:
-                            siloStakingTelemetry.combinedEligibleStaked >=
+                            _num(siloStakingTelemetry?.combinedEligibleStaked) >=
                             100000
                     }
                 ] as tier (tier.id)}
@@ -752,7 +751,7 @@
                 <div class="flex items-center justify-between text-[10px] text-neutral-400 pt-0.5">
                     <span data-testid="silo-staked-balance-display">
                         Staked: <strong class="text-white"
-                            >{_num(siloStakingTelemetry.combinedEligibleStaked).toLocaleString()}</strong
+                            >{_num(_num(siloStakingTelemetry?.combinedEligibleStaked)).toLocaleString()}</strong
                         >
                         {DEFAULT_ECOSYSTEM_TICKER}
                     </span>
@@ -803,7 +802,7 @@
                         </span>
                         <span>7d unstake</span>
                     </div>
-                    {#each (Array.isArray(siloStakingTelemetry?.positions) ? siloStakingTelemetry.positions : []) as pos (pos.id)}
+                    {#each (Array.isArray(siloStakingTelemetry?.positions) ? siloStakingTelemetry.positions : []) as pos, idx (pos?.id ?? idx)}
                         <div
                             data-testid="silo-position-row-{pos.id}"
                             class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 text-[10px]"

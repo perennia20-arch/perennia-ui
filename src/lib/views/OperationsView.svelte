@@ -1527,7 +1527,7 @@
                                         Token Splits
                                     </h3>
                                     <span class="text-[9px] font-mono text-neutral-400">
-                                        {siloSectors.length} Active Silo{siloSectors.length === 1 ? '' : 's'}
+                                        {siloSectors.length} Split{siloSectors.length === 1 ? '' : 's'}
                                     </span>
                                 </div>
                                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5">
@@ -1573,7 +1573,7 @@
                                         Pool Splits
                                     </h3>
                                     <span class="text-[9px] font-mono text-neutral-400">
-                                        {plantSectors.length} Active Plant{plantSectors.length === 1 ? '' : 's'}
+                                        {plantSectors.length} Pool Split{plantSectors.length === 1 ? '' : 's'}
                                     </span>
                                 </div>
                                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5">

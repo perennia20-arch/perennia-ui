@@ -77,7 +77,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
     let savedBankLast4 = $state<string | null>(null);
     let savedBankRailMeta = $state<SavedBankRailMeta | null>(null);
     let showInlineBankSetup = $state(false);
-    let inlineBankLabel = $state('Primary Operating Account');
+    let inlineBankLabel = $state('Bank Account');
     let inlineAccountType = $state<'CHECKING' | 'SAVINGS'>('CHECKING');
     let inlinePayoutMethod = $state<'ach' | 'wire'>('ach');
     let inlineRoutingNumber = $state('');
@@ -124,7 +124,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             inlineAbaTelemetry.isComplete &&
             inlineAbaTelemetry.checksumValid &&
             inlineAbaTelemetry.institutionName &&
-            (inlineBankLabel === 'Primary Operating Account' ||
+            (inlineBankLabel === 'Bank Account' ||
                 !inlineBankLabel.trim())
         ) {
             inlineBankLabel = inlineAbaTelemetry.institutionName;
@@ -349,7 +349,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
     function fillTestBankCredentials() {
         inlineRoutingNumber = '110000000';
         inlineAccountNumber = '000123456789';
-        inlineBankLabel = 'Stripe Test Bank (ACH Direct Debit)';
+        inlineBankLabel = 'Linked Bank';
         inlineAccountType = 'CHECKING';
         globalFiatError = null;
     }
@@ -374,7 +374,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     savedBankRailMeta = data.savedBankRail;
                     inlineBankLabel =
                         data.savedBankRail.bankLabel ||
-                        'Primary Operating Account';
+                        'Bank Account';
                     inlineAccountType =
                         data.savedBankRail.accountType === 'SAVINGS'
                             ? 'SAVINGS'
@@ -416,7 +416,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             const resolvedLabel =
                 inlineBankLabel.trim() ||
                 inlineAbaTelemetry.institutionName ||
-                'Primary Operating Account';
+                'Bank Account';
             const res = await fetch('/api/fiat/offramp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -525,7 +525,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             inlineBankLabel.trim() ||
             inlineAbaTelemetry.institutionName ||
             savedBankRailMeta?.bankLabel ||
-            'Primary Operating Account';
+            'Bank Account';
         try {
             const payload: Record<string, any> = {
                 walletAddress: identity.activeAddress,
@@ -1288,7 +1288,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     <button
                         type="button"
                         class="flex items-center gap-2.5 md:gap-3 cursor-pointer shrink-0 bg-transparent border-none text-left group"
-                        onclick={() => (ui.activeTab = 'OPERATIONS')}
+                        onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'OPERATIONS'; }}
                     >
                         <div
                             class="w-9 h-9 bg-[#11161f] rounded-xl flex items-center justify-center shrink-0 border border-white/10 group-hover:border-[#18C6A5]/45 transition-colors relative"
@@ -1320,7 +1320,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <button
                                 type="button"
                                 data-testid="header-nav-OPERATIONS"
-                                onclick={() => (ui.activeTab = 'OPERATIONS')}
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'OPERATIONS'; }}
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'OPERATIONS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
                                 {i18n.t('nav.operations')}
@@ -1328,7 +1328,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <button
                                 type="button"
                                 data-testid="header-nav-DEX"
-                                onclick={() => (ui.activeTab = 'DEX')}
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'DEX'; }}
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'DEX' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
                                 <span>{i18n.t('nav.exchange')}</span>
@@ -1337,7 +1337,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <button
                                 type="button"
                                 data-testid="header-treasury-btn"
-                                onclick={() => (ui.activeTab = 'TREASURY')}
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'TREASURY'; }}
                                 class="px-3 md:px-3.5 py-1.5 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 {ui.activeTab === 'TREASURY' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-300 hover:text-white border border-transparent'}"
                                 title={identity.isCorporateAdmin &&
                                 !ui.adminModeActive &&
@@ -1386,7 +1386,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <button
                                 type="button"
                                 data-testid="header-nav-TAX-FORTRESS"
-                                onclick={() => (ui.activeTab = 'TAX FORTRESS')}
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'TAX FORTRESS'; }}
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'TAX FORTRESS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
                                 {i18n.t('nav.tax_fortress')}
@@ -1395,7 +1395,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 <button
                                     type="button"
                                     data-testid="header-nav-FORGE"
-                                    onclick={() => (ui.activeTab = 'FORGE')}
+                                    onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'FORGE'; }}
                                     class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'FORGE' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                                 >
                                     {i18n.t('nav.forge')}
@@ -1405,7 +1405,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 <button
                                     type="button"
                                     data-testid="header-nav-DIRECTOR"
-                                    onclick={() => (ui.activeTab = 'DIRECTOR')}
+                                    onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'DIRECTOR'; }}
                                     class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'DIRECTOR' ? 'bg-[#161d29] text-amber-400 border border-amber-500/45 shadow-sm' : 'text-amber-400/80 hover:text-amber-300 border border-transparent'}"
                                 >
                                     {i18n.t('nav.director')}
@@ -1600,7 +1600,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         style="background-color: {targetAssetHex}; box-shadow: 0 0 10px {targetAssetHex}80;"
                     ></span>
                     <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                        Buy {selectedGlobalTargetAsset.ticker} with USD
+                        Buy {selectedGlobalTargetAsset.ticker}
                     </h2>
                     <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase">
                         {globalCostPlusPreview.tierBadgeLabel}
@@ -1632,7 +1632,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             { label: '$650 (ACH)', val: '650' },
                             { label: '$2.5k', val: '2500' },
                             { label: '$10k (Pro)', val: '10000' },
-                            { label: '$100k (Wire)', val: '100000' }
+                            { label: '$500', val: '500' }
                         ] as preset (preset.val)}
                             <button
                                 type="button"
@@ -1681,7 +1681,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         data-testid="global-fiat-fee-breakdown"
                         class="text-[#18C6A5] font-bold"
                     >
-                        Total Charge: ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(
+                        Total: ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(
                             2
                         )} (Fee: ${globalCostPlusPreview.feeUsd.toFixed(2)})
                     </span>
@@ -1781,28 +1781,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         >
                     </button>
                 </div>
-                <div
-                    data-testid="global-fiat-competitor-savings-badge"
-                    class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-3 py-1.5 flex items-center justify-between flex-wrap gap-2 text-[9px] font-mono"
-                >
-                    <span class="text-[#18C6A5] font-bold">
-                        ✓ Save +${globalCostPlusPreview.savingsVsMoonpayUsd.toFixed(
-                            2
-                        )} vs. MoonPay &amp; +${globalCostPlusPreview.savingsVsCoinbaseUsd.toFixed(
-                            2
-                        )} vs. Coinbase
-                    </span>
-                    <span class="text-neutral-400">
-                        {i18n.t('dex.available')}: {selectedGlobalTargetAsset.availableBalance.toLocaleString(
-                            undefined,
-                            {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 4
-                            }
-                        )}
-                        {selectedGlobalTargetAsset.ticker}
-                    </span>
-                </div>
+                
                 {#if showGlobalAssetDropdown}
                     <div
                         class="absolute top-full right-0 mt-2 w-72 bg-[#0a0d12] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
@@ -1821,7 +1800,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <span
                                 class="text-[8px] text-[#18C6A5] animate-pulse px-1"
                             >
-                                Discovering live token feed...
+                                Searching...
                             </span>
                         {:else if globalDiscoveryNotice}
                             <span class="text-[8px] text-[#18C6A5] px-1">
@@ -1888,34 +1867,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         Wallet
                     </button>
-                    <button
-                        type="button"
-                        onclick={() => {
-                            globalFiatDeliveryMode = 'LEDGER_KAS';
-                            ui.fiatModalAutoStakeSilo = false;
-                        }}
-                        class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalFiatDeliveryMode ===
-                            'LEDGER_KAS' && !ui.fiatModalAutoStakeSilo
-                            ? 'bg-[#161d29] text-white border border-white/15'
-                            : 'text-neutral-400 hover:text-white'}"
-                    >
-                        Balance ($0 Gas)
-                    </button>
-                    <button
-                        type="button"
-                        data-testid="global-fiat-1click-silo-btn"
-                        onclick={() => {
-                            ui.fiatModalTargetTicker = DEFAULT_ECOSYSTEM_TICKER;
-                            ui.fiatModalAutoStakeSilo = true;
-                            globalFiatDeliveryMode = 'AUTO_STAKE_SILO';
-                        }}
-                        class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalFiatDeliveryMode ===
-                            'AUTO_STAKE_SILO' || ui.fiatModalAutoStakeSilo
-                            ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45'
-                            : 'text-neutral-400 hover:text-[#18C6A5]'}"
-                    >
-                        Auto-Stake {DEFAULT_ECOSYSTEM_TICKER}
-                    </button>
+                    
+                    
                 </div>
                 <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
                     <div class="flex items-center gap-1.5 flex-wrap">
@@ -1933,7 +1886,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                                 : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                         >
-                            Bank ($5 max)
+                            Bank
                         </button>
                         <button
                             type="button"
@@ -2008,7 +1961,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         <div class="flex items-center justify-between">
                             <span class="text-amber-400 font-black uppercase">
-                                Wire Details ($0 Fee)
+                                Wire Instructions
                             </span>
                             <span class="text-[#18C6A5] font-bold">
                                 
@@ -2044,13 +1997,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <span class="text-[9px] font-bold uppercase text-neutral-300">
                                 Bank Account
                             </span>
-                            <button
-                                type="button"
-                                onclick={fillTestBankCredentials}
-                                class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
-                            >
-                                Test Bank
-                            </button>
+                            
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div class="flex flex-col gap-1">
@@ -2058,7 +2005,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     for="inlineAbaRouting"
                                     class="text-[8px] font-bold uppercase text-neutral-400"
                                 >
-                                    Routing #
+                                    Routing Number
                                 </label>
                                 <input
                                     id="inlineAbaRouting"

@@ -541,7 +541,7 @@
                     siloStakingTelemetry = {
                         ...siloStakingTelemetry,
                         ...siloData.data
-                    };
+                    , combinedEligibleStaked: Number((siloStakingTelemetry as any)?.combinedEligibleStaked || 0), feeRateCap: Number((siloStakingTelemetry as any)?.feeRateCap || 0.015), positions: Array.isArray((siloStakingTelemetry as any)?.positions) ? (siloStakingTelemetry as any).positions : [] };
                 }
             }
         } catch {
@@ -1318,7 +1318,7 @@
                     Fiat
                 </button>
             </div>
-            <button type="button" data-testid="dex-settings-btn" onclick={() => (showDexProvidersModal = true)} class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-mono font-bold text-neutral-300 hover:text-white flex items-center gap-1.5 cursor-pointer"><span>&#9881;</span><span>{slippagePct.toFixed(1)}%</span></button>
+            <button type="button" data-testid="dex-settings-btn" onclick={() => (showDexProvidersModal = true)} class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-mono font-bold text-neutral-300 hover:text-white flex items-center gap-1.5 cursor-pointer"><span>&#9881;</span><span>{slippagePct === 0.5 ? 'Auto' : `${slippagePct.toFixed(1)}%`}</span></button>
         </div>
     </div>
 
@@ -1619,7 +1619,7 @@
   {#if showSwapQuoteDetails}
   <div class="pt-2 border-t border-white/10 flex flex-col gap-1.5 text-[11px] text-neutral-400">
     <div class="flex justify-between"><span>Max Slippage</span><span class="text-white font-bold">{slippagePct.toFixed(1)}%</span></div>
-    <div class="flex justify-between"><span>Route</span><button type="button" onclick={() => (showDexProvidersModal = true)} class="text-[#18C6A5] font-bold hover:underline">Perennia Pool • Providers ⚙</button></div>
+    
   </div>
   {/if}
 </div>
@@ -1885,18 +1885,11 @@
     </div>
 {/if}
 {#if showDexProvidersModal}
-<div data-testid="dex-providers-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/80 backdrop-blur-sm font-mono">
-  <div class="w-full max-w-[380px] bg-[#0a0d12] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
-    <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Providers &amp; Slippage</h3><button type="button" data-testid="close-dex-providers-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm cursor-pointer">&#x2715;</button></div>
-    <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Max Slippage</span><div class="grid grid-cols-3 gap-2">{#each [0.1, 0.5, 1.0] as sPct}<button type="button" data-testid="slippage-pill-{sPct}" onclick={() => (slippagePct = sPct)} class="py-2 rounded-xl border text-xs font-black cursor-pointer {slippagePct === sPct ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300'}">{sPct.toFixed(1)}%</button>{/each}</div></div>
-    <div class="flex flex-col gap-2"><span class="text-[11px] font-bold uppercase text-neutral-400">Liquidity Sources</span>
-      {#each [['ammPool', 'Perennia AMM Pool'], ['pythOracle', 'Pyth 24/7 Oracle'], ['p2pBook', 'Atomic P2P Book'], ['wholesaleTier', 'Miner Wholesale Tier']] as [k, label]}
-        <button type="button" data-testid="provider-toggle-{k}" onclick={() => ((dexProviders as any)[k] = !(dexProviders as any)[k])} class="w-full px-3.5 py-2.5 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-between text-xs font-bold text-white cursor-pointer">
-          <span>{label}</span>
-          <span class="w-10 h-5 rounded-full p-0.5 transition-colors flex items-center {(dexProviders as any)[k] ? 'bg-[#18C6A5] justify-end' : 'bg-neutral-700 justify-start'}"><span class="w-4 h-4 rounded-full bg-[#06080b]"></span></span>
-        </button>
-      {/each}
-    </div>
+<div data-testid="dex-slippage-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/80 backdrop-blur-sm font-mono">
+  <div class="w-full max-w-[340px] bg-[#0a0d12] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
+    <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Slippage</h3><button type="button" data-testid="close-dex-slippage-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm cursor-pointer">&#x2715;</button></div>
+    <div class="grid grid-cols-3 gap-2">{#each [[0.5, 'Auto'], [0.1, '0.1%'], [1.0, '1.0%']] as [sVal, sLabel]}<button type="button" data-testid="slippage-pill-{sVal}" onclick={() => { slippagePct = Number(sVal); showDexProvidersModal = false; }} class="py-2.5 rounded-xl border text-xs font-black cursor-pointer {slippagePct === Number(sVal) ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300 hover:text-white'}">{sLabel}</button>{/each}</div>
+    <div class="flex items-center justify-between gap-2 bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5"><span class="text-xs text-neutral-400 font-bold">Custom</span><div class="flex items-center gap-1"><input type="number" step="0.1" min="0.05" max="25" bind:value={slippagePct} class="w-16 bg-transparent text-right text-sm font-black text-white focus:outline-none" /><span class="text-xs text-neutral-400 font-bold">%</span></div></div>
   </div>
 </div>
 {/if}

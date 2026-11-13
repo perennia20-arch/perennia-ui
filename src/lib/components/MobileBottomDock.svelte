@@ -17,7 +17,7 @@
 <nav aria-label="Mobile Bottom Navigation" data-testid="mobile-bottom-dock" class="lg:hidden fixed bottom-0 inset-x-0 z-[80] frosted-carbon-dock font-mono">
   <div class="grid gap-1 pt-1.5" style="grid-template-columns: repeat({tabs.length}, minmax(0, 1fr));">
     {#each tabs as tab (tab.id)}
-      <button type="button" data-testid="mobile-nav-{tab.key}" onclick={() => (ui.activeTab = tab.id)} class="mobile-touch-target relative flex flex-col items-center justify-center gap-1 py-1.5 rounded-2xl transition-all {ui.activeTab === tab.id ? 'bg-[#161d29]/90 text-white' : 'text-neutral-400 active:scale-95'}">
+      <button type="button" data-testid="mobile-nav-{tab.key}" onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = tab.id; }} class="mobile-touch-target relative flex flex-col items-center justify-center gap-1 py-1.5 rounded-2xl transition-all {ui.activeTab === tab.id ? 'bg-[#161d29]/90 text-white' : 'text-neutral-400 active:scale-95'}">
         {#if ui.activeTab === tab.id}<span class="absolute top-0 w-7 h-0.5 rounded-full" style="background-color: {tab.id === 'DIRECTOR' ? '#F59E0B' : '#18C6A5'};"></span>{/if}
         <svg class="w-5 h-5" style="color: {ui.activeTab === tab.id ? (tab.id === 'DIRECTOR' ? '#F59E0B' : '#18C6A5') : 'currentColor'};" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d={tab.icon} /></svg>
         <span class="text-[9px] font-black uppercase tracking-wider leading-none" style="color: {ui.activeTab === tab.id ? (tab.id === 'DIRECTOR' ? '#F59E0B' : '#18C6A5') : ''};">{tab.label}</span>

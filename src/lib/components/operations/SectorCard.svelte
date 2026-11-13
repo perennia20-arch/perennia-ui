@@ -1,4 +1,6 @@
 <script lang="ts">
+	const _num = (v: unknown): number => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) ? n : 0; };
+	import { operations } from '$lib/stores/operations.svelte';
     import { ui } from '$lib/stores/ui.svelte';
 import { pwa } from '$lib/stores/pwa.svelte';
     import {
@@ -155,7 +157,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                         ? `Multi-Asset Liquidity Plant (50% KAS • ${plantInternalPairs} Pairs)`
                         : 'Liquidity Plant (50% KAS Auto-LP)'
                     : mineableInfo
-                      ? `Proof-of-Hashrate Syndicate Sector (${mineableInfo.dailyEmissionTokens.toLocaleString()} ${targetTicker}/d)`
+                      ? `Proof-of-Hashrate Syndicate Sector (${_num(mineableInfo.dailyEmissionTokens).toLocaleString()} ${targetTicker}/d)`
                       : isUsdSilo
                         ? 'Mining-to-Bank USD Silo ($25 Min ACH)'
                         : 'Settlement Silo'}
@@ -218,7 +220,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                 </button>
             </div>
             <span class="text-[11px] font-mono text-white font-bold whitespace-nowrap tabular-nums">
-                {sectorPendingKas.toFixed(6)} <span class="text-[#18C6A5]">KAS</span>
+                {_num(sectorPendingKas).toFixed(6)} <span class="text-[#18C6A5]">KAS</span>
             </span>
             <span class="text-[7px] font-mono uppercase tracking-widest text-neutral-500">
                 Pending
@@ -245,7 +247,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                             {plantPairLabel}
                         </span>
                         <span class="text-[8px] font-mono text-neutral-400 truncate">
-                            {plantTargets.map((t) => `${t.weightPct.toFixed(1)}% ${t.ticker}`).join(' + ')}
+                            {plantTargets.map((t) => `${_num(t.weightPct).toFixed(1)}% ${t.ticker}`).join(' + ')}
                         </span>
                     </div>
                 {:else}
@@ -283,7 +285,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
                             </span>
                         {:else if mineableInfo}
                             <span class="text-[8px] font-mono text-[#18C6A5] truncate">
-                                Vault Pool: {mineableInfo.dailyEmissionTokens.toLocaleString()} {targetTicker}/d
+                                Vault Pool: {_num(mineableInfo.dailyEmissionTokens).toLocaleString()} {targetTicker}/d
                             </span>
                         {:else}
                             <span class="text-[8px] font-mono text-neutral-400 truncate max-w-[180px]">
@@ -311,8 +313,8 @@ import { pwa } from '$lib/stores/pwa.svelte';
                 Per Day
             </span>
             <span class="text-[10px] font-mono font-bold text-white tabular-nums truncate text-right">
-                ~{dailyKas.toFixed(1)} KAS/d
-                <span class="text-[#18C6A5] ml-0.5">(${dailyUsd.toFixed(2)})</span>
+                ~{_num(dailyKas).toFixed(1)} KAS/d
+                <span class="text-[#18C6A5] ml-0.5">(${_num(dailyUsd).toFixed(2)})</span>
             </span>
         </div>
     </div>
@@ -351,7 +353,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
             <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 shrink-0">
                 <input
                     type="number"
-                    value={mappedHash.toFixed(2)}
+                    value={_num(mappedHash).toFixed(2)}
                     oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
                     onchange={() => onCommitUpdate(sector.id)}
                     class="w-11 bg-transparent text-neutral-200 text-[11px] outline-none text-right focus:text-white tabular-nums"

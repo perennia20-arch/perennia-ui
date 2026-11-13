@@ -72,7 +72,7 @@
         'LEDGER_KAS' | 'L1_KAS' | 'AUTO_STAKE_SILO'
     >('L1_KAS');
 
-    let offrampBankLabel = $state('Primary Operating Account');
+    let offrampBankLabel = $state('Bank Account');
     let offrampAccountType = $state<'CHECKING' | 'SAVINGS'>('CHECKING');
     let offrampRoutingNumber = $state('');
     let offrampAccountNumber = $state('');
@@ -159,7 +159,7 @@
             abaTelemetry.isComplete &&
             abaTelemetry.checksumValid &&
             abaTelemetry.institutionName &&
-            (offrampBankLabel === 'Primary Operating Account' ||
+            (offrampBankLabel === 'Bank Account' ||
                 !offrampBankLabel.trim())
         ) {
             offrampBankLabel = abaTelemetry.institutionName;
@@ -259,7 +259,7 @@
     function fillTestBankCredentials() {
         offrampRoutingNumber = '110000000';
         offrampAccountNumber = '000123456789';
-        offrampBankLabel = 'Stripe Test Bank (ACH Direct Debit)';
+        offrampBankLabel = 'Linked Bank';
         offrampAccountType = 'CHECKING';
         onrampError = null;
         offrampError = null;
@@ -430,7 +430,7 @@
                     savedBankRailMeta = status.savedBankRail;
                     offrampBankLabel =
                         status.savedBankRail.bankLabel ||
-                        'Primary Operating Account';
+                        'Bank Account';
                     offrampAccountType =
                         status.savedBankRail.accountType === 'SAVINGS'
                             ? 'SAVINGS'
@@ -499,7 +499,7 @@
             const resolvedLabel =
                 offrampBankLabel.trim() ||
                 abaTelemetry.institutionName ||
-                'Primary Operating Account';
+                'Bank Account';
             const res = await fetch('/api/fiat/offramp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -610,7 +610,7 @@
             offrampBankLabel.trim() ||
             abaTelemetry.institutionName ||
             savedBankRailMeta?.bankLabel ||
-            'Primary Operating Account';
+            'Bank Account';
         try {
             const payload: Record<string, any> = {
                 walletAddress: identity.activeAddress,
@@ -827,7 +827,7 @@
                 sourceAsset: offrampAssetTicker,
                 payoutMethod,
                 bankLabel:
-                    offrampBankLabel.trim() || 'Primary Operating Account',
+                    offrampBankLabel.trim() || 'Bank Account',
                 accountType: offrampAccountType,
                 ...(Number.isFinite(extBasisParsed) && extBasisParsed >= 0
                     ? { externalCostBasisUsd: extBasisParsed }
@@ -1051,16 +1051,9 @@
                     style="background-color: {activeThemeHex}; box-shadow: 0 0 10px {activeThemeHex}80;"
                 ></span>
                 <h3 class="text-white font-black text-xs md:text-sm uppercase tracking-widest">
-                    Buy & Sell Crypto
+                    
                 </h3>
-                <span
-                    data-testid="fiat-wholesale-floor-badge"
-                    class="px-2.5 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[8px] font-mono font-black uppercase"
-                >
-                    {fiatMode === 'onramp'
-                        ? onrampCostPlusQuote.tierBadgeLabel
-                        : offrampCostPlusQuote.tierBadgeLabel}
-                </span>
+                
             </div>
             {#if savedBankLast4}
                 <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[8px] font-mono font-bold uppercase">
@@ -1162,7 +1155,7 @@
                         for="onrampUsdInput"
                         class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
                     >
-                        Pay (USD)
+                        Amount (USD)
                     </label>
                     <div class="flex items-center gap-1 flex-wrap">
                         {#each [
@@ -1170,7 +1163,7 @@
                             { label: '$650 (ACH Cap)', val: '650' },
                             { label: '$2.5k', val: '2500' },
                             { label: '$10k (Pro)', val: '10000' },
-                            { label: '$100k (Wire)', val: '100000' }
+                            { label: '$500', val: '500' }
                         ] as preset (preset.val)}
                             <button
                                 type="button"
@@ -1229,8 +1222,8 @@
                             onrampCostPlusQuote.paymentMethod === 'wire'
                                 ? 'Mercury Wire Gateway'
                                 : onrampCostPlusQuote.paymentMethod === 'card'
-                                  ? 'Stripe Card Gross-Up (2.9%+$0.30)'
-                                  : 'Stripe ACH Gross-Up (0.8% • $5 Cap)'}
+                                  ? 'Card Fee'
+                                  : 'Bank Fee ($5 max)'}
                         </span>
                         <span class="text-neutral-300 font-bold">
                             ${onrampCostPlusQuote.stripeGatewayFeeUsd.toFixed(
@@ -1263,185 +1256,7 @@
                 </div>
             </div>
 
-            <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border relative transition-all duration-300"
-                style="
-                    border-color: {activeThemeHex}55;
-                    background-image: radial-gradient(ellipse at bottom right, {activeThemeHex}24, transparent 68%);
-                    box-shadow: inset 0 0 26px -12px {activeThemeHex}28;
-                "
-            >
-                <div class="flex items-center justify-between">
-                    <span
-                        class="text-[10px] font-black uppercase tracking-widest transition-colors duration-300"
-                        style="color: {activeThemeHex};"
-                    >
-                        You Get
-                    </span>
-                    <span class="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-400">
-                        {onrampAssetObj.assetClass.toUpperCase()} 
-                    </span>
-                </div>
-                <div class="flex items-center justify-between gap-3">
-                    <span
-                        data-testid="fiat-onramp-est-output"
-                        class="text-3xl md:text-4xl font-bold font-mono text-white tabular-nums truncate"
-                    >
-                        {onrampCostPlusQuote.estimatedTokens > 0
-                            ? onrampCostPlusQuote.estimatedTokens.toLocaleString(
-                                  undefined,
-                                  {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits:
-                                          onrampCostPlusQuote.estimatedTokens <
-                                          1
-                                              ? 6
-                                              : 2
-                                  }
-                              )
-                            : '0.00'}
-                    </span>
-                    <button
-                        type="button"
-                        data-testid="fiat-target-token-selector"
-                        onclick={() =>
-                            (isTargetDropdownOpen = !isTargetDropdownOpen)}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer transition-all duration-300"
-                        style="border-color: {activeThemeHex}60;"
-                    >
-                        <div
-                            class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black overflow-hidden shrink-0"
-                            style="background-color: {activeThemeHex}22; color: {activeThemeHex}; border: 1px solid {activeThemeHex}60;"
-                        >
-                            {#if onrampAssetObj.imgUrl}
-                                <img
-                                    src={onrampAssetObj.imgUrl}
-                                    alt={onrampAssetObj.ticker}
-                                    class="w-4 h-4 object-contain"
-                                    onerror={handleTokenIconError}
-                                />
-                                <span
-                                    style="display:none;"
-                                    class="w-full h-full items-center justify-center"
-                                >
-                                    {onrampAssetObj.ticker[0]}
-                                </span>
-                            {:else}
-                                <span>{onrampAssetObj.ticker[0]}</span>
-                            {/if}
-                        </div>
-                        <div class="flex flex-col items-start leading-tight">
-                            <span class="text-xs font-black text-white tracking-wider uppercase">
-                                {onrampAssetObj.ticker}
-                            </span>
-                            <span
-                                class="text-[9px] font-mono font-bold"
-                                style="color: {activeThemeHex};"
-                            >
-                                {formatSpotDisplay(
-                                    onrampCostPlusQuote.spotPriceUsd
-                                )}
-                            </span>
-                        </div>
-                        <span class="text-[10px] text-neutral-400 ml-0.5"
-                            >▾</span
-                        >
-                    </button>
-                </div>
-
-                <!-- Live Competitor Savings Comparison Line Item (vs. MoonPay & Coinbase) -->
-                <div
-                    data-testid="fiat-competitor-savings-badge"
-                    class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[9px] font-mono"
-                >
-                    <span class="text-[#18C6A5] font-black uppercase">
-                        ✓ Competitor Savings: Keep +${onrampCostPlusQuote.savingsVsMoonpayUsd.toFixed(
-                            2
-                        )} vs. MoonPay (${onrampCostPlusQuote.moonpayFeeUsd.toFixed(
-                            2
-                        )} fee) &amp; +${onrampCostPlusQuote.savingsVsCoinbaseUsd.toFixed(
-                            2
-                        )} vs. Coinbase (${onrampCostPlusQuote.coinbaseFeeUsd.toFixed(
-                            2
-                        )} fee)
-                    </span>
-                    <button
-                        type="button"
-                        data-testid="fiat-lock-quote-cta"
-                        onclick={() => (activeStep = 2)}
-                        class="text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer shrink-0"
-                    >
-                        Step 2 →
-                    </button>
-                </div>
-
-                {#if isTargetDropdownOpen}
-                    <div
-                        class="absolute top-full right-0 mt-2 w-72 bg-[#0a0d12] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
-                    >
-                        <input
-                            type="text"
-                            value={targetSearchQuery}
-                            oninput={(e) =>
-                                handleTokenSearchInput(
-                                    (e.currentTarget as HTMLInputElement).value
-                                )}
-                            placeholder="Search ticker or paste contract..."
-                            class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white outline-none"
-                        />
-                        {#if isDiscoveringToken}
-                            <span class="text-[8px] text-[#18C6A5] animate-pulse px-1">
-                                Discovering token feed...
-                            </span>
-                        {:else if discoveryNotice}
-                            <span class="text-[8px] text-[#18C6A5] px-1">
-                                {discoveryNotice}
-                            </span>
-                        {/if}
-                        {#each filteredOnrampAssets as assetItem (assetItem.ticker)}
-                            {@const itemHex = assetItem.theme?.hex || '#18C6A5'}
-                            <button
-                                type="button"
-                                onclick={() => {
-                                    onrampTargetTicker = assetItem.ticker;
-                                    if (
-                                        assetItem.ticker !==
-                                        DEFAULT_ECOSYSTEM_TICKER
-                                    ) {
-                                        onrampAutoStakeSilo = false;
-                                        if (
-                                            onrampSettlementTarget ===
-                                            'AUTO_STAKE_SILO'
-                                        ) {
-                                            onrampSettlementTarget = 'L1_KAS';
-                                        }
-                                    }
-                                    isTargetDropdownOpen = false;
-                                }}
-                                class="w-full text-left px-2.5 py-2 rounded-xl hover:bg-[#161d29] flex items-center justify-between text-[10px] cursor-pointer"
-                            >
-                                <div class="flex items-center gap-2 min-w-0">
-                                    <span
-                                        class="w-2 h-2 rounded-full shrink-0"
-                                        style="background-color: {itemHex};"
-                                    ></span>
-                                    <span class="font-bold text-white truncate">
-                                        {assetItem.ticker} — {assetItem.name}
-                                    </span>
-                                </div>
-                                <span
-                                    class="font-bold shrink-0 ml-2"
-                                    style="color: {itemHex};"
-                                >
-                                    {assetItem.spotPrice > 0
-                                        ? formatSpotDisplay(assetItem.spotPrice)
-                                        : 'LIVE'}
-                                </span>
-                            </button>
-                        {/each}
-                    </div>
-                {/if}
-            </div>
+            
         </div>
 
         <div
@@ -1463,49 +1278,10 @@
                 >
                     Wallet
                 </button>
-                <button
-                    type="button"
-                    onclick={() => {
-                        onrampSettlementTarget = 'LEDGER_KAS';
-                        onrampAutoStakeSilo = false;
-                    }}
-                    class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampSettlementTarget ===
-                        'LEDGER_KAS' && !onrampAutoStakeSilo
-                        ? 'bg-[#161d29] text-white border border-white/15'
-                        : 'text-neutral-400 hover:text-white'}"
-                >
-                    Balance ($0 Gas)
-                </button>
-                <button
-                    type="button"
-                    data-testid="onramp-dest-autostake-silo-card"
-                    onclick={() => {
-                        onrampTargetTicker = DEFAULT_ECOSYSTEM_TICKER;
-                        onrampAutoStakeSilo = true;
-                        onrampSettlementTarget = 'AUTO_STAKE_SILO';
-                    }}
-                    class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampSettlementTarget ===
-                        'AUTO_STAKE_SILO' || onrampAutoStakeSilo
-                        ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45'
-                        : 'text-neutral-400 hover:text-[#18C6A5]'}"
-                >
-                    Auto-Stake {DEFAULT_ECOSYSTEM_TICKER}
-                </button>
+                
+                
             </div>
-            <button
-                type="button"
-                data-testid="fiat-1click-silo-toggle-btn"
-                onclick={() => {
-                    onrampTargetTicker = DEFAULT_ECOSYSTEM_TICKER;
-                    onrampAutoStakeSilo = !onrampAutoStakeSilo;
-                    onrampSettlementTarget = onrampAutoStakeSilo
-                        ? 'AUTO_STAKE_SILO'
-                        : 'L1_KAS';
-                }}
-                class="sr-only"
-            >
-                Toggle Auto-Stake SILO
-            </button>
+            
 
             <!-- Card vs. ACH Selector (Auto-Defaults to ACH @ $625+ / Hard-Gated to Wire @ $100,000+) -->
             <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
@@ -1524,7 +1300,7 @@
                             ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Bank ACH ($5 max)
+                        Bank
                     </button>
                     <button
                         type="button"
@@ -1540,7 +1316,7 @@
                             ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Card (2.9%)
+                        Card
                     </button>
                     <button
                         type="button"
@@ -1555,7 +1331,7 @@
                             ? 'bg-[#161d29] text-amber-400 border-amber-500/45'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Wire (0.20%)
+                        Wire
                     </button>
                 </div>
                 {#if onrampGatewayMethod !== 'wire' && !onrampCostPlusQuote.requiresInstitutionalWire}
@@ -1585,7 +1361,7 @@
                 >
                     <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2">
                         <span class="text-amber-400 font-black uppercase tracking-wider">
-                            Wire Details ($0 Fee)
+                            Wire Instructions
                         </span>
                         <span class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
                             
@@ -1594,7 +1370,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
                             <span class="text-[7px] text-neutral-500 uppercase">
-                                Beneficiary &amp; Account
+                                Recipient
                             </span>
                             <span class="text-white font-bold">
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.beneficiaryName} ({MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountDescriptor})
@@ -1610,7 +1386,7 @@
                         </div>
                         <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
                             <span class="text-[7px] text-neutral-500 uppercase">
-                                ABA Routing Number
+                                Routing Number
                             </span>
                             <span class="text-[#18C6A5] font-black select-all">
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
@@ -1636,7 +1412,7 @@
                         </div>
                         <div class="flex flex-col sm:items-end shrink-0">
                             <span class="text-[7px] text-amber-400 uppercase font-bold">
-                                Required Wire Reference Memo
+                                Reference Code
                             </span>
                             <span class="text-white font-black select-all">
                                 {previewWireReferenceMemo}
@@ -1653,13 +1429,7 @@
                         <span class="text-[9px] font-bold uppercase text-neutral-300">
                             Bank Account
                         </span>
-                        <button
-                            type="button"
-                            onclick={fillTestBankCredentials}
-                            class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
-                        >
-                            Test Bank
-                        </button>
+                        
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div class="flex flex-col gap-1">
@@ -1667,7 +1437,7 @@
                                 for="onrampAbaInput"
                                 class="text-[8px] font-bold uppercase text-neutral-400"
                             >
-                                Routing #
+                                Routing Number
                             </label>
                             <input
                                 id="onrampAbaInput"
@@ -2075,7 +1845,7 @@
             >
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                        You Get (USD)
+                        You Receive (USD)
                     </span>
                     <span
                         data-testid="fiat-offramp-fee-breakdown"
@@ -2083,9 +1853,7 @@
                     >
                         Fee: ${offrampCostPlusQuote.feeUsd.toFixed(2)} ({offrampCostPlusQuote.effectiveFeePct.toFixed(
                             2
-                        )}% • {offrampCostPlusQuote.protocolFeeFloorPct.toFixed(
-                            2
-                        )}% Floor)
+                        )}% )
                     </span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
@@ -2103,20 +1871,14 @@
                     data-testid="fiat-offramp-savings-badge"
                     class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-3 py-2 flex items-center justify-between text-[9px] font-mono"
                 >
-                    <span class="text-[#18C6A5] font-bold">
-                        ✓ Save +${offrampCostPlusQuote.savingsVsMoonpayUsd.toFixed(
-                            2
-                        )} vs. MoonPay &amp; +${offrampCostPlusQuote.savingsVsCoinbaseUsd.toFixed(
-                            2
-                        )} vs. Coinbase
-                    </span>
+                    
                     <button
                         type="button"
                         data-testid="fiat-offramp-lock-quote-cta"
                         onclick={() => (activeStep = 2)}
                         class="text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
                     >
-                        Step 2 →
+                        Continue →
                     </button>
                 </div>
             </div>
@@ -2162,7 +1924,7 @@
                             ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Bank ACH
+                        Bank
                     </button>
                     <button
                         type="button"
@@ -2180,7 +1942,7 @@
                             ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
                             : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
                     >
-                        Same-Day Wire ($2.5k+)
+                        Wire
                     </button>
                 </div>
                 {#if savedBankLast4}
@@ -2203,13 +1965,7 @@
                         <span class="text-[9px] font-bold uppercase text-neutral-300">
                             Payout Bank Account
                         </span>
-                        <button
-                            type="button"
-                            onclick={fillTestBankCredentials}
-                            class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/45 text-[8px] font-mono text-neutral-300 hover:text-[#18C6A5] cursor-pointer"
-                        >
-                            Test Bank
-                        </button>
+                        
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div class="flex flex-col gap-1">
@@ -2217,7 +1973,7 @@
                                 for="offrampRouting"
                                 class="text-[8px] font-bold uppercase text-neutral-400"
                             >
-                                Routing #
+                                Routing Number
                             </label>
                             <input
                                 id="offrampRouting"
@@ -2235,10 +1991,10 @@
                                 >
                                     {#if abaTelemetry.isComplete && abaTelemetry.checksumValid}
                                         <span>✓ {abaTelemetry.institutionName}</span>
-                                        <span>MOD-10 VALID</span>
+                                        
                                     {:else if abaTelemetry.isComplete}
                                         <span>✕ Invalid Routing Number</span>
-                                        <span>MOD-10 FAIL</span>
+                                        
                                     {:else}
                                         <span
                                             >{abaTelemetry.cleanDigits.length}/9
@@ -2338,10 +2094,10 @@
                                 onclick={signAndBroadcastOfframpFromWallet}
                                 class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-white border-[#18C6A5] cursor-pointer"
                             >
-                                [Sign &amp; Send {Number(
+                                Send {Number(
                                     pass.amountCrypto || 0
                                 ).toFixed(2)}
-                                {pass.sourceAsset} →]
+                                {pass.sourceAsset} 
                             </button>
                         {/if}
                         <button
@@ -2365,7 +2121,7 @@
                 <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3">
                     <div class="flex flex-col gap-1 min-w-0 flex-1">
                         <span class="text-[8px] font-bold uppercase text-neutral-400">
-                            Settlement Deposit Address ({pass.sourceAsset})
+                            Deposit Address ({pass.sourceAsset})
                         </span>
                         <span
                             data-testid="offramp-direct-deposit-address"
