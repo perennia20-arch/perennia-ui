@@ -1274,7 +1274,21 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 	// perennia_sw_auto_update
 	$effect(() => {
 		if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+			const hadOldController = Boolean(navigator.serviceWorker.controller);
+			const onSwMsg = (ev: MessageEvent) => {
+				if (hadOldController && ev.data?.type === 'PERENNIA_SW_UPDATED' && ev.data?.version) {
+					const k = 'perennia_sw_reloaded_' + ev.data.version;
+					if (!sessionStorage.getItem(k)) {
+						sessionStorage.setItem(k, '1');
+						window.location.reload();
+					}
+				}
+			};
+			navigator.serviceWorker.addEventListener('message', onSwMsg);
 			navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.update().catch(() => {}))).catch(() => {});
+			return () => navigator.serviceWorker.removeEventListener('message', onSwMsg);
+		}
+	});
 		}
 	});
 </script>

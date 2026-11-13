@@ -1,32 +1,50 @@
 import { build, files, version } from '$service-worker';
-const CACHE = `perennia-shell-${version}`;
-const ASSETS = new Set([...build, ...files]);
+
+const CACHE = `perennia-netfirst-${version}`;
+const PUBLIC_PRECACHE = ['/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+const KNOWN_ASSETS = new Set([...build, ...files]);
 const sw = self as any;
+
 sw.addEventListener('install', (e: any) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll([...ASSETS])).then(() => sw.skipWaiting()));
+  sw.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(PUBLIC_PRECACHE)).catch(() => {})
+  );
 });
+
 sw.addEventListener('activate', (e: any) => {
-  e.waitUntil(caches.keys().then(async (keys) => {
-    for (const k of keys) if (k !== CACHE) await caches.delete(k);
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    for (const k of keys) {
+      if (k !== CACHE) await caches.delete(k);
+    }
     await sw.clients.claim();
-  }));
+    const clients = await sw.clients.matchAll({ type: 'window' });
+    for (const client of clients) {
+      client.postMessage({ type: 'PERENNIA_SW_UPDATED', version });
+    }
+  })());
 });
+
 sw.addEventListener('fetch', (e: any) => {
   const req: Request = e.request;
   if (req.method !== 'GET' || (req.cache === 'only-if-cached' && req.mode !== 'same-origin')) return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  const p = url.pathname, accept = req.headers.get('accept') || '';
-  if (p === '/api' || p.startsWith('/api/') || p === '/v1' || p.startsWith('/v1/') || accept.includes('text/event-stream')) return;
+  const p = url.pathname;
+  const accept = req.headers.get('accept') || '';
+  if (p === '/api' || p.startsWith('/api/') || p === '/v1' || p.startsWith('/v1/') || p === '/service-worker.js' || accept.includes('text/event-stream')) return;
   e.respondWith((async () => {
-    const cache = await caches.open(CACHE);
-    if (ASSETS.has(p)) { const hit = await cache.match(req); if (hit) return hit; }
     try {
       const res = await fetch(req);
-      if (res.status === 200 && ASSETS.has(p)) cache.put(req, res.clone());
+      if (res && res.status === 200 && KNOWN_ASSETS.has(p)) {
+        const clone = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, clone)).catch(() => {});
+      }
       return res;
     } catch (err) {
-      const fb = await cache.match(req) || (req.mode === 'navigate' ? await cache.match('/') : undefined);
+      const cache = await caches.open(CACHE);
+      const fb = await cache.match(req);
       if (fb) return fb;
       throw err;
     }

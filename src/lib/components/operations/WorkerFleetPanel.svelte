@@ -248,7 +248,7 @@ let mobileFleetExpanded = $state(false);
                 Shares
             </span>
             <span class="text-xs font-mono font-black text-amber-400 leading-none tabular-nums whitespace-nowrap">
-                {totalShares.toLocaleString()}
+                {totalShares >= 1_000_000_000 ? formatWorkerShares(totalShares) : totalShares.toLocaleString()}
             </span>
         </div>
     </div>
