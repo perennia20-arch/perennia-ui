@@ -134,12 +134,8 @@ import { pwa } from '$lib/stores/pwa.svelte';
     ondragover={(e) => onDragOver(e, sector.id)}
     ondragleave={onDragLeave}
     ondrop={(e) => onDrop(e, sector.id)}
-    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} bg-[#0a0d12] rounded-[20px] p-4 sm:p-5 flex flex-col gap-3.5 relative cursor-grab active:cursor-grabbing min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
-    style="
-        border: 1px solid {hex}35;
-        background-image: radial-gradient(ellipse at top right, {hex}16, transparent 60%);
-        box-shadow: 0 10px 32px -10px {hex}25, inset 0 0 18px -10px {hex}18;
-    "
+    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} bg-[#0c1017] rounded-xl p-3 flex flex-col gap-2.5 relative cursor-grab active:cursor-grabbing min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
+    style="border: 1px solid rgba(255,255,255,0.07); box-shadow: none;"
 >
     {#if activeBadge}
         <div
@@ -149,227 +145,103 @@ import { pwa } from '$lib/stores/pwa.svelte';
             {activeBadge.label}
         </div>
     {/if}
-    <div class="flex justify-between items-start gap-2 min-w-0">
-        <div class="flex flex-col min-w-0 flex-1">
-            <span class="text-[8px] uppercase tracking-widest font-bold text-neutral-500 mb-0.5 truncate">
-                {isLp
-                    ? plantTargets.length > 2
-                        ? `Multi-Asset Liquidity Plant (50% KAS • ${plantInternalPairs} Pairs)`
-                        : 'Liquidity Plant (50% KAS Auto-LP)'
-                    : mineableInfo
-                      ? `Proof-of-Hashrate Syndicate Sector (${_num(mineableInfo.dailyEmissionTokens).toLocaleString()} ${targetTicker}/d)`
-                      : isUsdSilo
-                        ? 'Mining-to-Bank USD Silo ($25 Min ACH)'
-                        : 'Settlement Silo'}
-            </span>
-            <button
-                type="button"
-                onmousedown={(e) => e.stopPropagation()}
-                onclick={() => onRenameSector(sector.id)}
-                class="text-base sm:text-lg font-black uppercase text-white tracking-wider truncate text-left hover:text-[#18C6A5] transition-colors cursor-pointer"
-                title="Click to Rename Sector"
-            >
-                {sector.name}
-            </button>
-        </div>
-        <div class="flex flex-col items-end shrink-0">
-            <div class="flex items-center gap-1.5 mb-1">
-                {#if !isUsdSilo && sectorExplorerUrl && sectorExplorerUrl !== '#'}
-                    <a
-                        href={sectorExplorerUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onmousedown={(e) => e.stopPropagation()}
-                        onclick={(e) => e.stopPropagation()}
-                        data-testid="sector-explorer-link-{sector.id}"
-                        class="px-2 py-0.5 rounded-lg bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-[#18C6A5]/40 text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-[#18C6A5] transition-colors"
-                        title="Verify L1 Payout Address or Latest Transaction on Block Explorer"
-                    >
-                        Explorer ↗
-                    </a>
-                {/if}
-                <button
-                    type="button"
-                    onmousedown={(e) => e.stopPropagation()}
-                    onclick={() => onToggleWidth(sector.id)}
-                    class="text-neutral-400 hover:text-white transition-colors cursor-pointer w-6 h-6 hidden lg:flex items-center justify-center bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-lg active:scale-[0.96]"
-                    title="Toggle Full / Half Width"
-                >
-                    <span class="font-bold tracking-widest text-[8px]">[ ]</span>
-                </button>
-                <button
-                    type="button"
-                    onmousedown={(e) => e.stopPropagation()}
-                    onclick={() => onOpenSettlement(sector)}
-                    class="text-neutral-400 hover:text-white transition-colors cursor-pointer w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-full active:scale-[0.96]"
-                    title="Configure Parameters"
-                >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                </button>
-                <button
-                    type="button"
-                    onmousedown={(e) => e.stopPropagation()}
-                    onclick={() => onDeleteSector(sector.id)}
-                    class="text-neutral-400 hover:text-red-400 transition-colors cursor-pointer w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center bg-[#11161f] hover:bg-red-950/30 border border-white/10 hover:border-red-500/40 rounded-full active:scale-[0.96]"
-                    title="Dismantle Sector"
-                >
-                    ✕
-                </button>
-            </div>
-            <span class="text-[11px] font-mono text-white font-bold whitespace-nowrap tabular-nums">
-                {_num(sectorPendingKas).toFixed(6)} <span class="text-[#18C6A5]">KAS</span>
-            </span>
-            <span class="text-[7px] font-mono uppercase tracking-widest text-neutral-500">
-                Pending
-            </span>
-        </div>
-    </div>
-
-    <div class="flex flex-col gap-2 bg-[#11161f] p-3 rounded-xl border border-white/10 shadow-inner min-w-0">
-        <div class="flex items-center justify-between gap-2 min-w-0">
-            <div class="flex items-center gap-2.5 min-w-0">
-                {#if isLp}
-                    <div class="flex -space-x-2 shrink-0">
-                        {#each plantTargets as pt (pt.ticker)}
-                            <div
-                                class="w-6 h-6 rounded-full border border-white/15 bg-[#0a0d12] flex items-center justify-center text-[9px] font-black"
-                                style="color: {pt.theme?.hex || '#18C6A5'};"
-                            >
-                                {pt.ticker[0]}
-                            </div>
-                        {/each}
-                    </div>
-                    <div class="flex flex-col min-w-0">
-                        <span class="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#18C6A5] to-[#3B82F6] tracking-wider truncate">
-                            {plantPairLabel}
-                        </span>
-                        <span class="text-[8px] font-mono text-neutral-400 truncate">
-                            {plantTargets.map((t) => `${_num(t.weightPct).toFixed(1)}% ${t.ticker}`).join(' + ')}
-                        </span>
-                    </div>
-                {:else}
-                    <div
-                        class="w-6 h-6 rounded-full border border-white/15 bg-[#0a0d12] flex items-center justify-center text-[10px] font-black overflow-hidden shrink-0"
-                        style="color: {hex};"
-                    >
-                        {#if sector.settlementConfig?.targetAsset?.imgUrl}
-                            <img
-                                src={sector.settlementConfig.targetAsset.imgUrl}
-                                class="w-4 h-4 object-contain"
-                                alt="logo"
-                                onerror={handleTokenIconError}
-                            />
-                            <span style="display:none;" class="text-xs font-black">
-                                {sector.settlementConfig.targetAsset.ticker[0]}
-                            </span>
-                        {:else}
-                            {isUsdSilo ? '$' : sector.settlementConfig?.targetAsset?.ticker?.[0] || 'K'}
-                        {/if}
-                    </div>
-                    <div class="flex flex-col min-w-0">
-                        <span class="text-xs font-bold tracking-wider truncate" style="color: {hex};">
-                            {isUsdSilo
-                                ? 'USD (Direct Bank ACH / Wire)'
-                                : mineableInfo
-                                  ? `${targetTicker} (Mineable KRC-20)`
-                                  : `${sector.settlementConfig?.targetAsset?.ticker || 'KAS'}`}
-                        </span>
-                        {#if isUsdSilo}
-                            <span class="text-[8px] font-mono {savedBankRailLast4 ? 'text-[#18C6A5]' : 'text-amber-400'} truncate">
-                                {savedBankRailLast4
-                                    ? `Vault Rail: *${savedBankRailLast4} (${savedBankRailMethod})`
-                                    : 'Link Bank Rail in DEX → Fiat'}
-                            </span>
-                        {:else if mineableInfo}
-                            <span class="text-[8px] font-mono text-[#18C6A5] truncate">
-                                Vault Pool: {_num(mineableInfo.dailyEmissionTokens).toLocaleString()} {targetTicker}/d
-                            </span>
-                        {:else}
-                            <span class="text-[8px] font-mono text-neutral-400 truncate max-w-[180px]">
-                                L1: {resolvedPayoutAddr}
-                            </span>
-                        {/if}
-                    </div>
-                {/if}
-            </div>
-            <div class="flex flex-col items-end shrink-0">
-                <span class="text-[7px] uppercase tracking-widest font-bold text-neutral-500">Mode</span>
-                <span class="text-[9px] font-mono font-bold uppercase whitespace-nowrap" style="color: {hex};">
-                    {sector.routeMode === 'auto-lp' ||
-                    (sector.settlementConfig?.targetAsset?.ticker &&
-                        sector.settlementConfig.targetAsset.ticker !== 'KAS')
-                        ? operations.formatEpochCountdown()
-                        : sector.settlementConfig?.mode === 'threshold'
-                          ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS LIMIT`
-                          : sector.settlementConfig?.mode || 'epoch'}
-                </span>
-            </div>
-        </div>
-        <div class="flex items-center justify-between gap-2 border-t border-white/10 pt-2 mt-0.5 min-w-0">
-            <span class="text-[8px] font-mono uppercase tracking-wider text-neutral-400 shrink-0">
-                Per Day
-            </span>
-            <span class="text-[10px] font-mono font-bold text-white tabular-nums truncate text-right">
-                ~{_num(dailyKas).toFixed(1)} KAS/d
-                <span class="text-[#18C6A5] ml-0.5">(${_num(dailyUsd).toFixed(2)})</span>
-            </span>
-        </div>
-    </div>
-
-    <div
-        class="mt-0.5 flex flex-col gap-2 min-w-0 w-full"
-        draggable="true"
-        ondragstart={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        }}
-        onmousedown={(e) => e.stopPropagation()}
-    >
-        <div class="flex items-center justify-between gap-1.5 w-full min-w-0 font-mono font-bold">
-            <div class="flex items-center gap-1.5 min-w-0">
-                <div class="flex items-center gap-0.5 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 shrink-0">
-                    <input
-                        type="number"
-                        value={sector.allocationPercentage}
-                        oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
-                        onchange={() => onCommitUpdate(sector.id)}
-                        class="w-10 bg-transparent text-white text-[11px] outline-none text-right tabular-nums"
-                    />
-                    <span class="text-neutral-400 text-[10px]">%</span>
-                </div>
-                <button
-                    type="button"
-                    onclick={() => onSnapMaxRemaining(sector.id)}
-                    disabled={unallocatedPercentage <= 0}
-                    class="tactile-btn px-2 py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-wider text-[#18C6A5] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0 whitespace-nowrap"
-                    title="Snap sector allocation to consume all remaining unallocated hashpower (100% total)"
-                >
-                    MAX
-                </button>
-            </div>
-            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 shrink-0">
-                <input
-                    type="number"
-                    value={_num(mappedHash).toFixed(2)}
-                    oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
-                    onchange={() => onCommitUpdate(sector.id)}
-                    class="w-11 bg-transparent text-neutral-200 text-[11px] outline-none text-right focus:text-white tabular-nums"
-                />
-                <span class="text-neutral-500 text-[9px] whitespace-nowrap">TH/s</span>
-            </div>
-        </div>
-        <input
-            type="range"
-            min="0"
-            max="100"
-            step="0.1"
-            value={sector.allocationPercentage}
-            oninput={(e) => onSliderInput(sector.id, e)}
-            onchange={() => onSliderChange(sector.id)}
-            class="w-full custom-range-slider touch-pan-y cursor-pointer"
-        />
-    </div>
+    ﻿<div class="flex justify-between items-center gap-2 min-w-0">
+  <button type="button" onmousedown={(e) => e.stopPropagation()}
+    onclick={() => onRenameSector(sector.id)} title="Click to Rename"
+    class="flex items-center gap-1.5 min-w-0 text-xs sm:text-sm font-bold uppercase text-white tracking-wider truncate text-left hover:text-[#18C6A5] transition-colors cursor-pointer">
+    <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{hex};"></span>
+    <span class="truncate">{sector.name}</span>
+  </button>
+  <div class="flex items-center gap-1.5 shrink-0">
+    <span class="text-[10px] font-mono text-neutral-300 font-bold whitespace-nowrap tabular-nums">
+      {_num(sectorPendingKas).toFixed(4)} <span class="text-[#18C6A5]">KAS</span>
+    </span>
+    <button type="button" onmousedown={(e) => e.stopPropagation()}
+      onclick={() => onToggleWidth(sector.id)} title="Toggle Width"
+      class="text-neutral-500 hover:text-white cursor-pointer w-5 h-5 hidden lg:flex items-center justify-center bg-white/[0.03] border border-white/10 rounded text-[7px] font-bold">[ ]</button>
+    <button type="button" onmousedown={(e) => e.stopPropagation()}
+      onclick={() => onOpenSettlement(sector)} title="Configure"
+      class="text-neutral-400 hover:text-white cursor-pointer w-6 h-6 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[11px]">⚙</button>
+    <button type="button" onmousedown={(e) => e.stopPropagation()}
+      onclick={() => onDeleteSector(sector.id)} title="Remove"
+      class="text-neutral-500 hover:text-red-400 cursor-pointer w-6 h-6 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[10px]">✕</button>
+  </div>
 </div>
+
+﻿<div class="flex items-start justify-between gap-2 pt-1.5 border-t border-white/[0.06] min-w-0">
+  <div class="flex items-start gap-2 min-w-0">
+    {#if isLp}
+      <div class="flex -space-x-1.5 shrink-0 mt-0.5">
+        {#each plantTargets as pt (pt.ticker)}
+          <div class="w-4 h-4 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[7px] font-black"
+            style="color:{pt.theme?.hex || '#18C6A5'};">{pt.ticker[0]}</div>
+        {/each}
+      </div>
+    {:else}
+      <div class="w-4 h-4 mt-0.5 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[8px] font-black overflow-hidden shrink-0"
+        style="color:{hex};">
+        {#if sector.settlementConfig?.targetAsset?.imgUrl}
+          <img src={sector.settlementConfig.targetAsset.imgUrl} class="w-3 h-3 object-contain" alt="" onerror={handleTokenIconError} />
+          <span style="display:none;">{targetTicker[0]}</span>
+        {:else}{isUsdSilo ? '$' : targetTicker[0]}{/if}
+      </div>
+    {/if}
+    <div class="flex flex-col min-w-0">
+      <span class="text-[11px] font-mono font-bold tracking-wide truncate"
+        style="color:{isLp ? '#e5e7eb' : hex};">{isLp ? plantPairLabel : isUsdSilo ? 'USD' : targetTicker}</span>
+      {#if !isUsdSilo && sectorExplorerUrl && sectorExplorerUrl !== '#'}
+        <a href={sectorExplorerUrl} target="_blank" rel="noopener noreferrer"
+          onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}
+          data-testid="sector-explorer-link-{sector.id}"
+          class="mt-0.5 px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.08] text-[7px] font-mono font-bold uppercase tracking-wider text-neutral-400 hover:text-[#18C6A5] hover:border-[#18C6A5]/40 transition-colors w-fit">Explorer ↗</a>
+      {:else if isUsdSilo}
+        <span class="text-[8px] font-mono text-neutral-500 truncate">{savedBankRailLast4 ? `*${savedBankRailLast4} (${savedBankRailMethod})` : 'Link Bank Rail'}</span>
+      {/if}
+    </div>
+  </div>
+  <div class="flex flex-col items-end shrink-0 font-mono">
+    <span class="text-[9px] font-bold uppercase whitespace-nowrap" style="color:{hex};">
+      {isLp || targetTicker !== 'KAS' ? operations.formatEpochCountdown() : sector.settlementConfig?.mode === 'threshold' ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS` : sector.settlementConfig?.mode || 'epoch'}
+    </span>
+    <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap mt-0.5">
+      ~{_num(dailyKas).toFixed(1)} KAS/d <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
+    </span>
+  </div>
+</div>
+
+﻿<div class="flex items-center gap-1.5 pt-1.5 border-t border-white/[0.06] min-w-0 w-full font-mono font-bold"
+  draggable="true" ondragstart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+  onmousedown={(e) => e.stopPropagation()}>
+  <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded-md px-1.5 py-0.5 shrink-0">
+    <input type="number" value={sector.allocationPercentage}
+      oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
+      onchange={() => onCommitUpdate(sector.id)}
+      class="sector-slim-num w-8 bg-transparent text-white text-[10px] outline-none text-right tabular-nums" />
+    <span class="text-neutral-500 text-[9px] ml-0.5">%</span>
+  </div>
+  {#if unallocatedPercentage > 0}
+    <button type="button" onclick={() => onSnapMaxRemaining(sector.id)}
+      class="px-1.5 py-0.5 rounded bg-[#18C6A5]/10 border border-[#18C6A5]/30 text-[7px] font-black uppercase text-[#18C6A5] cursor-pointer shrink-0">MAX</button>
+  {/if}
+  <input type="range" min="0" max="100" step="0.1" value={sector.allocationPercentage}
+    oninput={(e) => onSliderInput(sector.id, e)}
+    onchange={() => onSliderChange(sector.id)}
+    class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
+    style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) 100%);" />
+  <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded-md px-1.5 py-0.5 shrink-0">
+    <input type="number" value={_num(mappedHash).toFixed(2)}
+      oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
+      onchange={() => onCommitUpdate(sector.id)}
+      class="sector-slim-num w-9 bg-transparent text-neutral-200 text-[10px] outline-none text-right focus:text-white tabular-nums" />
+    <span class="text-neutral-500 text-[8px] whitespace-nowrap">TH/s</span>
+  </div>
+</div>
+</div>
+
+<style>
+.sector-slim-num::-webkit-outer-spin-button,.sector-slim-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.sector-slim-num{-moz-appearance:textfield;appearance:textfield}
+input[type='range'].sector-slim-range{-webkit-appearance:none;appearance:none;height:3px!important;min-height:3px!important;border-radius:999px;outline:none;padding:0;margin:0 2px}
+input[type='range'].sector-slim-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px!important;height:11px!important;border-radius:999px;background:#0c1017;border:2px solid var(--shex,#18C6A5);cursor:pointer}
+input[type='range'].sector-slim-range::-moz-range-thumb{width:11px;height:11px;border-radius:999px;background:#0c1017;border:2px solid var(--shex,#18C6A5);cursor:pointer}
+</style>
