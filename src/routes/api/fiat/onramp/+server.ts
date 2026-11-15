@@ -1287,6 +1287,7 @@ async function chargeViaStripeIfConfigured(params: {
             description: `Perennia, LLC ${params.targetAsset} On-Ramp (${params.orderId})`,
             metadata
         };
+		if ((params as any).stripePaymentMethodId) { cardIntentPayload.payment_method = (params as any).stripePaymentMethodId; cardIntentPayload.confirm = true; cardIntentPayload.return_url = 'https://perennia.io/?fiat_card=1'; }
         const pi = await stripe.paymentIntents.create(
             cardIntentPayload as Stripe.PaymentIntentCreateParams
         );
@@ -1861,7 +1862,7 @@ async function executeImmediateOrderFulfillment(params: {
              VALUES ($1, 'SILO', $2, 'ACTIVE', $3)`,
             [`kaspa:${params.cleanWallet}`, deliveredTokens, txHash]
         );
-    } else if ((params.settlementTarget === 'L1_KAS' || params.settlementTarget === 'L1_SELF_CUSTODY') && !(Number(params.achFloatFrontedUsd || 0) > 0) && !(cleanTarget === 'KAS' && String(env.SANDBOX_MODE || '').toLowerCase() !== 'true' && params.cleanWallet === String(env.PERENNIA_HOT_KAS_ADDRESS || env.PERENNIA_MASTER_TREASURY_KAS || '').trim().toLowerCase().replace(/^kaspa:/, ''))) {
+    } else if ((params.settlementTarget === 'L1_KAS' || params.settlementTarget === 'L1_SELF_CUSTODY') && !(Number(params.achFloatFrontedUsd || 0) > 0) && !(cleanTarget === 'KAS' && String(env.SANDBOX_MODE || '').toLowerCase() !== 'true' && String(params.destinationAddress || params.cleanWallet).trim().toLowerCase().replace(/^kaspa:/, '') === String(env.PERENNIA_HOT_KAS_ADDRESS || env.PERENNIA_MASTER_TREASURY_KAS || '').trim().toLowerCase().replace(/^kaspa:/, ''))) {
         try {
             const destAddr = String(
                 params.destinationAddress || `kaspa:${params.cleanWallet}`
@@ -2863,7 +2864,7 @@ export const POST: RequestHandler = async ({
                         targetAsset,
                         routingNumber: bankRailResult.decrypted?.routingNumber,
                         accountNumber: bankRailResult.decrypted?.accountNumber,
-						hasManualBankInput: Boolean(body.routingNumber && body.accountNumber),
+						hasManualBankInput: Boolean(body.routingNumber && body.accountNumber), stripePaymentMethodId: typeof body.stripePaymentMethodId === 'string' ? body.stripePaymentMethodId.trim() : undefined,
                         accountType: bankRailResult.accountType,
                         bankLabel: bankRailResult.bankLabel,
                         clientIp,
@@ -2984,7 +2985,8 @@ export const POST: RequestHandler = async ({
 				const fl = await client.query(`UPDATE fiat_float_ledger SET local_kas_reserve_usd = local_kas_reserve_usd - $1, updated_at = CURRENT_TIMESTAMP WHERE ledger_id = 'PRIMARY_FLOAT' AND local_kas_reserve_usd >= $1 RETURNING local_kas_reserve_usd`, [quote.principalUsd]).catch(() => ({ rowCount: 0 }));
 				if ((fl.rowCount ?? 0) > 0) { canFrontAchFromFloat = true; achFloatFrontedUsd = quote.principalUsd; }
 			}
-			const shouldFulfillImmediately = !isDirectMercuryWire && body.instantBankDebit !== false && Boolean(bankRailResult.decrypted) && (!isLiveStripeKey || stripeStatus === 'succeeded' || canFrontAchFromFloat);
+			const hasValidSource = Boolean(bankRailResult.decrypted) || usedVerifiedStripePm || stripeStatus === 'succeeded' || (!isLiveStripeKey && String(body.paymentMethod || '').toLowerCase() === 'card');
+			const shouldFulfillImmediately = !isDirectMercuryWire && body.instantBankDebit !== false && hasValidSource && (!isLiveStripeKey || stripeStatus === 'succeeded' || canFrontAchFromFloat);
 			if (shouldFulfillImmediately) {
 				const fulfilled = await executeImmediateOrderFulfillment({ client, orderId: onrampSessionId, cleanWallet: cleanAddressOnly, targetAsset, settlementTarget, autoStakeSilo, fiatUsd: quote.totalGrossChargeUsd, feeUsd: quote.feeUsd, perenniaFeeUsd: quote.perenniaFeeUsd, netUsd: quote.principalUsd, liveTargetSpot: targetSpotPrice, kasSpot: kasSpotPrice, destinationAddress: body.destinationAddress, preferredTxHash: stripePaymentIntentId || undefined, prequotedTokens: quote.estimatedTokens, achFloatFrontedUsd });
                 finalStatus = 'COMPLETED';

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mountStripeCard, createStripeCardPm, confirmStripeCard3ds } from '$lib/components/dex/stripeCardClient';
     import '../app.css';
     import { source } from 'sveltekit-sse';
     import { fade, slide } from 'svelte/transition';
@@ -51,6 +52,9 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
     // Global In-Context Fiat Modal State
     let globalFiatUsdInput = $state('');
     let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('ach');
+	let globalUseColdStorage = $state(false);
+	let globalColdAddress = $state('');
+	let globalCardError = $state<string | null>(null);
   $effect(() => { if (identity.isWalletConnected && !ui.showWalletModal && ui.openBuyAfterAuth) { ui.openBuyAfterAuth = false; ui.showFiatModal = true; } });
     let lastGlobalAchBucket = $state<'below625' | 'above625' | 'wire100k'>('below625');
     let globalWholesaleFloorActive = $state(false);
@@ -580,6 +584,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 bankLabel: resolvedLabel,
                 accountType: inlineAccountType
             };
+			if (globalUseColdStorage) { if (globalColdAddress.trim().length < 24) throw new Error('Enter a valid Cold Storage wallet address.'); payload.destinationAddress = globalColdAddress.trim(); payload.settlementTarget = 'L1_SELF_CUSTODY'; }
+			if (isCardMethod && !isBridgePushWire) { const pm = await createStripeCardPm('modal'); if (pm.error) throw new Error(pm.error); if (pm.id) payload.stripePaymentMethodId = pm.id; }
             if (
                 cleanInlineRouting.length === 9 &&
                 cleanInlineAccount.length >= 4
@@ -598,6 +604,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     data.error || 'Failed to execute bank purchase.'
                 );
             }
+			if (data.stripeStatus === 'requires_action' && data.clientSecret) { const c3 = await confirmStripeCard3ds('modal', data.clientSecret); if (c3.error) throw new Error(c3.error); }
             if (data.bankLast4) {
                 savedBankLast4 = data.bankLast4;
                 savedBankRailMeta = {
@@ -1881,23 +1888,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 {/if}
             </div>
             <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5">
-                <div class="grid grid-cols-3 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5">
-                    <button
-                        type="button"
-                        onclick={() => {
-                            globalFiatDeliveryMode = 'L1_KAS';
-                            ui.fiatModalAutoStakeSilo = false;
-                        }}
-                        class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalFiatDeliveryMode ===
-                            'L1_KAS' && !ui.fiatModalAutoStakeSilo
-                            ? 'bg-[#161d29] text-white border border-white/15'
-                            : 'text-neutral-400 hover:text-white'}"
-                    >
-                        Wallet
-                    </button>
-                    
-                    
-                </div>
+                <div class="grid grid-cols-2 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5"><button type="button" onclick={() => { globalUseColdStorage = false; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!globalUseColdStorage ? 'bg-[#161d29] text-white border border-white/15' : 'text-neutral-400 hover:text-white'}">Wallet</button><button type="button" data-testid="global-dest-cold-storage-btn" onclick={() => { globalUseColdStorage = true; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalUseColdStorage ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}">Cold Storage</button></div>{#if globalUseColdStorage}<div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[#18C6A5]">Cold Storage Destination Wallet</span><input type="text" bind:value={globalColdAddress} placeholder={selectedGlobalTargetAsset.ticker === 'KAS' || selectedGlobalTargetAsset.ticker === 'SILO' ? 'kaspa:q...' : selectedGlobalTargetAsset.ticker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white outline-none focus:border-[#18C6A5]/60" /></div>{/if}
                 <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
                     <div class="flex items-center gap-1.5 flex-wrap">
                         <button
@@ -1920,7 +1911,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             type="button"
                             disabled={globalCostPlusPreview.requiresInstitutionalWire}
                             onclick={() => {
-                                globalFiatGatewayMethod = 'card';
+                                globalFiatGatewayMethod = 'card'; showInlineBankSetup = false;
                                 globalFiatPaymentRail = 'CARD_INSTANT';
                             }}
                             class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
@@ -2015,7 +2006,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             </span>
                         </div>
                     </div>
-                {:else if globalFiatGatewayMethod === 'ach' && (showInlineBankSetup || !savedBankLast4)}
+                {:else if globalFiatGatewayMethod === 'card'}<div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-neutral-300">Credit / Debit Card</span><span class="text-[8px] font-mono text-neutral-500">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'modal', onState: (st) => { globalCardError = st.error; } }} class="bg-[#11161f] border border-white/10 focus-within:border-[#18C6A5]/60 rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if globalCardError}<span class="text-[8px] font-mono font-bold text-red-400">{globalCardError}</span>{/if}</div>{:else if globalFiatGatewayMethod === 'ach' && (showInlineBankSetup || !savedBankLast4)}
                     <div
                         transition:slide={{ duration: 150 }}
                         class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5 mt-0.5"

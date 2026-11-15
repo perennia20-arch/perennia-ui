@@ -101,7 +101,8 @@ return json({ success: true, stripeVerified: true, bankLabel: label, bankLast4: 
 return json({ error: e?.message || 'Stripe bank verification failed.' }, { status: 400 });
 }
 };
-export const GET: RequestHandler = async ({ cookies, locals }) => {
+export const GET: RequestHandler = async ({ url, cookies, locals }) => {
+	if (url.searchParams.get('pk') === '1') return json({ publishableKey: (env.PUBLIC_STRIPE_KEY || '').trim() });
 	let w = String((locals as any)?.walletAddress || '');
 	if (!w) { const s = cookies.get('perennia_session'); if (s) w = (await redis.get(`session:${s}`).catch(() => '')) || ''; }
 	if (!w) return json({ authenticated: false, stripeVerifiedAch: false });

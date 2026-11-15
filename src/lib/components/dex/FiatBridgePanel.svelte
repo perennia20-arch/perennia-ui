@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mountStripeCard, createStripeCardPm, confirmStripeCard3ds } from '$lib/components/dex/stripeCardClient';
     import { fade, slide } from 'svelte/transition';
     import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
@@ -59,6 +60,9 @@
 
     // Pillar 1 Gateway Method & Rail State
     let onrampGatewayMethod = $state<OnrampGatewayMethod>('ach');
+	let onrampUseColdStorage = $state(false);
+	let onrampColdAddress = $state('');
+	let onrampCardError = $state<string | null>(null);
     let lastAutoAchAmountBucket = $state<'below625' | 'above625' | 'wire100k'>(
         'above625'
     );
@@ -637,6 +641,8 @@
                 bankLabel: resolvedLabel,
                 accountType: offrampAccountType
             };
+			if (onrampUseColdStorage) { if (onrampColdAddress.trim().length < 24) throw new Error('Enter a valid Cold Storage wallet address.'); payload.destinationAddress = onrampColdAddress.trim(); payload.settlementTarget = 'L1_SELF_CUSTODY'; }
+			if (isCardMethod && !isPushWire) { const pm = await createStripeCardPm('panel'); if (pm.error) throw new Error(pm.error); if (pm.id) payload.stripePaymentMethodId = pm.id; }
             if (
                 cleanInlineRouting.length === 9 &&
                 cleanInlineAccount.length >= 4
@@ -655,6 +661,7 @@
                     data.error || 'Failed to execute bank purchase.'
                 );
             }
+			if (data.stripeStatus === 'requires_action' && data.clientSecret) { const c3 = await confirmStripeCard3ds('panel', data.clientSecret); if (c3.error) throw new Error(c3.error); }
             if (data.bankLast4) {
                 savedBankLast4 = data.bankLast4;
                 savedBankRailMeta = {
@@ -1211,24 +1218,7 @@
             data-testid="fiat-step2-destination-card"
             class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
         >
-            <div class="grid grid-cols-3 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5">
-                <button
-                    type="button"
-                    data-testid="onramp-dest-self-custody-card"
-                    onclick={() => {
-                        onrampSettlementTarget = 'L1_KAS';
-                        onrampAutoStakeSilo = false;
-                    }}
-                    class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampSettlementTarget ===
-                        'L1_KAS' && !onrampAutoStakeSilo
-                        ? 'bg-[#161d29] text-white border border-white/15'
-                        : 'text-neutral-400 hover:text-white'}"
-                >
-                    Wallet
-                </button>
-                
-                
-            </div>
+            <div class="grid grid-cols-2 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5"><button type="button" data-testid="onramp-dest-self-custody-card" onclick={() => { onrampUseColdStorage = false; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!onrampUseColdStorage ? 'bg-[#161d29] text-white border border-white/15' : 'text-neutral-400 hover:text-white'}">Wallet</button><button type="button" data-testid="onramp-dest-cold-storage-btn" onclick={() => { onrampUseColdStorage = true; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampUseColdStorage ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}">Cold Storage</button></div>{#if onrampUseColdStorage}<div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[#18C6A5]">Cold Storage Destination Wallet</span><input type="text" bind:value={onrampColdAddress} placeholder={onrampTargetTicker === 'KAS' || onrampTargetTicker === 'SILO' ? 'kaspa:q...' : onrampTargetTicker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white outline-none focus:border-[#18C6A5]/60" /></div>{/if}
             
 
             <!-- Card vs. ACH Selector (Auto-Defaults to ACH @ $625+ / Hard-Gated to Wire @ $100,000+) -->
@@ -1255,7 +1245,7 @@
                         data-testid="onramp-rail-card-btn"
                         disabled={onrampCostPlusQuote.requiresInstitutionalWire}
                         onclick={() => {
-                            onrampGatewayMethod = 'card';
+                            onrampGatewayMethod = 'card'; showOnrampBankLinker = false;
                             onrampPaymentRail = 'CARD_INSTANT';
                         }}
                         class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {onrampGatewayMethod ===
@@ -1282,7 +1272,7 @@
                         Wire
                     </button>
                 </div>
-                {#if onrampGatewayMethod !== 'wire' && !onrampCostPlusQuote.requiresInstitutionalWire}
+                {#if onrampGatewayMethod === 'ach' && !onrampCostPlusQuote.requiresInstitutionalWire}
                     <button
                         type="button"
                         onclick={() =>
@@ -1368,7 +1358,7 @@
                         </div>
                     </div>
                 </div>
-            {:else if showOnrampBankLinker || (!savedBankLast4 && onrampGatewayMethod === 'ach')}
+            {:else if onrampGatewayMethod === 'card'}<div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-neutral-300">Credit / Debit Card</span><span class="text-[8px] font-mono text-neutral-500">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'panel', onState: (st) => { onrampCardError = st.error; } }} class="bg-[#11161f] border border-white/10 focus-within:border-[#18C6A5]/60 rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if onrampCardError}<span class="text-[8px] font-mono font-bold text-red-400">{onrampCardError}</span>{/if}</div>{:else if onrampGatewayMethod === 'ach' && (showOnrampBankLinker || !savedBankLast4)}
                 <div
                     transition:slide={{ duration: 150 }}
                     class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5"
