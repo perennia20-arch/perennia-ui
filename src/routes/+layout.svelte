@@ -145,8 +145,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             untrack(() => {
                 const defaultUsd =
                     ui.fiatModalDefaultUsd ||
-                    (ui as any).fiatModalDefaultAmountUsd ||
-                    '650';
+                    (ui as any).fiatModalDefaultAmountUsd || '';
                 globalFiatUsdInput = String(defaultUsd);
                 const targetTick =
                     ui.fiatModalTargetTicker ||
@@ -1694,7 +1693,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             type="number"
                             min="10"
                             bind:value={globalFiatUsdInput}
-                            placeholder="650"
+                            placeholder="0"
                             class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none tabular-nums"
                         />
                     </div>
