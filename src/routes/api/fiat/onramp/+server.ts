@@ -658,8 +658,8 @@ function calculateOnrampCostPlusQuote(params: {
     simulateGasSpikeUsd?: number;
 }) {
     const ticker = String(params.assetTicker || 'KAS').trim().toUpperCase();
-    const principalUsd = Math.max(10, Number(params.grossUsd || 250));
-    const principalCents = Math.round(principalUsd * 100);
+    let principalUsd = Math.max(10, Number(params.grossUsd || 250));
+	let principalCents = Math.round(principalUsd * 100);
     const loyalMinerOrSubscriber = Boolean(params.wholesaleFloorActive);
     const railUpper = String(params.paymentRail || '').toUpperCase();
     const explicitMethod = String(params.paymentMethod || '').toLowerCase();
@@ -705,7 +705,7 @@ function calculateOnrampCostPlusQuote(params: {
         0,
         Math.round(Number(params.simulateGasSpikeUsd || 0) * 100)
     );
-    const targetNetCents = principalCents + perenniaFeeCents + gasSpikeCents;
+    let targetNetCents = principalCents + perenniaFeeCents + gasSpikeCents;
 
     let resolvedMethod: 'ach' | 'card' | 'wire' = 'ach';
     if (
@@ -719,60 +719,23 @@ function calculateOnrampCostPlusQuote(params: {
         resolvedMethod = 'ach';
     }
 
-    let grossChargeCents = targetNetCents;
-    if (resolvedMethod === 'wire') {
-        grossChargeCents = targetNetCents;
-    } else if (resolvedMethod === 'card') {
-        grossChargeCents = Math.ceil((targetNetCents + 30) / 0.971);
-    } else {
-        if (principalCents >= ACH_AUTO_DEFAULT_CENTS) {
-            grossChargeCents = targetNetCents + 500;
-        } else {
-            const grossedBelowCap = Math.ceil(targetNetCents / 0.992);
-            const impliedAchFee = grossedBelowCap - targetNetCents;
-            grossChargeCents =
-                impliedAchFee > 500 ? targetNetCents + 500 : grossedBelowCap;
-        }
-    }
-
-    const stripeGatewayFeeCents = Math.max(
-        0,
-        grossChargeCents - targetNetCents
-    );
-    const totalFeeCents =
-        perenniaFeeCents + stripeGatewayFeeCents + gasSpikeCents;
-
-    const perenniaFeeUsd = roundCents(perenniaFeeCents / 100);
-    const hardCostUsd = roundCents(
-        (stripeGatewayFeeCents + gasSpikeCents) / 100
-    );
-    const feeUsd = roundCents(totalFeeCents / 100);
-    const totalGrossChargeUsd = roundCents(grossChargeCents / 100);
-    const effectiveFeePct =
-        principalUsd > 0 ? roundCents((feeUsd / principalUsd) * 100) : 0;
-    const protocolFeeFloorPct = Number((tierBps / 100).toFixed(2));
-
-    // MoonPay charges $3.99 base/ecosystem fee + 4.5% card fee (or 3.5% ACH / 1.25% wire)
-    const moonpayFeeUsd = roundCents(
-        resolvedMethod === 'card'
-            ? 3.99 + principalUsd * 0.045
-            : Math.max(
-                  3.99,
-                  principalUsd * (resolvedMethod === 'wire' ? 0.0125 : 0.035)
-              )
-    );
-    // Coinbase charges $2.99 base spread + 3.84% card fee (or 2.49% ACH / 1.0% wire)
-    const coinbaseFeeUsd = roundCents(
-        resolvedMethod === 'card'
-            ? 2.99 + principalUsd * 0.0384
-            : Math.max(
-                  2.99,
-                  principalUsd * (resolvedMethod === 'wire' ? 0.01 : 0.0249)
-              )
-    );
-    const competitorFeeUsd = Math.max(moonpayFeeUsd, coinbaseFeeUsd);
-    const savingsVsMoonpayUsd = roundCents(Math.max(0, moonpayFeeUsd - feeUsd));
-    const savingsVsCoinbaseUsd = roundCents(
+    const grossChargeCents = principalCents;
+const stripeGatewayFeeCents = resolvedMethod === 'wire' ? 0 : resolvedMethod === 'card' ? Math.ceil(grossChargeCents * 0.029) + 30 : Math.min(500, Math.ceil(grossChargeCents * 0.008));
+targetNetCents = Math.max(0, grossChargeCents - stripeGatewayFeeCents);
+principalCents = Math.max(0, targetNetCents - perenniaFeeCents - gasSpikeCents);
+principalUsd = roundCents(principalCents / 100);
+const totalFeeCents = perenniaFeeCents + stripeGatewayFeeCents + gasSpikeCents;
+const perenniaFeeUsd = roundCents(perenniaFeeCents / 100);
+const hardCostUsd = roundCents((stripeGatewayFeeCents + gasSpikeCents) / 100);
+const feeUsd = roundCents(totalFeeCents / 100);
+const totalGrossChargeUsd = roundCents(grossChargeCents / 100);
+const effectiveFeePct = totalGrossChargeUsd > 0 ? roundCents((feeUsd / totalGrossChargeUsd) * 100) : 0;
+const protocolFeeFloorPct = Number((tierBps / 100).toFixed(2));
+const moonpayFeeUsd = roundCents(resolvedMethod === 'card' ? 3.99 + totalGrossChargeUsd * 0.045 : Math.max(3.99, totalGrossChargeUsd * (isInstitutionalWire ? 0.01 : 0.015)));
+const coinbaseFeeUsd = roundCents(resolvedMethod === 'card' ? 2.99 + totalGrossChargeUsd * 0.0399 : Math.max(2.99, totalGrossChargeUsd * (isInstitutionalWire ? 0.01 : 0.0249)));
+const competitorFeeUsd = Math.max(moonpayFeeUsd, coinbaseFeeUsd);
+const savingsVsMoonpayUsd = roundCents(Math.max(0, moonpayFeeUsd - feeUsd));
+const savingsVsCoinbaseUsd = roundCents(
         Math.max(0, coinbaseFeeUsd - feeUsd)
     );
     const guestSavingsUsd = Math.max(savingsVsMoonpayUsd, savingsVsCoinbaseUsd);

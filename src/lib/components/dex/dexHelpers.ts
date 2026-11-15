@@ -289,11 +289,7 @@ export function calculateGatewayGrossUpCents(params: {
             tierBadgeLabel:
                 '🏛️ Institutional Wire Tier (0.20% Net • $0 Gateway Fee)',
             paymentMethod: 'wire',
-            principalCents: safePrincipalCents,
-            perenniaFeeCents,
-            targetNetCents,
-            stripeGatewayFeeCents: 0,
-            grossChargeCents: targetNetCents,
+            principalCents: Math.max(0, safePrincipalCents - perenniaFeeCents), perenniaFeeCents, targetNetCents: safePrincipalCents, stripeGatewayFeeCents: 0, grossChargeCents: safePrincipalCents,
             requiresInstitutionalWire: true,
             autoDefaultedToAch: false
         };
@@ -346,35 +342,11 @@ export function calculateGatewayGrossUpCents(params: {
         };
     }
 
-    let grossChargeCents = targetNetCents;
-    if (resolvedMethod === 'card') {
-        grossChargeCents = Math.ceil((targetNetCents + 30) / 0.971);
-    } else if (resolvedMethod === 'ach') {
-        if (safePrincipalCents >= ACH_AUTO_DEFAULT_THRESHOLD_CENTS) {
-            grossChargeCents = targetNetCents + 500;
-        } else {
-            const grossedBelowCap = Math.ceil(targetNetCents / 0.992);
-            const impliedAchFee = grossedBelowCap - targetNetCents;
-            grossChargeCents =
-                impliedAchFee > 500 ? targetNetCents + 500 : grossedBelowCap;
-        }
-    }
-
-    const stripeGatewayFeeCents = Math.max(
-        0,
-        grossChargeCents - targetNetCents
-    );
-
-    return {
-        tierName,
-        tierBps,
-        tierBadgeLabel,
-        paymentMethod: resolvedMethod,
-        principalCents: safePrincipalCents,
-        perenniaFeeCents,
-        targetNetCents,
-        stripeGatewayFeeCents,
-        grossChargeCents,
+    const grossChargeCents = safePrincipalCents;
+const stripeGatewayFeeCents = resolvedMethod === 'card' ? Math.ceil(grossChargeCents * 0.029) + 30 : resolvedMethod === 'ach' ? Math.min(500, Math.ceil(grossChargeCents * 0.008)) : 0;
+const netTargetCents = Math.max(0, grossChargeCents - stripeGatewayFeeCents);
+const netPrincipalCents = Math.max(0, netTargetCents - perenniaFeeCents);
+return { tierName, tierBps, tierBadgeLabel, paymentMethod: resolvedMethod, principalCents: netPrincipalCents, perenniaFeeCents, targetNetCents: netTargetCents, stripeGatewayFeeCents, grossChargeCents,
         requiresInstitutionalWire: false,
         autoDefaultedToAch
     };
@@ -499,31 +471,10 @@ function _rawOnrampQuote(params: {
     );
     const totalGrossChargeUsd = roundCents(grossUp.grossChargeCents / 100);
     const totalFeeUsd = roundCents(perenniaFeeUsd + stripeGatewayFeeUsd);
-    const effectiveFeePct =
-        principalUsd > 0 ? roundCents((totalFeeUsd / principalUsd) * 100) : 0;
-
-    // MoonPay charges $3.99 ecosystem/base fee + 4.5% on cards (or 3.5% ACH / 1.25% wire)
-    const moonpayFeeUsd = roundCents(
-        grossUp.paymentMethod === 'card'
-            ? 3.99 + principalUsd * 0.045
-            : Math.max(
-                  3.99,
-                  principalUsd *
-                      (grossUp.requiresInstitutionalWire ? 0.0125 : 0.035)
-              )
-    );
-    // Coinbase charges $2.99 base spread fee + 3.84% card fee (or 2.49% ACH / 1.0% wire)
-    const coinbaseFeeUsd = roundCents(
-        grossUp.paymentMethod === 'card'
-            ? 2.99 + principalUsd * 0.0384
-            : Math.max(
-                  2.99,
-                  principalUsd *
-                      (grossUp.requiresInstitutionalWire ? 0.01 : 0.0249)
-              )
-    );
-
-    const competitorFeeUsd = Math.max(moonpayFeeUsd, coinbaseFeeUsd);
+    const effectiveFeePct = totalGrossChargeUsd > 0 ? roundCents((totalFeeUsd / totalGrossChargeUsd) * 100) : 0;
+const moonpayFeeUsd = roundCents(grossUp.paymentMethod === 'card' ? 3.99 + totalGrossChargeUsd * 0.045 : Math.max(3.99, totalGrossChargeUsd * (grossUp.requiresInstitutionalWire ? 0.01 : 0.015)));
+const coinbaseFeeUsd = roundCents(grossUp.paymentMethod === 'card' ? 2.99 + totalGrossChargeUsd * 0.0399 : Math.max(2.99, totalGrossChargeUsd * (grossUp.requiresInstitutionalWire ? 0.01 : 0.0249)));
+const competitorFeeUsd = Math.max(moonpayFeeUsd, coinbaseFeeUsd);
     const savingsVsMoonpayUsd = roundCents(
         Math.max(0, moonpayFeeUsd - totalFeeUsd)
     );

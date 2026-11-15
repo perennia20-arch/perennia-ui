@@ -1149,18 +1149,18 @@
 
         <!-- Single-DOM Action Strip -->
         {#if !isManagingNetworks && !isOrganizing}
-            <div class="{isMainOpen ? 'flex' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none overflow-x-auto hide-scrollbar w-full lg:w-auto" onclick={(e) => e.stopPropagation()}>
-                <button type="button" data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}" onclick={(e) => { e.stopPropagation(); const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase(); ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, ''); }} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap" style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);">Buy</button>
-                <button type="button" onclick={(e) => openQuickAction(e, 'deposit')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}">Receive</button>
-                <button type="button" data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'withdraw')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}">Send</button>
-                <button type="button" data-testid="cold-vault-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}">Cold</button>
-                <button type="button" data-testid="activity-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'history')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}">History</button>
+            <div class="{isMainOpen ? 'grid grid-cols-3 sm:flex sm:flex-wrap lg:flex-nowrap' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none w-full lg:w-auto" onclick={(e) => e.stopPropagation()}>
+                <button type="button" data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}" onclick={(e) => { e.stopPropagation(); const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase(); ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, ''); }} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap" style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);">Buy</button>
+                <button type="button" onclick={(e) => openQuickAction(e, 'deposit')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}">Receive</button>
+                <button type="button" data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'withdraw')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}">Send</button>
+                <button type="button" data-testid="cold-vault-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}">Cold</button>
+                <button type="button" data-testid="activity-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'history')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}">History</button>
                 {#if asset.ticker === 'KAS'}
-                    <button type="button" onclick={initiateCompoundKasUtxos} disabled={isCompoundingUtxos || utxoCount < 2} class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}">{isCompoundingUtxos ? 'Compounding...' : `UTXOs (${utxoCount})`}</button>
+                    <button type="button" onclick={initiateCompoundKasUtxos} disabled={isCompoundingUtxos || utxoCount < 2} class="tactile-btn w-full sm:w-auto justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}">{isCompoundingUtxos ? 'Compounding...' : `UTXOs (${utxoCount})`}</button>
                 {/if}
-                <a href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)} target="_blank" rel="noopener noreferrer" data-testid="explorer-link-{asset.ticker || asset.symbol}" class="text-[8px] uppercase tracking-wider font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors px-1.5 whitespace-nowrap shrink-0">Explorer ↗</a>
+                <a href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)} target="_blank" rel="noopener noreferrer" data-testid="explorer-link-{asset.ticker || asset.symbol}" class="text-[8px] uppercase tracking-wider font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors col-span-3 sm:col-span-1 text-center py-1 sm:py-0 px-1.5 whitespace-nowrap shrink-0">Explorer ↗</a>
             </div>
-        {/if}
+		{/if}
     </div>
 {#if isMainOpen && !isManagingNetworks && !isOrganizing && (activeRoutingTab !== 'none' || filteredSubAssets.length > 0 || withdrawalFeedback)}
         <div
@@ -2028,82 +2028,7 @@
                                             <span>{token.symbol[0]}</span>
                                         {/if}
                                     </div>
-                                    <div class="flex flex-col">
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <span class="text-xs font-bold tracking-wider text-white">
-                                                {token.symbol}
-                                            </span>
-                                            {#if token.badge}
-                                                <span class="text-[8px] bg-[#0a0d12] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">
-                                                    {token.badge}
-                                                </span>
-                                            {/if}
-                                            {#if subColdRule?.autoSweepEnabled && subColdRule?.coldDestinationAddress}
-                                                <span class="text-[8px] bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold">
-                                                    COLD ≥{subColdRule.overflowCeiling}
-                                                </span>
-                                            {/if}
-                                            <button
-                                                type="button"
-                                                data-testid="buy-with-usd-btn-{token.symbol}"
-                                                onclick={(e) => {
-                                                    e.stopPropagation();
-                                                    const subTick = String(
-                                                        token.symbol || 'SILO'
-                                                    ).toUpperCase();
-                                                    ui.openFiatModal(
-                                                        subTick,
-                                                        subTick ===
-                                                            DEFAULT_ECOSYSTEM_TICKER, '');
-                                                }}
-                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap"
-                                            >
-                                                Buy
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onclick={(e) =>
-                                                    openQuickAction(
-                                                        e,
-                                                        'withdraw',
-                                                        token.symbol
-                                                    )}
-                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap"
-                                            >
-                                                Send {token.symbol}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                data-testid="cold-vault-btn-{token.symbol}"
-                                                onclick={(e) =>
-                                                    openQuickAction(
-                                                        e,
-                                                        'cold_vault',
-                                                        token.symbol
-                                                    )}
-                                                class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap"
-                                            >
-                                                Cold
-                                            </button>
-                                            <button
-                                                type="button"
-                                                aria-label="Delete Token"
-                                                onclick={(e) => {
-                                                    e.stopPropagation();
-                                                    onDeleteToken(token.symbol);
-                                                }}
-                                                class="text-neutral-500 hover:text-red-400 transition-colors cursor-pointer ml-1"
-                                                title="Remove token from vault"
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                        <span class="text-[9px] text-neutral-500 uppercase tracking-widest">
-                                            {token.name}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="flex flex-col items-end">
+                                    <div class="flex flex-col"><div class="flex flex-wrap items-center gap-1.5"><span class="text-xs font-bold tracking-wider text-white">{token.symbol}</span>{#if token.badge}<span class="text-[8px] bg-[#0a0d12] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{token.badge}</span>{/if}{#if subColdRule?.autoSweepEnabled && subColdRule?.coldDestinationAddress}<span class="text-[8px] bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold">COLD ≥{subColdRule.overflowCeiling}</span>{/if}</div></div></div><div class="order-3 sm:order-2 w-full sm:w-auto flex items-center gap-1.5 pt-2 sm:pt-0 border-t border-white/5 sm:border-none" onclick={(e) => e.stopPropagation()}><button type="button" data-testid="buy-with-usd-btn-{token.symbol}" onclick={(e) => { e.stopPropagation(); const subTick = String(token.symbol || 'SILO').toUpperCase(); ui.openFiatModal(subTick, subTick === DEFAULT_ECOSYSTEM_TICKER, ''); }} class="tactile-btn flex-1 sm:flex-none justify-center px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap">Buy</button><button type="button" onclick={(e) => openQuickAction(e, 'withdraw', token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap">Send</button><button type="button" data-testid="cold-vault-btn-{token.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault', token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap">Cold</button><button type="button" aria-label="Delete Token" onclick={(e) => { e.stopPropagation(); onDeleteToken(token.symbol); }} class="text-neutral-500 hover:text-red-400 transition-colors cursor-pointer px-1.5 ml-auto sm:ml-1" title="Remove token from vault">✕</button></div><div class="order-2 sm:order-3 flex flex-col items-end ml-auto sm:ml-0">
                                     <span class="text-xs font-mono font-bold text-white tabular-nums">
                                         {(
                                             token.onChain ??
