@@ -49,12 +49,10 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
     } | null>(null);
 
     // Global In-Context Fiat Modal State
-    let globalFiatUsdInput = $state('650');
-    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('card');
+    let globalFiatUsdInput = $state('');
+    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('ach');
   $effect(() => { if (identity.isWalletConnected && !ui.showWalletModal && ui.openBuyAfterAuth) { ui.openBuyAfterAuth = false; ui.showFiatModal = true; } });
-    let lastGlobalAchBucket = $state<'below625' | 'above625' | 'wire100k'>(
-        'above625'
-    );
+    let lastGlobalAchBucket = $state<'below625' | 'above625' | 'wire100k'>('below625');
     let globalWholesaleFloorActive = $state(false);
     let globalFiatPaymentRail = $state<
         | 'SOVEREIGN_WIRE_ACH'
@@ -1647,7 +1645,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     0 0 42px -15px {targetAssetHex}30;
             "
         >
-            <div class="flex items-center justify-between gap-3 pb-2 border-b border-white/10 flex-wrap">
+            <div class="flex items-center justify-between gap-3 pb-2 border-b border-white/10">
                 <div class="flex items-center gap-2.5 flex-wrap">
                     <span
                         class="w-2.5 h-2.5 rounded-full transition-colors duration-300"
@@ -1656,9 +1654,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
                         Buy {selectedGlobalTargetAsset.ticker}
                     </h2>
-                    <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase">
-                        {globalCostPlusPreview.tierBadgeLabel}
-                    </span>
                 </div>
                 <button
                     type="button"
@@ -1680,27 +1675,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         {i18n.t('dex.you_pay')}
                     </label>
-                    <div class="flex items-center gap-1 flex-wrap">
-                        {#each [
-                            { label: '$100', val: '100' },
-                            { label: '$650 (ACH)', val: '650' },
-                            { label: '$2.5k', val: '2500' },
-                            { label: '$10k (Pro)', val: '10000' },
-                            { label: '$500', val: '500' }
-                        ] as preset (preset.val)}
-                            <button
-                                type="button"
-                                onclick={() =>
-                                    (globalFiatUsdInput = preset.val)}
-                                class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-mono font-bold cursor-pointer {globalFiatUsdInput ===
-                                preset.val
-                                    ? 'text-[#18C6A5] border-[#18C6A5]/45'
-                                    : 'text-neutral-300 hover:text-white'}"
-                            >
-                                {preset.label}
-                            </button>
-                        {/each}
-                    </div>
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-1.5 flex-1 min-w-0">
@@ -1974,8 +1948,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             Wire
                         </button>
                     </div>
-                    {#if globalFiatGatewayMethod !== 'wire' && !globalCostPlusPreview.requiresInstitutionalWire}
-                        {#if savedBankLast4}
+                    {#if globalFiatGatewayMethod === 'ach'}{#if savedBankLast4}
                             <button
                                 type="button"
                                 onclick={() =>
@@ -2042,7 +2015,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             </span>
                         </div>
                     </div>
-                {:else if showInlineBankSetup || (!savedBankLast4 && globalFiatGatewayMethod === 'ach')}
+                {:else if globalFiatGatewayMethod === 'ach' && (showInlineBankSetup || !savedBankLast4)}
                     <div
                         transition:slide={{ duration: 150 }}
                         class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5 mt-0.5"
@@ -2051,7 +2024,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <span class="text-[9px] font-bold uppercase text-neutral-300">
                                 Bank Account
                             </span>
-							<button type="button" data-testid="stripe-instant-bank-link-btn" onclick={startInstantStripeBankLink} disabled={isLinkingStripeBank} class="px-2.5 py-1 rounded-lg bg-[#18C6A5]/15 border border-[#18C6A5]/50 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase cursor-pointer">{isLinkingStripeBank ? 'Opening Stripe...' : '⚡ Verify Bank Instantly (Stripe)'}</button>
                             
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">

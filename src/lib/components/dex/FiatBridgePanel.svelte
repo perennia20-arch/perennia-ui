@@ -37,7 +37,7 @@
 
     let fiatMode = $state<'onramp' | 'offramp'>('onramp');
     let activeStep = $state<1 | 2 | 3>(1);
-    let onrampFiatAmountUsd = $state('650');
+    let onrampFiatAmountUsd = $state('');
     let onrampTargetTicker = $state('KAS');
     let onrampAutoStakeSilo = $state(false);
     let isTargetDropdownOpen = $state(false);
@@ -58,7 +58,7 @@
     let payoutMethod = $state<'ach' | 'wire'>('ach');
 
     // Pillar 1 Gateway Method & Rail State
-    let onrampGatewayMethod = $state<OnrampGatewayMethod>('card');
+    let onrampGatewayMethod = $state<OnrampGatewayMethod>('ach');
     let lastAutoAchAmountBucket = $state<'below625' | 'above625' | 'wire100k'>(
         'above625'
     );
@@ -1134,28 +1134,6 @@
                     >
                         Amount (USD)
                     </label>
-                    <div class="flex items-center gap-1 flex-wrap">
-                        {#each [
-                            { label: '$100', val: '100' },
-                            { label: '$650 (ACH Cap)', val: '650' },
-                            { label: '$2.5k', val: '2500' },
-                            { label: '$10k (Pro)', val: '10000' },
-                            { label: '$500', val: '500' }
-                        ] as preset (preset.val)}
-                            <button
-                                type="button"
-                                data-testid="fiat-preset-{preset.val}"
-                                onclick={() =>
-                                    (onrampFiatAmountUsd = preset.val)}
-                                class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-mono font-bold cursor-pointer {onrampFiatAmountUsd ===
-                                preset.val
-                                    ? 'text-[#18C6A5] border-[#18C6A5]/45'
-                                    : 'text-neutral-300 hover:text-white'}"
-                            >
-                                {preset.label}
-                            </button>
-                        {/each}
-                    </div>
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-1.5 flex-1 min-w-0">

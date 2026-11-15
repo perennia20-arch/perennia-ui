@@ -418,7 +418,7 @@ export function computePostTradeUsdSplit(
     };
 }
 
-export function computeOnrampCostPlusQuote(params: {
+function _rawOnrampQuote(params: {
     assetTicker: string;
     grossUsd: number;
     spotPriceUsd: number;
@@ -1185,4 +1185,15 @@ export async function downloadAchPayoutReceiptPdf(payout: any) {
     } catch (err) {
         console.error('Failed to compile ACH receipt PDF:', err);
     }
+}
+export function computeOnrampCostPlusQuote(...args: Parameters<typeof _rawOnrampQuote>): ReturnType<typeof _rawOnrampQuote> {
+  const res: any = _rawOnrampQuote(...args);
+  if (!(Number(args[0]) > 0)) {
+    const z: any = { ...res };
+    for (const k of ['feeUsd','perenniaFeeUsd','stripeGatewayFeeUsd','totalFeeUsd','totalGrossChargeUsd','principalUsd','grossChargeCents','perenniaFeeCents','stripeGatewayFeeCents','principalCents','estimatedTokens','effectiveFeePct']) {
+      if (k in z && typeof z[k] === 'number') z[k] = 0;
+    }
+    return z;
+  }
+  return res;
 }
