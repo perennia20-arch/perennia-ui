@@ -704,9 +704,7 @@
                             onclick={() =>
                                 ui.openFiatModal(
                                     DEFAULT_ECOSYSTEM_TICKER,
-                                    true,
-                                    '250'
-                                )}
+                                    true, '')}
                             class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-black text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer ml-0.5"
                         >
                             + Buy

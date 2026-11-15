@@ -113,7 +113,7 @@ class UiStore {
         this.fiatModalTargetTicker = cleanTicker === 'USD' ? 'KAS' : cleanTicker;
         this.fiatModalAutoStakeSilo =
             this.fiatModalTargetTicker === 'SILO' ? Boolean(autoStakeSilo) : false;
-        this.fiatModalDefaultUsd = String(defaultUsd || '250');
+        this.fiatModalDefaultUsd = String(defaultUsd || '');
         this.showFiatModal = true;
     }
 

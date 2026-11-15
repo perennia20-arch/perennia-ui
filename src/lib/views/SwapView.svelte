@@ -1629,7 +1629,7 @@
                 {ambientPrimaryHex}
                 {ambientSecondaryHex}
                 onOpenTokenModal={openTokenModal}
-                    onQuickSwapForPair={() => { payTicker = 'KAS'; receiveTicker = lpTokenB.ticker; payAmount = lpAmountA || '100'; activeDexTab = 'swap'; }}
+                    onQuickSwapForPair={() => { payTicker = 'KAS'; receiveTicker = lpTokenB.ticker; payAmount = lpAmountA || ''; activeDexTab = 'swap'; }}
                 onSetLpPercentageA={setLpPercentageA}
                 onSetLpPercentageB={setLpPercentageB}
                 onHandleLpInputA={handleLpInputA}

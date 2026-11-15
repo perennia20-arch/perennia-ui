@@ -1150,7 +1150,7 @@
         <!-- Single-DOM Action Strip -->
         {#if !isManagingNetworks && !isOrganizing}
             <div class="{isMainOpen ? 'flex' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none overflow-x-auto hide-scrollbar w-full lg:w-auto" onclick={(e) => e.stopPropagation()}>
-                <button type="button" data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}" onclick={(e) => { e.stopPropagation(); const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase(); ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, '250'); }} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap" style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);">Buy</button>
+                <button type="button" data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}" onclick={(e) => { e.stopPropagation(); const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase(); ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, ''); }} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap" style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);">Buy</button>
                 <button type="button" onclick={(e) => openQuickAction(e, 'deposit')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}">Receive</button>
                 <button type="button" data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'withdraw')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}">Send</button>
                 <button type="button" data-testid="cold-vault-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}">Cold</button>
@@ -2054,9 +2054,7 @@
                                                     ui.openFiatModal(
                                                         subTick,
                                                         subTick ===
-                                                            DEFAULT_ECOSYSTEM_TICKER,
-                                                        '250'
-                                                    );
+                                                            DEFAULT_ECOSYSTEM_TICKER, '');
                                                 }}
                                                 class="tactile-btn px-2 py-0.5 rounded text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap"
                                             >

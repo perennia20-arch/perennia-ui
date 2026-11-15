@@ -1188,7 +1188,11 @@ export async function downloadAchPayoutReceiptPdf(payout: any) {
 }
 export function computeOnrampCostPlusQuote(...args: Parameters<typeof _rawOnrampQuote>): ReturnType<typeof _rawOnrampQuote> {
   const res: any = _rawOnrampQuote(...args);
-  if (!(Number(args[0]) > 0)) {
+  const p0: any = args[0];
+  const inputUsd = typeof p0 === 'number'
+    ? p0
+    : Math.max(Number(p0?.grossUsd || 0), Number(p0?.fiatAmountUsd || 0), Number(p0?.fiatUsd || 0), Number(p0?.usdAmount || 0), Number(p0?.amountUsd || 0));
+  if (!(inputUsd > 0)) {
     const z: any = { ...res };
     for (const k of ['feeUsd','perenniaFeeUsd','stripeGatewayFeeUsd','totalFeeUsd','totalGrossChargeUsd','principalUsd','grossChargeCents','perenniaFeeCents','stripeGatewayFeeCents','principalCents','estimatedTokens','effectiveFeePct']) {
       if (k in z && typeof z[k] === 'number') z[k] = 0;

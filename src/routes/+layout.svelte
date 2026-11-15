@@ -146,7 +146,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 const defaultUsd =
                     ui.fiatModalDefaultUsd ||
                     (ui as any).fiatModalDefaultAmountUsd || '';
-                globalFiatUsdInput = String(defaultUsd);
+                globalFiatUsdInput = '';
                 const targetTick =
                     ui.fiatModalTargetTicker ||
                     (ui as any).fiatModalTargetAsset ||
@@ -1512,7 +1512,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 type="button"
                                 data-testid="header-buy-fiat-btn"
                                 onclick={() =>
-                                    ui.openFiatModal('KAS', false, '650')}
+                                    ui.openFiatModal('KAS', false, '')}
                                 class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest cursor-pointer flex items-center gap-1.5 text-[#18C6A5] border-[#18C6A5]/50 whitespace-nowrap"
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
                                 title="Buy Crypto with USD"
