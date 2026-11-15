@@ -1,3 +1,4 @@
+import { recordBucketSettlementTaxAndHifo } from '$lib/server/seedAndNetting';
 import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
@@ -248,6 +249,19 @@ export async function syncActiveMiningStreamsToOpenCycles(): Promise<void> {
                         [existing.rows[0].contribution_id, Number(amtKas.toFixed(6))]
                     );
                 } else {
+		if (String(params.txHash || '').trim().toUpperCase().startsWith('RESERVOIR:')) {
+			const rKey = `dev:sor:treasury:balances:${cleanWallet}`;
+			const rMap = await redis.hgetall(rKey).catch(() => ({} as Record<string, string>));
+			const rKas = Math.max(0, parseFloat(rMap['KAS'] || '0') || 0), rUn = Math.max(0, parseFloat(rMap['Unassigned KAS'] || '0') || 0);
+			const yRes = await client.query(`SELECT wallet_address,streaming_balance_kas,total_yield_kas,COALESCE(lp_tokens,'{}'::jsonb) AS lp_tokens FROM yield_reservoirs WHERE wallet_address=$1 OR wallet_address=$2 ORDER BY streaming_balance_kas DESC LIMIT 1 FOR UPDATE`, [prefixedWallet, cleanWallet]);
+			const yRow = yRes.rows[0], effUn = Math.max(rUn, Math.max(0, Number(yRow?.streaming_balance_kas || 0)));
+			if (rKas + effUn + 1e-6 < effectiveKas) throw new Error(`INSUFFICIENT_RESERVOIR_KAS: Available (${(rKas + effUn).toFixed(2)}) < ${effectiveKas.toFixed(2)} KAS.`);
+			const dPri = Math.min(rKas, effectiveKas), dUn = Math.max(0, effectiveKas - dPri);
+			const nPri = Math.max(0, Number((rKas - dPri).toFixed(8))), nUn = Math.max(0, Number((effUn - dUn).toFixed(8)));
+			await redis.hset(rKey, 'KAS', nPri.toFixed(8), 'Unassigned KAS', nUn.toFixed(8)).catch(() => {});
+			if (yRow) { const sig = computeReservoirHmac(prefixedWallet, nUn, Number(yRow.total_yield_kas || 0), yRow.lp_tokens || {}); await client.query(`UPDATE yield_reservoirs SET streaming_balance_kas=$2, row_hmac_sig=$3, last_updated=CURRENT_TIMESTAMP WHERE wallet_address=$1`, [yRow.wallet_address, nUn, sig]); }
+			params.txHash = `resv-${crypto.randomBytes(12).toString('hex')}`;
+		}
                     await client.query(
                         `INSERT INTO bucket_contributions (cycle_id, bucket_id, contributor_wallet, source_type, amount_kas, tx_hash, status)
                          VALUES ($1, $2, $3, 'mining', $4, $5, 'held')`,
@@ -447,7 +461,8 @@ export async function verifyManualContributionTx(params: {
     escrowAddress: string;
     isSandboxRequest: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
-    const cleanHash = String(params.txHash || '').trim().toLowerCase();
+    if (String(params.txHash || '').trim().toUpperCase().startsWith('RESERVOIR:')) return { ok: true };
+	const cleanHash = String(params.txHash || '').trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(cleanHash)) {
         return { ok: false, error: 'INVALID_TX_HASH: Sovereign L1 KAS 64-hex transaction hash required.' };
     }
@@ -652,7 +667,8 @@ export async function recordManualBucketContribution(params: {
                         )
                         .catch(() => {});
                 }
-                participantPayouts.push({
+                if (cWalletClean && dispersedAmt > 0) { await recordBucketSettlementTaxAndHifo({ client, cleanWallet: cWalletClean, prefixedWallet: cWalletPref, disposedKas: rowKas, kasSpotUsd: kasSpot, targetAsset, acquiredTokens: dispersedAmt, targetSpotUsd: targetSpot, txHash: dispTx }); }
+				participantPayouts.push({
                     wallet: cWalletPref,
                     contributedKas: rowKas,
                     shareBps: Number(hr.share_bps || 0),

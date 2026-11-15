@@ -1106,7 +1106,15 @@ export const GET: RequestHandler = async ({
             }
         }
 
-        const dynamicBatchQueues = Array.from(dynamicBatchMap.values()).sort(
+        const openBc = await dbPool.query(`SELECT UPPER(target_asset) AS tick, SUM(total_filled_kas) AS pkas, MAX(target_kas) AS tkas FROM bucket_cycles WHERE status='OPEN' AND total_filled_kas > 0 GROUP BY UPPER(target_asset)`).catch(() => ({ rows: [] as any[] }));
+		for (const r of openBc.rows) {
+			const tick = String(r.tick || '').trim(), pKas = Number(r.pkas || 0), mKas = Math.max(25, Number(r.tkas || 100));
+			if (!tick || pKas <= 0) continue;
+			const ex = dynamicBatchMap.get(`BUCKET_${tick}`);
+			if (ex) { ex.pendingKas = Number((ex.pendingKas + pKas).toFixed(4)); ex.pendingUsd = roundCents(ex.pendingKas * kasSpotUsd); ex.fillPct = Number(Math.min(100, (ex.pendingKas / ex.minThresholdKas) * 100).toFixed(1)); }
+			else dynamicBatchMap.set(`BUCKET_${tick}`, { queueId: `BUCKET_${tick}`, asset: tick, queueType: 'Community Settlement Bucket', pendingKas: Number(pKas.toFixed(4)), pendingUsd: roundCents(pKas * kasSpotUsd), minThresholdKas: mKas, fillPct: Number(Math.min(100, (pKas / mKas) * 100).toFixed(1)), participantCount: 1, heldByDirector: false, statusPill: pKas >= mKas ? 'GREEN' : 'AMBER' });
+		}
+		const dynamicBatchQueues = Array.from(dynamicBatchMap.values()).sort(
             (a, b) => b.pendingKas - a.pendingKas
         );
 

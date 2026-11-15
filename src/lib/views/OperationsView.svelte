@@ -5,6 +5,8 @@
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
+	import CommunityBucketsPanel from '$lib/components/operations/CommunityBucketsPanel.svelte';
+	let showCommunityBuckets = $state(false);
     import type {
         Sector,
         RouteMode,
@@ -1622,6 +1624,7 @@
             {displayedBuckets}
         />
     </div>
+	<div class="mt-4 flex flex-col gap-3"><button type="button" data-testid="toggle-community-buckets-btn" onclick={() => (showCommunityBuckets = !showCommunityBuckets)} class="w-full py-2.5 px-4 rounded-2xl bg-[#0a0d12] border border-[#18C6A5]/40 hover:border-[#18C6A5] flex items-center justify-between text-xs font-mono font-black uppercase tracking-wider text-[#18C6A5] cursor-pointer"><span>● Community Settlement Buckets (Pool KAS / 1-Click Fill)</span><span>{showCommunityBuckets ? 'Hide ▴' : 'Open Buckets ▾'}</span></button>{#if showCommunityBuckets}<CommunityBucketsPanel />{/if}</div>
 </div>
 
 <SectorConfigModals

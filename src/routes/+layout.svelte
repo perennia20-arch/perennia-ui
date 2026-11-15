@@ -77,6 +77,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
     // Inline AES-256-GCM Bank Rail State inside Global Modal
     let savedBankLast4 = $state<string | null>(null);
+	let stripeVerifiedAch = $state(false);
+	let isLinkingStripeBank = $state(false);
     let savedBankRailMeta = $state<SavedBankRailMeta | null>(null);
     let showInlineBankSetup = $state(false);
     let inlineBankLabel = $state('Bank Account');
@@ -356,7 +358,31 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         globalFiatError = null;
     }
 
-    async function checkGlobalBankRailStatus() {
+    async function startInstantStripeBankLink() {
+		globalFiatError = null; isLinkingStripeBank = true;
+		try {
+			const r1 = await fetch('/api/fiat/bank-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'CREATE_SETUP_INTENT', bankLabel: inlineBankLabel }) });
+			const d1 = await r1.json().catch(() => ({}));
+			if (!r1.ok || !d1.clientSecret || !d1.publishableKey) throw new Error(d1.error || 'Could not initialize Stripe bank link.');
+			if (!(window as any).Stripe) {
+				await new Promise<void>((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://js.stripe.com/v3/'; sc.onload = () => res(); sc.onerror = () => rej(new Error('Failed to load Stripe.js')); document.head.appendChild(sc); });
+			}
+			const stripe = (window as any).Stripe(d1.publishableKey);
+			const col = await stripe.collectBankAccountForSetup({ clientSecret: d1.clientSecret, params: { payment_method_type: 'us_bank_account', payment_method_data: { billing_details: { name: inlineBankLabel || 'Perennia Sovereign', email: 'vault@perennia.io' } } } });
+			if (col.error) throw new Error(col.error.message);
+			if (!col.setupIntent?.payment_method) { isLinkingStripeBank = false; return; }
+			const conf = await stripe.confirmUsBankAccountSetup(d1.clientSecret);
+			if (conf.error) throw new Error(conf.error.message);
+			const r2 = await fetch('/api/fiat/bank-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'FINALIZE_SETUP_INTENT', setupIntentId: conf.setupIntent.id }) });
+			const d2 = await r2.json().catch(() => ({}));
+			if (!r2.ok) throw new Error(d2.error || 'Bank verification incomplete.');
+			stripeVerifiedAch = true; savedBankLast4 = d2.bankLast4; showInlineBankSetup = false; globalFiatGatewayMethod = 'ach'; globalFiatDeliveryMode = 'LEDGER_KAS';
+			inlineBankBanner = `✓ Verified Instant ACH (${d2.bankLabel} *${d2.bankLast4}) Ready for 1-Click Buy`;
+		} catch (e: any) { globalFiatError = e?.message || 'Bank verification failed.'; }
+		finally { isLinkingStripeBank = false; }
+	}
+
+	async function checkGlobalBankRailStatus() {
         if (!browser || !identity.isWalletConnected) return;
         try {
             const [offRes, onRes] = await Promise.all([
@@ -393,6 +419,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     globalWholesaleFloorActive = onData.wholesaleFloorActive;
                 }
             }
+			const blRes = await fetch('/api/fiat/bank-link').catch(() => null);
+			if (blRes && blRes.ok) { const bl = await blRes.json(); stripeVerifiedAch = Boolean(bl.stripeVerifiedAch); if (stripeVerifiedAch) { savedBankLast4 = bl.bankLast4 || savedBankLast4; showInlineBankSetup = false; globalFiatGatewayMethod = 'ach'; globalFiatDeliveryMode = 'LEDGER_KAS'; } }
         } catch {
             // Ignore transient status error
         }
@@ -2023,6 +2051,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <span class="text-[9px] font-bold uppercase text-neutral-300">
                                 Bank Account
                             </span>
+							<button type="button" data-testid="stripe-instant-bank-link-btn" onclick={startInstantStripeBankLink} disabled={isLinkingStripeBank} class="px-2.5 py-1 rounded-lg bg-[#18C6A5]/15 border border-[#18C6A5]/50 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase cursor-pointer">{isLinkingStripeBank ? 'Opening Stripe...' : '⚡ Verify Bank Instantly (Stripe)'}</button>
                             
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">

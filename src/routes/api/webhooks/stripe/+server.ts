@@ -15,7 +15,7 @@ import {
     executeOrQueueL1Dispatch
 } from '$lib/server/l1Dispatcher';
 
-const STRIPE_API_VERSION = '2026-10-28.acacia';
+const STRIPE_API_VERSION = '2024-06-20';
 const STRIPE_WEBHOOK_DESTINATION_ID = 'we_1SZq78Rp3z9WFHwIL1koY';
 const STRIPE_WEBHOOK_URL = 'https://perennia.io/api/webhooks/stripe';
 const MIN_PERENNIA_FEE_FLOOR_CENTS = 250;
@@ -631,6 +631,15 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
         const existingRow = existingRes.rows[0] || null;
 
         if (existingRow?.status === 'COMPLETED') {
+		try {
+			const sr = await dbPool.query(`SELECT post_trade_sweep_json FROM fiat_onramp_orders WHERE order_id=$1`, [orderId]);
+			const sw = typeof sr.rows[0]?.post_trade_sweep_json === 'string' ? JSON.parse(sr.rows[0].post_trade_sweep_json || '{}') : (sr.rows[0]?.post_trade_sweep_json || {});
+			const fronted = Number(sw?.achFloatFrontedUsd || 0);
+			if (fronted > 0 && !sw?.achFloatReplenished) {
+				await dbPool.query(`UPDATE fiat_float_ledger SET local_kas_reserve_usd = LEAST(ratchet_target_cap_usd, local_kas_reserve_usd + $1), updated_at = CURRENT_TIMESTAMP WHERE ledger_id = 'PRIMARY_FLOAT'`, [fronted]);
+				await dbPool.query(`UPDATE fiat_onramp_orders SET post_trade_sweep_json = $2, updated_at = CURRENT_TIMESTAMP WHERE order_id = $1`, [orderId, JSON.stringify({ ...sw, achFloatReplenished: true })]);
+			}
+		} catch {}
             return json({
                 received: true,
                 success: true,

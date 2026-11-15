@@ -952,6 +952,8 @@ async function ensureFiatOnrampTables() {
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `);
+		await client.query(`ALTER TABLE fiat_bank_rails ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(128);`).catch(() => {});
+		await client.query(`ALTER TABLE fiat_bank_rails ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR(128);`).catch(() => {});
         await client.query(`
             CREATE TABLE IF NOT EXISTS fiat_float_ledger (
                 ledger_id VARCHAR(64) PRIMARY KEY,
@@ -989,6 +991,7 @@ async function saveOrLoadUserBankRail(params: {
     prefixedWallet: string;
     routingNumber?: string;
     accountNumber?: string;
+	hasManualBankInput?: boolean;
     bankLabel?: string;
     accountType?: string;
 }): Promise<{
@@ -1170,7 +1173,7 @@ async function createStripeCryptoOnrampSessionIfConfigured(params: {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${rawStripeKey}`,
-                    'Stripe-Version': '2026-10-28.acacia',
+                    'Stripe-Version': '2024-06-20',
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
                 body: form.toString(),
@@ -1245,6 +1248,7 @@ async function chargeViaStripeIfConfigured(params: {
     clientSecret: string | null;
     stripeStatus: string | null;
     isLiveKey: boolean;
+	usedVerifiedStripePm?: boolean;
 }> {
     const rawStripeKey = (env.STRIPE_SECRET_KEY || '').trim();
     if (!isUsableStripeSecretKey(rawStripeKey)) {
@@ -1260,7 +1264,7 @@ async function chargeViaStripeIfConfigured(params: {
         rawStripeKey.startsWith('sk_live_') ||
         rawStripeKey.startsWith('rk_live_');
     const stripe = new Stripe(rawStripeKey, {
-        apiVersion: '2026-10-28.acacia' as any
+        apiVersion: '2024-06-20' as any
     });
     const amountCents = Math.max(100, Math.round(params.grossChargeCents));
     const metadata: Record<string, string> = {
@@ -1295,7 +1299,16 @@ async function chargeViaStripeIfConfigured(params: {
         };
     }
 
-    if (!params.routingNumber || !params.accountNumber) {
+    if (!params.hasManualBankInput) {
+		const cw = params.walletAddress.trim().toLowerCase().replace(/^kaspa:/, '');
+		const vr = await dbPool.query(`SELECT stripe_customer_id, stripe_payment_method_id FROM fiat_bank_rails WHERE wallet_address=$1 OR wallet_address=$2 ORDER BY updated_at DESC LIMIT 1`, [`kaspa:${cw}`, cw]).catch(() => ({ rows: [] as any[] }));
+		const cid = vr.rows[0]?.stripe_customer_id, pmid = vr.rows[0]?.stripe_payment_method_id;
+		if (cid && pmid) {
+			const vpi = await stripe.paymentIntents.create({ amount: amountCents, currency: 'usd', customer: cid, payment_method: pmid, payment_method_types: ['us_bank_account'], confirm: true, off_session: true, mandate_data: { customer_acceptance: { type: 'online', online: { ip_address: params.clientIp || '127.0.0.1', user_agent: params.userAgent || 'Perennia/1.0' } } }, description: `Perennia, LLC ${params.targetAsset} Instant ACH (${params.orderId})`, metadata } as any);
+			return { stripeUsed: true, paymentIntentId: vpi.id, clientSecret: vpi.client_secret, stripeStatus: vpi.status, isLiveKey, usedVerifiedStripePm: true };
+		}
+	}
+	if (!params.routingNumber || !params.accountNumber) {
         const achUnconfirmedPayload: Record<string, any> = {
             amount: amountCents,
             currency: 'usd',
@@ -1806,6 +1819,7 @@ async function executeImmediateOrderFulfillment(params: {
     destinationAddress?: string;
     preferredTxHash?: string;
     prequotedTokens?: number;
+	achFloatFrontedUsd?: number;
 }) {
     const cleanTarget = params.targetAsset.trim().toUpperCase();
     let deliveredTokens = Number(
@@ -1847,10 +1861,7 @@ async function executeImmediateOrderFulfillment(params: {
              VALUES ($1, 'SILO', $2, 'ACTIVE', $3)`,
             [`kaspa:${params.cleanWallet}`, deliveredTokens, txHash]
         );
-    } else if (
-        params.settlementTarget === 'L1_KAS' ||
-        params.settlementTarget === 'L1_SELF_CUSTODY'
-    ) {
+    } else if ((params.settlementTarget === 'L1_KAS' || params.settlementTarget === 'L1_SELF_CUSTODY') && !(Number(params.achFloatFrontedUsd || 0) > 0) && !(cleanTarget === 'KAS' && String(env.SANDBOX_MODE || '').toLowerCase() !== 'true' && params.cleanWallet === String(env.PERENNIA_HOT_KAS_ADDRESS || env.PERENNIA_MASTER_TREASURY_KAS || '').trim().toLowerCase().replace(/^kaspa:/, ''))) {
         try {
             const destAddr = String(
                 params.destinationAddress || `kaspa:${params.cleanWallet}`
@@ -1933,7 +1944,7 @@ async function executeImmediateOrderFulfillment(params: {
             deliveredTokens,
             params.liveTargetSpot,
             perenniaNetFeeUsd,
-            JSON.stringify(sweepAllocation),
+            JSON.stringify({ ...sweepAllocation, achFloatFrontedUsd: Number(params.achFloatFrontedUsd || 0), achFloatReplenished: false }),
             txHash,
             settledNetCents,
             fulfilledPrincipalCents
@@ -2808,6 +2819,7 @@ export const POST: RequestHandler = async ({
         let stripeOnrampSessionId: string | null = null;
         let stripeOnrampRedirectUrl: string | null = null;
         let stripeStatus: string | null = null;
+		let usedVerifiedStripePm = false;
         let isLiveStripeKey = false;
         let bridgeVirtualAccountId: string | null = null;
         const wireInstructions = getMercuryDirectWireInstructions(
@@ -2851,6 +2863,7 @@ export const POST: RequestHandler = async ({
                         targetAsset,
                         routingNumber: bankRailResult.decrypted?.routingNumber,
                         accountNumber: bankRailResult.decrypted?.accountNumber,
+						hasManualBankInput: Boolean(body.routingNumber && body.accountNumber),
                         accountType: bankRailResult.accountType,
                         bankLabel: bankRailResult.bankLabel,
                         clientIp,
@@ -2860,6 +2873,7 @@ export const POST: RequestHandler = async ({
                         stripePaymentIntentId = stripeRes.paymentIntentId;
                         stripeStatus = stripeRes.stripeStatus;
                         isLiveStripeKey = stripeRes.isLiveKey;
+						usedVerifiedStripePm = Boolean(stripeRes.usedVerifiedStripePm);
                         if (stripeRes.clientSecret) {
                             clientSecret = stripeRes.clientSecret;
                         }
@@ -2965,30 +2979,14 @@ export const POST: RequestHandler = async ({
                 ]
             );
 
-            const shouldFulfillImmediately =
-                !isDirectMercuryWire &&
-                body.instantBankDebit !== false &&
-                Boolean(bankRailResult.decrypted) &&
-                (!isLiveStripeKey || stripeStatus === 'succeeded');
-
-            if (shouldFulfillImmediately) {
-                const fulfilled = await executeImmediateOrderFulfillment({
-                    client,
-                    orderId: onrampSessionId,
-                    cleanWallet: cleanAddressOnly,
-                    targetAsset,
-                    settlementTarget,
-                    autoStakeSilo,
-                    fiatUsd: quote.totalGrossChargeUsd,
-                    feeUsd: quote.feeUsd,
-                    perenniaFeeUsd: quote.perenniaFeeUsd,
-                    netUsd: quote.principalUsd,
-                    liveTargetSpot: targetSpotPrice,
-                    kasSpot: kasSpotPrice,
-                    destinationAddress: body.destinationAddress,
-                    preferredTxHash: stripePaymentIntentId || undefined,
-                    prequotedTokens: quote.estimatedTokens
-                });
+            let achFloatFrontedUsd = 0, canFrontAchFromFloat = false;
+			if (!isDirectMercuryWire && body.instantBankDebit !== false && isLiveStripeKey && stripeStatus === 'processing' && usedVerifiedStripePm && quote.principalUsd > 0 && quote.principalUsd <= 250) {
+				const fl = await client.query(`UPDATE fiat_float_ledger SET local_kas_reserve_usd = local_kas_reserve_usd - $1, updated_at = CURRENT_TIMESTAMP WHERE ledger_id = 'PRIMARY_FLOAT' AND local_kas_reserve_usd >= $1 RETURNING local_kas_reserve_usd`, [quote.principalUsd]).catch(() => ({ rowCount: 0 }));
+				if ((fl.rowCount ?? 0) > 0) { canFrontAchFromFloat = true; achFloatFrontedUsd = quote.principalUsd; }
+			}
+			const shouldFulfillImmediately = !isDirectMercuryWire && body.instantBankDebit !== false && Boolean(bankRailResult.decrypted) && (!isLiveStripeKey || stripeStatus === 'succeeded' || canFrontAchFromFloat);
+			if (shouldFulfillImmediately) {
+				const fulfilled = await executeImmediateOrderFulfillment({ client, orderId: onrampSessionId, cleanWallet: cleanAddressOnly, targetAsset, settlementTarget, autoStakeSilo, fiatUsd: quote.totalGrossChargeUsd, feeUsd: quote.feeUsd, perenniaFeeUsd: quote.perenniaFeeUsd, netUsd: quote.principalUsd, liveTargetSpot: targetSpotPrice, kasSpot: kasSpotPrice, destinationAddress: body.destinationAddress, preferredTxHash: stripePaymentIntentId || undefined, prequotedTokens: quote.estimatedTokens, achFloatFrontedUsd });
                 finalStatus = 'COMPLETED';
                 finalTxHash = fulfilled.txHash;
                 finalDeliveredTokens = fulfilled.deliveredTokens;
