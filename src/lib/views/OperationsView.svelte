@@ -1347,7 +1347,7 @@
         <!-- CENTER WORKSPACE: TELEMETRY CHARTS + SETTLEMENT SILOS & LIQUIDITY PLANTS -->
         <div
             class="flex flex-col gap-4 lg:col-span-6 xl:col-span-8 relative z-10 min-w-0"
-            data-tour="sector-matrix"
+            data-tour="sector-matrix" data-testid="ops-payout-splits-section"
         >
             
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

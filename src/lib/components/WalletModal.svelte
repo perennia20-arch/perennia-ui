@@ -1,16 +1,29 @@
 <!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\WalletModal.svelte -->
 <script lang="ts">
-	import { type VaultAuthMode, isBiometricSupported, isMockBiometrics, hasBiometricForVault, getVaultAuthMode, setVaultAuthMode, enrollBiometricVault, unlockBiometricVault } from '$lib/utils/biometricVault';
-	import { fade, fly } from 'svelte/transition';
+    import {
+        type VaultAuthMode,
+        isBiometricSupported,
+        isMockBiometrics,
+        hasBiometricForVault,
+        getVaultAuthMode,
+        setVaultAuthMode,
+        enrollBiometricVault,
+        unlockBiometricVault
+    } from '$lib/utils/biometricVault';
+    import { encryptVault, decryptVault } from '$lib/utils/vaultCrypto';
+    import { fade, fly } from 'svelte/transition';
     import { browser } from '$app/environment';
     import { onMount } from 'svelte';
     import { ethers } from 'ethers';
     import { blake2b } from '@noble/hashes/blake2.js';
     import { schnorr } from '@noble/curves/secp256k1.js';
     import { deriveHoneycombKeys } from '$lib/crypto/honeycomb';
-import { validateKaspaBech32mAddress } from '$lib/crypto/kaspaAddress';
-import { renderAirgappedQrDataUrl, scanVideoFrameForQrPayload } from '$lib/crypto/pluggableSigner';
-import { pwa } from '$lib/stores/pwa.svelte';
+    import { validateKaspaBech32mAddress } from '$lib/crypto/kaspaAddress';
+    import {
+        buildAirgappedFundingQrPayload,
+        renderAirgappedQrDataUrl,
+        scanVideoFrameForQrPayload
+    } from '$lib/crypto/pluggableSigner';
     import {
         ui,
         SANDBOX_MNEMONIC_WORDS,
@@ -32,14 +45,17 @@ import { pwa } from '$lib/stores/pwa.svelte';
         getChainExplorerTxUrl
     } from '$lib/stores/transaction.svelte';
 
-    let viewState = $state<
+    type WalletViewState =
         | 'menu'
         | 'create_pass'
         | 'import_seed'
         | 'create_seed'
         | 'verify_seed'
-        | 'unlock' | 'authorize' | 'watch_only' 
-    >('menu');
+        | 'unlock'
+        | 'authorize'
+        | 'watch_only';
+
+    let viewState = $state<WalletViewState>('menu');
     let hasStoredVault = $state(false);
     let password = $state('');
     let confirmPassword = $state('');
@@ -50,75 +66,11 @@ import { pwa } from '$lib/stores/pwa.svelte';
     let derivedBtc = $state('');
     let localError = $state('');
     let statusNotice = $state('');
-let watchAddressInput = $state('');
-let airlockQrDataUrl = $state('');
-let isScanningWatchQr = $state(false);
-let watchVideoEl = $state<HTMLVideoElement | null>(null);
-let watchStream: MediaStream | null = null;
-function stopWatchCamera() { isScanningWatchQr = false; if (watchStream) { watchStream.getTracks().forEach((t) => t.stop()); watchStream = null; } }
-async function startWatchQrScan() { if (!browser || !navigator.mediaDevices?.getUserMedia) { localError = 'CAMERA UNAVAILABLE — PASTE KASPA ADDRESS.'; return; } try { watchStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); isScanningWatchQr = true; setTimeout(() => { if (watchVideoEl && watchStream) { watchVideoEl.srcObject = watchStream; watchVideoEl.play().catch(() => {}); } }, 60); const iv = setInterval(async () => { if (!isScanningWatchQr || !watchVideoEl) { clearInterval(iv); return; } const raw = await scanVideoFrameForQrPayload(watchVideoEl).catch(() => null); if (raw) { clearInterval(iv); stopWatchCamera(); watchAddressInput = raw.replace(/^kaspa:/i, 'kaspa:').split('?')[0].trim(); } }, 400); } catch { stopWatchCamera(); localError = 'CAMERA PERMISSION DENIED.'; } }
-let bioSupported = $state(false);
-	let hasBioEnrolled = $state(false);
-	let vaultAuthMode = $state<VaultAuthMode>('password');
-	let setupAuthMode = $state<VaultAuthMode>('fingerprint');
-	let forcePasswordFallback = $state(false);
-	let isBioBusy = $state(false);
-	let autoPromptedThisOpen = false;
-	let bioVerifiedOnce = false;
-	
-	function getStoredVaultKasAddress(): string | null {
-	  if (!browser) return null;
-	  try {
-	    const raw = localStorage.getItem('perennia_sovereign_payload');
-	    if (!raw) return null;
-	    const parsed = JSON.parse(raw);
-	    return parsed?.wallets?.kaspa?.address ? String(parsed.wallets.kaspa.address).trim().toLowerCase() : null;
-	  } catch { return null; }
-	}
-	
-	function refreshBiometricState() {
-	  if (!browser) return;
-	  const addr = getStoredVaultKasAddress();
-	  hasBioEnrolled = hasBiometricForVault(addr);
-	  vaultAuthMode = getVaultAuthMode(addr);
-	  isBiometricSupported().then((ok) => {
-	    bioSupported = ok;
-	    if (!ok && setupAuthMode !== 'password') setupAuthMode = 'password';
-	  }).catch(() => { bioSupported = false; });
-	}
-	
-	$effect(() => {
-	  if (!browser) return;
-	  const onMode = () => refreshBiometricState();
-	  window.addEventListener('perennia:auth-mode-changed', onMode);
-	  return () => window.removeEventListener('perennia:auth-mode-changed', onMode);
-	});
-	
-	$effect(() => {
-	  if (ui.showWalletModal) {
-	    refreshBiometricState();
-	    if (!autoPromptedThisOpen && hasBioEnrolled && vaultAuthMode === 'fingerprint' && !forcePasswordFallback && !ui.isTutorialActive && !isMockBiometrics()) {
-	      if (viewState === 'unlock') { autoPromptedThisOpen = true; setTimeout(() => handleBiometricUnlock(), 80); }
-	      else if (viewState === 'authorize') { autoPromptedThisOpen = true; setTimeout(() => handleBiometricAuthorize(), 80); }
-	    }
-	  } else {
-	    autoPromptedThisOpen = false;
-	    forcePasswordFallback = false;
-	  }
-	});
-	
-	async function handleBiometricUnlock() {
-	  localError = ''; statusNotice = ''; isBioBusy = true;
-	  try {
-	    const secret = await unlockBiometricVault(getStoredVaultKasAddress());
-	    await handleUnlock(secret);
-	  } catch (e: any) {
-	    localError = (e?.message || 'FINGERPRINT SCAN CANCELLED.').toUpperCase();
-	    refreshBiometricState();
-	  } finally { isBioBusy = false; }
-	}
-
-	function handleConnectWatchOnly() { localError = ''; const cand = watchAddressInput.trim().toLowerCase().startsWith('kaspa:') ? watchAddressInput.trim().toLowerCase() : `kaspa:${watchAddressInput.trim().toLowerCase()}`; const v = validateKaspaBech32mAddress(cand); if (!v.valid) { localError = v.error || 'INVALID KASPA BECH32M ADDRESS.'; return; } stopWatchCamera(); if (identity.connectWatchOnlyKaspa(v.normalized)) { watchAddressInput = ''; viewState = 'menu'; ui.showWalletModal = false; } }
+    let watchAddressInput = $state('');
+    let airlockQrDataUrl = $state('');
+    let isScanningWatchQr = $state(false);
+    let watchVideoEl = $state<HTMLVideoElement | null>(null);
+    let watchStream: MediaStream | null = null;
 
     // 2-Word Verification State
     let verifyWordIndices = $state<[number, number]>([2, 14]);
@@ -128,9 +80,125 @@ let bioSupported = $state(false);
     // Encrypted .json File Input Reference
     let backupFileInput = $state<HTMLInputElement | null>(null);
 
+    // 3-Mode Biometric / Password Enclave State
+    let bioSupported = $state(isMockBiometrics());
+    let hasBioEnrolled = $state(false);
+    let vaultAuthMode = $state<VaultAuthMode>('password');
+    let setupAuthMode = $state<VaultAuthMode>(
+        isMockBiometrics() ? 'fingerprint' : 'password'
+    );
+    let forcePasswordFallback = $state(false);
+    let isBioBusy = $state(false);
+    let autoPromptedThisOpen = false;
+    let bioVerifiedOnce = false;
+
+    let isFingerprintOnlyMode = $derived(
+        hasBioEnrolled &&
+            vaultAuthMode === 'fingerprint' &&
+            !forcePasswordFallback
+    );
+
+    function getStoredVaultKasAddress(): string | null {
+        if (!browser) return null;
+        try {
+            const raw = localStorage.getItem('perennia_sovereign_payload');
+            const parsed = raw ? JSON.parse(raw) : null;
+            return parsed?.wallets?.kaspa?.address
+                ? String(parsed.wallets.kaspa.address).trim().toLowerCase()
+                : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function refreshBiometricState() {
+        if (!browser) return;
+        const addr = getStoredVaultKasAddress();
+        hasBioEnrolled = hasBiometricForVault(addr);
+        vaultAuthMode = getVaultAuthMode(addr);
+        isBiometricSupported()
+            .then((ok) => {
+                const wasSupported = bioSupported;
+                bioSupported = ok;
+                if (!ok && setupAuthMode !== 'password') {
+                    setupAuthMode = 'password';
+                } else if (ok && !wasSupported && setupAuthMode === 'password') {
+                    setupAuthMode = 'fingerprint';
+                }
+            })
+            .catch(() => {
+                bioSupported = false;
+                if (setupAuthMode !== 'password') setupAuthMode = 'password';
+            });
+    }
+
+    function stopWatchCamera() {
+        isScanningWatchQr = false;
+        if (watchStream) {
+            watchStream.getTracks().forEach((t) => t.stop());
+            watchStream = null;
+        }
+    }
+
+    async function startWatchQrScan() {
+        if (!browser || !navigator.mediaDevices?.getUserMedia) {
+            localError = 'CAMERA UNAVAILABLE — PASTE KASPA ADDRESS.';
+            return;
+        }
+        try {
+            watchStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' },
+                audio: false
+            });
+            isScanningWatchQr = true;
+            setTimeout(() => {
+                if (watchVideoEl && watchStream) {
+                    watchVideoEl.srcObject = watchStream;
+                    watchVideoEl.play().catch(() => {});
+                }
+            }, 60);
+            const iv = setInterval(async () => {
+                if (!isScanningWatchQr || !watchVideoEl) {
+                    clearInterval(iv);
+                    return;
+                }
+                const raw = await scanVideoFrameForQrPayload(watchVideoEl).catch(
+                    () => null
+                );
+                if (raw) {
+                    clearInterval(iv);
+                    stopWatchCamera();
+                    watchAddressInput = raw.replace(/^kaspa:/i, 'kaspa:').trim();
+                }
+            }, 400);
+        } catch {
+            stopWatchCamera();
+            localError = 'CAMERA PERMISSION DENIED.';
+        }
+    }
+
+    function handleConnectWatchOnly() {
+        localError = '';
+        const cand = watchAddressInput.trim().toLowerCase().startsWith('kaspa:')
+            ? watchAddressInput.trim().toLowerCase()
+            : `kaspa:${watchAddressInput.trim().toLowerCase()}`;
+        const v = validateKaspaBech32mAddress(cand);
+        if (!v.valid) {
+            localError = v.error || 'INVALID KASPA BECH32M ADDRESS.';
+            return;
+        }
+        stopWatchCamera();
+        if (identity.connectWatchOnlyKaspa(v.normalized)) {
+            watchAddressInput = '';
+            viewState = 'menu';
+            ui.showWalletModal = false;
+        }
+    }
+
     onMount(() => {
         if (browser) {
             hasStoredVault = !!localStorage.getItem('perennia_sovereign_payload');
+            refreshBiometricState();
             if (
                 hasStoredVault &&
                 !identity.isWalletConnected &&
@@ -142,7 +210,7 @@ let bioSupported = $state(false);
         }
     });
 
-    // Strictly synchronize WalletModal's viewState during Chapter 1 of the Interactive Tutorial
+    // Synchronize WalletModal viewState during Chapter 1 of the Interactive Tutorial
     $effect(() => {
         if (browser && ui.isTutorialActive && ui.tutorialChapter === 1) {
             const sub = Number(ui.tutorialSubStep || 0);
@@ -188,7 +256,10 @@ let bioSupported = $state(false);
     $effect(() => {
         if (browser && ui.showWalletModal && !ui.isTutorialActive) {
             hasStoredVault = !!localStorage.getItem('perennia_sovereign_payload');
-            if (
+            if (ui.walletInitialView) {
+                viewState = ui.walletInitialView as WalletViewState;
+                ui.walletInitialView = null;
+            } else if (
                 hasStoredVault &&
                 !identity.isWalletConnected &&
                 !identity.isVaultUnlockPending &&
@@ -208,10 +279,91 @@ let bioSupported = $state(false);
         }
     });
 
+    $effect(() => {
+        if (!browser) return;
+        const onMode = () => refreshBiometricState();
+        window.addEventListener('perennia:auth-mode-changed', onMode);
+        return () =>
+            window.removeEventListener('perennia:auth-mode-changed', onMode);
+    });
+
+    $effect(() => {
+        if (ui.showWalletModal) {
+            refreshBiometricState();
+            if (
+                !autoPromptedThisOpen &&
+                hasBioEnrolled &&
+                vaultAuthMode === 'fingerprint' &&
+                !forcePasswordFallback &&
+                !ui.isTutorialActive &&
+                !isMockBiometrics()
+            ) {
+                if (viewState === 'unlock') {
+                    autoPromptedThisOpen = true;
+                    setTimeout(() => handleBiometricUnlock(), 80);
+                } else if (viewState === 'authorize' && !identity.isWatchOnly) {
+                    autoPromptedThisOpen = true;
+                    setTimeout(() => handleBiometricAuthorize(), 80);
+                }
+            }
+        } else {
+            autoPromptedThisOpen = false;
+            forcePasswordFallback = false;
+        }
+    });
+
+    $effect(() => {
+        if (
+            browser &&
+            viewState === 'authorize' &&
+            identity.isWatchOnly &&
+            identity.pendingTransactionDetails
+        ) {
+            const det = identity.pendingTransactionDetails;
+            const srcAddr = identity.activeAddress || '';
+            const dstAddr = String(det.destinationAddress || srcAddr || '');
+            const amt = Math.max(
+                0.0001,
+                parseFloat(String(det.payAmount || det.sellAmount || '1')) || 1
+            );
+            try {
+                const qrReq = buildAirgappedFundingQrPayload({
+                    intent: 'HOT_TO_COLD_OVERFLOW',
+                    sourceAddress: srcAddr,
+                    destinationColdAddress: dstAddr,
+                    amountKas: amt
+                });
+                renderAirgappedQrDataUrl(qrReq)
+                    .then((url) => {
+                        airlockQrDataUrl = url;
+                    })
+                    .catch(() => {
+                        airlockQrDataUrl = '';
+                    });
+            } catch {
+                renderAirgappedQrDataUrl(
+                    JSON.stringify({
+                        action: det.actionType,
+                        amount: amt,
+                        to: dstAddr
+                    })
+                )
+                    .then((url) => {
+                        airlockQrDataUrl = url;
+                    })
+                    .catch(() => {
+                        airlockQrDataUrl = '';
+                    });
+            }
+        } else {
+            airlockQrDataUrl = '';
+        }
+    });
+
     function handleBackdropClick() {
         if (ui.isTutorialActive) return;
         if (viewState === 'create_seed' || viewState === 'verify_seed') return;
-        if (identity.isConnecting) return;
+        if (identity.isConnecting || isBioBusy) return;
         close();
     }
 
@@ -221,8 +373,9 @@ let bioSupported = $state(false);
             (viewState === 'create_seed' || viewState === 'verify_seed')
         )
             return;
-        if (identity.isConnecting) return;
+        if (identity.isConnecting || isBioBusy) return;
 
+        stopWatchCamera();
         ui.showWalletModal = false;
         if (identity.isVaultUnlockPending) {
             identity.isVaultUnlockPending = false;
@@ -241,6 +394,7 @@ let bioSupported = $state(false);
             derivedBtc = '';
             localError = '';
             statusNotice = '';
+            forcePasswordFallback = false;
             identity.walletMessage = '';
             hasStoredVault = browser
                 ? !!localStorage.getItem('perennia_sovereign_payload')
@@ -249,80 +403,10 @@ let bioSupported = $state(false);
     }
 
     function startGuidedTourFromModal() {
+        stopWatchCamera();
         ui.showWalletModal = false;
         viewState = 'menu';
         ui.startTutorial(1);
-    }
-
-    const CRYPTO_ITERATIONS = 250000;
-
-    async function getDerivationKey(password: string, salt: Uint8Array) {
-        const enc = new TextEncoder();
-        const keyMaterial = await window.crypto.subtle.importKey(
-            'raw',
-            enc.encode(password) as any,
-            { name: 'PBKDF2' },
-            false,
-            ['deriveKey']
-        );
-        return window.crypto.subtle.deriveKey(
-            {
-                name: 'PBKDF2',
-                salt: salt as any,
-                iterations: CRYPTO_ITERATIONS,
-                hash: 'SHA-256'
-            },
-            keyMaterial,
-            { name: 'AES-GCM', length: 256 },
-            false,
-            ['encrypt', 'decrypt']
-        );
-    }
-
-    async function encryptVault(
-        password: string,
-        mnemonic: string
-    ): Promise<string> {
-        const salt = window.crypto.getRandomValues(new Uint8Array(16));
-        const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const key = await getDerivationKey(password, salt);
-        const enc = new TextEncoder();
-        const encrypted = await window.crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv: iv as any },
-            key,
-            enc.encode(mnemonic) as any
-        );
-        const payload = new Uint8Array(
-            salt.length + iv.length + encrypted.byteLength
-        );
-        payload.set(salt, 0);
-        payload.set(iv, salt.length);
-        payload.set(new Uint8Array(encrypted), salt.length + iv.length);
-        let binary = '';
-        for (let i = 0; i < payload.byteLength; i++)
-            binary += String.fromCharCode(payload[i]);
-        return window.btoa(binary);
-    }
-
-    async function decryptVault(
-        password: string,
-        encryptedB64: string
-    ): Promise<string> {
-        const binary = window.atob(encryptedB64);
-        const payload = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++)
-            payload[i] = binary.charCodeAt(i);
-        const salt = payload.slice(0, 16);
-        const iv = payload.slice(16, 28);
-        const ciphertext = payload.slice(28);
-        const key = await getDerivationKey(password, salt);
-        const dec = new TextDecoder();
-        const decryptedBuf = await window.crypto.subtle.decrypt(
-            { name: 'AES-GCM', iv: iv as any },
-            key,
-            ciphertext as any
-        );
-        return dec.decode(decryptedBuf);
     }
 
     function pickTwoRandomSeedIndices(totalWords: number): [number, number] {
@@ -337,20 +421,20 @@ let bioSupported = $state(false);
     }
 
     async function buildAndSecureVault(
-        password: string,
+        vaultPass: string,
         mnemonic: string,
         isImport = false
     ) {
         identity.isConnecting = true;
         identity.walletMessage = isImport
-            ? 'Importing Omni-Chain Matrix...'
-            : 'Forging Omni-Chain Matrix...';
+            ? 'Importing Wallet...'
+            : 'Creating Wallet...';
         try {
             const keys = await deriveHoneycombKeys(mnemonic);
             const kasAddress = identity.normalizeKaspaAddress(
                 keys.kaspa.address
             )!;
-            identity.walletMessage = 'Executing Local Handshake...';
+            identity.walletMessage = 'Securing Session...';
             const challengeRes = await fetch('/api/auth/challenge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -385,8 +469,8 @@ let bioSupported = $state(false);
                     errData.error || 'Vault Authentication Failed.'
                 );
             }
-            identity.walletMessage = 'Encrypting Sovereign Vault...';
-            const encryptedVault = await encryptVault(password, mnemonic);
+            identity.walletMessage = 'Encrypting Vault...';
+            const encryptedVault = await encryptVault(vaultPass, mnemonic);
             const safeWallets = {
                 kaspa: { address: keys.kaspa.address },
                 bitcoin: { address: keys.bitcoin.address },
@@ -415,7 +499,7 @@ let bioSupported = $state(false);
             };
         } catch (e: any) {
             identity.walletMessage =
-                e.message || 'Sovereign Generation Failed.';
+                e.message || 'Wallet Setup Failed.';
             identity.disconnect();
             throw e;
         } finally {
@@ -494,7 +578,7 @@ let bioSupported = $state(false);
         viewState = 'verify_seed';
     }
 
-    function handleVerifySeedChallenge() {
+    async function handleVerifySeedChallenge() {
         localError = '';
         if (ui.isTutorialActive && ui.isTutorialSandbox) {
             seedWords = [];
@@ -522,7 +606,7 @@ let bioSupported = $state(false);
         seedWords = [];
         verifyInput1 = '';
         verifyInput2 = '';
-        handleSecure();
+        await handleSecure();
     }
 
     async function handleImport() {
@@ -551,30 +635,86 @@ let bioSupported = $state(false);
             if (res && res.success) {
                 tempVaultPayload = res.payload;
                 importSeed = '';
-                handleSecure();
+                await handleSecure();
             }
         } catch {
             localError = 'CRYPTOGRAPHIC IMPORT FAILED.';
         }
     }
 
-    function handleSecure() {
-		if (tempVaultPayload) {
-			identity.authorizeSovereignVault(tempVaultPayload);
-			const createdKas = tempVaultPayload?.wallets?.kaspa?.address;
-			const savedPass = password;
-			if (bioSupported && setupAuthMode !== 'password' && createdKas && savedPass) {
-				enrollBiometricVault(String(createdKas), savedPass, setupAuthMode).then(() => refreshBiometricState()).catch(() => setVaultAuthMode('password'));
-			} else {
-				setVaultAuthMode('password');
-			}
-			tempVaultPayload = null;
-            seedWords = [];
-            password = '';
-            confirmPassword = '';
-            viewState = 'menu';
-            ui.showWalletModal = false;
+    async function handleBiometricUnlock() {
+        localError = '';
+        statusNotice = '';
+        isBioBusy = true;
+        try {
+            const secret = await unlockBiometricVault(
+                getStoredVaultKasAddress()
+            );
+            await handleUnlock(secret);
+        } catch (e: any) {
+            localError = (
+                e?.message || 'FINGERPRINT SCAN CANCELLED.'
+            ).toUpperCase();
+            refreshBiometricState();
+        } finally {
+            isBioBusy = false;
         }
+    }
+
+    async function handleBiometricAuthorize() {
+        localError = '';
+        statusNotice = '';
+        isBioBusy = true;
+        try {
+            const secret = await unlockBiometricVault(
+                getStoredVaultKasAddress()
+            );
+            password = secret;
+            bioVerifiedOnce = true;
+            await handleAuthorize();
+        } catch (e: any) {
+            localError = (
+                e?.message || 'FINGERPRINT CONFIRM CANCELLED.'
+            ).toUpperCase();
+        } finally {
+            bioVerifiedOnce = false;
+            password = '';
+            isBioBusy = false;
+        }
+    }
+
+    async function handleSecure() {
+        if (!tempVaultPayload) return;
+        const payloadToAuthorize = tempVaultPayload;
+        const createdKas = payloadToAuthorize?.wallets?.kaspa?.address;
+        const savedPass = password;
+
+        identity.authorizeSovereignVault(payloadToAuthorize);
+
+        if (bioSupported && setupAuthMode !== 'password' && createdKas && savedPass) {
+            try {
+                await enrollBiometricVault(
+                    String(createdKas),
+                    savedPass,
+                    setupAuthMode
+                );
+                refreshBiometricState();
+            } catch {
+                setVaultAuthMode('password');
+                refreshBiometricState();
+            }
+        } else {
+            setVaultAuthMode('password');
+            refreshBiometricState();
+        }
+
+        tempVaultPayload = null;
+        seedWords = [];
+        password = '';
+        confirmPassword = '';
+        forcePasswordFallback = false;
+        viewState = 'menu';
+        ui.showWalletModal = false;
     }
 
     function exportEncryptedVaultJson(payloadOverride?: any) {
@@ -640,8 +780,10 @@ let bioSupported = $state(false);
             );
             hasStoredVault = true;
             password = '';
+            forcePasswordFallback = false;
+            refreshBiometricState();
             statusNotice =
-                'ENCRYPTED VAULT RESTORED. ENTER PASSWORD TO UNLOCK.';
+                'ENCRYPTED VAULT RESTORED. UNLOCK TO CONTINUE.';
             viewState = 'unlock';
         } catch (err: any) {
             localError =
@@ -651,46 +793,54 @@ let bioSupported = $state(false);
         }
     }
 
-    async function handleUnlock(bioSecret?: string | Event) {
-		localError = '';
-		statusNotice = '';
-		const effectivePass = typeof bioSecret === 'string' && bioSecret.length > 0 ? bioSecret : password;
-		if (!effectivePass) {
-			localError = 'PASSWORD REQUIRED.';
-			return;
-		}
+    async function handleUnlock(bioSecret?: string) {
+        localError = '';
+        statusNotice = '';
+        const effectivePass =
+            typeof bioSecret === 'string' && bioSecret.length > 0
+                ? bioSecret
+                : password;
+        if (!effectivePass) {
+            localError = 'PASSWORD REQUIRED.';
+            return;
+        }
         identity.isConnecting = true;
-        identity.walletMessage = 'Decrypting Sovereign Vault...';
+        identity.walletMessage = 'Decrypting Wallet...';
         try {
             const rawPayload = localStorage.getItem(
                 'perennia_sovereign_payload'
             );
-            if (!rawPayload) throw new Error('No vault found on this device.');
+            if (!rawPayload) throw new Error('NO VAULT FOUND ON THIS DEVICE.');
             const vaultPayload = JSON.parse(rawPayload);
-            const mnemonic = await decryptVault(effectivePass, vaultPayload.vault);
-			if (typeof bioSecret !== 'string' && hasBioEnrolled && vaultAuthMode === 'both') {
-				identity.walletMessage = 'Scan fingerprint to verify...';
-				await unlockBiometricVault(vaultPayload?.wallets?.kaspa?.address);
-			}
-			if (typeof bioSecret !== 'string' && hasBioEnrolled && vaultAuthMode === 'both') {
-				identity.walletMessage = 'Scan fingerprint to verify...';
-				await unlockBiometricVault(vaultPayload?.wallets?.kaspa?.address);
-			}
+            let mnemonic = '';
+            try {
+                mnemonic = await decryptVault(effectivePass, vaultPayload.vault);
+            } catch {
+                throw new Error('INVALID VAULT PASSWORD.');
+            }
+            if (
+                typeof bioSecret !== 'string' &&
+                hasBioEnrolled &&
+                vaultAuthMode === 'both'
+            ) {
+                identity.walletMessage = 'Scan fingerprint to verify...';
+                await unlockBiometricVault(vaultPayload?.wallets?.kaspa?.address);
+            }
             const keys = await deriveHoneycombKeys(mnemonic);
             let privateKeyHex = keys.kaspa.privateKey.replace('0x', '');
             const kasAddress = identity.normalizeKaspaAddress(
                 keys.kaspa.address
             )!;
-            identity.walletMessage = 'Requesting cryptographic handshake...';
+            identity.walletMessage = 'Requesting handshake...';
             const challengeRes = await fetch('/api/auth/challenge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ address: kasAddress })
             });
             if (!challengeRes.ok)
-                throw new Error('Failed to secure connection challenge.');
+                throw new Error('FAILED TO SECURE CONNECTION CHALLENGE.');
             const { message } = await challengeRes.json();
-            identity.walletMessage = 'Signing session authorization...';
+            identity.walletMessage = 'Signing session...';
             const msgBuf = new TextEncoder().encode(message);
             const hash = blake2b(msgBuf, { dkLen: 32 });
             const signatureBytes = schnorr.sign(
@@ -712,22 +862,17 @@ let bioSupported = $state(false);
                 body: JSON.stringify(authBody)
             });
             if (!authRes.ok)
-                throw new Error(
-                    'Sovereign authentication rejected by backend.'
-                );
-            identity.walletMessage = 'Hydrating Omni-Chain Balances...';
+                throw new Error('AUTHENTICATION REJECTED BY NODE.');
+            identity.walletMessage = 'Loading Balances...';
             identity.authorizeSovereignVault(vaultPayload);
-			if (typeof bioSecret !== 'string' && !hasBioEnrolled && bioSupported && setupAuthMode !== 'password') {
-				await enrollBiometricVault(kasAddress, effectivePass, setupAuthMode).catch(() => false);
-				refreshBiometricState();
-			}
-			password = '';
-			forcePasswordFallback = false;
-			forcePasswordFallback = false;
+            password = '';
+            forcePasswordFallback = false;
             ui.showWalletModal = false;
-        } catch {
+        } catch (err: any) {
             identity.walletMessage = '';
-            localError = (hasBioEnrolled && vaultAuthMode === 'both' ? 'INVALID PASSWORD OR FINGERPRINT CANCELLED.' : 'INVALID VAULT PASSWORD.');
+            localError = (
+                err?.message || 'INVALID VAULT PASSWORD.'
+            ).toUpperCase();
         } finally {
             identity.isConnecting = false;
         }
@@ -746,6 +891,11 @@ let bioSupported = $state(false);
         if (actionType === 'FIAT_OFFRAMP') {
             const asset = String(details.payAsset || 'KAS').toUpperCase();
             return `Off-Ramp ${asset} → Bank ${(details.payoutMethod || 'ACH').toUpperCase()} (${details.sourceMode === 'onchain_kas' || details.sourceMode === 'onchain_l1' || !details.sourceMode ? '1-Click L1 Sign' : 'Zero-Gas Ledger'})`;
+        }
+        if (actionType === 'BUCKET_CONTRIBUTE') {
+            return details.bucketMode === 'fill_remainder'
+                ? `Fill ${details.targetAsset || 'USDC'} Bucket Remainder (L1 KAS)`
+                : `Contribute to ${details.targetAsset || 'USDC'} Bucket (L1 KAS)`;
         }
         if (actionType === 'SEND_KAS') {
             return 'Send Kaspa (L1)';
@@ -783,19 +933,7 @@ let bioSupported = $state(false);
         return `Sign ${details.payAsset || 'KAS'} Transaction (Local)`;
     }
 
-    
-	async function handleBiometricAuthorize() {
-		localError = ''; isBioBusy = true;
-		try {
-			const secret = await unlockBiometricVault(getStoredVaultKasAddress());
-			password = secret;
-			await handleAuthorize();
-		} catch (e: any) {
-			localError = (e?.message || 'BIOMETRIC CONFIRM CANCELLED.').toUpperCase();
-		} finally { password = ''; isBioBusy = false; }
-	}
-
-	async function handleAuthorize() {
+    async function handleAuthorize() {
         localError = '';
         statusNotice = '';
         if (!password) {
@@ -814,7 +952,16 @@ let bioSupported = $state(false);
             );
             if (!rawPayload) throw new Error('No vault found on this device.');
             const vaultPayload = JSON.parse(rawPayload);
-            const mnemonic = await decryptVault(password, vaultPayload.vault);
+            let mnemonic = '';
+            try {
+                mnemonic = await decryptVault(password, vaultPayload.vault);
+            } catch {
+                throw new Error('INVALID VAULT PASSWORD.');
+            }
+            if (hasBioEnrolled && vaultAuthMode === 'both' && !bioVerifiedOnce) {
+                identity.walletMessage = 'Scan fingerprint to verify...';
+                await unlockBiometricVault(vaultPayload?.wallets?.kaspa?.address);
+            }
             const keys = await deriveHoneycombKeys(mnemonic);
             let privateKey = keys.kaspa.privateKey.startsWith('0x')
                 ? keys.kaspa.privateKey.substring(2)
@@ -824,7 +971,40 @@ let bioSupported = $state(false);
                 details.actionType || details.intentType || 'SWAP'
             ).toUpperCase();
 
-            if (actionType === 'SEND_KAS') {
+            if (actionType === 'BUCKET_CONTRIBUTE') {
+                const amountNum = parseFloat(details.payAmount);
+                identity.walletMessage = 'Signing L1 KAS Bucket Contribution...';
+                txState.decryptedPrivateKeyHex = privateKey;
+                privateKey = '0'.repeat(64);
+                const txId = await executeSovereignTransaction(
+                    details.destinationAddress,
+                    amountNum
+                );
+                identity.walletMessage = 'Recording Pro-Rata Bucket Share...';
+                const contribRes = await fetch('/api/buckets/contribute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bucketId: details.bucketId,
+                        amountKas: amountNum,
+                        mode: details.bucketMode || 'contribute',
+                        txHash: txId
+                    })
+                });
+                const contribData = await contribRes.json().catch(() => ({}));
+                if (!contribRes.ok || contribData.error) {
+                    throw new Error(contribData.error || 'Failed to record bucket contribution.');
+                }
+                txState.lastTxId = txId;
+                txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+                if (browser) {
+                    window.dispatchEvent(new CustomEvent('perennia:bucket_updated', { detail: contribData }));
+                }
+                password = '';
+                forcePasswordFallback = false;
+                ui.showWalletModal = false;
+                return;
+            } else if (actionType === 'SEND_KAS') {
                 identity.walletMessage =
                     'Signing & Broadcasting Kaspa L1 Transfer...';
                 txState.decryptedPrivateKeyHex = privateKey;
@@ -836,6 +1016,7 @@ let bioSupported = $state(false);
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (
@@ -863,6 +1044,7 @@ let bioSupported = $state(false);
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = explorerUrl;
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'SEND_KRC20') {
@@ -880,6 +1062,7 @@ let bioSupported = $state(false);
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'COMPOUND_KAS') {
@@ -890,6 +1073,7 @@ let bioSupported = $state(false);
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'SWAP' || actionType === 'DEX_SWAP') {
@@ -921,11 +1105,11 @@ let bioSupported = $state(false);
                         txId
                     );
                     password = '';
+                    forcePasswordFallback = false;
                     ui.showWalletModal = false;
                     return;
                 }
 
-                // Multi-chain L1 swap from self-custody wallet (KAS, KRC-20, BTC, ETH/ERC-20, SOL)
                 const meta = resolveSigningMetadataForAsset(
                     payAsset,
                     details.network,
@@ -998,6 +1182,7 @@ let bioSupported = $state(false);
                 txState.lastExplorerUrl =
                     swapData.explorerUrl || explorerUrl;
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'CREATE_P2P') {
@@ -1037,6 +1222,7 @@ let bioSupported = $state(false);
                 }
                 txState.lastTxId = newOrder.id;
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'FILL_P2P') {
@@ -1052,6 +1238,7 @@ let bioSupported = $state(false);
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'FIAT_OFFRAMP') {
@@ -1110,7 +1297,7 @@ let bioSupported = $state(false);
 
                 if (isLedgerSale) {
                     privateKey = '0'.repeat(64);
-                    identity.walletMessage = `Debiting ${meta.ticker} Platform Balance & Queuing Bank Payout...`;
+                    identity.walletMessage = `Debiting ${meta.ticker} Balance & Queuing Bank Payout...`;
                     const offrampRes = await fetch('/api/fiat/offramp', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1145,6 +1332,7 @@ let bioSupported = $state(false);
                         offrampData.txId ||
                         'LEDGER_FIAT_QUEUED';
                     password = '';
+                    forcePasswordFallback = false;
                     ui.showWalletModal = false;
                     return;
                 }
@@ -1225,6 +1413,7 @@ let bioSupported = $state(false);
                     txId || offrampData.wireReferenceId || offrampData.payoutId;
                 txState.lastExplorerUrl = explorerUrl;
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'WITHDRAW_SYNTHETIC') {
@@ -1263,6 +1452,7 @@ let bioSupported = $state(false);
                     data.data?.explorerUrl ||
                     getChainExplorerTxUrl(targetAsset, txId);
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else if (actionType === 'KRC20_DEPLOY_FANOUT') {
@@ -1285,13 +1475,14 @@ let bioSupported = $state(false);
                     deployTxId
                 );
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             } else {
                 identity.walletMessage =
                     actionType === 'VPROG_ANCHOR'
                         ? 'Signing vProg & Covenant State Anchor Locally in Browser...'
-                        : 'Signing Sovereign Inscription Envelope Locally in Browser...';
+                        : 'Signing Inscription Envelope Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
                 const psbtData = details.psbtData || {};
@@ -1303,11 +1494,13 @@ let bioSupported = $state(false);
                 txState.lastTxId = txId;
                 txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
                 password = '';
+                forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
             }
         } catch (e: any) {
-            localError = e.message || 'AUTHORIZATION FAILED.';
+            identity.walletMessage = '';
+            localError = (e.message || 'AUTHORIZATION FAILED.').toUpperCase();
             password = '';
         } finally {
             identity.isConnecting = false;
@@ -1377,35 +1570,9 @@ let bioSupported = $state(false);
                         {:else if viewState === 'import_seed'}Import Seed
                         {:else if viewState === 'create_seed'}Save Your 24 Words
                         {:else if viewState === 'verify_seed'}Confirm 2 Words
-                        {:else if viewState === 'watch_only'}
-<form onsubmit={(e) => { e.preventDefault(); handleConnectWatchOnly(); }} class="flex flex-col gap-3.5">
-<p class="text-[10px] text-neutral-300 leading-relaxed uppercase tracking-wider font-bold">Paste or scan any Kaspa address — $0.</p>
-{#if isScanningWatchQr}<div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2"><video bind:this={watchVideoEl} class="w-full h-44 object-cover rounded-lg bg-black" playsinline></video><button type="button" onclick={stopWatchCamera} class="text-[9px] text-neutral-400 uppercase">Close</button></div>{/if}
-<div class="flex gap-2"><input type="text" data-testid="watch-only-address-input" bind:value={watchAddressInput} placeholder="kaspa:qp... or kaspa:qr..." spellcheck="false" class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl font-mono outline-none" /><button type="button" onclick={startWatchQrScan} class="tactile-btn mobile-touch-target px-3.5 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase shrink-0">QR</button></div>
-<div class="flex gap-2"><button type="button" onclick={() => { stopWatchCamera(); viewState = 'menu'; localError = ''; }} class="tactile-btn mobile-touch-target w-1/3 p-3 rounded-xl text-neutral-400 text-[10px] font-bold uppercase">Back</button><button type="submit" data-testid="watch-only-connect-btn" class="tactile-btn mobile-touch-target w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase">Watch &rarr;</button></div>
-</form>
-{:else if viewState === 'unlock'}
-<div class="flex flex-col gap-3.5">
-  {#if hasBioEnrolled && vaultAuthMode === 'fingerprint' && !forcePasswordFallback}
-    <button type="button" data-testid="biometric-unlock-btn" onclick={handleBiometricUnlock} disabled={identity.isConnecting || isBioBusy} class="tactile-btn mobile-touch-target w-full py-4 px-4 rounded-2xl border border-[#18C6A5] bg-[#18C6A5]/20 hover:bg-[#18C6A5]/30 text-[#18C6A5] hover:text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer shadow-lg">
-      <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4"/></svg>
-      <span>{isBioBusy || identity.isConnecting ? 'Unlocking...' : 'Unlock with Fingerprint'}</span>
-    </button>
-    <button type="button" data-testid="unlock-use-password-fallback-btn" onclick={() => { localError = ''; forcePasswordFallback = true; }} class="text-[10px] text-neutral-400 hover:text-white underline py-1 cursor-pointer">Use password instead</button>
-  {:else}
-    {#if hasBioEnrolled && vaultAuthMode === 'both'}
-      <div data-testid="unlock-both-mode-badge" class="px-3 py-2 rounded-xl bg-[#18C6A5]/10 border border-[#18C6A5]/35 text-[10px] font-bold text-[#18C6A5] flex items-center justify-between"><span>2-Step Security Active</span><span>Password + Fingerprint</span></div>
-    {/if}
-    <input data-testid="vault-unlock-password-input" type="password" bind:value={password} onkeydown={(e) => e.key === 'Enter' && handleUnlock()} placeholder="Enter Vault Password" class="w-full bg-[#11161f] border border-white/15 rounded-xl px-4 py-3.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-[#18C6A5]" />
-    <button type="button" data-testid="vault-unlock-submit-btn" onclick={() => handleUnlock()} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3.5 px-4 rounded-2xl border border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5] hover:text-white text-xs font-black uppercase tracking-wider cursor-pointer">{identity.isConnecting ? (identity.walletMessage || 'Unlocking...') : (hasBioEnrolled && vaultAuthMode === 'both' ? 'Verify Password & Fingerprint' : 'Unlock')}</button>
-    {#if hasBioEnrolled && vaultAuthMode === 'fingerprint' && forcePasswordFallback}
-      <button type="button" onclick={() => { localError = ''; forcePasswordFallback = false; }} class="text-[10px] text-[#18C6A5] hover:underline py-1 cursor-pointer">← Use Fingerprint instead</button>
-    {/if}
-  {/if}
-  <button type="button" onclick={() => { forcePasswordFallback = false; viewState = 'menu'; }} class="text-[10px] text-neutral-400 hover:text-white py-1 cursor-pointer">← Other Login Options</button>
-</div>
-{:else if viewState === 'watch_only'}Watch Address
-{:else if viewState === 'authorize'}Confirm
+                        {:else if viewState === 'watch_only'}Watch Address
+                        {:else if viewState === 'unlock'}Log In
+                        {:else if viewState === 'authorize'}Confirm
                         {/if}
                     </h2>
                 </div>
@@ -1414,7 +1581,7 @@ let bioSupported = $state(false);
                         type="button"
                         onclick={close}
                         class="text-neutral-500 hover:text-white transition-colors cursor-pointer focus:outline-none"
-                        disabled={identity.isConnecting}
+                        disabled={identity.isConnecting || isBioBusy}
                         title="Return to Operations Deck"
                     >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1445,12 +1612,21 @@ let bioSupported = $state(false);
                             {#if hasStoredVault && !ui.isTutorialActive}
                                 <button
                                     type="button"
-                                    onclick={() => (viewState = 'unlock')}
+                                    onclick={() => {
+                                        localError = '';
+                                        statusNotice = '';
+                                        forcePasswordFallback = false;
+                                        viewState = 'unlock';
+                                    }}
                                     disabled={identity.isConnecting}
                                     class="tactile-btn w-full flex items-center justify-between p-4 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] cursor-pointer"
                                     style="background-image: radial-gradient(ellipse at left, rgba(24, 198, 165, 0.16), transparent 70%);"
                                 >
-                                    <span class="text-xs font-black tracking-widest uppercase">Log In</span>
+                                    <span class="text-xs font-black tracking-widest uppercase">
+                                        {hasBioEnrolled && vaultAuthMode === 'fingerprint'
+                                            ? 'Log In with Fingerprint'
+                                            : 'Log In'}
+                                    </span>
                                     <span class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"></span>
                                 </button>
                                 <div class="h-px w-full bg-white/10 my-0.5"></div>
@@ -1497,7 +1673,19 @@ let bioSupported = $state(false);
                                 <span>Import Backup (.json)</span>
                             </button>
 
-<button type="button" data-testid="wallet-watch-only-btn" onclick={() => { localError = ''; statusNotice = ''; viewState = 'watch_only'; }} disabled={identity.isConnecting} class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border-amber-500/35 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"><span>Watch Address / QR</span></button>
+                            <button
+                                type="button"
+                                data-testid="wallet-watch-only-btn"
+                                onclick={() => {
+                                    localError = '';
+                                    statusNotice = '';
+                                    viewState = 'watch_only';
+                                }}
+                                disabled={identity.isConnecting}
+                                class="tactile-btn mobile-touch-target w-full py-3 px-4 rounded-xl border-amber-500/35 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                            >
+                                <span>Watch Address / QR</span>
+                            </button>
 
                             {#if !ui.isTutorialActive}
                                 <button
@@ -1510,13 +1698,74 @@ let bioSupported = $state(false);
                                     <span>3-Step Quick Start →</span>
                                 </button>
                             {/if}
-
-                            <div class="hidden pt-3 mt-1 border-t border-white/5 text-center select-none pointer-events-none">
-                                <span class="text-[8px] font-mono uppercase tracking-[0.16em] text-neutral-500 leading-relaxed block">
-                                    {pwa.isMobile ? 'Extension-Free Native Mobile Signing & Tangem QR Airlock' : '100% Browser-Side Schnorr Signing'}</span>
-                            </div>
                         </div>
                     </div>
+                {:else if viewState === 'watch_only'}
+                    <form
+                        onsubmit={(e) => {
+                            e.preventDefault();
+                            handleConnectWatchOnly();
+                        }}
+                        class="flex flex-col gap-3.5"
+                        in:fade={{ duration: 150 }}
+                    >
+                        <p class="text-[10px] text-neutral-300 leading-relaxed uppercase tracking-wider font-bold">
+                            Paste or scan any Kaspa address — $0.
+                        </p>
+                        {#if isScanningWatchQr}
+                            <div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2">
+                                <video
+                                    bind:this={watchVideoEl}
+                                    class="w-full h-44 object-cover rounded-lg bg-black"
+                                    playsinline
+                                ></video>
+                                <button
+                                    type="button"
+                                    onclick={stopWatchCamera}
+                                    class="text-[9px] text-neutral-400 hover:text-white uppercase cursor-pointer"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        {/if}
+                        <div class="flex gap-2">
+                            <input
+                                type="text"
+                                data-testid="watch-only-address-input"
+                                bind:value={watchAddressInput}
+                                placeholder="kaspa:qp... or kaspa:qr..."
+                                spellcheck="false"
+                                class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl font-mono outline-none"
+                            />
+                            <button
+                                type="button"
+                                onclick={startWatchQrScan}
+                                class="tactile-btn mobile-touch-target px-3.5 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase shrink-0 cursor-pointer"
+                            >
+                                QR
+                            </button>
+                        </div>
+                        <div class="flex gap-2">
+                            <button
+                                type="button"
+                                onclick={() => {
+                                    stopWatchCamera();
+                                    viewState = 'menu';
+                                    localError = '';
+                                }}
+                                class="tactile-btn mobile-touch-target w-1/3 p-3 rounded-xl text-neutral-400 hover:text-white text-[10px] font-bold uppercase cursor-pointer"
+                            >
+                                Back
+                            </button>
+                            <button
+                                type="submit"
+                                data-testid="watch-only-connect-btn"
+                                class="tactile-btn mobile-touch-target w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase cursor-pointer"
+                            >
+                                Watch &rarr;
+                            </button>
+                        </div>
+                    </form>
                 {:else if viewState === 'import_seed'}
                     <form
                         onsubmit={(e) => {
@@ -1526,6 +1775,30 @@ let bioSupported = $state(false);
                         class="flex flex-col gap-3.5"
                         in:fade={{ duration: 150 }}
                     >
+                        {#if bioSupported}
+                            <div
+                                data-testid="setup-auth-mode-picker"
+                                class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[#11161f] border border-white/10"
+                            >
+                                <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">
+                                    Unlock Method
+                                </span>
+                                <div class="grid grid-cols-3 gap-1.5">
+                                    {#each [['fingerprint', 'Fingerprint'], ['both', 'Both'], ['password', 'Password']] as [m, lbl]}
+                                        <button
+                                            type="button"
+                                            data-testid="setup-mode-{m}"
+                                            onclick={() =>
+                                                (setupAuthMode = m as VaultAuthMode)}
+                                            class="py-2 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all {setupAuthMode === m ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-400 hover:text-white'}"
+                                        >
+                                            {lbl}
+                                        </button>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
+
                         <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
                             Enter 12 or 24 words
                         </p>
@@ -1589,6 +1862,30 @@ let bioSupported = $state(false);
                         class="flex flex-col gap-3.5"
                         in:fade={{ duration: 150 }}
                     >
+                        {#if bioSupported}
+                            <div
+                                data-testid="setup-auth-mode-picker"
+                                class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[#11161f] border border-white/10"
+                            >
+                                <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">
+                                    Unlock Method
+                                </span>
+                                <div class="grid grid-cols-3 gap-1.5">
+                                    {#each [['fingerprint', 'Fingerprint'], ['both', 'Both'], ['password', 'Password']] as [m, lbl]}
+                                        <button
+                                            type="button"
+                                            data-testid="setup-mode-{m}"
+                                            onclick={() =>
+                                                (setupAuthMode = m as VaultAuthMode)}
+                                            class="py-2 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all {setupAuthMode === m ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-400 hover:text-white'}"
+                                        >
+                                            {lbl}
+                                        </button>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
+
                         <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
                             Set password (8+ chars)
                         </p>
@@ -1711,14 +2008,6 @@ let bioSupported = $state(false);
                         class="flex flex-col gap-4"
                         in:fade={{ duration: 150 }}
                     >
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-1">
-                            <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                                
-                            </span>
-                            <span class="text-[9px] text-neutral-400 leading-relaxed">
-                                
-                            </span>
-                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div class="flex flex-col gap-1.5 bg-[#11161f] p-3.5 rounded-xl border border-white/10">
                                 <label
@@ -1785,62 +2074,132 @@ let bioSupported = $state(false);
                         class="flex flex-col gap-3.5"
                         in:fade={{ duration: 150 }}
                     >
-                        <div class="flex justify-between items-start gap-2">
-                            <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
-                                Password
-                            </p>
+                        {#if isFingerprintOnlyMode}
                             <button
                                 type="button"
-                                onclick={() => {
-                                    if (
-                                        confirm(
-                                            'Remove the saved encrypted vault from this browser? Make sure you have your 24-word seed or encrypted .json backup.'
-                                        )
-                                    ) {
-                                        localStorage.removeItem(
-                                            'perennia_sovereign_payload'
-                                        );
-                                        hasStoredVault = false;
+                                data-testid="biometric-unlock-btn"
+                                onclick={handleBiometricUnlock}
+                                disabled={identity.isConnecting || isBioBusy}
+                                class="tactile-btn mobile-touch-target w-full py-4 px-4 rounded-2xl border border-[#18C6A5] bg-[#18C6A5]/20 hover:bg-[#18C6A5]/30 text-[#18C6A5] hover:text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer shadow-lg"
+                            >
+                                <span>
+                                    {isBioBusy || identity.isConnecting
+                                        ? 'Unlocking...'
+                                        : 'Unlock with Fingerprint'}
+                                </span>
+                            </button>
+                            <div class="flex items-center justify-between gap-2 pt-0.5">
+                                <button
+                                    type="button"
+                                    onclick={() => {
                                         viewState = 'menu';
                                         localError = '';
                                         password = '';
-                                    }
-                                }}
-                                class="text-[8px] text-red-400/70 hover:text-red-400 uppercase tracking-widest font-bold border border-red-500/20 bg-red-500/5 px-2 py-1 rounded transition-colors shrink-0 cursor-pointer"
-                            >
-                                Reset
-                            </button>
-                        </div>
-                        <input
-                            type="password"
-                            bind:value={password}
-                            placeholder="VAULT PASSWORD"
-                            disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
-                            autofocus
-                        />
-                        <div class="flex gap-2 mt-1">
-                            <button
-                                type="button"
-                                onclick={() => {
-                                    viewState = 'menu';
-                                    localError = '';
-                                    password = '';
-                                }}
+                                    }}
+                                    disabled={identity.isConnecting || isBioBusy}
+                                    class="text-[10px] text-neutral-400 hover:text-white uppercase tracking-wider font-bold py-1 cursor-pointer"
+                                >
+                                    Options
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="unlock-use-password-fallback-btn"
+                                    onclick={() => {
+                                        localError = '';
+                                        forcePasswordFallback = true;
+                                    }}
+                                    class="text-[10px] text-neutral-400 hover:text-white underline py-1 cursor-pointer"
+                                >
+                                    Use password instead
+                                </button>
+                            </div>
+                        {:else}
+                            {#if hasBioEnrolled && vaultAuthMode === 'both'}
+                                <div
+                                    data-testid="unlock-both-mode-badge"
+                                    class="px-3 py-2 rounded-xl bg-[#18C6A5]/10 border border-[#18C6A5]/35 text-[10px] font-bold text-[#18C6A5] flex items-center justify-between"
+                                >
+                                    <span>2-Step Security Active</span>
+                                    <span>Password + Fingerprint</span>
+                                </div>
+                            {/if}
+
+                            <div class="flex justify-between items-center gap-2">
+                                <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
+                                    Password
+                                </p>
+                                <div class="flex items-center gap-2">
+                                    {#if hasBioEnrolled && vaultAuthMode === 'fingerprint' && forcePasswordFallback}
+                                        <button
+                                            type="button"
+                                            onclick={() => {
+                                                localError = '';
+                                                forcePasswordFallback = false;
+                                            }}
+                                            class="text-[9px] text-[#18C6A5] hover:underline uppercase font-bold cursor-pointer"
+                                        >
+                                            Use fingerprint
+                                        </button>
+                                    {/if}
+                                    <button
+                                        type="button"
+                                        onclick={() => {
+                                            if (
+                                                confirm(
+                                                    'Remove the saved encrypted vault from this browser? Make sure you have your 24-word seed or encrypted .json backup.'
+                                                )
+                                            ) {
+                                                localStorage.removeItem(
+                                                    'perennia_sovereign_payload'
+                                                );
+                                                hasStoredVault = false;
+                                                viewState = 'menu';
+                                                localError = '';
+                                                password = '';
+                                            }
+                                        }}
+                                        class="text-[8px] text-red-400/70 hover:text-red-400 uppercase tracking-widest font-bold border border-red-500/20 bg-red-500/5 px-2 py-1 rounded transition-colors shrink-0 cursor-pointer"
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+
+                            <input
+                                data-testid="vault-unlock-password-input"
+                                type="password"
+                                bind:value={password}
+                                placeholder="VAULT PASSWORD"
                                 disabled={identity.isConnecting}
-                                class="tactile-btn w-1/3 p-3 rounded-xl text-neutral-400 hover:text-white text-[10px] font-bold uppercase tracking-widest cursor-pointer"
-                            >
-                                Options
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={identity.isConnecting || !password}
-                                class="tactile-btn w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
-                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
-                            >
-                                Log In →
-                            </button>
-                        </div>
+                                class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                                autofocus
+                            />
+
+                            <div class="flex gap-2 mt-1">
+                                <button
+                                    type="button"
+                                    onclick={() => {
+                                        viewState = 'menu';
+                                        localError = '';
+                                        password = '';
+                                    }}
+                                    disabled={identity.isConnecting}
+                                    class="tactile-btn w-1/3 p-3 rounded-xl text-neutral-400 hover:text-white text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                                >
+                                    Options
+                                </button>
+                                <button
+                                    data-testid="vault-unlock-submit-btn"
+                                    type="submit"
+                                    disabled={identity.isConnecting || !password}
+                                    class="tactile-btn w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
+                                >
+                                    Log In →
+                                </button>
+                            </div>
+                        {/if}
+
                         <div class="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
                             <button
                                 type="button"
@@ -1857,6 +2216,7 @@ let bioSupported = $state(false);
                                 Import .json
                             </button>
                         </div>
+
                         {#if !ui.isTutorialActive}
                             <button
                                 type="button"
@@ -1931,36 +2291,118 @@ let bioSupported = $state(false);
                                 </div>
                             {/if}
                         </div>
-                        {#if identity.isWatchOnly && airlockQrDataUrl}<div class="bg-[#11161f] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center"><span class="text-[9px] font-black uppercase tracking-widest text-amber-400">Scan QR to Sign</span><img src={airlockQrDataUrl} alt="Airlock QR" class="w-36 h-36 rounded-xl bg-white p-1.5" /><span class="text-[9px] text-neutral-400"></span></div>{/if}
-<p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest text-center mt-1 font-bold">Password</p>
-                        <input
-                            type="password"
-                            data-testid="wallet-authorize-password-input"
-                            bind:value={password}
-                            placeholder="VAULT PASSWORD"
-                            disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
-                            autofocus
-                        />
-                        <div class="flex gap-2 mt-1">
+
+                        {#if identity.isWatchOnly}
+                            {#if airlockQrDataUrl}
+                                <div class="bg-[#11161f] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center">
+                                    <span class="text-[9px] font-black uppercase tracking-widest text-amber-400">
+                                        Scan QR to Sign
+                                    </span>
+                                    <img
+                                        src={airlockQrDataUrl}
+                                        alt="Airlock QR"
+                                        class="w-36 h-36 rounded-xl bg-white p-1.5"
+                                    />
+                                </div>
+                            {/if}
                             <button
                                 type="button"
                                 onclick={close}
-                                disabled={identity.isConnecting}
-                                class="tactile-btn w-1/3 p-3 rounded-xl text-neutral-400 hover:text-red-400 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                                class="tactile-btn w-full p-3 rounded-xl text-neutral-300 hover:text-white text-[10px] font-bold uppercase tracking-widest cursor-pointer"
                             >
-                                Cancel
+                                Close
                             </button>
+                        {:else if isFingerprintOnlyMode}
                             <button
-                                type="submit"
-                                data-testid="wallet-authorize-submit-btn"
-                                disabled={identity.isConnecting || !password}
-                                class="tactile-btn w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
-                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
+                                type="button"
+                                data-testid="biometric-authorize-btn"
+                                onclick={handleBiometricAuthorize}
+                                disabled={isBioBusy || identity.isConnecting}
+                                class="tactile-btn mobile-touch-target w-full py-3.5 px-4 rounded-2xl border border-[#18C6A5] bg-[#18C6A5]/20 hover:bg-[#18C6A5]/30 text-[#18C6A5] hover:text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg"
                             >
-                                Confirm
+                                <span>
+                                    {isBioBusy || identity.isConnecting
+                                        ? 'Confirming...'
+                                        : 'Confirm with Fingerprint'}
+                                </span>
                             </button>
-                        </div>
+                            <div class="flex items-center justify-between gap-2 pt-0.5">
+                                <button
+                                    type="button"
+                                    onclick={close}
+                                    disabled={identity.isConnecting || isBioBusy}
+                                    class="text-[10px] text-neutral-400 hover:text-red-400 uppercase tracking-wider font-bold py-1 cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="authorize-use-password-fallback-btn"
+                                    onclick={() => {
+                                        localError = '';
+                                        forcePasswordFallback = true;
+                                    }}
+                                    class="text-[10px] text-neutral-400 hover:text-white underline py-1 cursor-pointer"
+                                >
+                                    Use password instead
+                                </button>
+                            </div>
+                        {:else}
+                            {#if hasBioEnrolled && vaultAuthMode === 'both'}
+                                <div
+                                    data-testid="authorize-both-mode-badge"
+                                    class="px-3 py-2 rounded-xl bg-[#18C6A5]/10 border border-[#18C6A5]/35 text-[10px] font-bold text-[#18C6A5] flex items-center justify-between"
+                                >
+                                    <span>2-Step Confirm</span>
+                                    <span>Password + Fingerprint</span>
+                                </div>
+                            {/if}
+                            <div class="flex items-center justify-between mt-0.5">
+                                <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
+                                    Password
+                                </p>
+                                {#if hasBioEnrolled && vaultAuthMode === 'fingerprint' && forcePasswordFallback}
+                                    <button
+                                        type="button"
+                                        onclick={() => {
+                                            localError = '';
+                                            forcePasswordFallback = false;
+                                        }}
+                                        class="text-[9px] text-[#18C6A5] hover:underline uppercase font-bold cursor-pointer"
+                                    >
+                                        Use fingerprint
+                                    </button>
+                                {/if}
+                            </div>
+                            <input
+                                type="password"
+                                data-testid="wallet-authorize-password-input"
+                                bind:value={password}
+                                placeholder="VAULT PASSWORD"
+                                disabled={identity.isConnecting}
+                                class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                                autofocus
+                            />
+                            <div class="flex gap-2 mt-1">
+                                <button
+                                    type="button"
+                                    onclick={close}
+                                    disabled={identity.isConnecting}
+                                    class="tactile-btn w-1/3 p-3 rounded-xl text-neutral-400 hover:text-red-400 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    data-testid="wallet-authorize-submit-btn"
+                                    disabled={identity.isConnecting || !password}
+                                    class="tactile-btn w-2/3 p-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
+                                >
+                                    Confirm
+                                </button>
+                            </div>
+                        {/if}
                     </form>
                 {/if}
             </div>

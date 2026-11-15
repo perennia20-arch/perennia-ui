@@ -1,8 +1,8 @@
 <!-- WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\components\SettingsModal.svelte -->
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { decryptVault } from '$lib/utils/crypto';
-	import { type VaultAuthMode, isBiometricSupported, hasBiometricForVault, getVaultAuthMode, setVaultAuthMode, enrollBiometricVault } from '$lib/utils/biometricVault';
+	import { decryptVault } from '$lib/utils/vaultCrypto';
+	import { type VaultAuthMode, isBiometricSupported, isMockBiometrics, hasBiometricForVault, getVaultAuthMode, setVaultAuthMode, enrollBiometricVault } from '$lib/utils/biometricVault';
     import { fade, slide } from 'svelte/transition';
     import { settingsStore } from '$lib/stores/settings.svelte';
     import {
@@ -65,7 +65,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
         ui.showTutorialPrompt = true;
     }
 
-    let smBioSupported = $state(false);
+    let smBioSupported = $state(isMockBiometrics());
 	let smVaultKasAddr = $state<string | null>(null);
 	let smHasBio = $state(false);
 	let smAuthMode = $state<VaultAuthMode>('password');
@@ -84,6 +84,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
 	  } catch { smVaultKasAddr = null; }
 	  smHasBio = hasBiometricForVault(smVaultKasAddr);
 	  smAuthMode = getVaultAuthMode(smVaultKasAddr);
+	  if (isMockBiometrics()) smBioSupported = true;
 	  isBiometricSupported().then((ok) => { smBioSupported = ok; }).catch(() => { smBioSupported = false; });
 	}
 	
@@ -244,14 +245,13 @@ import { pwa } from '$lib/stores/pwa.svelte';
         <button
             type="button"
             aria-label="Close Settings"
-            class="absolute inset-0 w-full h-full bg-[#06080b]/90 backdrop-blur-sm border-none cursor-default"
+            class="absolute inset-0 w-full h-full bg-[#06080b]/92 border-none cursor-default"
             onclick={close}
         ></button>
 
         <div
             data-testid="settings-modal-card"
             class="relative z-10 w-full max-w-[560px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
-            transition:slide={{ duration: 200, axis: 'y' }}
         >
             <div class="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
                 <div class="flex items-center gap-3">

@@ -1,3 +1,4 @@
+import { executeFounderSeedAndClear } from '$lib/server/seedAndNetting';
 import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import Stripe from 'stripe';
 import { dbPool } from '$lib/server/db';
@@ -55,7 +56,10 @@ const ALLOWED_TABLES = [
     'security_firewall_blacklist',
     'director_audit_log',
     'corporate_expense_vouchers',
-    'corporate_owner_draws'
+    'corporate_owner_draws',
+    'settlement_buckets',
+    'bucket_cycles',
+    'bucket_contributions'
 ] as const;
 
 const DEFAULT_RESERVE_WHITELIST_ASSETS: Array<{
@@ -1870,7 +1874,23 @@ export const POST: RequestHandler = async ({
                 });
             }
 
-            if (subAction === 'FLUSH_NOW') {
+            if (subAction === 'SEED_AND_CLEAR_BUCKET') {
+                    const seedResult = await executeFounderSeedAndClear({
+                        adminWallet: clearance.adminWallet,
+                        asset,
+                        targetBatchUsd: Number(body.targetBatchUsd || 500)
+                    });
+                    await logDirectorAuditEvent(
+                        clearance.adminWallet,
+                        'ZONE_4_GOVERNOR',
+                        'SEED_AND_CLEAR_BUCKET_05F_U',
+                        asset,
+                        seedResult
+                    );
+                    return json(seedResult);
+                }
+
+                if (subAction === 'FLUSH_NOW') {
                 await redis.set(`perennia:governor:hold_queue:${asset}`, '0');
                 await redis.set('perennia:chronos:last_epoch_bell_ts', '0');
                 await redis.set('perennia:chronos:force_bell_now', '1');

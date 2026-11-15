@@ -5,6 +5,7 @@
     import { browser } from '$app/environment';
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
+    import { operations } from '$lib/stores/operations.svelte';
     import {
         treasury,
         DEFAULT_ECOSYSTEM_TICKER,
@@ -19,6 +20,7 @@
         LOCK_OPTIONS,
         downloadWireSlipPdf,
         computeOnrampCostPlusQuote,
+        calculateDirectionalSwapQuote,
         type LpPosition,
         type SecondaryPlantLeg,
         type SiloStakePosition
@@ -112,8 +114,8 @@
         activeStaked: 0,
         cooldownStaked: 0,
         combinedEligibleStaked: 0,
-        feeRateCap: 0.015,
-        tierLabel: '1.50%',
+        feeRateCap: 0.005,
+        tierLabel: '0.50%',
         positions: []
     });
 
@@ -221,57 +223,18 @@
     let paySpotUsd = $derived(resolveLiveSpotUsd(payTicker));
     let receiveSpotUsd = $derived(resolveLiveSpotUsd(receiveTicker));
 
-    let activeFeeRateDecimal = $derived(
-        siloStakingTelemetry.feeRateCap > 0
-            ? siloStakingTelemetry.feeRateCap
-            : 0.015
-    );
-
+    let isActiveMiner = $derived((operations.workers || []).some((w) => w.isOnline && w.hashRate > 0));
     let swapQuote = $derived.by(() => {
         const parsedIn = Math.max(0, parseFloat(payAmount) || 0);
-        const rateRatio =
-            paySpotUsd > 0 && receiveSpotUsd > 0
-                ? paySpotUsd / receiveSpotUsd
-                : 0;
-        if (parsedIn <= 0 || paySpotUsd <= 0 || receiveSpotUsd <= 0) {
-            return {
-                grossUsd: 0,
-                feeUsd: 0,
-                netUsd: 0,
-                estimatedOut: 0,
-                exchangeRate: rateRatio
-            };
-        }
         if (payTicker === 'USD') {
-            const onrampQuote = computeOnrampCostPlusQuote({
-                assetTicker: receiveTicker,
-                grossUsd: parsedIn,
-                spotPriceUsd: receiveSpotUsd,
-                autoStakeSilo: false,
-                bundledKasOrSilo:
-                    receiveTicker === 'KAS' ||
-                    receiveTicker === DEFAULT_ECOSYSTEM_TICKER
-            });
-            return {
-                grossUsd: onrampQuote.grossUsd,
-                feeUsd: onrampQuote.feeUsd,
-                netUsd: onrampQuote.guestNetUsd,
-                estimatedOut: onrampQuote.estimatedTokens,
-                exchangeRate: rateRatio
-            };
+            const rateRatio = paySpotUsd > 0 && receiveSpotUsd > 0 ? paySpotUsd / receiveSpotUsd : 0;
+            if (parsedIn <= 0 || receiveSpotUsd <= 0) return { grossUsd: 0, protocolFeeUsd: 0, networkGasUsd: 0, feeUsd: 0, netUsd: 0, estimatedOut: 0, exchangeRate: rateRatio, feeRateDecimal: 0.0085, isDarkPoolPair: true };
+            const q = computeOnrampCostPlusQuote({ assetTicker: receiveTicker, grossUsd: parsedIn, spotPriceUsd: receiveSpotUsd, wholesaleFloorActive: isActiveMiner, bundledKasOrSilo: receiveTicker === 'KAS' || receiveTicker === DEFAULT_ECOSYSTEM_TICKER });
+            return { grossUsd: q.grossUsd, protocolFeeUsd: q.perenniaFeeUsd, networkGasUsd: q.stripeGatewayFeeUsd, feeUsd: q.feeUsd, netUsd: q.guestNetUsd, estimatedOut: q.estimatedTokens, exchangeRate: rateRatio, feeRateDecimal: q.tierBps / 10000, isDarkPoolPair: true };
         }
-        const grossUsd = parsedIn * paySpotUsd;
-        const feeUsd = grossUsd * activeFeeRateDecimal;
-        const netUsd = Math.max(0, grossUsd - feeUsd);
-        const estimatedOut = receiveSpotUsd > 0 ? netUsd / receiveSpotUsd : 0;
-        return {
-            grossUsd,
-            feeUsd,
-            netUsd,
-            estimatedOut,
-            exchangeRate: rateRatio
-        };
+        return calculateDirectionalSwapQuote({ payTicker, receiveTicker, payAmount: parsedIn, paySpotUsd, receiveSpotUsd, isActiveMiner, siloFeeCap: siloStakingTelemetry.feeRateCap, hasStakedSilo: Number(siloStakingTelemetry.combinedEligibleStaked || 0) > 0 });
     });
+    let activeFeeRateDecimal = $derived(swapQuote.feeRateDecimal);
 
     function formatSpotPriceDisplay(price: number): string {
         if (!Number.isFinite(price) || price <= 0) return '$0.00';
@@ -538,10 +501,7 @@
             if (siloRes && siloRes.ok) {
                 const siloData = await siloRes.json();
                 if (siloData.data) {
-                    siloStakingTelemetry = {
-                        ...siloStakingTelemetry,
-                        ...siloData.data
-                    , combinedEligibleStaked: Number((siloStakingTelemetry as any)?.combinedEligibleStaked || 0), feeRateCap: Number((siloStakingTelemetry as any)?.feeRateCap || 0.015), positions: Array.isArray((siloStakingTelemetry as any)?.positions) ? (siloStakingTelemetry as any).positions : [] };
+                    siloStakingTelemetry = { ...siloStakingTelemetry, ...siloData.data, combinedEligibleStaked: Number(siloData.data.combinedEligibleStaked ?? siloStakingTelemetry.combinedEligibleStaked ?? 0), feeRateCap: Number(siloData.data.feeRateCap ?? siloStakingTelemetry.feeRateCap ?? 0.005), positions: Array.isArray(siloData.data.positions) ? siloData.data.positions : [] };
                 }
             }
         } catch {
@@ -1596,7 +1556,7 @@
 <div class="bg-[#11161f]/85 border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-col gap-2 text-xs font-mono mt-1">
   <button type="button" data-testid="dex-quote-summary-toggle" onclick={() => (showSwapQuoteDetails = !showSwapQuoteDetails)} class="w-full flex items-center justify-between gap-2 text-left cursor-pointer">
     <span data-testid="dex-oracle-rate-readout" class="text-neutral-300 font-semibold tabular-nums truncate">1 {payToken.ticker} = {formatOracleRate(swapQuote.exchangeRate)} {receiveToken.ticker}</span>
-    <span class="text-neutral-300 font-bold shrink-0 flex items-center gap-1.5">Fee <span data-testid="dex-active-fee-pct" class="text-[#18C6A5]">{(activeFeeRateDecimal * 100).toFixed(2)}%</span> (${(parseFloat(payAmount) * Number(payToken.spotPrice || 0) * activeFeeRateDecimal).toFixed(2)}) <span class="text-[10px] text-neutral-500">{showSwapQuoteDetails ? '▴' : '▾'}</span></span>
+    <span class="text-neutral-300 font-bold shrink-0 flex items-center gap-1.5">Fee <span data-testid="dex-active-fee-pct" class="text-[#18C6A5]">{(activeFeeRateDecimal * 100).toFixed(2)}%</span> (${swapQuote.feeUsd.toFixed(2)}) <span class="text-[10px] text-neutral-500">{showSwapQuoteDetails ? '▴' : '▾'}</span></span>
   </button>
   {#if showSwapQuoteDetails}
   <div class="pt-2 border-t border-white/10 flex flex-col gap-1.5 text-[11px] text-neutral-400">
@@ -1643,7 +1603,6 @@
                         Enter Amount
                     {:else}
                         Swap {payToken.ticker} → {receiveToken.ticker}
-                        Swap
                     {/if}
                 </button>
             </div>

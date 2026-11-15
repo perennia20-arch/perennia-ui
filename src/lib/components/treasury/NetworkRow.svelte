@@ -65,7 +65,9 @@
 
     let isMainOpen = $state(false);
     $effect(() => {
-        isMainOpen = isNetworkSelected;
+        const mobile = browser && window.innerWidth < 1024;
+        const rootTick = String(asset?.ticker || asset?.symbol || '').toUpperCase();
+        isMainOpen = mobile ? Boolean(rootTick === 'KAS' || searchQuery.trim() || autoOpenToken) : isNetworkSelected;
     });
 
     let expandedSubToken = $state<string | null>(null);
@@ -1055,7 +1057,7 @@
         </div>
     {/if}
 
-    <div
+        <div
         onclick={() => {
             if (isManagingNetworks || isOrganizing) {
                 if (isManagingNetworks) onNetworkToggle();
@@ -1070,288 +1072,97 @@
         }}
         role="button"
         tabindex="0"
-        class="w-full p-4 md:p-5 flex flex-wrap items-center justify-between gap-4 transition-colors {isManagingNetworks || isOrganizing ? '' : 'cursor-pointer hover:bg-[#11161f]/60'} focus:outline-none text-left border-none select-none relative z-10"
+        class="w-full p-3.5 sm:p-4 md:p-5 grid grid-cols-[minmax(0,1fr)_auto] lg:flex lg:flex-wrap lg:items-center lg:justify-between gap-x-3 gap-y-3 transition-colors {isManagingNetworks || isOrganizing ? '' : 'cursor-pointer hover:bg-[#11161f]/60'} focus:outline-none text-left border-none select-none relative z-10"
     >
-        <div class="flex items-center gap-4 shrink-0">
+        <div class="flex items-center gap-3 md:gap-4 min-w-0">
             {#if isOrganizing && isNetworkSelected}
-                <div
-                    class="text-neutral-600 flex flex-col gap-1 pr-1 pointer-events-none"
-                    transition:slide={{ axis: 'x' }}
-                >
+                <div class="text-neutral-600 flex flex-col gap-1 pr-0.5 pointer-events-none" transition:slide={{ axis: 'x' }}>
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                 </div>
             {/if}
-            <div class="w-12 h-12 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center p-2.5 shrink-0 shadow-inner relative overflow-hidden self-start mt-1">
-                <div
-                    class="absolute inset-0 opacity-[0.14]"
-                    style="background-color: {asset.hex}"
-                ></div>
+            <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center p-2 md:p-2.5 shrink-0 shadow-inner relative overflow-hidden">
+                <div class="absolute inset-0 opacity-[0.14]" style="background-color: {asset.hex}"></div>
                 {#if (asset.icon && (asset.icon.startsWith('/') || asset.icon.startsWith('http'))) || (asset.imgUrl && (asset.imgUrl.startsWith('/') || asset.imgUrl.startsWith('http')))}
-                    <img
-                        src={asset.icon || asset.imgUrl}
-                        alt="{asset.symbol || asset.ticker} logo"
-                        class="w-full h-full object-contain relative z-10"
-                        style="filter: drop-shadow(0 0 4px {asset.hex}40);"
-                    />
+                    <img src={asset.icon || asset.imgUrl} alt="{asset.symbol || asset.ticker} logo" class="w-full h-full object-contain relative z-10" style="filter: drop-shadow(0 0 4px {asset.hex}40);" />
                 {:else}
-                    <span
-                        class="text-xl font-bold relative z-10"
-                        style="color: {asset.hex}"
-                    >
-                        {(asset.symbol || asset.ticker || 'TOK').slice(0, 3)}
-                    </span>
+                    <span class="text-lg md:text-xl font-bold relative z-10" style="color: {asset.hex}">{(asset.symbol || asset.ticker || 'TOK').slice(0, 3)}</span>
                 {/if}
             </div>
-
-            <div class="flex flex-col gap-1.5">
-                <div class="flex flex-wrap items-center gap-2">
-                    <span class="text-sm md:text-base font-bold uppercase tracking-widest text-white">
-                        {asset.name}
-                    </span>
-                    <span class="text-[8px] font-mono uppercase tracking-widest bg-[#11161f] border border-white/10 text-neutral-400 px-2 py-0.5 rounded-md hidden xl:block">
-                        {asset.badge || asset.type}
-                    </span>
+            <div class="flex flex-col gap-0.5 min-w-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-sm md:text-base font-bold uppercase tracking-wider text-white truncate">{asset.name}</span>
                     {#if rootTokenColdRule?.autoSweepEnabled && rootTokenColdRule?.coldDestinationAddress}
-                        <span
-                            data-testid="cold-vault-active-badge-{asset.ticker || asset.symbol}"
-                            class="text-[8px] font-mono font-bold uppercase bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] px-2 py-0.5 rounded-md"
-                        >
-                            COLD AUTO-SWEEP ≥{rootTokenColdRule.overflowCeiling}
-                        </span>
-                    {/if}
-
-                    {#if !isManagingNetworks && !isOrganizing}
-                        <div
-                            class="flex flex-wrap items-center gap-1.5 ml-1"
-                            onclick={(e) => e.stopPropagation()}
-                        >
-                            <button
-                                type="button"
-                                data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}"
-                                onclick={(e) => {
-                                    e.stopPropagation();
-                                    const tick = (
-                                        asset.ticker ||
-                                        asset.symbol ||
-                                        'KAS'
-                                    ).toUpperCase();
-                                    ui.openFiatModal(
-                                        tick,
-                                        tick === DEFAULT_ECOSYSTEM_TICKER,
-                                        '250'
-                                    );
-                                }}
-                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-black uppercase tracking-widest cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
-                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
-                            >
-                                Buy
-                            </button>
-                            <button
-                                type="button"
-                                onclick={(e) => openQuickAction(e, 'deposit')}
-                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
-                            >
-                                Receive
-                            </button>
-                            <button
-                                type="button"
-                                data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}"
-                                onclick={(e) => openQuickAction(e, 'withdraw')}
-                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
-                            >
-                                Send
-                            </button>
-                            <button
-                                type="button"
-                                data-testid="cold-vault-btn-{asset.ticker || asset.symbol}"
-                                onclick={(e) => openQuickAction(e, 'cold_vault')}
-                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
-                            >
-                                Cold
-                            </button>
-                            <button
-                                type="button"
-                                data-testid="activity-btn-{asset.ticker || asset.symbol}"
-                                onclick={(e) => openQuickAction(e, 'history')}
-                                class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
-                            >
-                                History
-                            </button>
-                            {#if asset.ticker === 'KAS'}
-                                <button
-                                    type="button"
-                                    onclick={initiateCompoundKasUtxos}
-                                    disabled={isCompoundingUtxos || utxoCount < 2}
-                                    class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[8px] font-mono font-bold uppercase tracking-widest cursor-pointer disabled:opacity-40 whitespace-nowrap {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}"
-                                    title="Consolidate multiple Kaspa L1 UTXOs into a single output"
-                                >
-                                    {isCompoundingUtxos
-                                        ? '[Compounding...]'
-                                        : `[Compound UTXOs (${utxoCount})]`}
-                                </button>
-                            {/if}
-                            <a
-                                href={getExplorerUrl(
-                                    asset.symbol || asset.ticker,
-                                    asset.address
-                                )}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                data-testid="explorer-link-{asset.ticker || asset.symbol}"
-                                class="text-[8px] uppercase tracking-widest font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors px-1.5 whitespace-nowrap"
-                            >
-                                Explorer ↗
-                            </a>
-                        </div>
+                        <span data-testid="cold-vault-active-badge-{asset.ticker || asset.symbol}" class="text-[8px] font-mono font-bold uppercase bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded-md shrink-0">COLD &ge;{rootTokenColdRule.overflowCeiling}</span>
                     {/if}
                 </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-[10px] font-mono text-neutral-400 tracking-widest flex items-center gap-1.5">
-                        ${(asset.spotPrice || 0).toLocaleString(undefined, {
-                            minimumFractionDigits: fiatDecimals,
-                            maximumFractionDigits: fiatDecimals
-                        })}
-                        <span
-                            class={(asset.delta || 0) >= 0
-                                ? 'text-[#18C6A5]'
-                                : 'text-red-400'}
-                        >
-                            {(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(
-                                asset.delta || 0
-                            ).toFixed(2)}%
-                        </span>
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="text-[10px] font-mono text-neutral-400 tracking-wider flex items-center gap-1.5 tabular-nums truncate">
+                        ${(asset.spotPrice || 0).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}
+                        <span class={(asset.delta || 0) >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}>{(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(asset.delta || 0).toFixed(2)}%</span>
                     </span>
-                    <svg
-                        class="w-16 h-4 opacity-70"
-                        viewBox="0 0 64 24"
-                        preserveAspectRatio="none"
-                    >
-                        <path
-                            d={generateSparkline(
-                                asset.symbol || asset.ticker,
-                                asset.delta
-                            )}
-                            fill="none"
-                            stroke={(asset.delta || 0) >= 0
-                                ? '#18C6A5'
-                                : '#ef4444'}
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                        />
+                    <svg class="hidden sm:block w-14 h-3.5 opacity-70 shrink-0" viewBox="0 0 64 24" preserveAspectRatio="none">
+                        <path d={generateSparkline(asset.symbol || asset.ticker, asset.delta)} fill="none" stroke={(asset.delta || 0) >= 0 ? '#18C6A5' : '#ef4444'} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
                 </div>
             </div>
         </div>
 
-        <div class="flex items-center gap-4 shrink-0 ml-auto">
-            <div class="flex flex-col items-end gap-1">
-                <span
-                    class="text-[8px] font-mono uppercase tracking-widest text-neutral-400"
-                    data-testid="onchain-balance-label-{asset.ticker || asset.symbol}"
-                >
-                    Balance
-                </span>
+        <div class="flex items-center gap-2.5 shrink-0 justify-self-end lg:ml-auto lg:order-3">
+            <div class="flex flex-col items-end gap-0.5">
+                <span class="sr-only" data-testid="onchain-balance-label-{asset.ticker || asset.symbol}">Balance</span>
                 {#if displayUnit === 'token'}
-                    <span
-                        class="text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-white"
-                        data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}"
-                    >
-                        {(asset.onChain || 0).toLocaleString(undefined, {
-                            minimumFractionDigits: tokenDecimals,
-                            maximumFractionDigits: tokenDecimals
-                        })}
-                        <span class="text-xs font-mono text-neutral-400"
-                            >{asset.symbol || asset.ticker}</span
-                        >
+                    <span class="text-base sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-white" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
+                        {(asset.onChain || 0).toLocaleString(undefined, { minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals })}
+                        <span class="text-[11px] font-mono text-neutral-400">{asset.symbol || asset.ticker}</span>
                     </span>
-                    <span class="text-[10px] font-mono text-neutral-400 tracking-wider tabular-nums flex flex-wrap items-center justify-end gap-1.5">
+                    <span class="text-[10px] font-mono text-neutral-400 tabular-nums flex flex-wrap items-center justify-end gap-1.5">
                         {#if asset.synthetic > 0}
-                            <span
-                                class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase"
-                                data-testid="batch-queue-badge-{asset.ticker || asset.symbol}"
-                            >
-                                +{asset.synthetic.toLocaleString(undefined, {
-                                    maximumFractionDigits: 4
-                                })} pending
-                            </span>
+                            <span class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase" data-testid="batch-queue-badge-{asset.ticker || asset.symbol}">+{asset.synthetic.toLocaleString(undefined, { maximumFractionDigits: 4 })} pending</span>
                         {/if}
-                        {#if asset.stakedBalance > 0}
-                            <span class="text-blue-400">
-                                ({asset.stakedBalance.toLocaleString(
-                                    undefined,
-                                    { maximumFractionDigits: 2 }
-                                )} LP)
-                            </span>
-                        {/if}
-                        <span>
-                            ≈ ${(
-                                (asset.onChain || 0) * (asset.spotPrice || 0)
-                            ).toLocaleString(undefined, {
-                                minimumFractionDigits: fiatDecimals,
-                                maximumFractionDigits: fiatDecimals
-                            })} L1
-                        </span>
+                        {#if asset.stakedBalance > 0}<span class="text-blue-400">({asset.stakedBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} LP)</span>{/if}
+                        <span>${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}</span>
                     </span>
                 {:else}
-                    <span
-                        class="text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[#18C6A5]"
-                        data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}"
-                    >
-                        ${(
-                            (asset.onChain || 0) * (asset.spotPrice || 0)
-                        ).toLocaleString(undefined, {
-                            minimumFractionDigits: fiatDecimals,
-                            maximumFractionDigits: fiatDecimals
-                        })}
+                    <span class="text-base sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[#18C6A5]" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
+                        ${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}
                     </span>
-                    <span class="text-[10px] font-mono text-neutral-400 tracking-wider tabular-nums flex flex-wrap items-center justify-end gap-1.5">
+                    <span class="text-[10px] font-mono text-neutral-400 tabular-nums flex flex-wrap items-center justify-end gap-1.5">
                         {#if asset.synthetic > 0}
-                            <span
-                                class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase"
-                                data-testid="batch-queue-badge-{asset.ticker || asset.symbol}"
-                            >
-                                +${(
-                                    (asset.synthetic || 0) *
-                                    (asset.spotPrice || 0)
-                                ).toFixed(2)} pending
-                            </span>
+                            <span class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase" data-testid="batch-queue-badge-{asset.ticker || asset.symbol}">+${((asset.synthetic || 0) * (asset.spotPrice || 0)).toFixed(2)} pending</span>
                         {/if}
-                        <span>
-                            ≈ {(asset.onChain || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: tokenDecimals,
-                                maximumFractionDigits: tokenDecimals
-                            })}
-                            {asset.symbol || asset.ticker}
-                        </span>
+                        <span>{(asset.onChain || 0).toLocaleString(undefined, { minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals })} {asset.symbol || asset.ticker}</span>
                     </span>
                 {/if}
             </div>
             {#if isManagingNetworks}
-                <div class="pl-4 border-l border-white/10 flex items-center">
-                    <button
-                        type="button"
-                        aria-label="Toggle Network"
-                        onclick={(e) => {
-                            e.stopPropagation();
-                            onNetworkToggle();
-                        }}
-                        class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none"
-                        style="background-color: {isNetworkSelected ? `${asset.hex}20` : '#11161f'}; border-color: {isNetworkSelected ? `${asset.hex}50` : 'rgba(255,255,255,0.15)'};"
-                    >
-                        <div
-                            class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm"
-                            style="background-color: {isNetworkSelected ? asset.hex : '#737373'}; left: {isNetworkSelected ? '22px' : '1px'};"
-                        ></div>
+                <div class="pl-3 border-l border-white/10 flex items-center">
+                    <button type="button" aria-label="Toggle Network" onclick={(e) => { e.stopPropagation(); onNetworkToggle(); }} class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none" style="background-color: {isNetworkSelected ? `${asset.hex}20` : '#11161f'}; border-color: {isNetworkSelected ? `${asset.hex}50` : 'rgba(255,255,255,0.15)'};">
+                        <div class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm" style="background-color: {isNetworkSelected ? asset.hex : '#737373'}; left: {isNetworkSelected ? '22px' : '1px'};"></div>
                     </button>
                 </div>
+            {:else if !isOrganizing}
+                <span class="lg:hidden text-neutral-500 text-xs pl-0.5">{isMainOpen ? '▴' : '▾'}</span>
             {/if}
         </div>
-    </div>
 
-    {#if isMainOpen && !isManagingNetworks && !isOrganizing && (activeRoutingTab !== 'none' || filteredSubAssets.length > 0 || withdrawalFeedback)}
+        <!-- Single-DOM Action Strip -->
+        {#if !isManagingNetworks && !isOrganizing}
+            <div class="{isMainOpen ? 'flex' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none overflow-x-auto hide-scrollbar w-full lg:w-auto" onclick={(e) => e.stopPropagation()}>
+                <button type="button" data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}" onclick={(e) => { e.stopPropagation(); const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase(); ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, '250'); }} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap" style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);">Buy</button>
+                <button type="button" onclick={(e) => openQuickAction(e, 'deposit')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}">Receive</button>
+                <button type="button" data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'withdraw')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}">Send</button>
+                <button type="button" data-testid="cold-vault-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}">Cold</button>
+                <button type="button" data-testid="activity-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'history')} class="tactile-btn flex-1 lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}">History</button>
+                {#if asset.ticker === 'KAS'}
+                    <button type="button" onclick={initiateCompoundKasUtxos} disabled={isCompoundingUtxos || utxoCount < 2} class="tactile-btn px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}">{isCompoundingUtxos ? 'Compounding...' : `UTXOs (${utxoCount})`}</button>
+                {/if}
+                <a href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)} target="_blank" rel="noopener noreferrer" data-testid="explorer-link-{asset.ticker || asset.symbol}" class="text-[8px] uppercase tracking-wider font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors px-1.5 whitespace-nowrap shrink-0">Explorer ↗</a>
+            </div>
+        {/if}
+    </div>
+{#if isMainOpen && !isManagingNetworks && !isOrganizing && (activeRoutingTab !== 'none' || filteredSubAssets.length > 0 || withdrawalFeedback)}
         <div
             transition:slide
             class="px-4 md:px-5 pb-4 md:pb-5 relative z-0 -mt-1"

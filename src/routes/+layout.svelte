@@ -32,7 +32,9 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
     let { children } = $props();
     const BACKEND_BASE = '';
-    let hasEntered = $state(false);
+    const initialHasLocalVault = browser && Boolean(localStorage.getItem('perennia_sovereign_payload') || sessionStorage.getItem('perennia_watch_only_address'));
+    let hasEntered = $state(initialHasLocalVault);
+    if (initialHasLocalVault) ui.hasEntered = true;
     let headerPillShimmer = $state(false);
 
     // Master Treasury Header Accounting (Earned Fee Revenue vs. Custodial Miner Block Rewards)
@@ -833,6 +835,11 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             try {
                                 const parsed = JSON.parse(rawData);
                                 if (parsed.error) return;
+                                if (parsed.bucket_event) {
+                                    window.dispatchEvent(new CustomEvent('perennia:bucket_updated', { detail: parsed }));
+                                    if (identity.activeAddress) hydrateHeaderTreasuryBalances(resolveTargetWallet() || identity.activeAddress);
+                                    return;
+                                }
                                 if (parsed.fiat_event) {
                                     window.dispatchEvent(
                                         new CustomEvent('perennia:fiat_event', {
@@ -1259,7 +1266,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         } catch {
             // Ignore auth check error at boot
         }
-        if (!identity.isWalletConnected && browser) { const savedWatchAddr = sessionStorage.getItem('perennia_watch_only_address'); if (savedWatchAddr && identity.connectWatchOnlyKaspa(savedWatchAddr)) { hasEntered = true; ui.hasEntered = true; } }
+        if (!identity.isWalletConnected && browser) { const savedWatchAddr = sessionStorage.getItem('perennia_watch_only_address'); if (savedWatchAddr && identity.connectWatchOnlyKaspa(savedWatchAddr)) { hasEntered = true; ui.hasEntered = true; } else if (localStorage.getItem('perennia_sovereign_payload')) { sessionStorage.removeItem('perennia_vault_unlocked'); identity.isVaultUnlocked = false; hasEntered = true; ui.hasEntered = true; } }
 	fetchPriceData();
 	settingsStore.applyTheme();
         priceInterval = setInterval(fetchPriceData, 15000);
@@ -1287,8 +1294,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 			navigator.serviceWorker.addEventListener('message', onSwMsg);
 			navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.update().catch(() => {}))).catch(() => {});
 			return () => navigator.serviceWorker.removeEventListener('message', onSwMsg);
-		}
-	});
 		}
 	});
 </script>
@@ -1480,8 +1485,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
                                 title="Buy Crypto with USD"
                             >
-                                <span class="text-xs font-black">$</span>
-                                <span class="hidden sm:inline">{i18n.t('header.buy_crypto')}</span><span class="sm:hidden">Buy</span>
+                                <span>{i18n.t('header.buy_crypto')}</span>
                             </button>
                         </div>
                         

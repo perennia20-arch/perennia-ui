@@ -467,7 +467,7 @@
             const vendor = String(
                 outflow.vendor_or_beneficiary ||
                     outflow.vendorOrBeneficiary ||
-                    'Perennia Holdings, LLC'
+                    'Perennia, LLC'
             );
             const memo = String(
                 outflow.invoice_or_memo ||
@@ -497,7 +497,7 @@
                 color: slateBg
             });
             page.drawText(
-                'PERENNIA HOLDINGS, LLC — CORPORATE TREASURY VOUCHER',
+                'PERENNIA, LLC — CORPORATE TREASURY VOUCHER',
                 {
                     x: 36,
                     y: 604,
@@ -2566,348 +2566,153 @@
             </div>
         {/if}
 
-        <!-- TOTAL VAULT VALUE CARD -->
+                <!-- TOTAL VAULT VALUE CARD -->
         <div
-            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[28px] shadow-2xl relative overflow-hidden group"
+            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] sm:rounded-[28px] shadow-2xl relative overflow-hidden group"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 60%);"
         >
-            <div class="relative z-10 p-5 sm:p-8 lg:p-10 flex flex-col gap-5 sm:gap-6">
-                <div class="flex flex-col md:flex-row items-center justify-between gap-8">
-                    <div class="flex flex-col items-center md:items-start text-center md:text-left">
-                        <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2 flex items-center gap-2">
+            <div class="relative z-10 p-4 sm:p-7 lg:p-9 flex flex-col gap-4 sm:gap-6">
+                <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-8">
+                    <div class="flex flex-col items-start text-left min-w-0">
+                        <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-1.5 flex items-center gap-2">
                             <span class="w-1.5 h-1.5 bg-[#18C6A5] rounded-full animate-pulse"></span>
-                            {identity.isCorporateAdmin
-                                ? 'Master Treasury Balance'
-                                : 'Total Vault Value'}
+                            {identity.isCorporateAdmin ? 'Master Treasury' : 'Vault Value'}
                         </span>
                         <span
                             data-testid="vault-total-usd-value"
-                            class="text-3xl sm:text-5xl lg:text-7xl font-black tracking-tighter text-white tabular-nums break-all sm:break-normal"
+                            class="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tighter text-white tabular-nums truncate max-w-full"
                         >
                             ${treasury.totalVaultValue.toLocaleString('en-US', {
-                                minimumFractionDigits:
-                                    settingsStore.fiatDecimals,
-                                maximumFractionDigits:
-                                    settingsStore.fiatDecimals
+                                minimumFractionDigits: settingsStore.fiatDecimals,
+                                maximumFractionDigits: settingsStore.fiatDecimals
                             })}
                         </span>
                         {#if identity.isCorporateAdmin}
-                            <div class="flex flex-wrap items-center gap-3 mt-2 text-[10px] font-mono">
-                                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
-                                    Earned Fee Revenue: ${totalAccumulatedFeesUsd.toFixed(2)} USD
+                            <div class="flex flex-wrap items-center gap-2 mt-2 text-[9px] font-mono">
+                                <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
+                                    Earned Fees: ${totalAccumulatedFeesUsd.toFixed(2)}
                                 </span>
-                                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-amber-500/40 text-amber-400 font-bold">
-                                    Custodial Miner Rewards (22:00 UTC): ${custodialMinerLiabilityUsd.toFixed(2)} USD ({custodialMinerLiabilityKas.toFixed(2)} KAS)
+                                <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-amber-500/40 text-amber-400 font-bold">
+                                    Miner Escrow: ${custodialMinerLiabilityUsd.toFixed(2)} ({custodialMinerLiabilityKas.toFixed(1)} KAS)
                                 </span>
                             </div>
                         {/if}
                     </div>
 
-                    <div class="flex flex-col items-end gap-3 self-center lg:self-end relative z-20">
-                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 max-w-full overflow-x-auto hide-scrollbar">
+                    <div class="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto relative z-20">
+                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 overflow-x-auto hide-scrollbar">
                             {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
-                                <button
-                                    type="button"
-                                    onclick={() => (timeframe = tf as any)}
-                                    class="px-2.5 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {timeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}"
-                                >
-                                    {tf}
-                                </button>
+                                <button type="button" onclick={() => (timeframe = tf as any)} class="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {timeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">{tf}</button>
                             {/each}
                         </div>
-                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 w-fit">
-                            <button
-                                type="button"
-                                onclick={() => (displayUnit = 'token')}
-                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}"
-                            >
-                                Token
-                            </button>
-                            <button
-                                type="button"
-                                onclick={() => (displayUnit = 'usd')}
-                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}"
-                            >
-                                USD
-                            </button>
+                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0">
+                            <button type="button" onclick={() => (displayUnit = 'token')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">Token</button>
+                            <button type="button" onclick={() => (displayUnit = 'usd')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">USD</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/10 pt-5">
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
-                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            In Wallet
-                        </span>
-                        <span class="text-xs font-mono font-black text-[#18C6A5] tabular-nums">
-                            ${totalOnChainUsd.toLocaleString(undefined, {
-                                minimumFractionDigits:
-                                    settingsStore.fiatDecimals,
-                                maximumFractionDigits:
-                                    settingsStore.fiatDecimals
-                            })}
-                        </span>
+                <div class="grid grid-cols-3 gap-2 sm:gap-3 border-t border-white/10 pt-4">
+                    <div class="bg-[#11161f] border border-white/10 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
+                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-neutral-400">In Wallet</span>
+                        <span class="text-[11px] sm:text-xs font-mono font-black text-[#18C6A5] tabular-nums truncate">${totalOnChainUsd.toLocaleString(undefined, { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}</span>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
-                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            Pending
-                        </span>
-                        <span class="text-xs font-mono font-black text-amber-400 tabular-nums">
-                            ${totalBatchQueueUsd.toLocaleString(undefined, {
-                                minimumFractionDigits:
-                                    settingsStore.fiatDecimals,
-                                maximumFractionDigits:
-                                    settingsStore.fiatDecimals
-                            })}
-                        </span>
+                    <div class="bg-[#11161f] border border-white/10 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
+                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-neutral-400">Pending</span>
+                        <span class="text-[11px] sm:text-xs font-mono font-black text-amber-400 tabular-nums truncate">${totalBatchQueueUsd.toLocaleString(undefined, { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}</span>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between">
-                        <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
-                            In Pools
-                        </span>
-                        <span class="text-xs font-mono font-black text-blue-400 tabular-nums">
-                            ${totalStakedLpUsd.toLocaleString(undefined, {
-                                minimumFractionDigits:
-                                    settingsStore.fiatDecimals,
-                                maximumFractionDigits:
-                                    settingsStore.fiatDecimals
-                            })}
-                        </span>
+                    <div class="bg-[#11161f] border border-white/10 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
+                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-neutral-400">In Pools</span>
+                        <span class="text-[11px] sm:text-xs font-mono font-black text-blue-400 tabular-nums truncate">${totalStakedLpUsd.toLocaleString(undefined, { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}</span>
                     </div>
                 </div>
             </div>
 
             <div class="absolute right-[-40px] top-[-40px] w-64 h-64 opacity-30 pointer-events-none hidden lg:block">
-                <svg
-                    viewBox="0 0 36 36"
-                    class="w-full h-full transform -rotate-90"
-                >
-                    <circle
-                        cx="18"
-                        cy="18"
-                        r="15.915"
-                        fill="none"
-                        stroke="#161d29"
-                        stroke-width="2.5"
-                    ></circle>
+                <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
+                    <circle cx="18" cy="18" r="15.915" fill="none" stroke="#161d29" stroke-width="2.5"></circle>
                     {#each ringSegments as segment}
-                        <circle
-                            cx="18"
-                            cy="18"
-                            r="15.915"
-                            fill="none"
-                            stroke={segment.theme.hex}
-                            stroke-width={activeHoverSegment === segment.ticker
-                                ? '4'
-                                : '2.5'}
-                            stroke-dasharray={segment.dasharray}
-                            stroke-dashoffset={segment.dashoffset}
-                            class="transition-all duration-300"
-                        ></circle>
+                        <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.theme.hex} stroke-width={activeHoverSegment === segment.ticker ? '4' : '2.5'} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
                     {/each}
                 </svg>
             </div>
         </div>
 
-        <!-- PERENNIA WALLET HEADER & SEARCH BAR (UNDER TOTAL VAULT VALUE, ABOVE KASPA) -->
-        <div class="flex flex-col gap-4 w-full relative">
-            <div
-                class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-4 lg:p-5 flex flex-col lg:flex-row items-center justify-between gap-4"
-            >
-                <button
-                    type="button"
-                    onclick={() =>
-                        (isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen)}
-                    class="flex items-center gap-4 w-full lg:w-auto text-left bg-transparent border-none cursor-pointer"
-                >
-                    <div class="w-10 h-10 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center text-[#18C6A5] shrink-0">
-                        <svg
-                            class="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="1.5"
-                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                            />
-                        </svg>
+        <!-- FULL-WIDTH MOBILE SEARCH BAR -->
+        <div class="flex flex-col gap-3 sm:gap-4 w-full relative">
+            <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-3.5 sm:p-4 lg:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div class="flex items-center justify-between gap-2 w-full lg:w-auto">
+                    <button type="button" onclick={() => (isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen)} class="flex items-center gap-3 text-left bg-transparent border-none cursor-pointer min-w-0">
+                        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center text-[#18C6A5] shrink-0">
+                            <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                        </div>
+                        <span class="text-xs sm:text-sm font-bold uppercase tracking-widest text-white truncate">Wallet</span>
+                    </button>
+                    <div class="flex lg:hidden items-center gap-2 shrink-0">
+                        <button type="button" onclick={() => (isOrganizing = !isOrganizing)} class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-bold uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer">{isOrganizing ? 'Done' : 'Organize'}</button>
+                        <button type="button" onclick={() => { isManagingNetworks = !isManagingNetworks; if (isManagingNetworks) isAllNetworksDrawerOpen = true; }} class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-bold uppercase tracking-wider cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}">{isManagingNetworks ? 'Done' : 'Chains'}</button>
                     </div>
-                    <div class="flex flex-col">
-                        <span class="text-xs md:text-sm font-bold uppercase tracking-widest text-white">
-                            Perennia Wallet
-                        </span>
-                        <span class="text-[9px] text-neutral-500 mt-0.5">
-                            
-                        </span>
-                    </div>
-                </button>
-                <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
-                    <div class="relative flex-1 lg:w-[340px]">
+                </div>
+
+                <div class="flex items-center gap-2.5 w-full lg:w-auto min-w-0">
+                    <div class="relative w-full lg:w-[360px] min-w-0">
                         {#if ui.microBadges['treasury_search']}
-                            <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">
-                                {ui.microBadges['treasury_search'].label}
-                            </div>
+                            <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">{ui.microBadges['treasury_search'].label}</div>
                         {/if}
                         <input
                             type="text"
                             data-testid="treasury-token-search-input"
                             bind:value={networkSearchQuery}
-                            oninput={() => {
-                                if (networkSearchQuery.trim().length > 0)
-                                    isAllNetworksDrawerOpen = true;
-                                handleLiveSearch();
-                            }}
-                            placeholder="Search chains or add token (USDC, PEPE, ONDO)..."
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-8 text-xs font-mono text-white outline-none transition-colors"
+                            oninput={() => { if (networkSearchQuery.trim().length > 0) isAllNetworksDrawerOpen = true; handleLiveSearch(); }}
+                            placeholder="Search or add token..."
+                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-4 text-xs font-mono text-white placeholder-neutral-500 outline-none transition-colors"
                         />
-                        <svg
-                            class="absolute left-3 top-3 w-3.5 h-3.5 text-neutral-500 pointer-events-none"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                            />
-                        </svg>
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                         {#if searchResults.length > 0}
-                            <div
-                                transition:slide={{ duration: 200 }}
-                                class="absolute top-[115%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[380px] overflow-y-auto flex flex-col"
-                            >
+                            <div transition:slide={{ duration: 200 }} class="absolute top-[112%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col">
                                 {#each searchResults as result}
-                                    <div
-                                        class="flex flex-col gap-2 p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 text-left"
-                                    >
+                                    <div class="flex flex-col gap-2 p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 text-left">
                                         <div class="flex items-center justify-between gap-2">
                                             <div class="flex items-center gap-3 min-w-0">
                                                 <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
                                                     {#if result.imgUrl}
-                                                        <img
-                                                            src={result.imgUrl}
-                                                            class="w-5 h-5 object-contain"
-                                                            alt={result.symbol}
-                                                            onerror={(e) =>
-                                                                ((
-                                                                    e.currentTarget as HTMLImageElement
-                                                                ).style.display =
-                                                                    'none')}
-                                                        />
+                                                        <img src={result.imgUrl} class="w-5 h-5 object-contain" alt={result.symbol} onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
                                                     {:else}
-                                                        <span
-                                                            class="text-xs font-black"
-                                                            style="color: {result.hex}"
-                                                        >
-                                                            {result.symbol[0]}
-                                                        </span>
+                                                        <span class="text-xs font-black" style="color: {result.hex}">{result.symbol[0]}</span>
                                                     {/if}
                                                 </div>
                                                 <div class="flex flex-col min-w-0">
-                                                    <span class="text-xs font-bold text-white flex items-center gap-2">
-                                                        {result.symbol}
-                                                        <span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">
-                                                            {result.network}
-                                                        </span>
-                                                    </span>
-                                                    <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[160px]">
-                                                        {result.name}
-                                                    </span>
+                                                    <span class="text-xs font-bold text-white flex items-center gap-2">{result.symbol}<span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{result.network}</span></span>
+                                                    <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[160px]">{result.name}</span>
                                                 </div>
                                             </div>
                                             {#if result.price > 0}
-                                                <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums shrink-0">
-                                                    ${result.price < 0.01
-                                                        ? result.price.toFixed(8)
-                                                        : result.price.toFixed(4)}
-                                                </span>
+                                                <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums shrink-0">${result.price < 0.01 ? result.price.toFixed(8) : result.price.toFixed(4)}</span>
                                             {/if}
                                         </div>
                                         <div class="grid grid-cols-3 gap-1.5 pt-1">
-                                            <button
-                                                type="button"
-                                                onclick={() =>
-                                                    selectSearchResult(
-                                                        result,
-                                                        'pay'
-                                                    )}
-                                                class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white cursor-pointer"
-                                            >
-                                                YOU PAY
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onclick={() =>
-                                                    selectSearchResult(
-                                                        result,
-                                                        'receive'
-                                                    )}
-                                                class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
-                                            >
-                                                YOU RECEIVE
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onclick={() =>
-                                                    selectSearchResult(result)}
-                                                class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer"
-                                            >
-                                                + ADD TO WALLET
-                                            </button>
+                                            <button type="button" onclick={() => selectSearchResult(result, 'pay')} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white cursor-pointer">PAY</button>
+                                            <button type="button" onclick={() => selectSearchResult(result, 'receive')} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer">GET</button>
+                                            <button type="button" onclick={() => selectSearchResult(result)} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer">+ ADD</button>
                                         </div>
                                     </div>
                                 {/each}
                             </div>
                         {/if}
                     </div>
-                    <button
-                        type="button"
-                        onclick={() => (isOrganizing = !isOrganizing)}
-                        class="tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
-                    >
-                        {isOrganizing ? 'Done' : 'Organize'}
-                    </button>
-                    <button
-                        type="button"
-                        onclick={() => {
-                            isManagingNetworks = !isManagingNetworks;
-                            if (isManagingNetworks)
-                                isAllNetworksDrawerOpen = true;
-                        }}
-                        class="tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}"
-                    >
-                        {isManagingNetworks ? 'Done' : 'Chains'}
-                    </button>
+                    <button type="button" onclick={() => (isOrganizing = !isOrganizing)} class="hidden lg:inline-flex tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer shrink-0">{isOrganizing ? 'Done' : 'Organize'}</button>
+                    <button type="button" onclick={() => { isManagingNetworks = !isManagingNetworks; if (isManagingNetworks) isAllNetworksDrawerOpen = true; }} class="hidden lg:inline-flex tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest cursor-pointer shrink-0 {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}">{isManagingNetworks ? 'Done' : 'Chains'}</button>
                 </div>
             </div>
 
             {#if networkSearchQuery.trim().length > 1 && !isGlobalSearching}
-                <div class="py-4 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
-                    <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
-                        Query Global On-Chain Indexers &amp; CEX Oracles for "{networkSearchQuery.toUpperCase()}"
-                    </span>
-                    <button
-                        type="button"
-                        onclick={executeGlobalMasterSearch}
-                        disabled={isGlobalSearching}
-                        class="tactile-btn px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[9px] uppercase tracking-widest font-bold cursor-pointer"
-                    >
-                        Search Web3 Indexer
-                    </button>
-                    {#if globalSearchError}
-                        <span class="text-amber-400 text-[9px]"
-                            >{globalSearchError}</span
-                        >
-                    {/if}
+                <div class="py-3.5 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
+                    <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Find "{networkSearchQuery.toUpperCase()}" on global indexers</span>
+                    <button type="button" onclick={executeGlobalMasterSearch} disabled={isGlobalSearching} class="tactile-btn px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[9px] uppercase tracking-widest font-bold cursor-pointer">Search Indexer</button>
+                    {#if globalSearchError}<span class="text-amber-400 text-[9px]">{globalSearchError}</span>{/if}
                 </div>
             {/if}
-
-            <!-- PRIMARY KASPA L1 ROW -->
+<!-- PRIMARY KASPA L1 ROW -->
             <NetworkRow
                 asset={treasury.getAsset('KAS') as any}
                 subAssets={getDynamicSubAssets('KAS')}

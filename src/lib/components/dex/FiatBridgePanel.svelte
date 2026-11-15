@@ -1093,13 +1093,7 @@
             </button>
         </div>
         <div class="grid grid-cols-3 gap-1.5">
-            {#each [
-                { step: 1, title: '01 • Amount & Tier' },
-                { step: 2, title: '02 • Rail & Delivery' },
-                { step: 3, title: '03 • Receipt' }
-            ] as s (s.step)}
-                
-            {/each}
+            
         </div>
     </div>
 

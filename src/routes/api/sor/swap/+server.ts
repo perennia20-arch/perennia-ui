@@ -10,9 +10,11 @@ import { computeReservoirHmac } from '$lib/server/l1Dispatcher';
 import crypto from 'node:crypto';
 
 const HARD_PROFIT_FLOOR_RATE = 0.001;
+const BUY_KAS_INBOUND_FEE_RATE = 0.002;
 const WHOLESALE_LOYAL_MINER_FEE_RATE = 0.0025;
-const SHIELD_STAKER_FEE_RATE = 0.0075;
-const PUBLIC_MAX_SWAP_FEE_RATE = 0.015;
+const SHIELD_STAKER_FEE_RATE = 0.0035;
+const DARK_POOL_MAJOR_SWAP_FEE_RATE = 0.005;
+const PUBLIC_MAX_SWAP_FEE_RATE = 0.0085;
 
 const LP_BASE_HURDLE_MIN_APR_PCT = 14.2;
 const LP_BASE_HURDLE_TARGET_APR_PCT = 14.6;
@@ -154,8 +156,12 @@ function estimateOnChainGasAndRoutingSlippageUsd(
         }
         return 0.08;
     };
+    const rawModeledGasUsd = gasForAsset(payClean) + gasForAsset(recClean);
     const networkGasUsd = Number(
-        (gasForAsset(payClean) + gasForAsset(recClean)).toFixed(4)
+        (!isExternalPassThrough && grossUsd > 0 && grossUsd < 25
+            ? Math.min(rawModeledGasUsd, Math.max(0.002, grossUsd * 0.01))
+            : rawModeledGasUsd
+        ).toFixed(4)
     );
     const externalRoutingSlippageUsd = isExternalPassThrough
         ? Number((grossUsd * 0.0015).toFixed(4))
@@ -714,7 +720,9 @@ async function fetchChangeNowMinAmountKas(
 async function resolveUserSwapFeeTier(
     cleanWallet: string,
     prefixedWallet: string,
-    grossUsd: number
+    grossUsd: number,
+    payAsset = 'KAS',
+    receiveAsset = 'USDC'
 ): Promise<{
     feeRate: number;
     feeTierLabel: string;
@@ -821,28 +829,138 @@ async function resolveUserSwapFeeTier(
                 };
             }
             if (stakedSilo >= 10_000) {
+                const shieldRate = receiveAsset.trim().toUpperCase() === 'KAS'
+                    ? Math.min(BUY_KAS_INBOUND_FEE_RATE, SHIELD_STAKER_FEE_RATE)
+                    : SHIELD_STAKER_FEE_RATE;
                 return {
-                    feeRate: SHIELD_STAKER_FEE_RATE,
-                    feeTierLabel: '0.75% SILO Shield Staker Tier',
+                    feeRate: shieldRate,
+                    feeTierLabel: '0.35% SILO Shield Staker Tier',
                     wholesaleFloorActive: true
                 };
             }
         } catch {
-            // Fall through
+            // Continue to directional & volume tiers
         }
     }
-    if (grossUsd >= 10_000) {
+
+    const payUp = String(payAsset || 'KAS').trim().toUpperCase();
+    const recUp = String(receiveAsset || 'USDC').trim().toUpperCase();
+
+    if (recUp === 'KAS' && payUp !== 'USD') {
         return {
-            feeRate: WHOLESALE_LOYAL_MINER_FEE_RATE,
-            feeTierLabel: '0.25% Institutional Volume Wholesale Tier',
+            feeRate: BUY_KAS_INBOUND_FEE_RATE,
+            feeTierLabel: '0.20% Buy-KAS Inbound Tier',
             wholesaleFloorActive: true
         };
     }
+
+    if (grossUsd >= 2_500) {
+        return {
+            feeRate: WHOLESALE_LOYAL_MINER_FEE_RATE,
+            feeTierLabel: '0.25% Volume Wholesale Tier ($2,500+)',
+            wholesaleFloorActive: true
+        };
+    }
+
+    let isDarkPoolMajor = DEFAULT_RESERVE_WHITELIST.has(payUp) && DEFAULT_RESERVE_WHITELIST.has(recUp);
+    if (isDarkPoolMajor) {
+        try {
+            const stRes = await dbPool.query(
+                `SELECT steering_state, is_whitelisted FROM token_steering_matrix WHERE ticker = ANY($1::text[])`,
+                [[payUp, recUp]]
+            );
+            for (const row of stRes.rows) {
+                if (!row.is_whitelisted || row.steering_state === 'PASS_THROUGH' || row.steering_state === 'BLACKLISTED') {
+                    isDarkPoolMajor = false;
+                }
+            }
+        } catch {}
+    }
+
+    if (isDarkPoolMajor) {
+        return {
+            feeRate: DARK_POOL_MAJOR_SWAP_FEE_RATE,
+            feeTierLabel: '0.50% Dark Pool Major Swap Tier',
+            wholesaleFloorActive: false
+        };
+    }
+
     return {
         feeRate: PUBLIC_MAX_SWAP_FEE_RATE,
-        feeTierLabel: '1.50% Standard Public Swap Tier',
+        feeTierLabel: '0.85% External Pass-Through Swap Tier',
         wholesaleFloorActive: false
     };
+}
+
+async function netInboundBuyKasAgainstMinerBuckets(params: {
+    inboundAsset: string;
+    inboundAmount: number;
+    kasSpotUsd: number;
+    inboundSpotUsd: number;
+}) {
+    const cleanIn = params.inboundAsset.trim().toUpperCase();
+    const killSwitches = await resolveSubsystemKillSwitches();
+    if (killSwitches.bucketPayoutsPaused || !cleanIn || cleanIn === 'KAS' || cleanIn === 'USD' || params.kasSpotUsd <= 0 || params.inboundSpotUsd <= 0 || params.inboundAmount <= 0) {
+        return { targetAsset: cleanIn, layeredBucketsCleared: 0, layeredKasSwept: 0, layeredTokensDispatched: 0, protocolFeesCapturedUsd: 0, minProfitableKas: 0 };
+    }
+    let remainingKasCapacity = (params.inboundAmount * params.inboundSpotUsd) / params.kasSpotUsd;
+    const client = await dbPool.connect();
+    try {
+        const ccRes = await client.query(`SELECT wallet_address, layout_state FROM user_command_centers`);
+        let clearedCount = 0, sweptKasTotal = 0, dispatchedTokensTotal = 0, totalProtocolFeesUsd = 0;
+        for (const r of ccRes.rows) {
+            if (remainingKasCapacity <= 1e-6) break;
+            const rawWallet = String(r.wallet_address || '');
+            const cleanWallet = normalizeKaspaBase32Strict(rawWallet);
+            if (!cleanWallet) continue;
+            const prefixedWallet = `kaspa:${cleanWallet}`;
+            const layout = r.layout_state || { workers: [], sectors: [] };
+            const sectors: any[] = Array.isArray(layout.sectors) ? layout.sectors : [];
+            let userSweptKas = 0, mutated = false;
+            for (const sec of sectors) {
+                if (remainingKasCapacity <= 1e-6) break;
+                const pending = Math.max(0, Number(sec?.pendingKaspa || 0));
+                const routeMode = String(sec?.routeMode || 'hold').toLowerCase();
+                const secTicker = String(sec?.settlementConfig?.targetAsset?.ticker || '').trim().toUpperCase();
+                if (pending > 0 && routeMode !== 'auto-lp' && secTicker === cleanIn) {
+                    const takeKas = Math.min(pending, remainingKasCapacity);
+                    userSweptKas += takeKas;
+                    remainingKasCapacity -= takeKas;
+                    sec.pendingKaspa = Number(Math.max(0, pending - takeKas).toFixed(8));
+                    mutated = true;
+                    clearedCount += 1;
+                }
+            }
+            if (mutated && userSweptKas > 0) {
+                const grossUsd = userSweptKas * params.kasSpotUsd;
+                const feeUsd = Math.max(0.01, grossUsd * HARD_PROFIT_FLOOR_RATE);
+                const netUsd = Math.max(0, grossUsd - feeUsd);
+                const outTokens = Number((netUsd / params.inboundSpotUsd).toFixed(8));
+                if (outTokens <= 0) continue;
+                await client.query(`UPDATE user_command_centers SET layout_state = $2, last_updated = CURRENT_TIMESTAMP WHERE wallet_address = $1`, [rawWallet, JSON.stringify(layout)]);
+                await redis.hincrbyfloat(`dev:sor:treasury:balances:${cleanWallet}`, cleanIn, outTokens).catch(() => {});
+                const resRow = await client.query(`SELECT wallet_address, streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens FROM yield_reservoirs WHERE wallet_address = $1 OR wallet_address = $2 LIMIT 1`, [prefixedWallet, cleanWallet]).catch(() => ({ rows: [] as any[] }));
+                const existingRow = resRow.rows[0];
+                const targetPk = existingRow?.wallet_address || prefixedWallet;
+                const streamKas = Number(existingRow?.streaming_balance_kas || 0);
+                const totalYieldKas = Number(existingRow?.total_yield_kas || 0);
+                const lpTokens: Record<string, number> = { ...(existingRow?.lp_tokens || {}) };
+                lpTokens[cleanIn] = Number((Number(lpTokens[cleanIn] || 0) + outTokens).toFixed(8));
+                const newHmac = computeReservoirHmac(prefixedWallet, streamKas, totalYieldKas, lpTokens);
+                if (existingRow) {
+                    await client.query(`UPDATE yield_reservoirs SET lp_tokens = $2::jsonb, hmac_signature = $3, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = $1`, [targetPk, JSON.stringify(lpTokens), newHmac]);
+                } else {
+                    await client.query(`INSERT INTO yield_reservoirs (wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens, hmac_signature) VALUES ($1, 0, 0, $2::jsonb, $3) ON CONFLICT (wallet_address) DO UPDATE SET lp_tokens = EXCLUDED.lp_tokens, hmac_signature = EXCLUDED.hmac_signature`, [prefixedWallet, JSON.stringify(lpTokens), newHmac]);
+                }
+                sweptKasTotal += userSweptKas;
+                dispatchedTokensTotal += outTokens;
+                totalProtocolFeesUsd += feeUsd;
+            }
+        }
+        return { targetAsset: cleanIn, layeredBucketsCleared: clearedCount, layeredKasSwept: Number(sweptKasTotal.toFixed(6)), layeredTokensDispatched: Number(dispatchedTokensTotal.toFixed(8)), protocolFeesCapturedUsd: Number(totalProtocolFeesUsd.toFixed(4)), minProfitableKas: 0 };
+    } finally {
+        client.release();
+    }
 }
 
 async function sweepLayeredBucketsOnAnchorSwap(params: {
@@ -850,6 +968,7 @@ async function sweepLayeredBucketsOnAnchorSwap(params: {
     anchorKasVolume: number;
     kasSpotUsd: number;
     targetSpotUsd: number;
+    isInternalDarkPoolClear?: boolean;
 }): Promise<{
     targetAsset: string;
     layeredBucketsCleared: number;
@@ -920,6 +1039,13 @@ async function sweepLayeredBucketsOnAnchorSwap(params: {
                 minProfitableKas
             };
         }
+        if (params.isInternalDarkPoolClear) {
+            const lpDepthRes = await client.query(`SELECT COALESCE(SUM(usd_value), 0) AS tvl FROM liquidity_providers WHERE pool_pair LIKE $1`, [`%${cleanTarget}%`]).catch(() => ({ rows: [{ tvl: 0 }] }));
+            const poolReserveUsd = Number(lpDepthRes.rows[0]?.tvl || 0) * 0.5;
+            if (poolReserveUsd < totalPendingBucketKas * params.kasSpotUsd * 3) {
+                return { targetAsset: cleanTarget, layeredBucketsCleared: 0, layeredKasSwept: 0, layeredTokensDispatched: 0, protocolFeesCapturedUsd: 0, minProfitableKas };
+            }
+        }
         let clearedCount = 0;
         let sweptKasTotal = 0;
         let dispatchedTokensTotal = 0;
@@ -956,22 +1082,9 @@ async function sweepLayeredBucketsOnAnchorSwap(params: {
             }
             if (mutated && userSweptKas > 0) {
                 const grossUsd = userSweptKas * params.kasSpotUsd;
-                const userTier = await resolveUserSwapFeeTier(
-                    cleanWallet,
-                    prefixedWallet,
-                    grossUsd
-                );
-                const gasAndSlip = estimateOnChainGasAndRoutingSlippageUsd(
-                    'KAS',
-                    cleanTarget,
-                    grossUsd,
-                    false
-                );
-                const feeUsd = Math.max(
-                    gasAndSlip.totalHardRoutingCostUsd +
-                        grossUsd * HARD_PROFIT_FLOOR_RATE,
-                    grossUsd * Math.max(HARD_PROFIT_FLOOR_RATE, userTier.feeRate)
-                );
+                const userTier = await resolveUserSwapFeeTier(cleanWallet, prefixedWallet, grossUsd, 'KAS', cleanTarget);
+                const minerWholesaleRate = Math.min(WHOLESALE_LOYAL_MINER_FEE_RATE, Math.max(HARD_PROFIT_FLOOR_RATE, userTier.feeRate));
+                const feeUsd = Math.max(0.01, grossUsd * minerWholesaleRate);
                 const netUsd = Math.max(0, grossUsd - feeUsd);
                 if (netUsd <= 0) continue;
                 const outTokens = Number(
@@ -1210,11 +1323,7 @@ export const GET: RequestHandler = async ({
     }
 
     const grossUsd = amount * paySpot;
-    const feeTier = await resolveUserSwapFeeTier(
-        cleanWallet,
-        prefixedWallet,
-        grossUsd
-    );
+    const feeTier = await resolveUserSwapFeeTier(cleanWallet, prefixedWallet, grossUsd, payAsset, receiveAsset);
     const gasAndSlip = estimateOnChainGasAndRoutingSlippageUsd(
         payAsset,
         receiveAsset,
@@ -1463,11 +1572,7 @@ export const POST: RequestHandler = async ({
             );
         }
 
-        const feeTier = await resolveUserSwapFeeTier(
-            cleanWallet,
-            prefixedWallet,
-            grossUsd
-        );
+        const feeTier = await resolveUserSwapFeeTier(cleanWallet, prefixedWallet, grossUsd, payAsset, receiveAsset);
         const isExternalRoute =
             !steering.allowDarkPoolInternalClearing ||
             killSwitches.darkPoolPaused;
@@ -1701,12 +1806,14 @@ export const POST: RequestHandler = async ({
                 : kasSpot > 0
                   ? grossUsd / kasSpot
                   : 0;
-        const anchorLayerSweep = await sweepLayeredBucketsOnAnchorSwap({
+        const anchorLayerSweep = receiveAsset === 'KAS' && payAsset !== 'KAS' && payAsset !== 'USD'
+            ? await netInboundBuyKasAgainstMinerBuckets({ inboundAsset: payAsset, inboundAmount: amount, kasSpotUsd: receiveSpotUsd, inboundSpotUsd: paySpotUsd })
+            : await sweepLayeredBucketsOnAnchorSwap({
             targetAsset: receiveAsset,
             anchorKasVolume,
             kasSpotUsd: kasSpot > 0 ? kasSpot : 0.15,
             targetSpotUsd: receiveSpot
-        });
+        , isInternalDarkPoolClear: steering.allowDarkPoolInternalClearing });
 
         const providerLabel = isExternalRoute
             ? 'External Pass-Through Pool (Reserve Whitelist Fee Skim)'

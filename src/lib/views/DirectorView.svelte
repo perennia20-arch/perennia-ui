@@ -113,6 +113,7 @@
 
     // Zone 4: Governor & Treasury Config Inputs
     let gasCeilingInput = $state('2.50');
+    let seedTargetUsdInputs = $state<Record<string, string>>({});
     let l1ConfirmTxInputs = $state<Record<string, string>>({});
     let hotCeilingKasInput = $state('5000');
     let minRunwayKasInput = $state('250');
@@ -1290,113 +1291,60 @@
                 </div>
             </div>
 
-            <!-- Dynamic Pool Batch & Gas Governor -->
+                        <!-- Dynamic Pool Batch & Gas Governor -->
             <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                 <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
-                    <div class="flex flex-col">
-                        <h3 class="text-xs font-black uppercase text-white">
-                            Dynamic Pool Batch &amp; Gas Governor (Live PostgreSQL &amp; Redis Discovery)
-                        </h3>
-                        <span class="text-[9px] text-neutral-400">
-                            Every active miner sector bucket and 50%-KAS LP batch queue with 1-click Flush Now or Hold controls.
-                        </span>
+                    <div class="flex flex-col gap-0.5">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h3 class="text-xs font-black uppercase text-white">Dynamic Pool Batch &amp; Seed-and-Clear Governor</h3>
+                            <span data-testid="director-lp-routing-mode-badge" class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase">Auto Admin LP: 50/50 Locked • Manual Seed: 0.5F + U</span>
+                        </div>
+                        <span class="text-[9px] text-neutral-400">Automatic admin routing stays 50/50. Use manual Seed &amp; Clear (0.5F + U) to pre-skew wholesale liquidity, clear user queues internally, and land new LP at 50/50.</span>
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-[9px] text-neutral-400 uppercase font-bold">Max Gas Ceiling ($):</span>
-                        <input
-                            type="number"
-                            step="0.25"
-                            bind:value={gasCeilingInput}
-                            class="w-20 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none"
-                        />
-                        <button
-                            type="button"
-                            data-testid="save-gas-ceiling-btn"
-                            onclick={() =>
-                                dispatchDirectorAction(
-                                    {
-                                        action: 'GOVERN_DYNAMIC_QUEUE',
-                                        governorAction: 'SET_MAX_GAS_CEILING',
-                                        maxGasCeilingUsd: parseFloat(gasCeilingInput) || 2.5
-                                    },
-                                    'GAS_CEILING',
-                                    `Max Gas Ceiling set to $${gasCeilingInput} USD ✓`
-                                )}
-                            class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer"
-                        >
-                            [Set Cap]
-                        </button>
+                        <input type="number" step="0.25" bind:value={gasCeilingInput} class="w-20 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none" />
+                        <button type="button" data-testid="save-gas-ceiling-btn" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'SET_MAX_GAS_CEILING', maxGasCeilingUsd: parseFloat(gasCeilingInput) || 2.5 }, 'GAS_CEILING', `Max Gas Ceiling set to $${gasCeilingInput} USD ✓`)} class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer">[Set Cap]</button>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                     {#each adminData.stratumAndGovernor?.dynamicBatchQueues || [] as q (q.queueId)}
+                        {@const userUsd = Math.max(0, Number(q.pendingUsd || 0))}
+                        {@const targetBatchUsd = Math.max(userUsd + 25, parseFloat(seedTargetUsdInputs[q.asset] ?? '500') || 500)}
+                        {@const founderFillUsd = Math.max(0, targetBatchUsd - userUsd)}
+                        {@const extWholesaleUsd = Number((0.5 * founderFillUsd + userUsd).toFixed(2))}
                         <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
                             <div class="flex items-center justify-between">
                                 <span class="font-black text-white">{q.asset} • {q.queueType}</span>
-                                <span
-                                    class="px-2 py-0.5 rounded text-[8px] font-black uppercase {q.statusPill ===
-                                    'GREEN'
-                                        ? 'bg-[#18C6A5]/20 text-[#18C6A5]'
-                                        : q.statusPill === 'AMBER'
-                                          ? 'bg-amber-500/20 text-amber-300'
-                                          : 'bg-red-500/20 text-red-400'}"
-                                >
-                                    {q.heldByDirector ? 'HELD' : `${q.fillPct}% FULL`}
-                                </span>
+                                <span class="px-2 py-0.5 rounded text-[8px] font-black uppercase {q.statusPill === 'GREEN' ? 'bg-[#18C6A5]/20 text-[#18C6A5]' : q.statusPill === 'AMBER' ? 'bg-amber-500/20 text-amber-300' : 'bg-red-500/20 text-red-400'}">{q.heldByDirector ? 'HELD' : `${q.fillPct}% FULL`}</span>
                             </div>
                             <div class="text-[9px] text-neutral-400 flex items-center justify-between">
                                 <span>Pending: <strong class="text-white">{q.pendingKas} KAS</strong> (${q.pendingUsd})</span>
                                 <span>Min: {q.minThresholdKas} KAS</span>
                             </div>
-                            <div class="w-full h-1.5 bg-[#0a0d12] rounded-full overflow-hidden">
-                                <div
-                                    class="h-full bg-[#18C6A5]"
-                                    style="width: {Math.min(100, Number(q.fillPct || 0))}%;"
-                                ></div>
+                            <div class="w-full h-1.5 bg-[#0a0d12] rounded-full overflow-hidden"><div class="h-full bg-[#18C6A5]" style="width: {Math.min(100, Number(q.fillPct || 0))}%;"></div></div>
+                            <div class="flex items-center gap-2 pt-0.5">
+                                <button type="button" data-testid="governor-flush-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'FLUSH_NOW', asset: q.asset }, `FLUSH_${q.asset}`, `Flushed ${q.asset} Batch Queue ✓`)} class="flex-1 py-1 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase cursor-pointer">[Flush Now]</button>
+                                <button type="button" data-testid="governor-hold-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'TOGGLE_HOLD', asset: q.asset }, `HOLD_${q.asset}`, `${q.asset} Queue ${q.heldByDirector ? 'Resumed' : 'Held'}`)} class="flex-1 py-1 rounded bg-[#0a0d12] border border-amber-500/40 text-amber-300 text-[8px] font-bold uppercase cursor-pointer">{q.heldByDirector ? '[Resume Queue]' : '[Hold Queue]'}</button>
                             </div>
-                            <div class="flex items-center gap-2 pt-1">
-                                <button
-                                    type="button"
-                                    data-testid="governor-flush-{q.asset}"
-                                    onclick={() =>
-                                        dispatchDirectorAction(
-                                            {
-                                                action: 'GOVERN_DYNAMIC_QUEUE',
-                                                governorAction: 'FLUSH_NOW',
-                                                asset: q.asset
-                                            },
-                                            `FLUSH_${q.asset}`,
-                                            `Flushed ${q.asset} Batch Queue ✓`
-                                        )}
-                                    class="flex-1 py-1 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase cursor-pointer"
-                                >
-                                    [Flush Now]
-                                </button>
-                                <button
-                                    type="button"
-                                    data-testid="governor-hold-{q.asset}"
-                                    onclick={() =>
-                                        dispatchDirectorAction(
-                                            {
-                                                action: 'GOVERN_DYNAMIC_QUEUE',
-                                                governorAction: 'TOGGLE_HOLD',
-                                                asset: q.asset
-                                            },
-                                            `HOLD_${q.asset}`,
-                                            `${q.asset} Queue ${q.heldByDirector ? 'Resumed' : 'Held'}`
-                                        )}
-                                    class="flex-1 py-1 rounded bg-[#0a0d12] border border-amber-500/40 text-amber-300 text-[8px] font-bold uppercase cursor-pointer"
-                                >
-                                    {q.heldByDirector ? '[Resume Queue]' : '[Hold Queue]'}
-                                </button>
-                            </div>
+                            {#if q.asset !== 'KAS'}
+                                <div class="border-t border-white/5 pt-2 mt-0.5 flex flex-col gap-1.5">
+                                    <div class="flex items-center justify-between text-[8px] text-neutral-400">
+                                        <span>0.5F + U Wholesale: <strong class="text-white">${extWholesaleUsd.toFixed(0)}</strong></span>
+                                        <span>New 50/50 LP: <strong class="text-[#18C6A5]">~${founderFillUsd.toFixed(0)}</strong></span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5">
+                                        <input type="number" min="50" step="50" data-testid="governor-seed-usd-{q.asset}" value={seedTargetUsdInputs[q.asset] ?? '500'} oninput={(e) => { seedTargetUsdInputs = { ...seedTargetUsdInputs, [q.asset]: (e.currentTarget as HTMLInputElement).value }; }} class="w-20 bg-[#0a0d12] border border-white/15 rounded px-2 py-1 text-[9px] text-white font-bold tabular-nums outline-none" />
+                                        <button type="button" data-testid="governor-seed-clear-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'SEED_AND_CLEAR_BUCKET', asset: q.asset, targetBatchUsd }, `SEED_${q.asset}`, `Seed & Clear (${q.asset}): $${extWholesaleUsd.toFixed(0)} wholesale -> 50/50 LP + queue cleared ✓`)} disabled={actionBusyKey === `SEED_${q.asset}`} class="flex-1 py-1 px-2 rounded bg-[#18C6A5]/15 border border-[#18C6A5]/50 text-[#18C6A5] hover:text-white text-[8px] font-black uppercase cursor-pointer">{actionBusyKey === `SEED_${q.asset}` ? 'Seeding...' : '[Seed & Clear 50/50]'}</button>
+                                    </div>
+                                </div>
+                            {/if}
                         </div>
                     {/each}
                 </div>
             </div>
-
-            <!-- System Treasury & Airlock Ceiling Config -->
+<!-- System Treasury & Airlock Ceiling Config -->
             <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                 <span class="text-xs font-black uppercase text-white">
                     Hot/Cold Airlock Ceiling &amp; Solvency Parameters (`system_treasury_config`)

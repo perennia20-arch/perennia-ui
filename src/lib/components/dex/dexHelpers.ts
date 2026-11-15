@@ -4,8 +4,54 @@ import { ui } from '$lib/stores/ui.svelte';
 import { identity } from '$lib/stores/identity.svelte';
 
 export const HARD_PROFIT_FLOOR_RATE = 0.001;
-export const STANDARD_PUBLIC_SWAP_FEE_RATE = 0.0015;
-export const PUBLIC_MAX_SWAP_FEE_RATE = 0.015;
+export const BUY_KAS_INBOUND_FEE_RATE = 0.002;
+export const WHOLESALE_VOLUME_SWAP_FEE_RATE = 0.0025;
+export const DARK_POOL_MAJOR_SWAP_FEE_RATE = 0.005;
+export const PASS_THROUGH_SWAP_FEE_RATE = 0.0085;
+export const STANDARD_PUBLIC_SWAP_FEE_RATE = 0.002;
+export const PUBLIC_MAX_SWAP_FEE_RATE = 0.0085;
+export const DARK_POOL_RESERVE_TICKERS = new Set(['KAS','BTC','ETH','SOL','USDC','USDT','SILO']);
+
+export function estimateModeledLegGasUsd(ticker: string): number {
+    const c = String(ticker || '').trim().toUpperCase();
+    if (c === 'KAS' || c === 'SILO') return 0.002;
+    if (c === 'BTC') return 0.65;
+    if (['ETH','USDC','USDT','XAU'].includes(c)) return 0.25;
+    if (['SOL','ARB','BASE','POL','AVAX','SUI','XRP','DOGE','TRX'].includes(c)) return 0.02;
+    return 0.15;
+}
+
+export function calculateDirectionalSwapQuote(p: {
+    payTicker: string; receiveTicker: string; payAmount: number;
+    paySpotUsd: number; receiveSpotUsd: number; isActiveMiner?: boolean;
+    siloFeeCap?: number; hasStakedSilo?: boolean;
+}) {
+    const pay = String(p.payTicker || 'KAS').toUpperCase();
+    const rec = String(p.receiveTicker || 'USDC').toUpperCase();
+    const amt = Math.max(0, Number(p.payAmount || 0));
+    const pSpot = Math.max(0, Number(p.paySpotUsd || 0));
+    const rSpot = Math.max(0, Number(p.receiveSpotUsd || 0));
+    const exchangeRate = pSpot > 0 && rSpot > 0 ? pSpot / rSpot : 0;
+    const isDarkPoolPair = DARK_POOL_RESERVE_TICKERS.has(pay) && DARK_POOL_RESERVE_TICKERS.has(rec);
+    const grossUsd = amt * pSpot;
+    let feeRateDecimal = isDarkPoolPair ? DARK_POOL_MAJOR_SWAP_FEE_RATE : PASS_THROUGH_SWAP_FEE_RATE;
+    if (p.isActiveMiner) feeRateDecimal = HARD_PROFIT_FLOOR_RATE;
+    else if (rec === 'KAS') feeRateDecimal = BUY_KAS_INBOUND_FEE_RATE;
+    else if (grossUsd >= 2500) feeRateDecimal = WHOLESALE_VOLUME_SWAP_FEE_RATE;
+    if (p.hasStakedSilo && Number(p.siloFeeCap) > 0) {
+        feeRateDecimal = Math.max(HARD_PROFIT_FLOOR_RATE, Math.min(feeRateDecimal, Number(p.siloFeeCap)));
+    }
+    if (amt <= 0 || pSpot <= 0 || rSpot <= 0) {
+        return { grossUsd: 0, protocolFeeUsd: 0, networkGasUsd: 0, feeUsd: 0, netUsd: 0, estimatedOut: 0, exchangeRate, feeRateDecimal, isDarkPoolPair };
+    }
+    const rawGas = estimateModeledLegGasUsd(pay) + estimateModeledLegGasUsd(rec);
+    const networkGasUsd = isDarkPoolPair && grossUsd < 25 ? Math.min(rawGas, grossUsd * 0.01) : rawGas;
+    const externalSlip = isDarkPoolPair ? 0 : grossUsd * 0.0015;
+    const protocolFeeUsd = Math.max(0.01, grossUsd * feeRateDecimal);
+    const feeUsd = Math.min(grossUsd, protocolFeeUsd + networkGasUsd + externalSlip);
+    const netUsd = Math.max(0, grossUsd - feeUsd);
+    return { grossUsd, protocolFeeUsd, networkGasUsd, feeUsd, netUsd, estimatedOut: netUsd / rSpot, exchangeRate, feeRateDecimal, isDarkPoolPair };
+}
 
 export const RETAIL_ONRAMP_FEE_BPS = 85;
 export const PRO_MINER_ONRAMP_FEE_BPS = 35;

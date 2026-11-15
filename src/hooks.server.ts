@@ -37,6 +37,7 @@ const PUBLIC_API_PREFIXES = [
     '/api/health',
     '/api/webhooks',
     '/api/prices',
+    '/api/buckets',
     '/api/telemetry'
 ];
 
