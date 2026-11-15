@@ -1546,7 +1546,7 @@
 
 {#if ui.showWalletModal}
     <div
-        class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-[#06080b]/95 backdrop-blur-md p-0 sm:p-4 font-mono"
+        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#06080b]/95 backdrop-blur-md px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-16 font-mono"
         transition:fade={{ duration: 150 }}
         onclick={handleBackdropClick}
         onkeydown={(e) => e.key === 'Escape' && handleBackdropClick()}
@@ -1554,7 +1554,7 @@
         tabindex="0"
     >
         <div
-            class="w-full {viewState === 'create_seed' || viewState === 'verify_seed' ? 'max-w-lg' : 'max-w-md'} max-h-[92dvh] overflow-y-auto rounded-t-[28px] sm:rounded-[28px] border-t sm:border border-white/15 bg-[#0a0d12] shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 text-white transition-all duration-200 relative overflow-hidden"
+            class="w-full {viewState === 'create_seed' || viewState === 'verify_seed' ? 'max-w-lg' : 'max-w-md'} max-h-[78dvh] sm:max-h-[85dvh] overflow-y-auto rounded-[28px] sm:rounded-[28px] border-t sm:border border-white/15 bg-[#0a0d12] shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 text-white transition-all duration-200 relative overflow-hidden"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
             transition:fly={{ y: 10, duration: 200 }}
             onclick={(e) => e.stopPropagation()}

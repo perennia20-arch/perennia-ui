@@ -1329,7 +1329,7 @@
 
 <div class="w-full h-full p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto bg-transparent" role="presentation">
 <div data-testid="mobile-kpi-ribbon" class="lg:hidden flex items-stretch gap-2.5 overflow-x-auto snap-x snap-mandatory hide-scrollbar -mx-1 px-1 pb-1 font-mono"><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>Hashrate</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{displayHashrate.toFixed(2)} <span class="text-[9px] text-[#18C6A5]">TH/s</span></span></div><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">KAS / USD</span><div class="flex items-baseline gap-1.5 mt-0.5"><span class="text-sm font-black text-white tabular-nums">${treasury.getAsset('KAS').spotPrice.toFixed(4)}</span><span class="text-[8px] font-bold {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">{activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%</span></div></div><div class="snap-start shrink-0 min-w-[152px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">Blocks</span><span class="text-xs font-black text-blue-400 tabular-nums mt-0.5 truncate">{operations.virtualDaaScore > 0 ? operations.virtualDaaScore.toLocaleString() : operations.networkDifficulty > 0 ? operations.networkDifficulty.toExponential(2) : (operations.globalNodeStatus === 'connected' ? 'DAG ONLINE' : 'STANDBY')}</span></div><div class="snap-start shrink-0 min-w-[158px] bg-[#0a0d12] border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">Next Payout</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{operations.formatEpochCountdown()}</span></div></div>
-<div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
         <WorkerFleetPanel
             {displayedWorkers}
             {displayHashrate}
@@ -1519,9 +1519,9 @@
                         </p>
                     </div>
                 {:else}
-                    <div class="flex flex-col gap-6 relative z-10 content-start pb-10">
+                    <div class="flex flex-col gap-3 relative z-10 content-start pb-10">
                         {#if siloSectors.length > 0}
-                            <div class="flex flex-col gap-3" data-testid="settlement-silos-section">
+                            <div class="flex flex-col gap-2" data-testid="settlement-silos-section">
                                 <div class="flex items-center justify-between border-b border-[#18C6A5]/25 pb-2">
                                     <h3 class="text-[10px] font-bold uppercase tracking-widest text-[#18C6A5]">
                                         Token Splits
@@ -1530,7 +1530,7 @@
                                         {siloSectors.length} Split{siloSectors.length === 1 ? '' : 's'}
                                     </span>
                                 </div>
-                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5">
+                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
                                     {#each siloSectors as sector (sector.id)}
                                         <SectorCard
                                             {sector}
@@ -1576,7 +1576,7 @@
                                         {plantSectors.length} Pool Split{plantSectors.length === 1 ? '' : 's'}
                                     </span>
                                 </div>
-                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5">
+                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
                                     {#each plantSectors as sector (sector.id)}
                                         <SectorCard
                                             {sector}

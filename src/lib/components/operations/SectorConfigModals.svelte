@@ -151,11 +151,11 @@
 
 {#if isSectorModalOpen}
     <div
-        class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#050505]/95"
+        class="fixed inset-0 z-[9990] flex items-center justify-center px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-12 bg-[#050505]/95"
         transition:fade={{ duration: 150 }}
     >
         <div class="absolute inset-0 w-full h-full cursor-default border-none"></div>
-        <div class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-t-[28px] sm:rounded-[28px] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col">
+        <div class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-2xl sm:rounded-[24px] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col">
             <div class="p-6 border-b border-white/10 bg-[#11161f] flex justify-between items-center shrink-0">
                 <div class="flex flex-col">
                     <h2 class="text-white font-black uppercase tracking-widest text-lg leading-none">
@@ -180,7 +180,7 @@
                     ✕
                 </button>
             </div>
-            <div class="p-6 flex flex-col gap-5 max-h-[66vh] overflow-y-auto hide-scrollbar">
+            <div class="p-4 sm:p-5 flex flex-col gap-3.5 max-h-[50dvh] sm:max-h-[64vh] overflow-y-auto hide-scrollbar">
                 <div class="flex flex-col gap-1.5">
                     <label
                         for="draftSectorNameInput"
@@ -560,7 +560,7 @@
                     </div>
                 {/if}
             </div>
-            <div class="flex gap-3 px-6 pb-6 pt-4 bg-[#11161f] border-t border-white/10 shrink-0">
+            <div class="flex gap-3 px-5 py-3 bg-[#11161f] border-t border-white/10 shrink-0">
                 <button
                     type="button"
                     onclick={() => (isSectorModalOpen = false)}
@@ -585,22 +585,21 @@
 
 {#if settlementModalSilo && editSettlementParams}
     {@const modalPendingKas = Math.max(0, Number(settlementModalSilo.pendingKaspa || 0))}
-    <div class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="fixed inset-0 z-[9990] flex items-center justify-center px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-12">
         <div class="absolute inset-0 w-full h-full bg-[#050505]/98 cursor-default border-none"></div>
         <div
-            class="relative z-10 w-full max-w-[500px] bg-[#0a0d12] border border-white/15 rounded-t-[28px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {isEditMultiAssetPlant ? 'border-t-blue-500' : 'border-t-emerald-500'}"
+            class="relative z-10 w-full max-w-[500px] bg-[#0a0d12] border border-white/15 rounded-2xl sm:rounded-[24px] shadow-2xl flex flex-col overflow-hidden transition-colors duration-500 border-t-4 {isEditMultiAssetPlant ? 'border-t-blue-500' : 'border-t-emerald-500'}"
         >
-            <div class="px-6 pt-6 pb-4 border-b border-white/10 bg-[#11161f] shrink-0">
+            <div class="px-5 pt-3.5 pb-2.5 border-b border-white/10 bg-[#11161f] shrink-0">
                 <h3 class="text-white font-bold tracking-wide text-base mb-1 text-center truncate">
                     {settlementModalSilo.name}
                 </h3>
                 <span class="text-[10px] text-neutral-400 uppercase tracking-widest text-center block font-bold">
                     {isEditMultiAssetPlant
-                        ? `Multi-Asset Liquidity Plant (50% KAS • ${editInternalPairsCount} Cross-Pairs)`
-                        : 'Settlement Silo Protocol'}
+                        ? 'Sector Settings' : 'Sector Settings'}
                 </span>
             </div>
-            <div class="p-6 flex flex-col gap-5 max-h-[60vh] overflow-y-auto hide-scrollbar">
+            <div class="p-4 sm:p-5 flex flex-col gap-3.5 max-h-[48dvh] sm:max-h-[60vh] overflow-y-auto hide-scrollbar">
                 <div class="flex flex-col gap-1.5">
                     <label
                         for="editSectorNameInput"
@@ -776,7 +775,7 @@
                     </div>
                 {/if}
             </div>
-            <div class="flex gap-3 px-6 pb-6 pt-4 bg-[#11161f] border-t border-white/10 shrink-0">
+            <div class="flex gap-3 px-5 py-3 bg-[#11161f] border-t border-white/10 shrink-0">
                 <button
                     type="button"
                     aria-label="Cancel"
@@ -806,7 +805,7 @@
 
 {#if isAssetPickerOpen}
     <div
-        class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-[#050505]/95"
+        class="fixed inset-0 z-[9995] flex items-center justify-center px-3 pt-4 pb-24 sm:p-4 bg-[#050505]/95"
         transition:fade={{ duration: 150 }}
     >
         <div class="absolute inset-0 w-full h-full cursor-default border-none bg-transparent"></div>

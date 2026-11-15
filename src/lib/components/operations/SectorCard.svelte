@@ -134,7 +134,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
     ondragover={(e) => onDragOver(e, sector.id)}
     ondragleave={onDragLeave}
     ondrop={(e) => onDrop(e, sector.id)}
-    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} bg-[#0c1017] rounded-xl p-3 flex flex-col gap-2.5 relative cursor-grab active:cursor-grabbing min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
+    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[#0c1017] rounded-lg px-2.5 py-1.5 flex flex-col gap-1 relative cursor-grab active:cursor-grabbing min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
     style="border: 1px solid rgba(255,255,255,0.07); box-shadow: none;"
 >
     {#if activeBadge}
@@ -148,7 +148,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
     ﻿<div class="flex justify-between items-center gap-2 min-w-0">
   <button type="button" onmousedown={(e) => e.stopPropagation()}
     onclick={() => onRenameSector(sector.id)} title="Click to Rename"
-    class="flex items-center gap-1.5 min-w-0 text-xs sm:text-sm font-bold uppercase text-white tracking-wider truncate text-left hover:text-[#18C6A5] transition-colors cursor-pointer">
+    class="flex items-center gap-1.5 min-w-0 text-xs font-bold uppercase text-white tracking-wider truncate text-left hover:text-[#18C6A5] transition-colors cursor-pointer">
     <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{hex};"></span>
     <span class="truncate">{sector.name}</span>
   </button>
@@ -161,14 +161,14 @@ import { pwa } from '$lib/stores/pwa.svelte';
       class="text-neutral-500 hover:text-white cursor-pointer w-5 h-5 hidden lg:flex items-center justify-center bg-white/[0.03] border border-white/10 rounded text-[7px] font-bold">[ ]</button>
     <button type="button" onmousedown={(e) => e.stopPropagation()}
       onclick={() => onOpenSettlement(sector)} title="Configure"
-      class="text-neutral-400 hover:text-white cursor-pointer w-6 h-6 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[11px]">⚙</button>
+      class="text-neutral-400 hover:text-white cursor-pointer w-5 h-5 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[11px]">⚙</button>
     <button type="button" onmousedown={(e) => e.stopPropagation()}
       onclick={() => onDeleteSector(sector.id)} title="Remove"
-      class="text-neutral-500 hover:text-red-400 cursor-pointer w-6 h-6 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[10px]">✕</button>
+      class="text-neutral-500 hover:text-red-400 cursor-pointer w-5 h-5 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[10px]">✕</button>
   </div>
 </div>
 
-﻿<div class="flex items-start justify-between gap-2 pt-1.5 border-t border-white/[0.06] min-w-0">
+﻿<div class="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.05] min-w-0">
   <div class="flex items-start gap-2 min-w-0">
     {#if isLp}
       <div class="flex -space-x-1.5 shrink-0 mt-0.5">
@@ -193,7 +193,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
         <a href={sectorExplorerUrl} target="_blank" rel="noopener noreferrer"
           onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}
           data-testid="sector-explorer-link-{sector.id}"
-          class="mt-0.5 px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.08] text-[7px] font-mono font-bold uppercase tracking-wider text-neutral-400 hover:text-[#18C6A5] hover:border-[#18C6A5]/40 transition-colors w-fit">Explorer ↗</a>
+          class="mt-0.5 text-[7px] font-mono font-bold uppercase tracking-wider text-neutral-500 hover:text-[#18C6A5] transition-colors w-fit">Explorer ↗</a>
       {:else if isUsdSilo}
         <span class="text-[8px] font-mono text-neutral-500 truncate">{savedBankRailLast4 ? `*${savedBankRailLast4} (${savedBankRailMethod})` : 'Link Bank Rail'}</span>
       {/if}
@@ -203,16 +203,16 @@ import { pwa } from '$lib/stores/pwa.svelte';
     <span class="text-[9px] font-bold uppercase whitespace-nowrap" style="color:{hex};">
       {isLp || targetTicker !== 'KAS' ? operations.formatEpochCountdown() : sector.settlementConfig?.mode === 'threshold' ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS` : sector.settlementConfig?.mode || 'epoch'}
     </span>
-    <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap mt-0.5">
+    <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
       ~{_num(dailyKas).toFixed(1)} KAS/d <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
     </span>
   </div>
 </div>
 
-﻿<div class="flex items-center gap-1.5 pt-1.5 border-t border-white/[0.06] min-w-0 w-full font-mono font-bold"
+﻿<div class="flex items-center gap-1.5 pt-1 border-t border-white/[0.05] min-w-0 w-full font-mono font-bold"
   draggable="true" ondragstart={(e) => { e.preventDefault(); e.stopPropagation(); }}
   onmousedown={(e) => e.stopPropagation()}>
-  <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded-md px-1.5 py-0.5 shrink-0">
+  <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
     <input type="number" value={sector.allocationPercentage}
       oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
       onchange={() => onCommitUpdate(sector.id)}
@@ -228,7 +228,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
     onchange={() => onSliderChange(sector.id)}
     class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
     style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) 100%);" />
-  <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded-md px-1.5 py-0.5 shrink-0">
+  <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
     <input type="number" value={_num(mappedHash).toFixed(2)}
       oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
       onchange={() => onCommitUpdate(sector.id)}
@@ -239,6 +239,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
 </div>
 
 <style>
+.sector-card-compact, .sector-card-compact * { line-height: 1.12 !important; }
 .sector-slim-num::-webkit-outer-spin-button,.sector-slim-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .sector-slim-num{-moz-appearance:textfield;appearance:textfield}
 input[type='range'].sector-slim-range{-webkit-appearance:none;appearance:none;height:3px!important;min-height:3px!important;border-radius:999px;outline:none;padding:0;margin:0 2px}
