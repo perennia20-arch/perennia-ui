@@ -1124,6 +1124,48 @@
         }
     }
 
+    async function handleInlineSaveSector(
+        id: string,
+        nextName: string,
+        nextRouteMode: RouteMode,
+        nextConfig: SettlementConfig
+    ) {
+        const existing = operations.sectors.find((s) => s.id === id);
+        if (!existing) return;
+        const trimmedName = nextName.trim() || existing.name;
+        const nameChanged = trimmedName !== existing.name;
+        const targetTickerUpper = (nextConfig.targetAsset?.ticker || '').toUpperCase();
+        const mineable =
+            nextRouteMode !== 'auto-lp'
+                ? mineableVaultMap.get(targetTickerUpper) || null
+                : null;
+        const configCopy: any = JSON.parse(JSON.stringify(nextConfig));
+        if (mineable) {
+            configCopy.isMineableKrc20 = true;
+            configCopy.dailyVaultEmission = mineable.dailyEmissionTokens;
+        }
+        operations.sectors = operations.sectors.map((s) =>
+            s.id === id
+                ? {
+                      ...s,
+                      name: trimmedName,
+                      routeMode: nextRouteMode,
+                      settlementConfig: configCopy
+                  }
+                : s
+        );
+        triggerShimmer(`sector_${id}`);
+        ui.triggerMicroBadge(
+            `sector_${id}`,
+            nextRouteMode === 'auto-lp' ? 'POOL SPLIT SAVED ✓' : 'SPLIT SAVED ✓',
+            configCopy.targetAsset?.theme?.hex || '#18C6A5'
+        );
+        if (nameChanged) {
+            await safeDispatch('RENAME_SECTOR', { id, name: trimmedName });
+        }
+        await safeDispatch('UPDATE_SETTLEMENT', { id, config: configCopy });
+    }
+
     function openSettlement(sector: Sector) {
         syncSavedBankRailStatus();
         syncMineableKrc20Vaults();
@@ -1559,7 +1601,10 @@
                                             onSliderInput={handleSectorSliderInput}
                                             onSliderChange={handleSectorSliderChange}
                                             onCommitUpdate={commitSectorUpdate}
+                                            {isPullingOutKey}
                                             onSnapMaxRemaining={snapSectorMaxRemaining}
+                                            onInlineSaveSector={handleInlineSaveSector}
+                                            onClaimPendingSectorKas={claimPendingSectorKas}
                                         />
                                     {/each}
                                 </div>
@@ -1605,7 +1650,10 @@
                                             onSliderInput={handleSectorSliderInput}
                                             onSliderChange={handleSectorSliderChange}
                                             onCommitUpdate={commitSectorUpdate}
+                                            {isPullingOutKey}
                                             onSnapMaxRemaining={snapSectorMaxRemaining}
+                                            onInlineSaveSector={handleInlineSaveSector}
+                                            onClaimPendingSectorKas={claimPendingSectorKas}
                                         />
                                     {/each}
                                 </div>

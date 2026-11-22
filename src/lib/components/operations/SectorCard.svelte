@@ -1,19 +1,32 @@
 <script lang="ts">
-	const _num = (v: unknown): number => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) ? n : 0; };
-	import { operations } from '$lib/stores/operations.svelte';
+    import { slide } from 'svelte/transition';
+    import { operations } from '$lib/stores/operations.svelte';
     import { ui } from '$lib/stores/ui.svelte';
-import { pwa } from '$lib/stores/pwa.svelte';
+    import { pwa } from '$lib/stores/pwa.svelte';
+    import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
     import {
         getChainExplorerAddressUrl,
         getChainExplorerTxUrl
     } from '$lib/stores/transaction.svelte';
-    import type { Sector } from '$lib/stores/type';
+    import type {
+        Sector,
+        RouteMode,
+        SettlementConfig,
+        PlantAssetTarget
+    } from '$lib/stores/type';
     import {
         DEFAULT_RESERVE_PAYOUT_KAS,
+        toPlantTargetSpec,
+        normalizePlantTargets,
         hydrateSectorTargetAssets,
         type ViewSector,
         type MineableKrc20VaultInfo
     } from './operationsHelpers';
+
+    const _num = (v: unknown): number => {
+        const n = typeof v === 'number' ? v : Number(v);
+        return Number.isFinite(n) ? n : 0;
+    };
 
     let {
         sector,
@@ -25,6 +38,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
         mineableVaultMap = new Map(),
         savedBankRailLast4 = null,
         savedBankRailMethod = 'ACH',
+        isPullingOutKey = null,
         resolveChainAddressForTicker,
         estimateSectorDailyKas,
         estimateSectorDailyUsd,
@@ -33,16 +47,16 @@ import { pwa } from '$lib/stores/pwa.svelte';
         onDragOver,
         onDragLeave,
         onDrop,
-        onRenameSector,
         onToggleWidth,
-        onOpenSettlement,
         onDeleteSector,
         onInputPct,
         onInputHash,
         onSliderInput,
         onSliderChange,
         onCommitUpdate,
-        onSnapMaxRemaining
+        onSnapMaxRemaining,
+        onInlineSaveSector,
+        onClaimPendingSectorKas
     }: {
         sector: ViewSector;
         displayHashrate: number;
@@ -53,6 +67,7 @@ import { pwa } from '$lib/stores/pwa.svelte';
         mineableVaultMap: Map<string, MineableKrc20VaultInfo>;
         savedBankRailLast4: string | null;
         savedBankRailMethod: string;
+        isPullingOutKey?: string | null;
         resolveChainAddressForTicker: (ticker: string) => string;
         estimateSectorDailyKas: (s: ViewSector) => number;
         estimateSectorDailyUsd: (s: ViewSector) => number;
@@ -61,9 +76,9 @@ import { pwa } from '$lib/stores/pwa.svelte';
         onDragOver: (e: DragEvent, id: string) => void;
         onDragLeave: () => void;
         onDrop: (e: DragEvent, id: string) => void;
-        onRenameSector: (id: string) => void;
+        onRenameSector?: (id: string) => void;
         onToggleWidth: (id: string) => void;
-        onOpenSettlement: (s: Sector) => void;
+        onOpenSettlement?: (s: Sector) => void;
         onDeleteSector: (id: string) => void;
         onInputPct: (id: string, valStr: string) => void;
         onInputHash: (id: string, hashStr: string) => void;
@@ -71,7 +86,30 @@ import { pwa } from '$lib/stores/pwa.svelte';
         onSliderChange: (id: string) => void;
         onCommitUpdate: (id: string) => void;
         onSnapMaxRemaining: (id: string) => void;
+        onInlineSaveSector?: (
+            id: string,
+            nextName: string,
+            nextRouteMode: RouteMode,
+            nextConfig: SettlementConfig
+        ) => Promise<void>;
+        onClaimPendingSectorKas?: (params: {
+            sectorId?: string;
+            targetAsset?: string;
+        }) => Promise<void>;
     } = $props();
+
+    let isEditing = $state(false);
+    let isSaving = $state(false);
+    let pickerMode = $state<'closed' | 'replace_primary' | 'add_secondary'>('closed');
+    let pickerQuery = $state('');
+    let pickerCategory = $state<'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES' | 'MINEABLE'>('ALL');
+
+    let draftName = $state('');
+    let draftPayoutAddr = $state('');
+    let draftMode = $state<'epoch' | 'threshold' | 'appointment'>('epoch');
+    let draftThreshold = $state(DEFAULT_RESERVE_PAYOUT_KAS);
+    let draftAutoPayout = $state(true);
+    let draftAssets = $state<PlantAssetTarget[]>([]);
 
     function handleTokenIconError(e: Event) {
         const target = e.currentTarget as HTMLImageElement;
@@ -94,14 +132,15 @@ import { pwa } from '$lib/stores/pwa.svelte';
     let isLp = $derived(sector.routeMode === 'auto-lp');
     let targetTicker = $derived(sector.settlementConfig?.targetAsset?.ticker || 'KAS');
     let isUsdSilo = $derived(!isLp && targetTicker === 'USD');
-    let mineableInfo = $derived(!isLp ? mineableVaultMap.get(targetTicker.toUpperCase()) || null : null);
     let hex = $derived(sector.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5');
     let mappedHash = $derived(displayHashrate * (sector.allocationPercentage / 100));
     let dailyKas = $derived(estimateSectorDailyKas(sector));
     let dailyUsd = $derived(estimateSectorDailyUsd(sector));
     let isDragged = $derived(dragSectorId === sector.id);
     let isDropTarget = $derived(dropTargetSectorId === sector.id);
-    let spanClass = $derived((sector.width || 6) === 12 ? 'lg:col-span-12' : 'lg:col-span-6');
+    let spanClass = $derived(
+        isEditing || (sector.width || 6) === 12 ? 'lg:col-span-12' : 'lg:col-span-6'
+    );
     let activeBadge = $derived(ui.microBadges[`sector_${sector.id}`]);
     let resolvedPayoutAddr = $derived(
         sector.settlementConfig?.payoutAddress ||
@@ -120,129 +159,762 @@ import { pwa } from '$lib/stores/pwa.svelte';
             ? plantTargets.map((t) => t.ticker).join(' / ')
             : `KAS / ${targetTicker}`
     );
-    let plantInternalPairs = $derived(
-        isLp && plantTargets.length >= 2
-            ? (plantTargets.length * (plantTargets.length - 1)) / 2
-            : 1
-    );
     let sectorPendingKas = $derived(Math.max(0, Number(sector.pendingKaspa || 0)));
+
+    let isDraftPlant = $derived(draftAssets.length >= 2);
+    let draftPrimaryAsset = $derived(
+        isDraftPlant
+            ? draftAssets[1] || draftAssets[0]
+            : draftAssets[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0)
+    );
+
+    let filteredAssets = $derived(
+        treasury.registry.filter((a) => {
+            const q = pickerQuery.trim().toLowerCase();
+            const matchesSearch =
+                !q ||
+                a.ticker.toLowerCase().includes(q) ||
+                a.name.toLowerCase().includes(q) ||
+                a.assetClass.toLowerCase().includes(q);
+            if (!matchesSearch) return false;
+            if (pickerCategory === 'MINEABLE') {
+                return mineableVaultMap.has(a.ticker.toUpperCase());
+            }
+            if (pickerCategory === 'EQUITIES') {
+                return a.assetClass === 'Public Equity';
+            }
+            if (pickerCategory === 'COMMODITIES') {
+                return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
+            }
+            if (pickerCategory === 'CRYPTO') {
+                return (
+                    a.assetClass === 'Native L1' ||
+                    a.assetClass === 'Stablecoin' ||
+                    a.assetClass === 'Ecosystem' ||
+                    a.assetClass === 'DeFi' ||
+                    a.assetClass === 'Tokenized Asset'
+                );
+            }
+            return true;
+        })
+    );
+
+    function openInlineEditor(initialPicker: 'closed' | 'replace_primary' | 'add_secondary' = 'closed') {
+        if (!isEditing) {
+            draftName = sector.name;
+            const hydrated = hydrateSectorTargetAssets(sector);
+            draftAssets = normalizePlantTargets(hydrated);
+            const prim = draftAssets.length >= 2 ? draftAssets[1] : draftAssets[0];
+            draftPayoutAddr =
+                sector.settlementConfig?.payoutAddress ||
+                resolveChainAddressForTicker(prim?.ticker || 'KAS');
+            draftMode = (sector.settlementConfig?.mode as any) || 'epoch';
+            draftThreshold = Number(sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS);
+            draftAutoPayout = sector.settlementConfig?.autoPayout !== false;
+            isEditing = true;
+            treasury.syncRwaOraclePrices();
+        }
+        pickerMode = initialPicker;
+        pickerQuery = '';
+    }
+
+    function cancelInlineEditor() {
+        isEditing = false;
+        pickerMode = 'closed';
+        pickerQuery = '';
+    }
+
+    function selectDraftAsset(asset: UnifiedAsset) {
+        const cleanTicker = asset.ticker.toUpperCase();
+        if (pickerMode === 'replace_primary' && draftAssets.length <= 1) {
+            draftAssets = [toPlantTargetSpec(asset, 100.0)];
+            draftPayoutAddr = resolveChainAddressForTicker(cleanTicker);
+            if (cleanTicker !== 'KAS') draftMode = 'epoch';
+            pickerMode = 'closed';
+            return;
+        }
+
+        const secondaries = draftAssets
+            .filter((i) => i.ticker.toUpperCase() !== 'KAS' && i.ticker.toUpperCase() !== cleanTicker)
+            .slice(0, 3);
+        if (cleanTicker !== 'KAS') {
+            secondaries.push(toPlantTargetSpec(asset, 0));
+        } else if (secondaries.length === 0) {
+            secondaries.push(toPlantTargetSpec(treasury.getAsset('USDC'), 50.0));
+        }
+        const eqShare = Number((50.0 / secondaries.length).toFixed(2));
+        draftAssets = normalizePlantTargets([
+            toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
+            ...secondaries.map((s) => ({ ...s, weightPct: eqShare }))
+        ]);
+        const primSec = draftAssets[1] || draftAssets[0];
+        draftPayoutAddr = resolveChainAddressForTicker(primSec.ticker);
+        draftMode = 'epoch';
+        pickerMode = 'closed';
+    }
+
+    function removeSecondaryAsset(ticker: string) {
+        const clean = ticker.toUpperCase();
+        const rem = draftAssets.filter(
+            (i) => i.ticker.toUpperCase() !== clean && i.ticker.toUpperCase() !== 'KAS'
+        );
+        if (rem.length === 0) {
+            draftAssets = [toPlantTargetSpec(treasury.getAsset('KAS'), 100.0)];
+            draftPayoutAddr = resolveChainAddressForTicker('KAS');
+        } else {
+            const eq = Number((50.0 / rem.length).toFixed(2));
+            draftAssets = normalizePlantTargets([
+                toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
+                ...rem.map((s) => ({ ...s, weightPct: eq }))
+            ]);
+            draftPayoutAddr = resolveChainAddressForTicker(draftAssets[1].ticker);
+        }
+    }
+
+    function equalizeDraftWeights() {
+        if (draftAssets.length < 2) return;
+        const secs = draftAssets.filter((i) => i.ticker.toUpperCase() !== 'KAS');
+        const eq = Number((50.0 / Math.max(1, secs.length)).toFixed(2));
+        draftAssets = normalizePlantTargets([
+            toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
+            ...secs.map((s) => ({ ...s, weightPct: eq }))
+        ]);
+    }
+
+    function adjustDraftWeight(changedTicker: string, rawPct: number) {
+        if (draftAssets.length <= 2) return;
+        const secs = draftAssets.filter((i) => i.ticker.toUpperCase() !== 'KAS');
+        const clamped = Math.max(1.0, Math.min(49.0, rawPct));
+        const remOthers = Math.max(0.5, 50.0 - clamped);
+        const others = secs.filter((s) => s.ticker.toUpperCase() !== changedTicker.toUpperCase());
+        const oldSum = others.reduce((acc, o) => acc + Math.max(0.1, o.weightPct), 0);
+        const updated = secs.map((s) => {
+            if (s.ticker.toUpperCase() === changedTicker.toUpperCase()) {
+                return { ...s, weightPct: Number(clamped.toFixed(2)) };
+            }
+            const share =
+                oldSum > 0
+                    ? (Math.max(0.1, s.weightPct) / oldSum) * remOthers
+                    : remOthers / Math.max(1, others.length);
+            return { ...s, weightPct: Number(share.toFixed(2)) };
+        });
+        draftAssets = normalizePlantTargets([
+            toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
+            ...updated
+        ]);
+    }
+
+    async function saveInlineChanges() {
+        isSaving = true;
+        try {
+            const normalized = normalizePlantTargets(draftAssets);
+            const isPlant = normalized.length >= 2;
+            const nextName = draftName.trim() || sector.name;
+            const weightsMap: Record<string, number> = {};
+            for (const item of normalized) {
+                weightsMap[item.ticker] = item.weightPct;
+            }
+            const targetObj = isPlant ? normalized[1] || normalized[0] : normalized[0];
+            const nextRouteMode: RouteMode = isPlant
+                ? 'auto-lp'
+                : targetObj.ticker.toUpperCase() === 'KAS'
+                  ? 'hold'
+                  : 'swap';
+
+            const baseCfg = sector.settlementConfig || {
+                targetAsset: targetObj,
+                targetAssets: normalized,
+                plantWeights: weightsMap,
+                plantPair: normalized.map((i) => i.ticker).join('/'),
+                payoutAddress: draftPayoutAddr.trim() || resolveChainAddressForTicker(targetObj.ticker),
+                autoPayout: draftAutoPayout,
+                mode: 'epoch',
+                threshold: DEFAULT_RESERVE_PAYOUT_KAS,
+                appointmentDate: '',
+                appointmentTime: '17:00'
+            };
+
+            const nextConfig: SettlementConfig = {
+                ...JSON.parse(JSON.stringify(baseCfg)),
+                targetAsset: targetObj,
+                targetAssets: normalized,
+                plantWeights: weightsMap,
+                plantPair: isPlant ? normalized.map((i) => i.ticker).join('/') : targetObj.ticker,
+                payoutAddress:
+                    draftPayoutAddr.trim() || resolveChainAddressForTicker(targetObj.ticker),
+                autoPayout: draftAutoPayout,
+                mode: isPlant || targetObj.ticker.toUpperCase() !== 'KAS' ? 'epoch' : draftMode,
+                threshold: Math.max(1, Number(draftThreshold) || DEFAULT_RESERVE_PAYOUT_KAS)
+            };
+
+            if (onInlineSaveSector) {
+                await onInlineSaveSector(sector.id, nextName, nextRouteMode, nextConfig);
+            } else {
+                const nameChanged = nextName !== sector.name;
+                operations.sectors = operations.sectors.map((s) =>
+                    s.id === sector.id
+                        ? { ...s, name: nextName, routeMode: nextRouteMode, settlementConfig: nextConfig }
+                        : s
+                );
+                if (nameChanged) {
+                    await operations.dispatchStateAction('RENAME_SECTOR', { id: sector.id, name: nextName });
+                }
+                await operations.dispatchStateAction('UPDATE_SETTLEMENT', { id: sector.id, config: nextConfig });
+            }
+
+            isEditing = false;
+            pickerMode = 'closed';
+        } finally {
+            isSaving = false;
+        }
+    }
 </script>
 
-<div draggable={!pwa.isMobile} data-testid="sector-card-{sector.name}"
-    ondragstart={(e) => onDragStart(e, sector)}
+<div
+    draggable={!pwa.isMobile && !isEditing}
+    data-testid="sector-card-{sector.name}"
+    ondragstart={(e) => {
+        if (isEditing) {
+            e.preventDefault();
+            return;
+        }
+        onDragStart(e, sector);
+    }}
     ondragend={onDragEnd}
     ondragover={(e) => onDragOver(e, sector.id)}
     ondragleave={onDragLeave}
     ondrop={(e) => onDrop(e, sector.id)}
-    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[#0c1017] rounded-lg px-2.5 py-1.5 flex flex-col gap-1 relative cursor-grab active:cursor-grabbing min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
-    style="border: 1px solid rgba(255,255,255,0.07); box-shadow: none;"
+    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[#0c1017] rounded-xl px-3 py-2 flex flex-col gap-1.5 relative {isEditing ? 'cursor-default' : 'cursor-pointer'} min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
+    style="border: 1px solid {isEditing ? `${hex}75` : 'rgba(255,255,255,0.08)'}; box-shadow: none;"
 >
     {#if activeBadge}
         <div
-            class="micro-confirm-badge absolute top-3 left-1/2 -translate-x-1/2 z-40 px-3 py-1 rounded-lg bg-[#11161f] border text-[10px] font-mono font-black uppercase tracking-widest shadow-lg"
+            class="micro-confirm-badge absolute top-2.5 left-1/2 -translate-x-1/2 z-40 px-3 py-1 rounded-lg bg-[#11161f] border text-[10px] font-mono font-black uppercase tracking-widest"
             style="border-color: {activeBadge.accentHex}60; color: {activeBadge.accentHex};"
         >
             {activeBadge.label}
         </div>
     {/if}
-    ﻿<div class="flex justify-between items-center gap-2 min-w-0">
-  <button type="button" onmousedown={(e) => e.stopPropagation()}
-    onclick={() => onRenameSector(sector.id)} title="Click to Rename"
-    class="flex items-center gap-1.5 min-w-0 text-xs font-bold uppercase text-white tracking-wider truncate text-left hover:text-[#18C6A5] transition-colors cursor-pointer">
-    <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{hex};"></span>
-    <span class="truncate">{sector.name}</span>
-  </button>
-  <div class="flex items-center gap-1.5 shrink-0">
-    <span class="text-[10px] font-mono text-neutral-300 font-bold whitespace-nowrap tabular-nums">
-      {_num(sectorPendingKas).toFixed(4)} <span class="text-[#18C6A5]">KAS</span>
-    </span>
-    <button type="button" onmousedown={(e) => e.stopPropagation()}
-      onclick={() => onToggleWidth(sector.id)} title="Toggle Width"
-      class="text-neutral-500 hover:text-white cursor-pointer w-5 h-5 hidden lg:flex items-center justify-center bg-white/[0.03] border border-white/10 rounded text-[7px] font-bold">[ ]</button>
-    <button type="button" onmousedown={(e) => e.stopPropagation()}
-      onclick={() => onOpenSettlement(sector)} title="Configure"
-      class="text-neutral-400 hover:text-white cursor-pointer w-5 h-5 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[11px]">⚙</button>
-    <button type="button" onmousedown={(e) => e.stopPropagation()}
-      onclick={() => onDeleteSector(sector.id)} title="Remove"
-      class="text-neutral-500 hover:text-red-400 cursor-pointer w-5 h-5 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[10px]">✕</button>
-  </div>
-</div>
 
-﻿<div class="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.05] min-w-0">
-  <div class="flex items-start gap-2 min-w-0">
-    {#if isLp}
-      <div class="flex -space-x-1.5 shrink-0 mt-0.5">
-        {#each plantTargets as pt (pt.ticker)}
-          <div class="w-4 h-4 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[7px] font-black"
-            style="color:{pt.theme?.hex || '#18C6A5'};">{pt.ticker[0]}</div>
-        {/each}
-      </div>
-    {:else}
-      <div class="w-4 h-4 mt-0.5 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[8px] font-black overflow-hidden shrink-0"
-        style="color:{hex};">
-        {#if sector.settlementConfig?.targetAsset?.imgUrl}
-          <img src={sector.settlementConfig.targetAsset.imgUrl} class="w-3 h-3 object-contain" alt="" onerror={handleTokenIconError} />
-          <span style="display:none;">{targetTicker[0]}</span>
-        {:else}{isUsdSilo ? '$' : targetTicker[0]}{/if}
-      </div>
-    {/if}
-    <div class="flex flex-col min-w-0">
-      <span class="text-[11px] font-mono font-bold tracking-wide truncate"
-        style="color:{isLp ? '#e5e7eb' : hex};">{isLp ? plantPairLabel : isUsdSilo ? 'USD' : targetTicker}</span>
-      {#if !isUsdSilo && sectorExplorerUrl && sectorExplorerUrl !== '#'}
-        <a href={sectorExplorerUrl} target="_blank" rel="noopener noreferrer"
-          onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}
-          data-testid="sector-explorer-link-{sector.id}"
-          class="mt-0.5 text-[7px] font-mono font-bold uppercase tracking-wider text-neutral-500 hover:text-[#18C6A5] transition-colors w-fit">Explorer ↗</a>
-      {:else if isUsdSilo}
-        <span class="text-[8px] font-mono text-neutral-500 truncate">{savedBankRailLast4 ? `*${savedBankRailLast4} (${savedBankRailMethod})` : 'Link Bank Rail'}</span>
-      {/if}
+    <!-- HEADER ROW -->
+    <div
+        role="button"
+        tabindex="0"
+        onclick={() => (isEditing ? cancelInlineEditor() : openInlineEditor('closed'))}
+        onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                isEditing ? cancelInlineEditor() : openInlineEditor('closed');
+            }
+        }}
+        class="flex justify-between items-center gap-2 min-w-0"
+    >
+        <div class="flex items-center gap-1.5 min-w-0 text-xs font-bold uppercase text-white tracking-wider truncate hover:text-[#18C6A5] transition-colors">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{hex};"></span>
+            <span class="truncate">{sector.name}</span>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] font-mono text-neutral-300 font-bold whitespace-nowrap tabular-nums">
+                {_num(sectorPendingKas).toFixed(4)} <span class="text-[#18C6A5]">KAS</span>
+            </span>
+            {#if !isEditing}
+                <button
+                    type="button"
+                    onmousedown={(e) => e.stopPropagation()}
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        onToggleWidth(sector.id);
+                    }}
+                    title="Toggle Width"
+                    class="text-neutral-500 hover:text-white cursor-pointer w-5 h-5 hidden lg:flex items-center justify-center bg-white/[0.03] border border-white/10 rounded text-[7px] font-bold"
+                >
+                    [ ]
+                </button>
+            {/if}
+            <button
+                type="button"
+                data-testid="sector-inline-toggle-{sector.id}"
+                onmousedown={(e) => e.stopPropagation()}
+                onclick={(e) => {
+                    e.stopPropagation();
+                    isEditing ? cancelInlineEditor() : openInlineEditor('closed');
+                }}
+                title={isEditing ? 'Collapse' : 'Adjust Split Inline'}
+                class="cursor-pointer w-5 h-5 flex items-center justify-center border rounded-md text-[10px] transition-colors {isEditing ? 'bg-[#161d29] border-[#18C6A5]/60 text-[#18C6A5]' : 'bg-white/[0.03] border-white/10 text-neutral-400 hover:text-white'}"
+            >
+                {isEditing ? '▴' : '⚙'}
+            </button>
+            <button
+                type="button"
+                onmousedown={(e) => e.stopPropagation()}
+                onclick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSector(sector.id);
+                }}
+                title="Remove"
+                class="text-neutral-500 hover:text-red-400 cursor-pointer w-5 h-5 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[10px]"
+            >
+                ✕
+            </button>
+        </div>
     </div>
-  </div>
-  <div class="flex flex-col items-end shrink-0 font-mono">
-    <span class="text-[9px] font-bold uppercase whitespace-nowrap" style="color:{hex};">
-      {isLp || targetTicker !== 'KAS' ? operations.formatEpochCountdown() : sector.settlementConfig?.mode === 'threshold' ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS` : sector.settlementConfig?.mode || 'epoch'}
-    </span>
-    <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
-      ~{_num(dailyKas).toFixed(1)} KAS/d <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
-    </span>
-  </div>
-</div>
 
-﻿<div class="flex items-center gap-1.5 pt-1 border-t border-white/[0.05] min-w-0 w-full font-mono font-bold"
-  draggable="true" ondragstart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-  onmousedown={(e) => e.stopPropagation()}>
-  <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
-    <input type="number" value={sector.allocationPercentage}
-      oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
-      onchange={() => onCommitUpdate(sector.id)}
-      class="sector-slim-num w-8 bg-transparent text-white text-[10px] outline-none text-right tabular-nums" />
-    <span class="text-neutral-500 text-[9px] ml-0.5">%</span>
-  </div>
-  {#if unallocatedPercentage > 0}
-    <button type="button" onclick={() => onSnapMaxRemaining(sector.id)}
-      class="px-1.5 py-0.5 rounded bg-[#18C6A5]/10 border border-[#18C6A5]/30 text-[7px] font-black uppercase text-[#18C6A5] cursor-pointer shrink-0">MAX</button>
-  {/if}
-  <input type="range" min="0" max="100" step="0.1" value={sector.allocationPercentage}
-    oninput={(e) => onSliderInput(sector.id, e)}
-    onchange={() => onSliderChange(sector.id)}
-    class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
-    style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) 100%);" />
-  <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
-    <input type="number" value={_num(mappedHash).toFixed(2)}
-      oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
-      onchange={() => onCommitUpdate(sector.id)}
-      class="sector-slim-num w-9 bg-transparent text-neutral-200 text-[10px] outline-none text-right focus:text-white tabular-nums" />
-    <span class="text-neutral-500 text-[8px] whitespace-nowrap">TH/s</span>
-  </div>
-</div>
+    <!-- ASSET & TELEMETRY ROW (Click directly to pick asset inline) -->
+    <div
+        role="button"
+        tabindex="0"
+        onclick={() => openInlineEditor(isLp ? 'closed' : 'replace_primary')}
+        onkeydown={(e) => {
+            if (e.key === 'Enter') openInlineEditor(isLp ? 'closed' : 'replace_primary');
+        }}
+        class="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.05] min-w-0 group"
+    >
+        <div class="flex items-start gap-2 min-w-0">
+            {#if isLp}
+                <div class="flex -space-x-1.5 shrink-0 mt-0.5">
+                    {#each plantTargets as pt (pt.ticker)}
+                        <div
+                            class="w-4 h-4 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[7px] font-black"
+                            style="color:{pt.theme?.hex || '#18C6A5'};"
+                        >
+                            {pt.ticker[0]}
+                        </div>
+                    {/each}
+                </div>
+            {:else}
+                <div
+                    class="w-4 h-4 mt-0.5 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[8px] font-black overflow-hidden shrink-0"
+                    style="color:{hex};"
+                >
+                    {#if sector.settlementConfig?.targetAsset?.imgUrl}
+                        <img
+                            src={sector.settlementConfig.targetAsset.imgUrl}
+                            class="w-3 h-3 object-contain"
+                            alt=""
+                            onerror={handleTokenIconError}
+                        />
+                        <span style="display:none;">{targetTicker[0]}</span>
+                    {:else}
+                        {isUsdSilo ? '$' : targetTicker[0]}
+                    {/if}
+                </div>
+            {/if}
+
+            <div class="flex flex-col min-w-0">
+                <span
+                    class="text-[11px] font-mono font-bold tracking-wide truncate group-hover:underline"
+                    style="color:{isLp ? '#e5e7eb' : hex};"
+                >
+                    {isLp ? plantPairLabel : isUsdSilo ? 'USD' : targetTicker} ▾
+                </span>
+                {#if !isUsdSilo && sectorExplorerUrl && sectorExplorerUrl !== '#'}
+                    <a
+                        href={sectorExplorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onmousedown={(e) => e.stopPropagation()}
+                        onclick={(e) => e.stopPropagation()}
+                        data-testid="sector-explorer-link-{sector.id}"
+                        class="mt-0.5 text-[7px] font-mono font-bold uppercase tracking-wider text-neutral-500 hover:text-[#18C6A5] transition-colors w-fit"
+                    >
+                        Explorer ↗
+                    </a>
+                {:else if isUsdSilo}
+                    <span class="text-[8px] font-mono text-neutral-500 truncate">
+                        {savedBankRailLast4
+                            ? `*${savedBankRailLast4} (${savedBankRailMethod})`
+                            : 'Link Bank Rail'}
+                    </span>
+                {/if}
+            </div>
+        </div>
+
+        <div class="flex flex-col items-end shrink-0 font-mono">
+            <span class="text-[9px] font-bold uppercase whitespace-nowrap" style="color:{hex};">
+                {isLp || targetTicker !== 'KAS'
+                    ? operations.formatEpochCountdown()
+                    : sector.settlementConfig?.mode === 'threshold'
+                      ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS`
+                      : sector.settlementConfig?.mode || 'epoch'}
+            </span>
+            <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
+                ~{_num(dailyKas).toFixed(1)} KAS/d <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- ALLOCATION SLIDER ROW -->
+    <div
+        class="flex items-center gap-1.5 pt-1 border-t border-white/[0.05] min-w-0 w-full font-mono font-bold"
+        draggable="true"
+        ondragstart={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}
+        role="group"
+    >
+        <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+            <input
+                type="number"
+                value={sector.allocationPercentage}
+                oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
+                onchange={() => onCommitUpdate(sector.id)}
+                class="sector-slim-num w-8 bg-transparent text-white text-[10px] outline-none text-right tabular-nums"
+            />
+            <span class="text-neutral-500 text-[9px] ml-0.5">%</span>
+        </div>
+
+        {#if unallocatedPercentage > 0}
+            <button
+                type="button"
+                onclick={() => onSnapMaxRemaining(sector.id)}
+                class="px-1.5 py-0.5 rounded bg-[#18C6A5]/10 border border-[#18C6A5]/30 text-[7px] font-black uppercase text-[#18C6A5] cursor-pointer shrink-0"
+            >
+                MAX
+            </button>
+        {/if}
+
+        <input
+            type="range"
+            min="0"
+            max="100"
+            step="0.1"
+            value={sector.allocationPercentage}
+            oninput={(e) => onSliderInput(sector.id, e)}
+            onchange={() => onSliderChange(sector.id)}
+            class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
+            style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) 100%);"
+        />
+
+        <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+            <input
+                type="number"
+                value={_num(mappedHash).toFixed(2)}
+                oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
+                onchange={() => onCommitUpdate(sector.id)}
+                class="sector-slim-num w-9 bg-transparent text-neutral-200 text-[10px] outline-none text-right focus:text-white tabular-nums"
+            />
+            <span class="text-neutral-500 text-[8px] whitespace-nowrap">TH/s</span>
+        </div>
+    </div>
+
+    <!-- INLINE EXPANDED SETTINGS DRAWER (No Separate Screen) -->
+    {#if isEditing}
+        <div
+            data-testid="sector-inline-editor-{sector.id}"
+            transition:slide={{ duration: 140 }}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Escape') cancelInlineEditor();
+            }}
+            role="region"
+            aria-label="Inline Split Configuration"
+            class="mt-1.5 pt-2.5 border-t border-white/10 flex flex-col gap-2.5 font-mono"
+        >
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <!-- NAME -->
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="inline-name-{sector.id}"
+                        class="text-[8px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Name
+                    </label>
+                    <input
+                        id="inline-name-{sector.id}"
+                        type="text"
+                        bind:value={draftName}
+                        spellcheck="false"
+                        class="w-full bg-[#06080b] border border-white/12 focus:border-[#18C6A5] rounded-lg px-2.5 py-2 text-[11px] font-bold text-white uppercase tracking-wider outline-none"
+                    />
+                </div>
+
+                <!-- DESTINATION ADDRESS -->
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="inline-dest-{sector.id}"
+                        class="text-[8px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Destination Address
+                    </label>
+                    <input
+                        id="inline-dest-{sector.id}"
+                        type="text"
+                        bind:value={draftPayoutAddr}
+                        spellcheck="false"
+                        class="w-full bg-[#06080b] border border-white/12 focus:border-amber-500/60 rounded-lg px-2.5 py-2 text-[10px] text-amber-400 outline-none"
+                    />
+                </div>
+            </div>
+
+            <!-- GET PAID IN / POOL PAIRS -->
+            {#if !isDraftPlant}
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <button
+                        type="button"
+                        onclick={() =>
+                            (pickerMode =
+                                pickerMode === 'replace_primary' ? 'closed' : 'replace_primary')}
+                        class="flex-1 bg-[#11161f] hover:bg-[#161d29] border border-white/12 hover:border-[#18C6A5]/50 rounded-lg px-3 py-2 flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span
+                                class="w-5 h-5 rounded-full bg-[#06080b] border border-white/15 flex items-center justify-center text-[9px] font-black shrink-0"
+                                style="color:{draftPrimaryAsset.theme?.hex || '#18C6A5'};"
+                            >
+                                {draftPrimaryAsset.ticker === 'USD' ? '$' : draftPrimaryAsset.ticker[0]}
+                            </span>
+                            <span class="text-[11px] font-black text-white uppercase truncate">
+                                {draftPrimaryAsset.ticker} — {draftPrimaryAsset.name}
+                            </span>
+                        </div>
+                        <span class="px-1.5 py-0.5 rounded bg-[#06080b] border border-white/10 text-[8px] font-bold uppercase text-neutral-400 shrink-0">
+                            {draftPrimaryAsset.assetClass} ▾
+                        </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onclick={() =>
+                            (pickerMode =
+                                pickerMode === 'add_secondary' ? 'closed' : 'add_secondary')}
+                        class="tactile-btn px-3 py-2 rounded-lg border-blue-500/40 text-blue-400 text-[9px] font-black uppercase tracking-widest cursor-pointer shrink-0"
+                    >
+                        + Pair Token (50% KAS Pool)
+                    </button>
+                </div>
+            {:else}
+                <div class="bg-[#11161f] border border-blue-500/35 rounded-xl p-2.5 flex flex-col gap-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[8px] font-black uppercase tracking-widest text-blue-400">
+                            50% KAS Pool Split ({draftAssets.map((a) => a.ticker).join(' / ')})
+                        </span>
+                        <div class="flex items-center gap-2">
+                            {#if draftAssets.length > 2}
+                                <button
+                                    type="button"
+                                    onclick={equalizeDraftWeights}
+                                    class="text-[8px] font-black uppercase text-[#18C6A5] hover:underline cursor-pointer"
+                                >
+                                    50/50
+                                </button>
+                            {/if}
+                            {#if draftAssets.length < 5}
+                                <button
+                                    type="button"
+                                    onclick={() =>
+                                        (pickerMode =
+                                            pickerMode === 'add_secondary'
+                                                ? 'closed'
+                                                : 'add_secondary')}
+                                    class="px-2 py-0.5 rounded bg-[#06080b] border border-blue-500/40 text-blue-400 text-[8px] font-black uppercase cursor-pointer"
+                                >
+                                    + Add Token
+                                </button>
+                            {/if}
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {#each draftAssets as item (item.ticker)}
+                            <div class="bg-[#06080b] border border-white/10 rounded-lg px-2.5 py-1.5 flex flex-col gap-1">
+                                <div class="flex items-center justify-between text-[10px]">
+                                    <span class="font-bold text-white">{item.ticker}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-black tabular-nums {item.ticker === 'KAS' ? 'text-[#18C6A5]' : 'text-blue-400'}">
+                                            {item.weightPct.toFixed(1)}%
+                                        </span>
+                                        {#if item.ticker !== 'KAS'}
+                                            <button
+                                                type="button"
+                                                onclick={() => removeSecondaryAsset(item.ticker)}
+                                                class="text-neutral-500 hover:text-red-400 text-[10px] cursor-pointer"
+                                            >
+                                                ✕
+                                            </button>
+                                        {/if}
+                                    </div>
+                                </div>
+                                {#if item.ticker !== 'KAS' && draftAssets.length > 2}
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="49"
+                                        step="0.5"
+                                        value={item.weightPct}
+                                        oninput={(e) =>
+                                            adjustDraftWeight(
+                                                item.ticker,
+                                                parseFloat((e.currentTarget as HTMLInputElement).value) || 25
+                                            )}
+                                        class="sector-slim-range w-full cursor-pointer"
+                                    />
+                                {/if}
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
+
+            <!-- INLINE SEARCHABLE TOKEN PICKER -->
+            {#if pickerMode !== 'closed'}
+                <div class="bg-[#06080b] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <input
+                            type="text"
+                            bind:value={pickerQuery}
+                            placeholder="SEARCH KAS, USDC, BTC, NVDA, TSLA, XAU, SILO..."
+                            class="flex-1 min-w-[160px] bg-[#11161f] border border-white/10 focus:border-[#18C6A5] rounded-lg px-2.5 py-1.5 text-[10px] text-white uppercase outline-none"
+                        />
+                        {#each [
+                            { id: 'ALL', label: 'All' },
+                            { id: 'CRYPTO', label: 'Crypto' },
+                            { id: 'EQUITIES', label: 'Stocks' },
+                            { id: 'COMMODITIES', label: 'Gold' },
+                            { id: 'MINEABLE', label: 'KRC-20' }
+                        ] as cat (cat.id)}
+                            <button
+                                type="button"
+                                onclick={() => (pickerCategory = cat.id as any)}
+                                class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-400 hover:text-white border border-white/5'}"
+                            >
+                                {cat.label}
+                            </button>
+                        {/each}
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-[168px] overflow-y-auto pr-0.5">
+                        {#each filteredAssets as asset (asset.ticker)}
+                            <button
+                                type="button"
+                                onclick={() => selectDraftAsset(asset)}
+                                class="bg-[#11161f] hover:bg-[#161d29] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer"
+                            >
+                                <div class="flex flex-col min-w-0">
+                                    <span class="text-[10px] font-black text-white uppercase truncate">
+                                        {asset.ticker}
+                                    </span>
+                                    <span class="text-[8px] text-neutral-500 uppercase truncate">
+                                        {asset.assetClass}
+                                    </span>
+                                </div>
+                                {#if asset.spotPrice > 0}
+                                    <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">
+                                        ${asset.spotPrice < 1
+                                            ? asset.spotPrice.toFixed(4)
+                                            : asset.spotPrice.toFixed(2)}
+                                    </span>
+                                {/if}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
+
+            <!-- KAS DIRECT PAYOUT SCHEDULE + PENDING MOVE TO KAS + SAVE BAR -->
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div class="flex flex-wrap items-center gap-2">
+                    {#if !isDraftPlant && draftPrimaryAsset.ticker.toUpperCase() === 'KAS'}
+                        <div class="flex items-center gap-1 bg-[#06080b] border border-white/10 rounded-lg p-0.5">
+                            <button
+                                type="button"
+                                onclick={() => (draftMode = 'epoch')}
+                                class="px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer {draftMode === 'epoch' ? 'bg-[#161d29] text-[#18C6A5]' : 'text-neutral-400'}"
+                            >
+                                22:00 UTC
+                            </button>
+                            <button
+                                type="button"
+                                onclick={() => (draftMode = 'threshold')}
+                                class="px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer {draftMode === 'threshold' ? 'bg-[#161d29] text-amber-400' : 'text-neutral-400'}"
+                            >
+                                {draftThreshold} KAS Min
+                            </button>
+                        </div>
+                    {/if}
+
+                    {#if sectorPendingKas > 0 && onClaimPendingSectorKas}
+                        <button
+                            type="button"
+                            onclick={() => onClaimPendingSectorKas({ sectorId: sector.id })}
+                            disabled={isPullingOutKey === sector.id}
+                            class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-white/15 hover:border-[#18C6A5]/50 text-[9px] font-black uppercase tracking-wider text-neutral-200 hover:text-white cursor-pointer disabled:opacity-40 tabular-nums"
+                        >
+                            Move {sectorPendingKas.toFixed(4)} KAS → KAS
+                        </button>
+                    {/if}
+                </div>
+
+                <div class="flex items-center gap-2 ml-auto">
+                    <button
+                        type="button"
+                        onclick={cancelInlineEditor}
+                        class="px-3 py-1.5 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-bold uppercase tracking-wider text-neutral-400 hover:text-white cursor-pointer"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="sector-inline-save-{sector.id}"
+                        onclick={saveInlineChanges}
+                        disabled={isSaving}
+                        class="tactile-btn px-4 py-1.5 rounded-lg border-[#18C6A5]/55 text-[#18C6A5] hover:text-white text-[9px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                        style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
+                    >
+                        {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
-.sector-card-compact, .sector-card-compact * { line-height: 1.12 !important; }
-.sector-slim-num::-webkit-outer-spin-button,.sector-slim-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.sector-slim-num{-moz-appearance:textfield;appearance:textfield}
-input[type='range'].sector-slim-range{-webkit-appearance:none;appearance:none;height:3px!important;min-height:3px!important;border-radius:999px;outline:none;padding:0;margin:0 2px}
-input[type='range'].sector-slim-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px!important;height:11px!important;border-radius:999px;background:#0c1017;border:2px solid var(--shex,#18C6A5);cursor:pointer}
-input[type='range'].sector-slim-range::-moz-range-thumb{width:11px;height:11px;border-radius:999px;background:#0c1017;border:2px solid var(--shex,#18C6A5);cursor:pointer}
+    .sector-card-compact,
+    .sector-card-compact * {
+        line-height: 1.15 !important;
+    }
+    .sector-slim-num::-webkit-outer-spin-button,
+    .sector-slim-num::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .sector-slim-num {
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+    input[type='range'].sector-slim-range {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 3px !important;
+        min-height: 3px !important;
+        border-radius: 999px;
+        outline: none;
+        padding: 0;
+        margin: 0 2px;
+    }
+    input[type='range'].sector-slim-range::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 11px !important;
+        height: 11px !important;
+        border-radius: 999px;
+        background: #0c1017;
+        border: 2px solid var(--shex, #18c6a5);
+        cursor: pointer;
+    }
+    input[type='range'].sector-slim-range::-moz-range-thumb {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        background: #0c1017;
+        border: 2px solid var(--shex, #18c6a5);
+        cursor: pointer;
+    }
 </style>

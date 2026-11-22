@@ -13,6 +13,7 @@
         allowBucketUpdates: boolean;
         cap24hUsdMicros: string;
         spent24hUsdMicros: string;
+        verifiedFillsCount?: number;
         isRevoked: boolean;
         isExpired: boolean;
     }
@@ -27,12 +28,16 @@
     let errorMsg = $state<string | null>(null);
 
     let oneTimeKey = $state<string | null>(null);
-    let copied = $state(false);
+    let createdLabel = $state('Bot 1');
+    let copiedTarget = $state<'key' | 'mcp' | 'prompt' | 'template' | null>(null);
+    let isPinging = $state(false);
+    let pingResult = $state<{ ok: boolean; summary: string } | null>(null);
+    let showMcpSetupGuide = $state(false);
 
     let nameInput = $state('Bot 1');
     let dailyUsdInput = $state('100');
     let canTrade = $state(true);
-    let canSplit = $state(false);
+    let canSplit = $state(true);
     let selectedAssets = $state<string[]>(['KAS', 'USDC']);
     let customAsset = $state('');
 
@@ -47,9 +52,51 @@
 
     let activeKeys = $derived(keys.filter((k) => !k.isRevoked && !k.isExpired));
 
+    let siteOrigin = $derived(
+        browser && window.location.origin && !window.location.origin.includes('0.0.0.0')
+            ? window.location.origin.replace(/\/+$/, '')
+            : 'https://perennia.io'
+    );
+
+    function buildMcpJson(token: string): string {
+        return JSON.stringify(
+            {
+                mcpServers: {
+                    perennia: {
+                        type: 'http',
+                        url: `${siteOrigin}/api/v1/agent/mcp`,
+                        headers: {
+                            Authorization: `Bearer ${token}`
+                        }
+                    }
+                }
+            },
+            null,
+            2
+        );
+    }
+
+    function buildAgentPrompt(token: string): string {
+        const caps = [
+            canTrade ? 'Dark Pool & Spot Swaps' : '',
+            canSplit ? '22:00 UTC Mining Splits' : ''
+        ]
+            .filter(Boolean)
+            .join(' + ');
+        return [
+            `Connect to my Perennia Sovereign account (${siteOrigin}).`,
+            `1. Read protocol spec: ${siteOrigin}/llms.txt`,
+            `2. MCP HTTP endpoint: ${siteOrigin}/api/v1/agent/mcp`,
+            `3. Header: Authorization: Bearer ${token}`,
+            `4. Scope: ${caps} | Assets: ${selectedAssets.join(', ')} | 24h Cap: $${dailyUsdInput} USD | Cold Vault: LOCKED.`,
+            `Verify connection first by calling GET ${siteOrigin}/api/v1/agent/me/telemetry.`
+        ].join('\n');
+    }
+
     function close() {
         oneTimeKey = null;
-        copied = false;
+        copiedTarget = null;
+        pingResult = null;
         errorMsg = null;
         ui.showAgentModal = false;
     }
@@ -62,11 +109,10 @@
     function parseUsdToMicros(raw: string): { micros: string; usdFloat: number } {
         const clean = raw.trim().replace(/^\$/, '');
         if (!/^\d+(\.\d{1,2})?$/.test(clean)) {
-            throw new Error('Enter a valid dollar limit (e.g. 100).');
+            throw new Error('Enter a valid USD limit (e.g. 100).');
         }
         const [whole, frac = ''] = clean.split('.');
-        const micros =
-            BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, '0'));
+        const micros = BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, '0'));
         if (micros < 1_000_000n) {
             throw new Error('Minimum daily limit is $1.');
         }
@@ -75,7 +121,7 @@
 
     function computeSompiCapFromUsd(usdAmount: number): string {
         const kasSpot = treasury.getAsset('KAS').spotPrice;
-        const safeSpot = kasSpot > 0 ? kasSpot : 0.02;
+        const safeSpot = kasSpot > 0 ? kasSpot : 0.025;
         const kasMax = Math.max(10, Math.ceil((usdAmount / safeSpot) * 1.25));
         return (BigInt(kasMax) * 100_000_000n).toString();
     }
@@ -104,13 +150,22 @@
         errorMsg = null;
         const clean = customAsset.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
         if (clean.length < 2 || clean.length > 10) {
-            errorMsg = 'Ticker must be 2–10 letters/numbers.';
+            errorMsg = 'Ticker must be 2–10 characters.';
             return;
         }
         if (!selectedAssets.includes(clean) && selectedAssets.length < 24) {
             selectedAssets = [...selectedAssets, clean];
         }
         customAsset = '';
+    }
+
+    async function copyText(kind: 'key' | 'mcp' | 'prompt' | 'template', text: string) {
+        if (!browser) return;
+        await navigator.clipboard.writeText(text);
+        copiedTarget = kind;
+        setTimeout(() => {
+            if (copiedTarget === kind) copiedTarget = null;
+        }, 2000);
     }
 
     async function syncKeys() {
@@ -139,10 +194,75 @@
         }
     }
 
+    async function testLiveKey(token: string) {
+        if (!browser || !token) return;
+        isPinging = true;
+        pingResult = null;
+        try {
+            const [mcpRes, telRes] = await Promise.all([
+                fetch('/api/v1/agent/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'tools/list',
+                        params: {}
+                    })
+                }),
+                fetch('/api/v1/agent/me/telemetry', {
+                    headers: {
+                        Accept: 'application/json',
+                        Authorization: `Bearer ${token}`
+                    }
+                })
+            ]);
+
+            const mcpJson = await mcpRes.json().catch(() => null);
+            const telJson = await telRes.json().catch(() => null);
+
+            if (!mcpRes.ok || !telRes.ok) {
+                const reason =
+                    telJson?.message ||
+                    mcpJson?.error?.message ||
+                    mcpJson?.message ||
+                    `HTTP ${mcpRes.status}/${telRes.status}`;
+                pingResult = { ok: false, summary: `PING FAILED: ${reason}` };
+                return;
+            }
+
+            const toolCount = Array.isArray(mcpJson?.result?.tools)
+                ? mcpJson.result.tools.length
+                : 4;
+            const kasEntry = Array.isArray(telJson?.sleeveBalances)
+                ? telJson.sleeveBalances.find((b: any) => b?.ticker === 'KAS')
+                : null;
+            const kasBal = kasEntry?.balanceE8
+                ? (Number(kasEntry.balanceE8) / 1e8).toFixed(2)
+                : '0.00';
+
+            pingResult = {
+                ok: true,
+                summary: `LIVE ✓ • ${toolCount} MCP TOOLS • VAULT SLEEVE: ${kasBal} KAS`
+            };
+        } catch (e: unknown) {
+            pingResult = {
+                ok: false,
+                summary: e instanceof Error ? e.message : 'Gateway unreachable.'
+            };
+        } finally {
+            isPinging = false;
+        }
+    }
+
     async function createKey() {
         errorMsg = null;
+        pingResult = null;
         if (!canTrade && !canSplit) {
-            errorMsg = 'Select Trade or Mining Split.';
+            errorMsg = 'Enable Trade or Mining Split.';
             return;
         }
 
@@ -159,6 +279,7 @@
 
         isCreating = true;
         try {
+            const finalLabel = nameInput.trim() || 'Bot 1';
             const res = await fetch('/api/agent/mandates', {
                 method: 'POST',
                 headers: {
@@ -166,7 +287,7 @@
                     Accept: 'application/json'
                 },
                 body: JSON.stringify({
-                    label: nameInput.trim() || 'Agent',
+                    label: finalLabel,
                     whitelistedAssets: selectedAssets,
                     allowSwaps: canTrade,
                     allowBucketUpdates: canSplit,
@@ -180,10 +301,12 @@
             if (!res.ok || !data?.ok || typeof data.agentKey !== 'string') {
                 throw new Error(data?.message || 'Could not create key.');
             }
+            createdLabel = finalLabel;
             oneTimeKey = data.agentKey;
-            copied = false;
+            copiedTarget = null;
             await syncKeys();
             nameInput = `Bot ${activeKeys.length + 1}`;
+            await testLiveKey(data.agentKey);
         } catch (e: unknown) {
             errorMsg = e instanceof Error ? e.message : 'Could not create key.';
         } finally {
@@ -220,19 +343,13 @@
             });
             if (!res.ok) throw new Error('Kill switch failed.');
             oneTimeKey = null;
+            pingResult = null;
             await syncKeys();
         } catch (e: unknown) {
             errorMsg = e instanceof Error ? e.message : 'Kill switch failed.';
         } finally {
             isKillingAll = false;
         }
-    }
-
-    async function copyKey() {
-        if (!browser || !oneTimeKey) return;
-        await navigator.clipboard.writeText(oneTimeKey);
-        copied = true;
-        setTimeout(() => (copied = false), 2000);
     }
 
     $effect(() => {
@@ -260,7 +377,7 @@
 {#if ui.showAgentModal}
     <div
         data-testid="agent-modal"
-        class="fixed inset-0 z-[9995] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono"
+        class="fixed inset-0 z-[9995] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/95 font-mono"
         transition:fade={{ duration: 120 }}
     >
         <button
@@ -271,16 +388,20 @@
         ></button>
 
         <div
-            class="relative z-10 w-full max-w-[440px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
+            class="relative z-10 w-full max-w-[460px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
             style="background-image: radial-gradient(ellipse at top right, rgba(24, 198, 165, 0.09), transparent 58%);"
         >
-            <!-- TOP BAR -->
-            <div class="px-5 py-4 bg-[#11161f] border-b border-white/10 flex items-center justify-between gap-3">
+            <div class="px-5 py-3.5 bg-[#11161f] border-b border-white/10 flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2.5">
                     <span class="w-2 h-2 rounded-full {activeKeys.length > 0 ? 'bg-[#18C6A5]' : 'bg-neutral-600'}"></span>
                     <h2 class="text-xs font-black uppercase tracking-[0.18em] text-white">
                         Agents
                     </h2>
+                    {#if activeKeys.length > 0}
+                        <span class="px-1.5 py-0.5 rounded bg-[#06080b] border border-[#18C6A5]/40 text-[9px] font-black text-[#18C6A5] tabular-nums">
+                            {activeKeys.length} ACTIVE
+                        </span>
+                    {/if}
                 </div>
 
                 <div class="flex items-center gap-2">
@@ -306,7 +427,7 @@
                 </div>
             </div>
 
-            <div class="p-5 flex flex-col gap-4 max-h-[82dvh] overflow-y-auto">
+            <div class="p-4 sm:p-5 flex flex-col gap-3.5 max-h-[82dvh] overflow-y-auto">
                 {#if !isReady}
                     <div class="bg-[#11161f] border border-white/10 rounded-xl p-4 flex items-center justify-between gap-3">
                         <span class="text-[10px] text-neutral-300 uppercase tracking-wider">
@@ -323,44 +444,84 @@
                     </div>
                 {:else}
                     {#if errorMsg}
-                        <div class="px-3 py-2 rounded-xl bg-[#1a080a] border border-red-500/45 text-[10px] text-red-400">
+                        <div class="px-3 py-2 rounded-xl bg-[#1a080a] border border-red-500/45 text-[10px] text-red-400 uppercase">
                             {errorMsg}
                         </div>
                     {/if}
 
-                    <!-- ONE-TIME KEY REVEAL -->
                     {#if oneTimeKey}
                         <div
                             data-testid="agent-secret-box"
                             class="bg-[#06080b] border border-[#18C6A5]/60 rounded-xl p-3.5 flex flex-col gap-2.5"
                         >
-                            <div class="flex items-center justify-between">
+                            <div class="flex items-center justify-between gap-2">
                                 <span class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]">
-                                    Key Created — Copy Once
+                                    {createdLabel} Armed — Copy Secret Once
                                 </span>
                                 <button
                                     type="button"
-                                    onclick={() => (oneTimeKey = null)}
+                                    onclick={() => {
+                                        oneTimeKey = null;
+                                        pingResult = null;
+                                    }}
                                     class="text-[9px] font-bold uppercase text-neutral-400 hover:text-white cursor-pointer"
                                 >
                                     Done
                                 </button>
                             </div>
+
                             <div class="bg-[#0a0d12] border border-white/10 rounded-lg p-2.5 text-[10px] text-white break-all select-all">
                                 {oneTimeKey}
                             </div>
+
+                            {#if pingResult}
+                                <div
+                                    data-testid="agent-ping-status"
+                                    class="px-2.5 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-wider {pingResult.ok ? 'bg-[#0a1412] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-[#1a080a] border-red-500/45 text-red-400'}"
+                                >
+                                    {pingResult.summary}
+                                </div>
+                            {/if}
+
+                            <div class="grid grid-cols-3 gap-1.5">
+                                <button
+                                    type="button"
+                                    data-testid="agent-copy-key-btn"
+                                    onclick={() => oneTimeKey && copyText('key', oneTimeKey)}
+                                    class="tactile-btn py-2 px-2 rounded-lg border-[#18C6A5]/50 text-[#18C6A5] text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                                >
+                                    {copiedTarget === 'key' ? '✓ Key' : 'Copy Key'}
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="agent-copy-mcp-btn"
+                                    onclick={() => oneTimeKey && copyText('mcp', buildMcpJson(oneTimeKey))}
+                                    class="tactile-btn py-2 px-2 rounded-lg border-white/15 text-white hover:border-[#18C6A5]/50 text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                                >
+                                    {copiedTarget === 'mcp' ? '✓ .mcp.json' : 'MCP JSON'}
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="agent-copy-prompt-btn"
+                                    onclick={() => oneTimeKey && copyText('prompt', buildAgentPrompt(oneTimeKey))}
+                                    class="tactile-btn py-2 px-2 rounded-lg border-white/15 text-white hover:border-[#18C6A5]/50 text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                                >
+                                    {copiedTarget === 'prompt' ? '✓ Prompt' : 'AI Prompt'}
+                                </button>
+                            </div>
+
                             <button
                                 type="button"
-                                data-testid="agent-copy-key-btn"
-                                onclick={copyKey}
-                                class="tactile-btn w-full py-2 rounded-lg border-[#18C6A5]/50 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                                data-testid="agent-test-ping-btn"
+                                onclick={() => oneTimeKey && testLiveKey(oneTimeKey)}
+                                disabled={isPinging}
+                                class="w-full py-1.5 rounded-lg bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/40 text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40"
                             >
-                                {copied ? '✓ Copied' : 'Copy Key'}
+                                {isPinging ? 'Pinging Gateway...' : '↻ Re-Verify Gateway & MCP Tools'}
                             </button>
                         </div>
                     {/if}
 
-                    <!-- MINIMAL KEY CREATOR -->
                     <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-3">
                         <div class="grid grid-cols-2 gap-2.5">
                             <div class="flex flex-col gap-1">
@@ -400,7 +561,6 @@
                             </div>
                         </div>
 
-                        <!-- PERMISSIONS -->
                         <div class="grid grid-cols-2 gap-2">
                             <button
                                 type="button"
@@ -427,7 +587,6 @@
                             </button>
                         </div>
 
-                        <!-- ASSETS -->
                         <div class="flex flex-col gap-1.5">
                             <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
                                 Assets
@@ -470,13 +629,15 @@
                             class="tactile-btn w-full py-2.5 rounded-xl border-[#18C6A5]/55 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                         >
-                            {isCreating ? 'Creating...' : 'Create Key'}
+                            {isCreating ? 'Minting Key...' : 'Create Key'}
                         </button>
                     </div>
 
-                    <!-- ACTIVE KEYS -->
                     {#if activeKeys.length > 0}
                         <div class="flex flex-col gap-1.5">
+                            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 px-0.5">
+                                Active Mandates ({activeKeys.length})
+                            </span>
                             {#each activeKeys as k (k.keyId)}
                                 <div
                                     data-testid="agent-key-row-{k.keyId}"
@@ -487,14 +648,14 @@
                                             <span class="text-[11px] font-black text-white uppercase truncate">
                                                 {k.label}
                                             </span>
-                                            <span class="text-[9px] text-neutral-400 tabular-nums shrink-0">
+                                            <span class="text-[9px] text-[#18C6A5] tabular-nums shrink-0">
                                                 ${formatUsdMicros(k.spent24hUsdMicros)} / ${formatUsdMicros(k.cap24hUsdMicros)}
                                             </span>
                                         </div>
                                         <span class="text-[8px] text-neutral-500 uppercase truncate">
                                             {[
-                                                k.allowSwaps ? 'Trade' : '',
-                                                k.allowBucketUpdates ? 'Split' : ''
+                                                k.allowSwaps ? 'TRADE' : '',
+                                                k.allowBucketUpdates ? 'SPLIT' : ''
                                             ]
                                                 .filter(Boolean)
                                                 .join(' • ')} — {k.whitelistedAssets.join(', ')}
@@ -515,23 +676,51 @@
                         </div>
                     {:else if isLoading}
                         <div class="text-center text-[9px] text-neutral-500 uppercase py-1">
-                            Loading...
+                            Syncing...
+                        </div>
+                    {/if}
+
+                    {#if showMcpSetupGuide}
+                        <div class="bg-[#06080b] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[9px]">
+                            <div class="flex items-center justify-between">
+                                <span class="font-black uppercase tracking-wider text-neutral-300">
+                                    MCP Endpoint (.mcp.json)
+                                </span>
+                                <button
+                                    type="button"
+                                    onclick={() => copyText('template', buildMcpJson('<PASTE_AGENT_KEY>'))}
+                                    class="text-[#18C6A5] font-black uppercase cursor-pointer hover:underline"
+                                >
+                                    {copiedTarget === 'template' ? '✓ Copied' : 'Copy Template'}
+                                </button>
+                            </div>
+                            <pre class="bg-[#0a0d12] border border-white/10 rounded-lg p-2 text-[9px] text-neutral-300 overflow-x-auto">{buildMcpJson('<PASTE_AGENT_KEY>')}</pre>
                         </div>
                     {/if}
                 {/if}
             </div>
 
-            <!-- MINIMAL FOOTER -->
             <div class="px-5 py-3 bg-[#11161f] border-t border-white/10 flex items-center justify-between text-[9px] text-neutral-500">
                 <span>NON-CUSTODIAL • COLD VAULT LOCKED</span>
-                <a
-                    href="/llms.txt"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="font-bold text-neutral-400 hover:text-[#18C6A5] uppercase"
-                >
-                    API Docs ↗
-                </a>
+                <div class="flex items-center gap-3">
+                    {#if isReady}
+                        <button
+                            type="button"
+                            onclick={() => (showMcpSetupGuide = !showMcpSetupGuide)}
+                            class="font-bold text-neutral-400 hover:text-white uppercase cursor-pointer"
+                        >
+                            {showMcpSetupGuide ? 'Hide MCP' : 'MCP Setup'}
+                        </button>
+                    {/if}
+                    <a
+                        href="/llms.txt"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="font-bold text-neutral-400 hover:text-[#18C6A5] uppercase"
+                    >
+                        llms.txt ↗
+                    </a>
+                </div>
             </div>
         </div>
     </div>

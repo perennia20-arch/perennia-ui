@@ -974,7 +974,7 @@
                 >
                     PROTOCOL NOTICE
                 </span>
-                <p class="text-[10px] text-neutral-300 leading-relaxed">
+                <p class="text-[9px] font-bold uppercase tracking-wider text-neutral-300 leading-relaxed">
                     {NON_CPA_PROTOCOL_DISCLAIMER}
                 </p>
             </div>
@@ -1044,11 +1044,7 @@
                     </button>
                 {/if}
             </div>
-            <p class="text-[11px] text-neutral-400">
-                Automated fair-market USD cost-basis lot stamping at block
-                settlement, Passive HIFO lot matching, and 100% client-side Form
-                1099-DA / 8949 PDF compilation.
-            </p>
+            
         </div>
         <div class="flex flex-wrap items-center gap-2.5 relative">
             {#if ui.microBadges['tax_profile_saved'] || ui.microBadges['tax_export_btn']}
@@ -1115,10 +1111,7 @@
                         Tax Authority, Entity Structure &amp; Zero-PII Local
                         Profile
                     </span>
-                    <span class="text-[9px] text-neutral-400">
-                        All 50 US States + International Regimes • Sec. 199A 20%
-                        QBI Deduction Auto-Applied for Pass-Through Entities
-                    </span>
+                    
                 </div>
                 <span
                     class="px-3 py-1 rounded-xl bg-[#11161f] border border-[#18C6A5]/40 text-xs font-black text-[#18C6A5]"
@@ -1329,9 +1322,7 @@
             >
                 ${grossTaxableProceedsUsd.toFixed(2)}
             </span>
-            <span class="text-[9px] text-neutral-500">
-                {displayedEvents.length} Verified Settlement &amp; Swap Events
-            </span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500 tabular-nums">{displayedEvents.length} SETTLED EVENTS</span>
         </div>
         <div
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
@@ -1347,13 +1338,7 @@
             >
                 ${Number(hifoBundle.summary.openCostBasisUsd || 0).toFixed(2)}
             </span>
-            <span class="text-[9px] text-neutral-400">
-                Matched 8949 Basis: ${Number(
-                    hifoBundle.summary.totalMatchedCostBasisUsd || 0
-                ).toFixed(2)} • Realized Gain: ${Number(
-                    hifoBundle.summary.netRealizedGainLossUsd || 0
-                ).toFixed(2)}
-            </span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">8949 BASIS: ${Number(hifoBundle.summary.totalMatchedCostBasisUsd || 0).toFixed(2)} • GAIN: ${Number(hifoBundle.summary.netRealizedGainLossUsd || 0).toFixed(2)}</span>
         </div>
         <div
             class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
@@ -1378,11 +1363,7 @@
             >
                 {rateCalculation.effectiveRatePct.toFixed(2)}%
             </span>
-            <span class="text-[9px] text-neutral-400">
-                Est. Tax Liability: <strong class="text-white"
-                    >${estimatedTaxLiabilityUsd.toFixed(2)} USD</strong
-                >
-            </span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">EST. LIABILITY: <strong class="text-white">${estimatedTaxLiabilityUsd.toFixed(2)}</strong></span>
         </div>
         <div
             class="tactile-card bg-[#0a0d12] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-5 flex flex-col justify-between gap-2 relative"
@@ -1445,16 +1426,7 @@
                     {/if}
                 </div>
             </div>
-            <span class="text-[9px] text-neutral-400">
-                {#if taxEscrowEnabled}
-                    {escrowReserveMode === 'USDC_RESERVE'
-                        ? '100% USDC Stable Reserve • Zero Impermanent Loss'
-                        : '50/50 KAS/USDC Auto-LP • Earns Pool Fees (IL Risk)'}
-                {:else}
-                    Est. Reserve Target: ${estimatedTaxLiabilityUsd.toFixed(2)} USD
-                    ({rateCalculation.effectiveRatePct.toFixed(2)}%)
-                {/if}
-            </span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">{#if taxEscrowEnabled}{escrowReserveMode === 'USDC_RESERVE' ? '100% USDC ACTIVE' : '50/50 KAS/USDC LP ACTIVE'}{:else}TARGET: ${estimatedTaxLiabilityUsd.toFixed(2)} ({rateCalculation.effectiveRatePct.toFixed(2)}%){/if}</span>
         </div>
     </div>
 
@@ -1537,9 +1509,7 @@
                                 <td class="py-3 px-3 text-neutral-300"
                                     >{ev.timestamp}</td
                                 >
-                                <td class="py-3 px-3 font-bold text-white"
-                                    >{ev.type}</td
-                                >
+                                <td class="py-3 px-3 font-bold uppercase tracking-wider text-white">{ev.type}</td>
                                 <td class="py-3 px-3 font-bold text-[#18C6A5]">
                                     {Number(ev.amount || 0).toLocaleString()}
                                     {ev.asset?.ticker || 'KAS'}
@@ -2104,12 +2074,7 @@
                     >
                         Tax Reserve Mode
                     </span>
-                    <span class="text-[9px] text-neutral-400 mt-0.5">
-                        Estimated Liability: ${estimatedTaxLiabilityUsd.toFixed(
-                            2
-                        )} USD ({rateCalculation.effectiveRatePct.toFixed(2)}%
-                        on ${netTaxableIncomeUsd.toFixed(2)} Net Taxable Income)
-                    </span>
+                    <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 mt-0.5 tabular-nums">EST. LIABILITY: ${estimatedTaxLiabilityUsd.toFixed(2)} ({rateCalculation.effectiveRatePct.toFixed(2)}%)</span>
                 </div>
                 <button
                     type="button"
@@ -2143,11 +2108,7 @@
                     <span class="text-xs font-black uppercase text-white">
                         100% USDC Stable Reserve
                     </span>
-                    <span class="text-[9px] text-neutral-300 leading-relaxed">
-                        Converts withheld tax into pure USDC so the exact dollar
-                        value is preserved with zero market volatility or
-                        impermanent loss.
-                    </span>
+                    <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">100% USDC • ZERO VOLATILITY</span>
                 </button>
                 <button
                     type="button"
@@ -2172,11 +2133,7 @@
                     <span class="text-xs font-black uppercase text-white">
                         50/50 KAS/USDC Auto-LP
                     </span>
-                    <span class="text-[9px] text-neutral-300 leading-relaxed">
-                        Pairs withheld tax into a 0-day lockup 50/50 KAS/USDC
-                        liquidity position to earn pool settlement fees (exposed
-                        to KAS price swings).
-                    </span>
+                    <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">50/50 KAS/USDC • POOL FEES</span>
                 </button>
             </div>
             {#if escrowReserveMode === 'KAS_USDC_LP'}
@@ -2190,14 +2147,7 @@
                         ⚠ Impermanent Loss &amp; Market Volatility Risk
                         Disclosure
                     </span>
-                    <p class="text-neutral-300 leading-relaxed text-[9px]">
-                        Routing tax reserves into a 50/50 KAS/USDC Liquidity
-                        Pool exposes half of your tax reserve to KAS market
-                        price fluctuations and AMM impermanent loss. If KAS
-                        declines in USD value prior to tax payment, your LP
-                        position value may be less than your estimated USD tax
-                        liability.
-                    </p>
+                    <p class="text-[9px] font-bold uppercase tracking-wider text-neutral-300 leading-relaxed">50% KAS EXPOSURE • VALUE FLUCTUATES WITH MARKET PRICE.</p>
                     <label
                         class="flex items-start gap-2.5 pt-1 cursor-pointer select-none text-white font-bold text-[9px]"
                     >
@@ -2207,16 +2157,12 @@
                             bind:checked={impermanentLossAcknowledged}
                             class="mt-0.5 accent-amber-400 cursor-pointer"
                         />
-                        <span>
-                            I understand and accept the Impermanent Loss and KAS
-                            market volatility risks of holding my tax escrow in
-                            a 50/50 KAS/USDC LP position.
-                        </span>
+                        <span class="uppercase tracking-wider">ACCEPT 50/50 KAS/USDC VOLATILITY &amp; IL RISK</span>
                     </label>
                 </div>
             {/if}
             <div
-                class="bg-[#11161f] border border-white/10 rounded-xl p-3 text-[9px] text-neutral-400 leading-relaxed"
+                class="bg-[#11161f] border border-white/10 rounded-xl p-3 text-[8px] font-bold uppercase tracking-wider text-neutral-400 leading-relaxed"
             >
                 {NON_CPA_PROTOCOL_DISCLAIMER}
             </div>
