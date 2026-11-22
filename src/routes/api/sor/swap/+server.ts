@@ -7,6 +7,15 @@ import {
     normalizeKaspaBase32Strict
 } from '$lib/server/kms';
 import { computeReservoirHmac } from '$lib/server/l1Dispatcher';
+import {
+	isSyntheticRwaAsset,
+	prepareAnyToAnyInboundLeg,
+	prewarmSorSpotCache,
+	resolveOffHoursAwareSpotUsd,
+	verifyAndLockInboundOnchainLeg,
+	consumeHifoLotsOnDisposal,
+	maybeDispatchOutboundSwapL1
+} from '$lib/server/anyToAnyRouter';
 import crypto from 'node:crypto';
 
 const HARD_PROFIT_FLOOR_RATE = 0.001;
@@ -612,12 +621,16 @@ async function resolveStrictSpotPriceUsd(ticker: string): Promise<number> {
         // Fallback below
     }
     if (clean === 'SILO') {
-        const kasSpot = await resolveStrictSpotPriceUsd('KAS');
-        if (kasSpot > 0) {
-            return Number((kasSpot / 23.809524).toFixed(6));
-        }
-    }
-    return 0;
+		const kasSpot = await resolveStrictSpotPriceUsd('KAS');
+		if (kasSpot > 0) {
+			const siloSpot = Number((kasSpot / 23.809524).toFixed(6));
+			await redis.set('oracle:spot:SILO_USDC', String(siloSpot), 'EX', 60).catch(() => {});
+			return siloSpot;
+		}
+	}
+	const extendedSpot = await resolveOffHoursAwareSpotUsd(clean);
+	if (extendedSpot > 0) return extendedSpot;
+	return 0;
 }
 
 async function fetchChangeNowMinAmountKas(
@@ -1485,8 +1498,30 @@ export const POST: RequestHandler = async ({
         }
 
         // 3. Primary Execution via Bare-Metal Rust SOR Engine (/v1/sor/execute) when Dark Pool is active
-        const rustBackendUrl = resolveRustBackendUrl();
-        if (!killSwitches.darkPoolPaused) {
+        const actionMode = String(body.action || '').trim().toUpperCase();
+		const fundingSource = String(body.fundingSource || body.funding_source || 'LEDGER').trim().toUpperCase();
+		const isOnchainFunded = fundingSource === 'ONCHAIN_L1';
+		const requestedDeliveryMode = String(body.deliveryMode || body.delivery_mode || 'LEDGER').trim().toUpperCase();
+		const requestedDestinationAddress = String(body.destinationAddress || body.destination_address || '').trim();
+		await prewarmSorSpotCache([payAsset, receiveAsset, 'KAS'], resolveStrictSpotPriceUsd);
+		const shouldDispatchOutboundL1 = requestedDeliveryMode === 'ONCHAIN_L1' && !isSyntheticRwaAsset(receiveAsset) && receiveAsset !== 'USD';
+
+		if (actionMode === 'PREPARE_INBOUND' || body.prepareInbound === true) {
+			const prep = await prepareAnyToAnyInboundLeg({
+				cleanWallet,
+				prefixedWallet,
+				payAsset,
+				receiveAsset,
+				amount,
+				resolveSpotUsd: resolveStrictSpotPriceUsd,
+				deliveryMode: requestedDeliveryMode,
+				destinationAddress: requestedDestinationAddress
+			});
+			return json(prep.payload, { status: prep.status });
+		}
+
+		const rustBackendUrl = resolveRustBackendUrl();
+		if (!killSwitches.darkPoolPaused && !isOnchainFunded) {
             try {
                 const rustRes = await fetch(
                     `${rustBackendUrl}/v1/sor/execute`,
@@ -1512,7 +1547,7 @@ export const POST: RequestHandler = async ({
                     }
                 );
                 const rustData = await rustRes.json().catch(() => ({}));
-                if (rustRes.ok && rustData?.success) {
+                if (rustRes.ok && rustData?.success && rustData?.ledgerSettled) {
                     return json({
                         ...rustData,
                         tokenSteering: {
@@ -1525,12 +1560,8 @@ export const POST: RequestHandler = async ({
                         }
                     });
                 }
-                if (
-                    rustRes.status === 400 ||
-                    rustRes.status === 403 ||
-                    rustRes.status === 422 ||
-                    rustRes.status === 503
-                ) {
+                const isDynamicPassThroughMiss = !steering.allowDarkPoolInternalClearing && rustRes.status !== 403 && !/insufficient|balance|blacklisted|paused/i.test(String(rustData?.error || ''));
+				if (!isDynamicPassThroughMiss && (rustRes.status === 400 || rustRes.status === 403 || rustRes.status === 422 || rustRes.status === 503)) {
                     return json(
                         {
                             error:
@@ -1653,63 +1684,88 @@ export const POST: RequestHandler = async ({
                     ? streamKas
                     : Number(lpTokens[payAsset] || 0);
             const availablePayBal = Math.max(redisPayBal, dbPayBal);
-            if (availablePayBal + 1e-8 < amount) {
-                return json(
-                    {
-                        error: `INSUFFICIENT_BALANCE: Requested ${amount.toFixed(4)} ${payAsset}, available ${availablePayBal.toFixed(4)} ${payAsset}.`
-                    },
-                    { status: 422 }
-                );
-            }
-            if (payAsset === 'KAS') {
-                streamKas = Math.max(0, streamKas - amount);
-            } else {
-                lpTokens[payAsset] = Math.max(
-                    0,
-                    Number(lpTokens[payAsset] || 0) - amount
-                );
-            }
-            if (receiveAsset === 'KAS') {
-                streamKas += estimatedOutput;
-            } else {
-                lpTokens[receiveAsset] =
-                    Number(lpTokens[receiveAsset] || 0) + estimatedOutput;
-            }
-            const targetPk = row?.wallet_address || prefixedWallet;
-            const newHmac = computeReservoirHmac(
-                prefixedWallet,
-                streamKas,
-                totalYieldKas,
-                lpTokens
-            );
-            await client.query(
-                `INSERT INTO yield_reservoirs (
-                    wallet_address, streaming_balance_kas, total_yield_kas,
-                    lp_tokens, row_hmac_sig, last_updated
-                ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-                ON CONFLICT (wallet_address) DO UPDATE SET
-                    streaming_balance_kas = EXCLUDED.streaming_balance_kas,
-                    lp_tokens = EXCLUDED.lp_tokens,
-                    row_hmac_sig = EXCLUDED.row_hmac_sig,
-                    last_updated = CURRENT_TIMESTAMP`,
-                [
-                    targetPk,
-                    streamKas,
-                    totalYieldKas,
-                    JSON.stringify(lpTokens),
-                    newHmac
-                ]
-            );
-            await redis
-                .hset(
-                    ledgerKey,
-                    payAsset,
-                    String(Math.max(0, availablePayBal - amount))
-                )
-                .catch(() => {});
-            await redis
-                .hincrbyfloat(ledgerKey, receiveAsset, estimatedOutput)
-                .catch(() => {});
+			let hifoDisposal: { costBasisUsd: number; realizedGainLossUsd: number; holdingPeriod: 'SHORT_TERM' | 'LONG_TERM' } = {
+				costBasisUsd: grossUsd,
+				realizedGainLossUsd: 0.0,
+				holdingPeriod: 'SHORT_TERM'
+			};
+
+			if (isOnchainFunded) {
+				const verifiedLeg = await verifyAndLockInboundOnchainLeg(client, {
+					txId: String(body.onchainTxId || body.onchain_tx_id || ''),
+					cleanWallet,
+					prefixedWallet,
+					payAsset,
+					receiveAsset,
+					amount,
+					grossUsd,
+					changenowExchangeId: body.changenowExchangeId ?? null,
+					settlementAddress: body.settlementAddress ?? null
+				});
+				if (!verifiedLeg.ok) {
+					await client.query('ROLLBACK').catch(() => {});
+					return json({ error: verifiedLeg.error }, { status: verifiedLeg.status });
+				}
+			} else {
+				if (availablePayBal + 1e-8 < amount) {
+					await client.query('ROLLBACK').catch(() => {});
+					return json(
+						{
+							error: `INSUFFICIENT_BALANCE: Requested ${amount.toFixed(4)} ${payAsset}, available ${availablePayBal.toFixed(4)} ${payAsset}.`
+						},
+						{ status: 422 }
+					);
+				}
+				if (payAsset === 'KAS') {
+					streamKas = Math.max(0, streamKas - amount);
+				} else {
+					lpTokens[payAsset] = Math.max(0, Number(lpTokens[payAsset] || 0) - amount);
+				}
+				hifoDisposal = await consumeHifoLotsOnDisposal(
+					client,
+					prefixedWallet,
+					cleanWallet,
+					payAsset,
+					amount,
+					grossUsd
+				);
+			}
+
+			if (!shouldDispatchOutboundL1) {
+				if (receiveAsset === 'KAS') {
+					streamKas += estimatedOutput;
+				} else {
+					lpTokens[receiveAsset] = Number(lpTokens[receiveAsset] || 0) + estimatedOutput;
+				}
+			}
+
+			const targetPk = row?.wallet_address || prefixedWallet;
+			const newHmac = computeReservoirHmac(prefixedWallet, streamKas, totalYieldKas, lpTokens);
+			if (!isOnchainFunded || !shouldDispatchOutboundL1) {
+				await client.query(
+					`INSERT INTO yield_reservoirs (
+wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens, verified_onchain_credits_kas, row_hmac_sig, last_updated
+) VALUES ($1, $2, $3, $4, GREATEST($2, $3), $5, CURRENT_TIMESTAMP)
+ON CONFLICT (wallet_address) DO UPDATE SET
+streaming_balance_kas = EXCLUDED.streaming_balance_kas,
+lp_tokens = EXCLUDED.lp_tokens,
+verified_onchain_credits_kas = GREATEST(COALESCE(yield_reservoirs.verified_onchain_credits_kas, 0), EXCLUDED.streaming_balance_kas, EXCLUDED.total_yield_kas),
+row_hmac_sig = EXCLUDED.row_hmac_sig,
+last_updated = CURRENT_TIMESTAMP`,
+					[targetPk, streamKas, totalYieldKas, JSON.stringify(lpTokens), newHmac]
+				);
+			}
+
+			if (!isOnchainFunded) {
+				await redis
+					.hset(ledgerKey, payAsset, String(Math.max(0, availablePayBal - amount)))
+					.catch(() => {});
+			}
+			if (!shouldDispatchOutboundL1) {
+				await redis
+					.hincrbyfloat(ledgerKey, receiveAsset, estimatedOutput)
+					.catch(() => {});
+			}
             await client
                 .query(
                     `INSERT INTO hifo_tax_lots (
@@ -1734,8 +1790,8 @@ export const POST: RequestHandler = async ({
                         wallet_address, asset_ticker, event_type, gross_proceeds_usd,
                         amount_tokens, spot_price_at_execution, tx_hash,
                         cost_basis_usd, realized_gain_loss_usd, holding_period
-                    ) VALUES ($1, $2, 'DEX_SWAP', $3, $4, $5, $6, $3, 0.0, 'SHORT_TERM')`,
-                    [cleanWallet, payAsset, grossUsd, amount, paySpot, txUuid]
+                    ) VALUES ($1, $2, 'DEX_SWAP', $3, $4, $5, $6, $7, $8, $9)`,
+				[cleanWallet, payAsset, grossUsd, amount, paySpot, txUuid, hifoDisposal.costBasisUsd, hifoDisposal.realizedGainLossUsd, hifoDisposal.holdingPeriod]
                 )
                 .catch(() => {});
 
@@ -1819,9 +1875,24 @@ export const POST: RequestHandler = async ({
             ? 'External Pass-Through Pool (Reserve Whitelist Fee Skim)'
             : 'Perennia 50%-KAS Liquidity Plant + Anchor Sweep';
 
-        return json({
-            success: true,
-            transaction_uuid: txUuid,
+        const outboundDispatch = shouldDispatchOutboundL1
+			? await maybeDispatchOutboundSwapL1({
+					prefixedWallet,
+					cleanWallet,
+					receiveAsset,
+					estimatedOutput,
+					receiveSpot,
+					destinationAddress: requestedDestinationAddress
+				})
+			: null;
+
+		return json({
+			success: true,
+			fundingSource,
+			deliveryMode: shouldDispatchOutboundL1 ? 'ONCHAIN_L1' : 'LEDGER',
+			inboundOnchainTxId: isOnchainFunded ? String(body.onchainTxId || body.onchain_tx_id || '') : null,
+			outboundDispatch,
+			transaction_uuid: txUuid,
             unifiedRate,
             unified_rate: unifiedRate,
             estimatedOutput,

@@ -560,62 +560,57 @@
             return;
         }
 
-        const useOnChain =
-            !ui.isTutorialSandbox &&
-            ledgerAvail < parsedAmount &&
-            onChainAvail >= parsedAmount;
+        if (
+!ui.isTutorialSandbox &&
+parsedAmount > ledgerAvail + 1e-8 &&
+parsedAmount > onChainAvail + 1e-8
+) {
+swapError = `Split ${payTicker} balance cannot be combined in one leg: max ${ledgerAvail.toFixed(4)} ${payTicker} in Vault or ${onChainAvail.toFixed(4)} ${payTicker} On-Chain.`;
+return;
+}
 
-        if (useOnChain && payTicker !== 'KAS') {
-            txState.lastTxId = '';
-            txState.lastExplorerUrl = '';
-            pendingOnchainSwapSummary = {
-                payAsset: payTicker,
-                payAmount: parsedAmount,
-                receiveAsset: receiveTicker,
-                estimatedOut: swapQuote.estimatedOut
-            };
-            awaitingOnchainSwapSignature = true;
-            requestUniversalL1Signature({
-                intentType: 'DEX_SWAP',
-                payAsset: payTicker,
-                network: payToken.network,
-                contractAddress: payToken.contract,
-                payAmount: parsedAmount,
-                receiveAsset: receiveTicker,
-                estimatedReceiveAmount: swapQuote.estimatedOut,
-                destinationAddress:
-                    identity.masterTreasuryAddress || identity.activeAddress
-            });
-            return;
-        }
+const useOnChain =
+!ui.isTutorialSandbox &&
+ledgerAvail + 1e-8 < parsedAmount &&
+onChainAvail + 1e-8 >= parsedAmount;
 
-        isExecuting = true;
-        try {
-            let clientUtxos: any[] | undefined = undefined;
-            if (useOnChain && payTicker === 'KAS') {
-                const utxoRes = await fetch(
-                    `/api/utxos?address=${encodeURIComponent(identity.activeAddress)}`
-                );
-                if (utxoRes.ok) {
-                    const utxoData = await utxoRes.json();
-                    clientUtxos = Array.isArray(utxoData)
-                        ? utxoData
-                        : utxoData.entries || [];
-                }
-            }
+if (useOnChain) {
+txState.lastTxId = '';
+txState.lastExplorerUrl = '';
+pendingOnchainSwapSummary = {
+payAsset: payTicker,
+payAmount: parsedAmount,
+receiveAsset: receiveTicker,
+estimatedOut: swapQuote.estimatedOut
+};
+awaitingOnchainSwapSignature = true;
+requestUniversalL1Signature({
+intentType: 'DEX_SWAP',
+payAsset: payTicker,
+network: payToken.network,
+contractAddress: payToken.contract,
+decimals: payToken.decimals,
+payAmount: parsedAmount,
+receiveAsset: receiveTicker,
+estimatedReceiveAmount: swapQuote.estimatedOut,
+destinationAddress: ''
+});
+return;
+}
 
-            const res = await fetch('/api/sor/swap', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    wallet: identity.activeAddress,
-                    payAsset: payTicker,
-                    receiveAsset: receiveTicker,
-                    payAmount: parsedAmount,
-                    amount: parsedAmount,
-                    executionMode: 'INSTANT_SOR',
-                    fundingSource: useOnChain ? 'ONCHAIN_L1' : 'LEDGER',
-                    utxos: clientUtxos
+isExecuting = true;
+try {
+const res = await fetch('/api/sor/swap', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+wallet: identity.activeAddress,
+payAsset: payTicker,
+receiveAsset: receiveTicker,
+payAmount: parsedAmount,
+amount: parsedAmount,
+executionMode: 'INSTANT_SOR',
+fundingSource: 'LEDGER'
                 })
             });
 

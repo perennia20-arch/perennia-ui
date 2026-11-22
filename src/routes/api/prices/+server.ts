@@ -262,6 +262,43 @@ async function queryYahooFinanceQuote(
     }
 }
 
+function formatTraditionalAssetLabel(shortName: string, sym: string, quoteType = 'EQUITY'): string {
+const bondRe = /\b(bond|treasury|t-bill|tbill|govt|gilt|fixed income|municipal|yield)\b/i;
+const knownBondSet = new Set(['TLT','SGOV','SHY','IEF','BND','AGG','BIL','TIP','LQD','HYG','MUB','USTB','GOVT','VGSH','VGIT','VGLT']);
+if (bondRe.test(shortName) || knownBondSet.has(sym)) return `${shortName} (TREASURY / BOND ETF)`;
+return String(quoteType).toUpperCase() === 'ETF' ? `${shortName} (PUBLIC ETF)` : `${shortName} (PUBLIC EQUITY)`;
+}
+async function queryYahooSearchMatches(rawQuery: string): Promise<Array<{ ticker: string; name: string; spotPrice: number; change24h: number; quoteType: string }>> {
+const q = String(rawQuery || '').trim();
+if (q.length < 2 || /^0x[a-fA-F0-9]{16,}$/.test(q) || q.length > 42) return [];
+try {
+const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, {
+headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Perennia-RWA-Oracle/5.0', accept: 'application/json' }, signal: AbortSignal.timeout(3500)
+});
+if (!res.ok) return [];
+const data = await res.json();
+const upperQ = q.toUpperCase(), usEx = new Set(['NMS','NYQ','PCX','NGM','BTS','ASE','NCM']);
+const filtered = (Array.isArray(data?.quotes) ? data.quotes : [])
+.filter((i: any) => Boolean(String(i?.shortname || i?.longname || '').trim()) && ['EQUITY','ETF','MUTUALFUND'].includes(String(i?.quoteType || '').toUpperCase()) && /^[A-Z0-9.-]{1,10}$/.test(String(i?.symbol || '').toUpperCase()) && !String(i?.symbol || '').includes('='))
+.sort((a: any, b: any) => {
+const aS = String(a.symbol).toUpperCase(), bS = String(b.symbol).toUpperCase();
+if ((aS === upperQ) !== (bS === upperQ)) return aS === upperQ ? -1 : 1;
+const aU = usEx.has(String(a.exchange || '').toUpperCase()) ? 1 : 0, bU = usEx.has(String(b.exchange || '').toUpperCase()) ? 1 : 0;
+if (aU !== bU) return bU - aU;
+return (String(b.quoteType).toUpperCase() === 'ETF' ? 1 : 0) - (String(a.quoteType).toUpperCase() === 'ETF' ? 1 : 0);
+}).slice(0, 3);
+const priced = await Promise.all(filtered.map(async (item: any) => {
+const sym = String(item.symbol).trim().toUpperCase(), qt = String(item.quoteType || 'EQUITY').toUpperCase();
+const chart = await queryYahooFinanceQuote(sym);
+if (!chart || chart.priceUsd <= 0) return null;
+const cleanSym = sym.replace(/[^A-Z0-9]/g, '') || sym;
+return { ticker: cleanSym, name: formatTraditionalAssetLabel(chart.shortName, cleanSym, qt), spotPrice: chart.priceUsd, change24h: chart.change24hPct, quoteType: qt };
+}));
+const out: Array<{ ticker: string; name: string; spotPrice: number; change24h: number; quoteType: string }> = [];
+for (const p of priced) { if (p) out.push(p); }
+return out;
+} catch { return []; }
+}
 async function hydrateRwaAndEquitiesPrices(
     targetMap: Record<string, { usd: number; usd_24h_change?: number }>
 ): Promise<void> {
@@ -917,10 +954,11 @@ async function queryKrc20Indexer(
     holders: number;
     state: string;
 } | null> {
-    if (ticker.length < 4 || ticker.length > 6 || !/^[A-Z]+$/.test(ticker)) {
+    if (ticker.length < 2 || ticker.length > 10 || !/^[A-Z0-9]+$/.test(ticker)) {
         return null;
     }
-    const [kasplexRes, kasFyiRes] = await Promise.allSettled([
+    const kaspaComFloorPromise = fetch(`https://api.kaspa.com/api/floor-price?ticker=${encodeURIComponent(ticker)}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(3500) }).catch(() => null);
+	const [kasplexRes, kasFyiRes] = await Promise.allSettled([
         fetch(
             `https://api.kasplex.org/v1/krc20/token/${encodeURIComponent(ticker)}`,
             {
@@ -993,6 +1031,7 @@ async function queryKrc20Indexer(
             spotPriceUsd = 0;
         }
     }
+	if (spotPriceUsd <= 0) { try { const kcRes = await kaspaComFloorPromise; if (kcRes && kcRes.ok) { const kcData = await kcRes.json(); const kcEntry = Array.isArray(kcData) ? kcData[0] : kcData; const floorKas = Number(kcEntry?.floor_price ?? kcEntry?.floorPrice ?? 0); if (Number.isFinite(floorKas) && floorKas > 0) { existsOnKasplex = true; if (kasUsdPrice > 0) spotPriceUsd = Number((floorKas * kasUsdPrice).toPrecision(8)); } } } catch {} }
     if (ticker === 'SILO' && spotPriceUsd <= 0 && kasUsdPrice > 0) {
         existsOnKasplex = true;
         spotPriceUsd = Number((kasUsdPrice / 23.809524).toFixed(6));
@@ -1157,6 +1196,7 @@ async function discoverUniversalAssets(
         queryKrc20Indexer(ticker, kasUsdPrice),
         queryYahooFinanceQuote(ticker)
     ]);
+	const yahooSearchPromise = queryYahooSearchMatches(trimmed);
 
     const cgAnchor =
         cgAnchorRes.status === 'fulfilled' ? cgAnchorRes.value : null;
@@ -1226,12 +1266,7 @@ async function discoverUniversalAssets(
     const discoveredList: DiscoveredAssetPayload[] = [];
 
     if (isGenuineKrc20 && krc20Info) {
-        const krcSpot =
-            krc20Info.spotPriceUsd > 0
-                ? krc20Info.spotPriceUsd
-                : hasValidCexQuorum
-                  ? cexMedianSpot
-                  : 0;
+        const krcSpot = krc20Info.spotPriceUsd > 0 ? krc20Info.spotPriceUsd : (hasValidCexQuorum || hasSingleVerifiedQuote) ? cexMedianSpot : 0;
         if (krcSpot > 0) {
             const krcChange =
                 krc20Info.change24hPct !== 0
@@ -1299,42 +1334,30 @@ async function discoverUniversalAssets(
         }
     }
 
-    if (yahooQuote && yahooQuote.priceUsd > 0 && discoveredList.length === 0) {
-        discoveredList.push({
-            ticker,
-            name: `${yahooQuote.shortName} (PUBLIC EQUITY)`,
-            assetClass: 'Tokenized Asset',
-            network: 'BASE',
-            spotPrice: yahooQuote.priceUsd,
-            change24h: yahooQuote.change24hPct,
-            sources: ['Yahoo Finance / Pyth RWA'],
-            quorumCount: 1,
-            isKrc20: false,
-            contract: ticker,
-            theme: { hex: '#38BDF8', pastel: '#bae6fd' },
-            imgUrl: `https://assets.parqet.com/logos/symbol/${ticker}?format=png`
-        });
-    }
-
-    for (const dexItem of dexScreenerMatches) {
-        const alreadyIncluded = discoveredList.some(
-            (d) =>
-                d.ticker === dexItem.ticker && d.network === dexItem.network
-        );
-        if (!alreadyIncluded) {
-            discoveredList.push(dexItem);
-        }
-    }
-
-    if (discoveredList.length === 0) {
-        return { primary: null, matches: [] };
-    }
-
-    const primary = discoveredList[0];
-    await persistDiscoveredAssetInRedisAndPostgres(
-        primary,
-        persistInDynamicSet
-    );
+    const yahooSearchHits = await yahooSearchPromise.catch(() => []);
+const yahooPayloads: DiscoveredAssetPayload[] = [];
+const seenY = new Set<string>();
+if (yahooQuote && yahooQuote.priceUsd > 0) {
+seenY.add(ticker);
+yahooPayloads.push({ ticker, name: formatTraditionalAssetLabel(yahooQuote.shortName, ticker, 'EQUITY'), assetClass: 'Tokenized Asset', network: 'BASE', spotPrice: yahooQuote.priceUsd, change24h: yahooQuote.change24hPct, sources: ['Yahoo Finance / Pyth RWA'], quorumCount: 1, isKrc20: false, contract: ticker, theme: { hex: '#38BDF8', pastel: '#bae6fd' }, imgUrl: `https://assets.parqet.com/logos/symbol/${ticker}?format=png` });
+}
+for (const h of yahooSearchHits) {
+if (!h.ticker || seenY.has(h.ticker)) continue;
+seenY.add(h.ticker);
+yahooPayloads.push({ ticker: h.ticker, name: h.name, assetClass: 'Tokenized Asset', network: 'BASE', spotPrice: h.spotPrice, change24h: h.change24h, sources: ['Yahoo Finance / Pyth RWA'], quorumCount: 1, isKrc20: false, contract: h.ticker, theme: { hex: '#38BDF8', pastel: '#bae6fd' }, imgUrl: `https://assets.parqet.com/logos/symbol/${h.ticker}?format=png` });
+}
+if (!isGenuineKrc20 && yahooPayloads.length > 0) {
+const freshY = yahooPayloads.filter((y) => !discoveredList.some((d) => d.ticker === y.ticker && d.assetClass === y.assetClass));
+if (!hasCanonicalRankLeader && !hasValidCexQuorum) discoveredList.unshift(...freshY); else discoveredList.push(...freshY);
+}
+for (const dexItem of dexScreenerMatches) {
+if (isGenuineKrc20 && (dexItem.ticker.toUpperCase() !== ticker || dexItem.network !== 'KAS')) continue;
+if (discoveredList.length > 0 && /^[A-Za-z0-9]{2,6}$/.test(trimmed) && dexItem.ticker.toUpperCase() !== ticker) continue;
+if (!discoveredList.some((d) => d.ticker === dexItem.ticker && d.network === dexItem.network)) discoveredList.push(dexItem);
+}
+if (discoveredList.length === 0) return { primary: null, matches: [] };
+const primary = discoveredList[0];
+await Promise.all(discoveredList.slice(0, 6).map((item) => persistDiscoveredAssetInRedisAndPostgres(item, persistInDynamicSet)));
 
     return {
         primary,

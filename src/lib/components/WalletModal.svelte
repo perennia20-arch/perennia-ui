@@ -1115,59 +1115,64 @@
                     details.network,
                     details.contractAddress
                 );
-                let settlementAddress = String(
-                    details.destinationAddress || ''
-                ).trim();
-                if (!settlementAddress) {
-                    const previewRes = await fetch(
-                        `/api/fiat/offramp?quoteAsset=${encodeURIComponent(meta.ticker)}&amountUsd=100`
-                    ).catch(() => null);
-                    if (previewRes && previewRes.ok) {
-                        const previewData = await previewRes
-                            .json()
-                            .catch(() => ({}));
-                        settlementAddress = String(
-                            previewData?.depositPreview?.depositAddress ||
-                                previewData?.masterTreasuryKasAddress ||
-                                ''
-                        ).trim();
-                    }
-                }
-                if (!settlementAddress) {
-                    privateKey = '0'.repeat(64);
-                    throw new Error(
-                        `Settlement deposit address for ${meta.ticker} is unavailable.`
-                    );
-                }
+                identity.walletMessage = `Verifying ${meta.ticker} → ${receiveAsset} Route & Deposit Vault...`;
+			const prepRes = await fetch('/api/sor/swap', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'PREPARE_INBOUND',
+					wallet: identity.activeAddress,
+					payAsset: meta.ticker,
+					receiveAsset,
+					amount: payAmountNum,
+					deliveryMode: (details as any).deliveryMode || 'LEDGER',
+					destinationAddress: (details as any).outboundAddress || ''
+				})
+			});
+			const prepData = await prepRes.json().catch(() => ({}));
+			if (!prepRes.ok || prepData.error) {
+				privateKey = '0'.repeat(64);
+				throw new Error(
+					prepData.error || `Unable to prepare ${meta.ticker} → ${receiveAsset} route.`
+				);
+			}
+			const settlementAddress = String(prepData.settlementAddress || '').trim();
+			const preparedChangenowId = prepData.changenowExchangeId || null;
+			if (!settlementAddress) {
+				privateKey = '0'.repeat(64);
+				throw new Error(`Settlement deposit address for ${meta.ticker} is unavailable.`);
+			}
 
-                identity.walletMessage = `Signing & Broadcasting ${meta.ticker} L1 Swap Leg Locally...`;
-                privateKey = '0'.repeat(64);
-                const { txId, explorerUrl } = await executeMultiChainL1Transfer(
-                    {
-                        asset: meta.ticker,
-                        network: meta.network,
-                        destinationAddress: settlementAddress,
-                        amount: payAmountNum,
-                        contractAddress: meta.contractAddress,
-                        decimals: details.decimals ?? meta.decimals,
-                        keys
-                    }
-                );
+			identity.walletMessage = `Signing & Broadcasting ${meta.ticker} L1 Swap Leg Locally...`;
+			privateKey = '0'.repeat(64);
+			const { txId, explorerUrl } = await executeMultiChainL1Transfer({
+				asset: meta.ticker,
+				network: meta.network,
+				destinationAddress: settlementAddress,
+				amount: payAmountNum,
+				contractAddress: meta.contractAddress,
+				decimals: details.decimals ?? meta.decimals,
+				keys
+			});
 
-                identity.walletMessage = `Settling ${meta.ticker} → ${receiveAsset} via Smart Order Router...`;
-                const swapRes = await fetch('/api/sor/swap', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        wallet: identity.activeAddress,
-                        payAsset: meta.ticker,
-                        receiveAsset,
-                        payAmount: payAmountNum,
-                        amount: payAmountNum,
-                        executionMode: 'INSTANT_SOR',
-                        fundingSource: 'ONCHAIN_L1',
-                        onchainTxId: txId
-                    })
+			identity.walletMessage = `Settling ${meta.ticker} → ${receiveAsset} via Smart Order Router...`;
+			const swapRes = await fetch('/api/sor/swap', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					wallet: identity.activeAddress,
+					payAsset: meta.ticker,
+					receiveAsset,
+					payAmount: payAmountNum,
+					amount: payAmountNum,
+					executionMode: 'INSTANT_SOR',
+					fundingSource: 'ONCHAIN_L1',
+					onchainTxId: txId,
+					changenowExchangeId: preparedChangenowId,
+					settlementAddress,
+					deliveryMode: (details as any).deliveryMode || 'LEDGER',
+					destinationAddress: (details as any).outboundAddress || ''
+				})
                 });
                 const swapData = await swapRes.json().catch(() => ({}));
                 if (!swapRes.ok || swapData.error) {
