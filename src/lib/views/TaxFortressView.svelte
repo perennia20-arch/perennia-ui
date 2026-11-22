@@ -943,6 +943,21 @@
         }
     });
 
+    $effect(() => {
+        if (showEscrowModal) {
+            ui.syncSubOverlay('tax_escrow', true, () => {
+                showEscrowModal = false;
+            });
+        } else if (showJurisdictionDrawer) {
+            ui.syncSubOverlay('tax_jurisdiction', true, () => {
+                showJurisdictionDrawer = false;
+            });
+        } else {
+            ui.syncSubOverlay('tax_escrow', false, () => {});
+            ui.syncSubOverlay('tax_jurisdiction', false, () => {});
+        }
+    });
+
     onDestroy(() => {
         if (browser) {
             window.removeEventListener(
@@ -1003,93 +1018,73 @@
     {/if}
 
     <div
-        class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl"
+        class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0a0d12] border border-white/10 rounded-2xl px-4 sm:px-5 py-3.5 relative"
     >
-        <div class="flex flex-col gap-1">
-            <div class="flex items-center gap-2.5 flex-wrap">
-                <span
-                    class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"
-                ></span>
-                <h1
-                    class="text-sm md:text-base font-black uppercase tracking-widest text-white"
-                >
-                    Taxes
-                </h1>
-                <span
-                    class="px-2.5 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase"
-                >
-                    {rateCalculation.jurisdictionCode} • {entityType}
-                </span>
-                <span
-                    data-testid="state-tax-rate-badge"
-                    class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[8px] font-mono text-neutral-300 uppercase"
-                >
-                    {rateCalculation.stateComponentPct.toFixed(1)}% STATE TAX ({stateRegion})
-                </span>
-                <span
-                    data-testid="hifo-mode-badge"
-                    class="hidden xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-blue-500/35 text-[8px] font-mono text-blue-400 uppercase"
-                >
-                    
-                </span>
-                {#if nonCpaAcknowledged}
-                    <button
-                        type="button"
-                        onclick={() =>
-                            (showNonCpaNoticeDrawer = !showNonCpaNoticeDrawer)}
-                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 hover:border-amber-500/40 text-neutral-400 hover:text-amber-400 text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors"
-                        title="View Protocol Non-CPA Disclaimer"
-                    >
-                        Notice
-                    </button>
-                {/if}
+        {#if ui.microBadges['tax_profile_saved'] || ui.microBadges['tax_export_btn']}
+            <div
+                class="micro-confirm-badge absolute -top-3 right-4 z-40 px-3 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
+            >
+                {(
+                    ui.microBadges['tax_profile_saved'] ||
+                    ui.microBadges['tax_export_btn']
+                ).label}
             </div>
-            
-        </div>
-        <div class="flex flex-wrap items-center gap-2.5 relative">
-            {#if ui.microBadges['tax_profile_saved'] || ui.microBadges['tax_export_btn']}
-                <div
-                    class="micro-confirm-badge absolute -top-4 right-2 z-40 px-3 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
+        {/if}
+
+        <div class="flex items-center gap-2 flex-wrap min-w-0">
+            <span class="w-2 h-2 rounded-full bg-[#18C6A5] shrink-0"></span>
+            <h1 class="text-sm font-black uppercase tracking-[0.18em] text-white mr-1">
+                Taxes
+            </h1>
+            <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase whitespace-nowrap">
+                {rateCalculation.jurisdictionCode} • {entityType}
+            </span>
+            <span
+                data-testid="state-tax-rate-badge"
+                class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-bold text-neutral-300 uppercase whitespace-nowrap tabular-nums"
+            >
+                {rateCalculation.stateComponentPct.toFixed(1)}% STATE ({stateRegion})
+            </span>
+            <span data-testid="hifo-mode-badge" class="hidden">HIFO</span>
+            {#if nonCpaAcknowledged}
+                <button
+                    type="button"
+                    onclick={() => (showNonCpaNoticeDrawer = !showNonCpaNoticeDrawer)}
+                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 hover:border-amber-500/40 text-neutral-400 hover:text-amber-400 text-[9px] font-bold uppercase cursor-pointer transition-colors whitespace-nowrap"
+                    title="Protocol Notice"
                 >
-                    {(
-                        ui.microBadges['tax_profile_saved'] ||
-                        ui.microBadges['tax_export_btn']
-                    ).label}
-                </div>
+                    Notice
+                </button>
             {/if}
+        </div>
+
+        <div class="grid grid-cols-3 sm:flex sm:items-center gap-2 shrink-0">
             <button
                 type="button"
                 data-testid="configure-jurisdiction-btn"
-                onclick={() =>
-                    (showJurisdictionDrawer = !showJurisdictionDrawer)}
-                class="tactile-btn px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white border-white/15 cursor-pointer"
+                onclick={() => (showJurisdictionDrawer = !showJurisdictionDrawer)}
+                class="tactile-btn h-9 px-3 sm:px-3.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-wider cursor-pointer flex items-center justify-center whitespace-nowrap {showJurisdictionDrawer ? 'text-[#18C6A5] border-[#18C6A5]/50' : 'text-neutral-200 hover:text-white border-white/15'}"
             >
-                {showJurisdictionDrawer
-                    ? 'Close Jurisdiction ▴'
-                    : '[ Configure Jurisdiction & Profile ]'}
+                {showJurisdictionDrawer ? 'Jurisdiction ▴' : 'Jurisdiction ▾'}
             </button>
-            <div class="flex items-center gap-2">
-                <button
-                    type="button"
-                    data-testid="generate-1099-pdf-btn"
-                    onclick={handleGenerate1099Pdf}
-                    disabled={isGeneratingPdf}
-                    class="tactile-btn px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
-                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.18), transparent 70%);"
-                >
-                    {isGeneratingPdf
-                        ? 'Compiling PDF...'
-                        : 'Generate 1099-DA / 8949 PDF ↓'}
-                </button>
-                <button
-                    type="button"
-                    data-testid="export-hifo-csv-btn"
-                    onclick={handleExportHifoCsv}
-                    class="tactile-btn px-3.5 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer"
-                >
-                    Export CSV
-                </button>
-            </div>
+            <button
+                type="button"
+                data-testid="generate-1099-pdf-btn"
+                onclick={handleGenerate1099Pdf}
+                disabled={isGeneratingPdf}
+                class="tactile-btn h-9 px-3 sm:px-3.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40 flex items-center justify-center whitespace-nowrap"
+                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
+            >
+                {isGeneratingPdf ? 'Compiling...' : '1099 / 8949 PDF ↓'}
+            </button>
+            <button
+                type="button"
+                data-testid="export-hifo-csv-btn"
+                onclick={handleExportHifoCsv}
+                class="tactile-btn h-9 px-3 sm:px-3.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-neutral-300 hover:text-white border-white/15 cursor-pointer flex items-center justify-center whitespace-nowrap"
+            >
+                CSV ↓
+            </button>
         </div>
     </div>
 
@@ -1121,317 +1116,128 @@
                     )}%
                 </span>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="flex flex-col gap-1.5">
-                    <label
-                        for="taxCountrySelect"
-                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
-                    >
-                        Tax Authority / Country
-                    </label>
-                    <select
-                        id="taxCountrySelect"
-                        data-testid="tax-country-select"
-                        bind:value={countryCode}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-                    >
-                        {#each COUNTRY_TAX_MATRIX as c (c.code)}
-                            <option value={c.code}>{c.code} — {c.name}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class="flex flex-col gap-1.5">
-                    <label
-                        for="taxStateSelect"
-                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
-                    >
-                        US State / Region
-                    </label>
-                    <select
-                        id="taxStateSelect"
-                        data-testid="tax-state-select"
-                        bind:value={stateRegion}
-                        disabled={countryCode !== 'US'}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none disabled:opacity-40"
-                    >
-                        {#each US_STATE_TAX_MATRIX as st (st.code)}
-                            <option value={st.code}>
-                                {st.code} — {st.name} ({st.ratePct.toFixed(2)}%)
-                            </option>
-                        {/each}
-                    </select>
-                </div>
-                <div class="flex flex-col gap-1.5">
-                    <label
-                        for="taxEntitySelect"
-                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
-                    >
-                        Entity Structure
-                    </label>
-                    <select
-                        id="taxEntitySelect"
-                        data-testid="tax-entity-select"
-                        bind:value={entityType}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-                    >
-                        {#each ENTITY_STRUCTURE_OPTIONS as ent (ent.id)}
-                            <option value={ent.id}>{ent.label}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class="flex flex-col gap-1.5">
-                    <label
-                        for="taxFilingSelect"
-                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
-                    >
-                        Filing Status
-                    </label>
-                    <select
-                        id="taxFilingSelect"
-                        data-testid="tax-filing-select"
-                        bind:value={filingStatus}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-                    >
-                        {#each FILING_STATUS_OPTIONS as fs (fs.id)}
-                            <option value={fs.id}>{fs.label}</option>
-                        {/each}
-                    </select>
-                </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
+            <div class="h-5 flex items-center justify-between gap-2">
+                <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
+                    Proceeds (YTD)
+                </span>
             </div>
-            <div
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
-            >
-                <div class="flex items-center gap-3">
-                    <input
-                        id="cpaOverrideToggle"
-                        data-testid="cpa-override-toggle"
-                        type="checkbox"
-                        bind:checked={useCustomOverride}
-                        class="w-4 h-4 accent-[#18C6A5] cursor-pointer"
-                    />
-                    <label
-                        for="cpaOverrideToggle"
-                        class="text-[10px] font-bold uppercase tracking-wider text-neutral-200 cursor-pointer"
-                    >
-                        Enable CPA Custom Withholding Rate Override ({customOverrideRate.toFixed(
-                            1
-                        )}%)
-                    </label>
-                </div>
-                {#if useCustomOverride}
-                    <div class="flex items-center gap-3 flex-1 max-w-md">
-                        <input
-                            type="range"
-                            min="0"
-                            max="50"
-                            step="0.5"
-                            bind:value={customOverrideRate}
-                            class="w-full custom-range-slider cursor-pointer"
-                        />
-                        <span
-                            class="text-xs font-black text-[#18C6A5] w-14 text-right"
-                        >
-                            {customOverrideRate.toFixed(1)}%
-                        </span>
-                    </div>
-                {/if}
-            </div>
-            <div
-                class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#11161f] border border-amber-500/30 rounded-2xl p-4"
-            >
-                <div class="flex flex-col gap-1">
-                    <label
-                        for="legalName"
-                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
-                    >
-                        Legal / Entity Name (Local AES-256-GCM Only)
-                    </label>
-                    <input
-                        id="legalName"
-                        type="text"
-                        bind:value={legalName}
-                        placeholder="Perennia Mining Holdings, LLC"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
-                    />
-                </div>
-                <div class="flex flex-col gap-1">
-                    <label
-                        for="tin"
-                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
-                    >
-                        Tax ID / EIN / SSN (Local Browser Only)
-                    </label>
-                    <input
-                        id="tin"
-                        type="text"
-                        bind:value={tinEin}
-                        placeholder="XX-XXXXXXX"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
-                    />
-                </div>
-                <div class="flex flex-col gap-1">
-                    <label
-                        for="address"
-                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
-                    >
-                        Domicile Address (Local PDF Stamp Only)
-                    </label>
-                    <input
-                        id="address"
-                        type="text"
-                        bind:value={businessAddress}
-                        placeholder="Richardson, TX 75080"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
-                    />
-                </div>
-            </div>
-            <div class="flex justify-end gap-3">
-                <button
-                    type="button"
-                    onclick={() => (showJurisdictionDrawer = false)}
-                    class="tactile-btn px-5 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
-                >
-                    Cancel
-                </button>
-                <button
-                    type="submit"
-                    data-testid="save-tax-profile-btn"
-                    disabled={isSavingProfile}
-                    class="tactile-btn px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/50 cursor-pointer"
-                >
-                    {isSavingProfile
-                        ? 'Saving...'
-                        : `Save ${rateCalculation.jurisdictionCode} Profile ✓`}
-                </button>
-            </div>
-        </form>
-    {/if}
-
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div
-            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
-        >
-            <span
-                class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
-            >
-                Proceeds (YTD)
-            </span>
             <span
                 data-testid="gross-taxable-proceeds-display"
-                class="text-2xl font-black text-white tabular-nums"
+                class="text-2xl font-black text-white tabular-nums leading-none"
             >
                 ${grossTaxableProceedsUsd.toFixed(2)}
             </span>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500 tabular-nums">{displayedEvents.length} SETTLED EVENTS</span>
-        </div>
-        <div
-            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
-        >
-            <span
-                class="text-[9px] font-bold uppercase tracking-widest text-blue-400"
-            >
-                Cost Basis
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500 tabular-nums">
+                {displayedEvents.length} SETTLED EVENTS
             </span>
+        </div>
+
+        <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
+            <div class="h-5 flex items-center justify-between gap-2">
+                <span class="text-[9px] font-bold uppercase tracking-widest text-blue-400">
+                    Cost Basis
+                </span>
+                <span class="px-2 py-0.5 rounded bg-[#11161f] border border-blue-500/35 text-[8px] font-bold text-blue-400 uppercase">
+                    HIFO
+                </span>
+            </div>
             <span
                 data-testid="hifo-cost-basis-pool-display"
-                class="text-2xl font-black text-blue-400 tabular-nums"
+                class="text-2xl font-black text-blue-400 tabular-nums leading-none"
             >
                 ${Number(hifoBundle.summary.openCostBasisUsd || 0).toFixed(2)}
             </span>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">8949 BASIS: ${Number(hifoBundle.summary.totalMatchedCostBasisUsd || 0).toFixed(2)} • GAIN: ${Number(hifoBundle.summary.netRealizedGainLossUsd || 0).toFixed(2)}</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums truncate">
+                8949 BASIS: ${Number(hifoBundle.summary.totalMatchedCostBasisUsd || 0).toFixed(2)} • GAIN: ${Number(hifoBundle.summary.netRealizedGainLossUsd || 0).toFixed(2)}
+            </span>
         </div>
-        <div
-            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-2"
-        >
-            <div class="flex items-center justify-between">
-                <span
-                    class="text-[9px] font-bold uppercase tracking-widest text-[#18C6A5]"
-                >
+
+        <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
+            <div class="h-5 flex items-center justify-between gap-2">
+                <span class="text-[9px] font-bold uppercase tracking-widest text-[#18C6A5] truncate">
                     Tax Rate ({rateCalculation.jurisdictionCode})
                 </span>
                 {#if rateCalculation.qbiDiscountApplied}
-                    <span
-                        class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold"
-                    >
-                        20% QBI APPLIED
+                    <span class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold shrink-0">
+                        20% QBI
                     </span>
                 {/if}
             </div>
             <span
                 data-testid="effective-tax-rate-display"
-                class="text-2xl font-black text-[#18C6A5] tabular-nums"
+                class="text-2xl font-black text-[#18C6A5] tabular-nums leading-none"
             >
                 {rateCalculation.effectiveRatePct.toFixed(2)}%
             </span>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">EST. LIABILITY: <strong class="text-white">${estimatedTaxLiabilityUsd.toFixed(2)}</strong></span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">
+                EST. LIABILITY: <strong class="text-white">${estimatedTaxLiabilityUsd.toFixed(2)}</strong>
+            </span>
         </div>
-        <div
-            class="tactile-card bg-[#0a0d12] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-5 flex flex-col justify-between gap-2 relative"
-        >
+
+        <div class="tactile-card bg-[#0a0d12] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px] relative">
             {#if ui.microBadges['tax_escrow_card']}
-                <div
-                    class="micro-confirm-badge absolute -top-3 right-3 px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
-                >
+                <div class="micro-confirm-badge absolute -top-3 right-3 px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase">
                     {ui.microBadges['tax_escrow_card'].label}
                 </div>
             {/if}
-            <div class="flex items-center justify-between gap-2">
-                <span
-                    class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
-                >
-                    {escrowReserveMode === 'USDC_RESERVE'
-                        ? 'Tax Escrow (100% USDC Reserve)'
-                        : 'Tax Escrow (50/50 KAS/USDC LP)'}
+            <div class="h-5 flex items-center justify-between gap-2">
+                <span class="text-[9px] font-bold uppercase tracking-widest text-amber-400 whitespace-nowrap">
+                    Tax Escrow
                 </span>
-                <button
-                    type="button"
-                    data-testid="toggle-tax-escrow-btn"
-                    aria-label="Toggle Tax Escrow Reserve"
-                    onclick={handleToggleTaxEscrow}
-                    class="w-10 h-5 rounded-full border transition-colors relative cursor-pointer shrink-0 {taxEscrowEnabled ? 'bg-[#18C6A5]/25 border-[#18C6A5]' : 'bg-[#11161f] border-white/15'}"
-                >
-                    <span
-                        class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all {taxEscrowEnabled ? 'bg-[#18C6A5] left-[22px]' : 'bg-neutral-500 left-1'}"
-                    ></span>
-                </button>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button
+                        type="button"
+                        onclick={() => (showEscrowModal = true)}
+                        class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-amber-500/45 text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer whitespace-nowrap"
+                    >
+                        {escrowReserveMode === 'USDC_RESERVE' ? 'USDC ▾' : '50/50 LP ▾'}
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="toggle-tax-escrow-btn"
+                        aria-label="Toggle Tax Escrow Reserve"
+                        onclick={handleToggleTaxEscrow}
+                        class="w-9 h-5 rounded-full border transition-colors relative cursor-pointer shrink-0 {taxEscrowEnabled ? 'bg-[#18C6A5]/25 border-[#18C6A5]' : 'bg-[#11161f] border-white/15'}"
+                    >
+                        <span
+                            class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all {taxEscrowEnabled ? 'bg-[#18C6A5] left-[18px]' : 'bg-neutral-500 left-1'}"
+                        ></span>
+                    </button>
+                </div>
             </div>
             <div class="flex items-center justify-between gap-2">
                 <span
                     data-testid="tax-escrow-balance-display"
-                    class="text-xl font-black text-white tabular-nums"
+                    class="text-2xl font-black text-white tabular-nums leading-none"
                 >
-                    ${(taxEscrowEnabled
-                        ? estimatedTaxLiabilityUsd
-                        : escrowLpBalanceUsd
-                    ).toFixed(2)}
+                    ${(taxEscrowEnabled ? estimatedTaxLiabilityUsd : escrowLpBalanceUsd).toFixed(2)}
                 </span>
-                <div class="flex items-center gap-1.5">
+                {#if taxEscrowEnabled || escrowLpBalanceUsd > 0}
                     <button
                         type="button"
-                        onclick={() => (showEscrowModal = true)}
-                        class="tactile-btn px-2 py-1 rounded-lg text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
+                        data-testid="withdraw-tax-escrow-lp-btn"
+                        onclick={withdrawTaxEscrowLpNow}
+                        disabled={isWithdrawingEscrowLp}
+                        class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer shrink-0"
                     >
-                        Mode
+                        Withdraw
                     </button>
-                    {#if taxEscrowEnabled || escrowLpBalanceUsd > 0}
-                        <button
-                            type="button"
-                            data-testid="withdraw-tax-escrow-lp-btn"
-                            onclick={withdrawTaxEscrowLpNow}
-                            disabled={isWithdrawingEscrowLp}
-                            class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
-                        >
-                            Withdraw
-                        </button>
-                    {/if}
-                </div>
+                {/if}
             </div>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums">{#if taxEscrowEnabled}{escrowReserveMode === 'USDC_RESERVE' ? '100% USDC ACTIVE' : '50/50 KAS/USDC LP ACTIVE'}{:else}TARGET: ${estimatedTaxLiabilityUsd.toFixed(2)} ({rateCalculation.effectiveRatePct.toFixed(2)}%){/if}</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 tabular-nums truncate">
+                {#if taxEscrowEnabled}
+                    {escrowReserveMode === 'USDC_RESERVE' ? '100% USDC ACTIVE' : '50/50 KAS/USDC LP ACTIVE'}
+                {:else}
+                    TARGET: ${estimatedTaxLiabilityUsd.toFixed(2)} ({rateCalculation.effectiveRatePct.toFixed(2)}%)
+                {/if}
+            </span>
         </div>
     </div>
 
     <div
-        class="bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl flex flex-col gap-4"
+        class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col gap-4"
     >
         <div
             class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3"
@@ -1479,9 +1285,7 @@
                     </button>
                 {/if}
             </div>
-            <span class="text-[9px] text-neutral-400 uppercase">
-                
-            </span>
+            <span class="hidden sm:inline text-[9px] font-bold tracking-widest text-neutral-500 uppercase">PASSIVE HIFO • ZERO SERVER PII</span>
         </div>
 
         {#if activeLedgerTab === 'EXECUTIONS'}

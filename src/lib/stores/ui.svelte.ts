@@ -89,6 +89,31 @@ class UiStore {
     activeTourStepSpec = $state<TutorialRelayStepSpec | null>(null);
     hasCheckedTourPrompt = $state(false);
     microBadges = $state<Record<string, MicroConfirmationBadge>>({});
+    subOverlayId = $state<string | null>(null);
+    private subOverlayCloser: (() => void) | null = null;
+
+    syncSubOverlay(id: string, isOpen: boolean, closeFn: () => void) {
+        if (isOpen) {
+            this.subOverlayId = id;
+            this.subOverlayCloser = closeFn;
+        } else if (this.subOverlayId === id) {
+            this.subOverlayId = null;
+            this.subOverlayCloser = null;
+        }
+    }
+
+    closeSubOverlay(): boolean {
+        if (this.subOverlayId && this.subOverlayCloser) {
+            const fn = this.subOverlayCloser;
+            this.subOverlayId = null;
+            this.subOverlayCloser = null;
+            fn();
+            return true;
+        }
+        this.subOverlayId = null;
+        this.subOverlayCloser = null;
+        return false;
+    }
 
     private liveSnapshot: LiveStateSnapshot | null = null;
     private stores: SandboxStoreRefs | null = null;

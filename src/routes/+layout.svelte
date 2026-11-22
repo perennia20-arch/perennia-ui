@@ -1311,7 +1311,168 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         clearTimeout(globalDiscoverTimer);
     });
 
-	// perennia_sw_auto_update
+	// Mobile Hardware Back-Button & SPA History Stack Controller
+    let activeOverlayKey = $derived(
+        ui.showAgentModal
+            ? 'AGENT'
+            : ui.showFiatModal
+              ? 'FIAT'
+              : ui.showWalletModal
+                ? 'WALLET'
+                : settingsStore.showSettingsModal
+                  ? 'SETTINGS'
+                  : pwa.showInstallModal
+                    ? 'INSTALL'
+                    : ui.subOverlayId
+                      ? `SUB:${ui.subOverlayId}`
+                      : null
+    );
+
+    let navHistoryReady = false;
+    let applyingPopState = false;
+    let suppressPopCount = 0;
+    let lastHistoryTab = 'OPERATIONS';
+    let lastHistoryOverlay: string | null = null;
+
+    function handleAppPopState(ev: PopStateEvent) {
+        if (suppressPopCount > 0) {
+            suppressPopCount -= 1;
+            return;
+        }
+        applyingPopState = true;
+        const st = ev.state;
+        if (st && st.perenniaNav) {
+            const targetTab = typeof st.tab === 'string' ? st.tab : 'OPERATIONS';
+            const targetOverlay = typeof st.overlay === 'string' ? st.overlay : null;
+
+            ui.showAgentModal = targetOverlay === 'AGENT';
+            ui.showFiatModal = targetOverlay === 'FIAT';
+            ui.showWalletModal = targetOverlay === 'WALLET';
+            settingsStore.showSettingsModal = targetOverlay === 'SETTINGS';
+            pwa.showInstallModal = targetOverlay === 'INSTALL';
+            if (!targetOverlay || !targetOverlay.startsWith('SUB:')) {
+                ui.closeSubOverlay();
+            }
+
+            if (ui.activeTab !== targetTab) {
+                ui.activeTab = targetTab;
+            }
+            lastHistoryTab = targetTab;
+            lastHistoryOverlay = targetOverlay;
+        } else {
+            if (
+                ui.showAgentModal ||
+                ui.showFiatModal ||
+                ui.showWalletModal ||
+                settingsStore.showSettingsModal ||
+                pwa.showInstallModal ||
+                ui.subOverlayId
+            ) {
+                ui.showAgentModal = false;
+                ui.showFiatModal = false;
+                ui.showWalletModal = false;
+                settingsStore.showSettingsModal = false;
+                pwa.showInstallModal = false;
+                ui.closeSubOverlay();
+                lastHistoryOverlay = null;
+            } else if (ui.activeTab !== 'OPERATIONS') {
+                ui.activeTab = 'OPERATIONS';
+                lastHistoryTab = 'OPERATIONS';
+            }
+        }
+        queueMicrotask(() => {
+            applyingPopState = false;
+        });
+    }
+
+    onMount(() => {
+        if (!browser) return;
+        const bootTab = ui.activeTab || 'OPERATIONS';
+        lastHistoryTab = bootTab;
+        lastHistoryOverlay = null;
+        window.history.replaceState(
+            { perenniaNav: true, tab: bootTab, overlay: null, isRoot: true },
+            ''
+        );
+        navHistoryReady = true;
+        window.addEventListener('popstate', handleAppPopState);
+        return () => window.removeEventListener('popstate', handleAppPopState);
+    });
+
+    $effect(() => {
+        const entered = hasEntered || ui.hasEntered;
+        const curTab = ui.activeTab;
+        const curOverlay = activeOverlayKey;
+        const tourActive = ui.isTutorialActive;
+
+        if (!browser || !navHistoryReady || !entered || tourActive || applyingPopState) {
+            return;
+        }
+
+        untrack(() => {
+            if (
+                curOverlay === 'WALLET' &&
+                !identity.isWalletConnected &&
+                lastHistoryOverlay === null &&
+                curTab === 'OPERATIONS'
+            ) {
+                return;
+            }
+
+            if (curTab !== lastHistoryTab) {
+                const hadOverlay = lastHistoryOverlay;
+                lastHistoryTab = curTab;
+                lastHistoryOverlay = curOverlay;
+                if (
+                    hadOverlay !== null &&
+                    curOverlay === null &&
+                    window.history.state?.perenniaNav &&
+                    window.history.state?.overlay === hadOverlay
+                ) {
+                    window.history.replaceState(
+                        { perenniaNav: true, tab: curTab, overlay: null },
+                        ''
+                    );
+                } else {
+                    window.history.pushState(
+                        { perenniaNav: true, tab: curTab, overlay: curOverlay },
+                        ''
+                    );
+                }
+                return;
+            }
+
+            if (lastHistoryOverlay === null && curOverlay !== null) {
+                lastHistoryOverlay = curOverlay;
+                window.history.pushState(
+                    { perenniaNav: true, tab: curTab, overlay: curOverlay },
+                    ''
+                );
+            } else if (
+                lastHistoryOverlay !== null &&
+                curOverlay !== null &&
+                curOverlay !== lastHistoryOverlay
+            ) {
+                lastHistoryOverlay = curOverlay;
+                window.history.replaceState(
+                    { perenniaNav: true, tab: curTab, overlay: curOverlay },
+                    ''
+                );
+            } else if (lastHistoryOverlay !== null && curOverlay === null) {
+                const closedKey = lastHistoryOverlay;
+                lastHistoryOverlay = null;
+                if (
+                    window.history.state?.perenniaNav &&
+                    window.history.state?.overlay === closedKey
+                ) {
+                    suppressPopCount += 1;
+                    window.history.back();
+                }
+            }
+        });
+    });
+
+// perennia_sw_auto_update
 	$effect(() => {
 		if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 			const hadOldController = Boolean(navigator.serviceWorker.controller);

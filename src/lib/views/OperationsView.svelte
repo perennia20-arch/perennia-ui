@@ -574,6 +574,11 @@
     }
 
     let isSectorModalOpen = $state(false);
+    $effect(() => {
+        ui.syncSubOverlay('ops_new_split', isSectorModalOpen, () => {
+            isSectorModalOpen = false;
+        });
+    });
     let draftSectorName = $state('');
     let draftSectorPct = $state(0);
     let draftSectorMax = $state(0);
