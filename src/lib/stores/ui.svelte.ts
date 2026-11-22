@@ -72,6 +72,8 @@ class UiStore {
     swapIntent = $state<DexSwapIntent | null>(null);
 
     // Global In-Context Fiat Purchase Modal State
+    showAgentModal = $state(false);
+    activeAgentCount = $state(0);
     showFiatModal = $state(false);
     openBuyAfterAuth = $state(false);
     fiatModalTargetTicker = $state('KAS');
@@ -114,6 +116,7 @@ class UiStore {
         this.fiatModalAutoStakeSilo =
             this.fiatModalTargetTicker === 'SILO' ? Boolean(autoStakeSilo) : false;
         this.fiatModalDefaultUsd = String(defaultUsd || '');
+        this.showAgentModal = false;
         this.showFiatModal = true;
     }
 

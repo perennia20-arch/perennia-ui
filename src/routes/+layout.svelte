@@ -26,6 +26,7 @@
     import EntryView from '$lib/views/EntryView.svelte';
     import WalletModal from '$lib/components/WalletModal.svelte';
     import SettingsModal from '$lib/components/SettingsModal.svelte';
+    import AgentModal from '$lib/components/AgentModal.svelte';
     import TutorialOverlay from '$lib/components/TutorialOverlay.svelte';
 import { pwa } from '$lib/stores/pwa.svelte';
 import InstallAppModal from '$lib/components/InstallAppModal.svelte';
@@ -1586,6 +1587,23 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 </button>
                             </div>
                         {/if}
+                        <button
+                            type="button"
+                            data-testid="header-agents-btn"
+                            onclick={() => {
+                                ui.showFiatModal = false;
+                                ui.showWalletModal = false;
+                                settingsStore.showSettingsModal = false;
+                                ui.showAgentModal = true;
+                            }}
+                            class="tactile-btn mobile-touch-target px-2.5 sm:px-3 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest cursor-pointer flex items-center gap-1.5 whitespace-nowrap {ui.showAgentModal ? 'text-[#18C6A5] border-[#18C6A5]/50' : 'text-neutral-300 hover:text-white border-white/15 hover:border-[#18C6A5]/45'}"
+                            title="Agents"
+                        >
+                            {#if ui.activeAgentCount > 0}
+                                <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5]"></span>
+                            {/if}
+                            <span>Agents</span>
+                        </button>
 					<button
                             type="button"
                             aria-label="Settings"
@@ -2176,6 +2194,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
 <WalletModal />
 <SettingsModal />
+<AgentModal />
 <InstallAppModal />
 <TutorialOverlay />
 
