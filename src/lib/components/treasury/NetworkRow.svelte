@@ -1102,6 +1102,16 @@
                         ${(asset.spotPrice || 0).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}
                         <span class={(asset.delta || 0) >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}>{(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(asset.delta || 0).toFixed(2)}%</span>
                     </span>
+                    {#if asset.ticker === 'KAS'}
+                        <button
+                            type="button"
+                            onclick={initiateCompoundKasUtxos}
+                            disabled={isCompoundingUtxos || utxoCount < 2}
+                            class="sm:hidden px-1.5 py-0.5 rounded bg-[#11161f] border text-[8px] font-mono font-bold uppercase whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-400 border-white/10'}"
+                        >
+                            {isCompoundingUtxos ? '...' : `UTXOs (${utxoCount})`}
+                        </button>
+                    {/if}
                     <svg class="hidden sm:block w-14 h-3.5 opacity-70 shrink-0" viewBox="0 0 64 24" preserveAspectRatio="none">
                         <path d={generateSparkline(asset.symbol || asset.ticker, asset.delta)} fill="none" stroke={(asset.delta || 0) >= 0 ? '#18C6A5' : '#ef4444'} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
@@ -1113,7 +1123,7 @@
             <div class="flex flex-col items-end gap-0.5">
                 <span class="sr-only" data-testid="onchain-balance-label-{asset.ticker || asset.symbol}">Balance</span>
                 {#if displayUnit === 'token'}
-                    <span class="text-base sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-white" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
+                    <span class="text-sm sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-white" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
                         {(asset.onChain || 0).toLocaleString(undefined, { minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals })}
                         <span class="text-[11px] font-mono text-neutral-400">{asset.symbol || asset.ticker}</span>
                     </span>
@@ -1125,7 +1135,7 @@
                         <span>${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}</span>
                     </span>
                 {:else}
-                    <span class="text-base sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[#18C6A5]" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
+                    <span class="text-sm sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[#18C6A5]" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
                         ${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}
                     </span>
                     <span class="text-[10px] font-mono text-neutral-400 tabular-nums flex flex-wrap items-center justify-end gap-1.5">
@@ -1147,20 +1157,81 @@
             {/if}
         </div>
 
-        <!-- Single-DOM Action Strip -->
+                <!-- Single-DOM Action Strip -->
         {#if !isManagingNetworks && !isOrganizing}
-            <div class="{isMainOpen ? 'grid grid-cols-3 sm:flex sm:flex-wrap lg:flex-nowrap' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none w-full lg:w-auto" onclick={(e) => e.stopPropagation()}>
-                <button type="button" data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}" onclick={(e) => { e.stopPropagation(); const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase(); ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, ''); }} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap" style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);">Buy</button>
-                <button type="button" onclick={(e) => openQuickAction(e, 'deposit')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}">Receive</button>
-                <button type="button" data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'withdraw')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}">Send</button>
-                <button type="button" data-testid="cold-vault-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}">Cold</button>
-                <button type="button" data-testid="activity-btn-{asset.ticker || asset.symbol}" onclick={(e) => openQuickAction(e, 'history')} class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}">History</button>
+            <div
+                class="{isMainOpen ? 'grid grid-cols-3 sm:flex sm:flex-wrap lg:flex-nowrap' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none w-full lg:w-auto"
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
+                role="group"
+            >
+                <button
+                    type="button"
+                    data-testid="buy-with-usd-btn-{asset.ticker || asset.symbol}"
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase();
+                        ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, '');
+                    }}
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
+                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
+                >
+                    Buy
+                </button>
+                <button
+                    type="button"
+                    onclick={(e) => openQuickAction(e, 'deposit')}
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'deposit' ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300 hover:text-white'}"
+                >
+                    Receive
+                </button>
+                <button
+                    type="button"
+                    data-testid="withdraw-l1-btn-{asset.ticker || asset.symbol}"
+                    onclick={(e) => openQuickAction(e, 'withdraw')}
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'withdraw' ? 'text-amber-400 border-amber-500/40' : 'text-neutral-300 hover:text-white'}"
+                >
+                    Send
+                </button>
+                <button
+                    type="button"
+                    data-testid="cold-vault-btn-{asset.ticker || asset.symbol}"
+                    onclick={(e) => openQuickAction(e, 'cold_vault')}
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
+                >
+                    Cold
+                </button>
+                <button
+                    type="button"
+                    data-testid="activity-btn-{asset.ticker || asset.symbol}"
+                    onclick={(e) => openQuickAction(e, 'history')}
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'history' ? 'text-blue-400 border-blue-500/40' : 'text-neutral-300 hover:text-white'}"
+                >
+                    History
+                </button>
                 {#if asset.ticker === 'KAS'}
-                    <button type="button" onclick={initiateCompoundKasUtxos} disabled={isCompoundingUtxos || utxoCount < 2} class="tactile-btn w-full sm:w-auto justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}">{isCompoundingUtxos ? 'Compounding...' : `UTXOs (${utxoCount})`}</button>
+                    <button
+                        type="button"
+                        onclick={initiateCompoundKasUtxos}
+                        disabled={isCompoundingUtxos || utxoCount < 2}
+                        class="hidden sm:inline-flex tactile-btn w-auto justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/35' : 'text-neutral-400'}"
+                    >
+                        {isCompoundingUtxos ? 'Compounding...' : `UTXOs (${utxoCount})`}
+                    </button>
                 {/if}
-                <a href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)} target="_blank" rel="noopener noreferrer" data-testid="explorer-link-{asset.ticker || asset.symbol}" class="text-[8px] uppercase tracking-wider font-bold text-neutral-500 hover:text-[#18C6A5] transition-colors col-span-3 sm:col-span-1 text-center py-1 sm:py-0 px-1.5 whitespace-nowrap shrink-0">Explorer ↗</a>
+                <a
+                    href={getExplorerUrl(asset.symbol || asset.ticker, asset.address)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="explorer-link-{asset.ticker || asset.symbol}"
+                    onclick={(e) => e.stopPropagation()}
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer text-neutral-300 hover:text-[#18C6A5] border-white/15 hover:border-[#18C6A5]/45 whitespace-nowrap flex items-center gap-1"
+                >
+                    <span>Explorer</span>
+                    <span class="text-[#18C6A5]">&#8599;</span>
+                </a>
             </div>
-		{/if}
+        {/if}
     </div>
 {#if isMainOpen && !isManagingNetworks && !isOrganizing && (activeRoutingTab !== 'none' || filteredSubAssets.length > 0 || withdrawalFeedback)}
         <div

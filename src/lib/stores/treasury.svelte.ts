@@ -45,11 +45,11 @@ export const SUPPORTED_ASSETS = [
 export class UnifiedAsset {
     id: string;
     ticker: string;
-    name: string;
-    assetClass: AssetClass;
-    network: string;
-    theme: ThemeColors;
-    imgUrl: string;
+    name = $state('Unknown Asset');
+    assetClass = $state<AssetClass>('Ecosystem');
+    network = $state('KAS');
+    theme = $state<ThemeColors>({ hex: '#18C6A5', pastel: '#99f6e4' });
+    imgUrl = $state('');
     contract = $state<string | undefined>(undefined);
     address = $state('Awaiting Decryption');
     onChain = $state(0);
@@ -224,7 +224,7 @@ class TreasuryStore {
             if (updates.delta !== undefined) newAsset.delta = updates.delta;
             if (updates.address !== undefined)
                 newAsset.address = updates.address;
-            this.registry.push(newAsset);
+            this.registry = [...this.registry, newAsset];
         }
     }
 
@@ -286,35 +286,120 @@ class TreasuryStore {
         const trimmed = String(rawQuery || '').trim();
         if (trimmed.length < 2) return { primary: null, matches: [] };
 
+        const matches: UnifiedAsset[] = [];
+        let primary: UnifiedAsset | null = null;
+
         try {
             const res = await fetch(
-                `/api/prices?discover=${encodeURIComponent(trimmed)}${persistOnServer ? '&register=1' : ''}`
+                `/api/prices?discover=${encodeURIComponent(trimmed)}${persistOnServer ? '&register=1' : ''}`,
+                { signal: AbortSignal.timeout(4500) }
             );
-            if (!res.ok) return { primary: null, matches: [] };
-            const data = await res.json();
-            const matches: UnifiedAsset[] = [];
-            if (Array.isArray(data?.matches)) {
-                for (const m of data.matches) {
-                    if (m?.ticker) {
-                        matches.push(this.registerDiscoveredAsset(m, true));
+            if (res.ok) {
+                const data = await res.json().catch(() => null);
+                if (Array.isArray(data?.matches)) {
+                    for (const m of data.matches) {
+                        if (m?.ticker) {
+                            matches.push(this.registerDiscoveredAsset(m, true));
+                        }
                     }
                 }
-            }
-            let primary: UnifiedAsset | null = null;
-            if (data?.asset?.ticker) {
-                primary = this.registerDiscoveredAsset(data.asset, true);
-                if (!matches.some((m) => m.ticker === primary!.ticker)) {
-                    matches.unshift(primary);
+                if (data?.asset?.ticker) {
+                    primary = this.registerDiscoveredAsset(data.asset, true);
+                    if (!matches.some((m) => m.ticker === primary!.ticker)) {
+                        matches.unshift(primary);
+                    }
+                } else if (matches.length > 0) {
+                    primary = matches[0];
                 }
-            } else if (matches.length > 0) {
-                primary = matches[0];
             }
-            return { primary, matches };
         } catch {
-            return { primary: null, matches: [] };
+            // Fall through to KRC-20 & DEX indexers
         }
-    }
 
+        if (matches.length === 0 && /^[A-Za-z0-9]{2,10}$/.test(trimmed)) {
+            const cleanKrc = trimmed.toUpperCase();
+            try {
+                const kasRes = await fetch(
+                    `https://api.kasplex.org/v1/krc20/token/${encodeURIComponent(cleanKrc)}`,
+                    { signal: AbortSignal.timeout(3500) }
+                );
+                if (kasRes.ok) {
+                    const kasData = await kasRes.json().catch(() => null);
+                    if (Array.isArray(kasData?.result) && kasData.result.length > 0) {
+                        const krcAsset = this.registerDiscoveredAsset(
+                            {
+                                ticker: cleanKrc,
+                                name: `${cleanKrc} (KRC-20)`,
+                                assetClass: 'Ecosystem',
+                                network: 'KAS',
+                                contract: cleanKrc,
+                                imgUrl: `https://storage.googleapis.com/kasfyi/token-icons/${cleanKrc.toLowerCase()}.png`
+                            },
+                            true
+                        );
+                        return { primary: krcAsset, matches: [krcAsset] };
+                    }
+                }
+            } catch {
+                // Ignore Kasplex timeout
+            }
+        }
+
+        if (matches.length === 0) {
+            try {
+                const dsRes = await fetch(
+                    `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(trimmed)}`,
+                    { signal: AbortSignal.timeout(4000) }
+                );
+                if (dsRes.ok) {
+                    const dsData = await dsRes.json().catch(() => null);
+                    const chainMap: Record<string, string> = {
+                        ethereum: 'ETH',
+                        solana: 'SOL',
+                        base: 'BASE',
+                        arbitrum: 'ARB',
+                        polygon: 'POL',
+                        avalanche: 'AVAX',
+                        sui: 'SUI'
+                    };
+                    if (Array.isArray(dsData?.pairs)) {
+                        const seen = new Set<string>();
+                        for (const p of dsData.pairs) {
+                            const net = chainMap[String(p?.chainId || '').toLowerCase()];
+                            const sym = String(p?.baseToken?.symbol || '')
+                                .trim()
+                                .toUpperCase()
+                                .replace(/[^A-Z0-9]/g, '');
+                            const liq = Number(p?.liquidity?.usd || 0);
+                            if (!net || sym.length < 2 || sym.length > 10 || liq < 1000 || seen.has(sym)) {
+                                continue;
+                            }
+                            seen.add(sym);
+                            const registered = this.registerDiscoveredAsset(
+                                {
+                                    ticker: sym,
+                                    name: String(p?.baseToken?.name || sym),
+                                    assetClass: 'DeFi',
+                                    network: net,
+                                    spotPrice: Number(p?.priceUsd || 0),
+                                    contract: String(p?.baseToken?.address || sym),
+                                    imgUrl: String(p?.info?.imageUrl || '')
+                                },
+                                true
+                            );
+                            matches.push(registered);
+                            if (matches.length >= 5) break;
+                        }
+                        if (!primary && matches.length > 0) primary = matches[0];
+                    }
+                }
+            } catch {
+                // Ignore DexScreener timeout
+            }
+        }
+
+        return { primary, matches };
+    }
     async syncRwaOraclePrices(): Promise<boolean> {
         if (!browser) return false;
         try {

@@ -28,11 +28,8 @@
     let restoreInputRef = $state<HTMLInputElement | null>(null);
     let showChapterSelector = $state(false);
 
-    $effect(() => {
-        settingsStore.save();
-    });
-
-    function close() {
+    
+function close() {
         backupStatus = null;
         showChapterSelector = false;
         settingsStore.showSettingsModal = false;
@@ -42,7 +39,7 @@
         settingsStore.theme = 'dark';
         settingsStore.bgIntensity = 0;
         settingsStore.fiatDecimals = 2;
-        settingsStore.tokenDecimals = 8;
+        settingsStore.tokenDecimals = browser && window.innerWidth < 768 ? 4 : 8; settingsStore.decimalsCustomized = false;
         settingsStore.setLocale('EN');
         settingsStore.setCurrency('USD');
         settingsStore.save();
@@ -671,7 +668,7 @@
                             type="range"
                             min="0"
                             max="100"
-                            bind:value={settingsStore.bgIntensity}
+                            bind:value={settingsStore.bgIntensity} oninput={() => settingsStore.save()}
                             class="custom-slider w-full"
                         />
                     </div>

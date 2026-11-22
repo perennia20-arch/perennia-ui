@@ -168,17 +168,24 @@
             : draftAssets[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0)
     );
 
-    let filteredAssets = $derived(
-        treasury.registry.filter((a) => {
-            const q = pickerQuery.trim().toLowerCase();
+    let filteredAssets = $derived.by(() => {
+        const q = pickerQuery.trim().toLowerCase();
+        const matches = treasury.registry.filter((a) => {
+            const tick = String(a.ticker || '').toLowerCase();
+            const name = String(a.name || '').toLowerCase();
+            const cls = String(a.assetClass || '').toLowerCase();
+            const net = String(a.network || '').toLowerCase();
+            const contract = String(a.contract || '').toLowerCase();
             const matchesSearch =
                 !q ||
-                a.ticker.toLowerCase().includes(q) ||
-                a.name.toLowerCase().includes(q) ||
-                a.assetClass.toLowerCase().includes(q);
+                tick.includes(q) ||
+                name.includes(q) ||
+                cls.includes(q) ||
+                net.includes(q) ||
+                contract.includes(q);
             if (!matchesSearch) return false;
             if (pickerCategory === 'MINEABLE') {
-                return mineableVaultMap.has(a.ticker.toUpperCase());
+                return mineableVaultMap.has(tick.toUpperCase());
             }
             if (pickerCategory === 'EQUITIES') {
                 return a.assetClass === 'Public Equity';
@@ -188,17 +195,24 @@
             }
             if (pickerCategory === 'CRYPTO') {
                 return (
-                    a.assetClass === 'Native L1' ||
-                    a.assetClass === 'Stablecoin' ||
-                    a.assetClass === 'Ecosystem' ||
-                    a.assetClass === 'DeFi' ||
-                    a.assetClass === 'Tokenized Asset'
+                    a.assetClass !== 'Public Equity' &&
+                    a.assetClass !== 'Commodity' &&
+                    a.assetClass !== 'Sovereign Debt'
                 );
             }
             return true;
-        })
-    );
-
+        });
+        if (!q) return matches;
+        return [...matches].sort((a, b) => {
+            const at = String(a.ticker || '').toLowerCase();
+            const bt = String(b.ticker || '').toLowerCase();
+            if (at === q && bt !== q) return -1;
+            if (bt === q && at !== q) return 1;
+            if (at.startsWith(q) && !bt.startsWith(q)) return -1;
+            if (bt.startsWith(q) && !at.startsWith(q)) return 1;
+            return 0;
+        });
+    });
     function openInlineEditor(initialPicker: 'closed' | 'replace_primary' | 'add_secondary' = 'closed') {
         if (!isEditing) {
             draftName = sector.name;

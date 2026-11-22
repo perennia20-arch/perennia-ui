@@ -1,4 +1,3 @@
-// WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\stores\settings.svelte.ts
 import { browser } from '$app/environment';
 import {
     i18n,
@@ -14,11 +13,15 @@ class SettingsStore {
     bgIntensity = $state(0);
     fiatDecimals = $state(2);
     tokenDecimals = $state(8);
+    decimalsCustomized = $state(false);
     locale = $state<SupportedLocale>('EN');
     currency = $state<SupportedCurrency>('USD');
 
     constructor() {
         if (browser) {
+            const isNarrowMobile = window.innerWidth < 768;
+            this.tokenDecimals = isNarrowMobile ? 4 : 8;
+
             const stored = localStorage.getItem('perennia_ui_settings');
             if (stored) {
                 try {
@@ -32,7 +35,12 @@ class SettingsStore {
                     if (parsed.fiatDecimals !== undefined) {
                         this.fiatDecimals = Number(parsed.fiatDecimals) ?? 2;
                     }
-                    if (parsed.tokenDecimals !== undefined) {
+                    if (parsed.decimalsCustomized === true) {
+                        this.decimalsCustomized = true;
+                        if (parsed.tokenDecimals !== undefined) {
+                            this.tokenDecimals = Number(parsed.tokenDecimals) ?? (isNarrowMobile ? 4 : 8);
+                        }
+                    } else if (!isNarrowMobile && parsed.tokenDecimals !== undefined) {
                         this.tokenDecimals = Number(parsed.tokenDecimals) ?? 8;
                     }
                     if (
@@ -44,9 +52,7 @@ class SettingsStore {
                     }
                     if (
                         parsed.currency &&
-                        SUPPORTED_CURRENCIES.some(
-                            (c) => c.code === parsed.currency
-                        )
+                        SUPPORTED_CURRENCIES.some((c) => c.code === parsed.currency)
                     ) {
                         this.currency = parsed.currency as SupportedCurrency;
                         i18n.setCurrency(this.currency);
@@ -57,6 +63,18 @@ class SettingsStore {
             }
             this.applyTheme();
         }
+    }
+
+    setFiatDecimals(val: number) {
+        this.fiatDecimals = Math.max(0, Math.min(8, Math.round(Number(val) || 0)));
+        this.decimalsCustomized = true;
+        this.save();
+    }
+
+    setTokenDecimals(val: number) {
+        this.tokenDecimals = Math.max(0, Math.min(18, Math.round(Number(val) || 0)));
+        this.decimalsCustomized = true;
+        this.save();
     }
 
     setLocale(nextLocale: SupportedLocale) {
@@ -88,6 +106,7 @@ class SettingsStore {
                     bgIntensity: this.bgIntensity,
                     fiatDecimals: this.fiatDecimals,
                     tokenDecimals: this.tokenDecimals,
+                    decimalsCustomized: this.decimalsCustomized,
                     locale: this.locale,
                     currency: this.currency
                 })
@@ -105,7 +124,6 @@ class SettingsStore {
         if (this.theme === 'dark') {
             doc.classList.remove('theme-light');
             doc.classList.add('theme-dark');
-            // Locked calibrated dark mode base (#06080b -> subtle charcoal #0e1218)
             const r = Math.round(6 + ratio * 8);
             const g = Math.round(8 + ratio * 10);
             const b = Math.round(11 + ratio * 13);
@@ -115,7 +133,6 @@ class SettingsStore {
         } else {
             doc.classList.remove('theme-dark');
             doc.classList.add('theme-light');
-            // Warm Eggshell (#F6F3E9 / 246, 243, 233) -> Rich Warm Vanilla (#EAE4D3 / 234, 228, 211)
             const r = Math.round(246 - ratio * 12);
             const g = Math.round(243 - ratio * 15);
             const b = Math.round(233 - ratio * 22);
