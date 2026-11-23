@@ -1416,7 +1416,7 @@
             const offset = -cumulativePercent;
             cumulativePercent += percent;
             return {
-                ...asset,
+                ...asset, symbol: asset.symbol, name: asset.name, hex: asset.hex, theme: asset.theme,
                 usdValue,
                 percent,
                 dasharray: `${percent} ${100 - percent}`,

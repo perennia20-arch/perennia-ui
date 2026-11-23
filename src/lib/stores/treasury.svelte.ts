@@ -45,11 +45,11 @@ export const SUPPORTED_ASSETS = [
 export class UnifiedAsset {
     id: string;
     ticker: string;
-    name = $state('Unknown Asset');
-    assetClass = $state<AssetClass>('Ecosystem');
-    network = $state('KAS');
-    theme = $state<ThemeColors>({ hex: '#18C6A5', pastel: '#99f6e4' });
-    imgUrl = $state('');
+    name: string; //'Unknown Asset');
+    assetClass: AssetClass; //'Ecosystem');
+    network: string; //'KAS');
+    theme: ThemeColors; //{ hex: '#18C6A5', pastel: '#99f6e4' });
+    imgUrl: string; //'');
     contract = $state<string | undefined>(undefined);
     address = $state('Awaiting Decryption');
     onChain = $state(0);

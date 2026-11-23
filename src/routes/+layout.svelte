@@ -1503,7 +1503,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 class="min-h-[3.75rem] lg:h-20 bg-[#070b0e]/95 backdrop-blur-md flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
             >
                 <div
-                    class="w-full max-w-[1720px] px-3 sm:px-5 lg:px-8 flex flex-wrap lg:flex-nowrap justify-between items-center h-full gap-2.5"
+                    class="w-full max-w-[1720px] px-3 sm:px-5 lg:px-8 flex flex-wrap md:flex-nowrap justify-between md:justify-start items-center h-full gap-x-2 gap-y-2"
                 >
                     <button
                         type="button"
@@ -1532,7 +1532,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     </button>
                     <nav
                         aria-label="Primary Command Navigation"
-                        class="hidden lg:flex lg:order-2 lg:w-auto items-center justify-center overflow-x-auto hide-scrollbar"
+                        class="hidden lg:flex lg:order-2 lg:mx-auto lg:w-auto items-center justify-center overflow-x-auto hide-scrollbar"
                     >
                         <div
                             class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 p-1 rounded-2xl min-w-max shadow-inner"
@@ -1634,7 +1634,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         </div>
                     </nav>
                     <div
-                        class="order-2 lg:order-3 flex items-center gap-2 shrink-0 relative"
+                        class="order-3 md:order-2 lg:order-3 w-full md:w-auto md:ml-auto lg:ml-0 flex items-center justify-between md:justify-end gap-2 min-w-0 relative"
                     >
                         {#if identity.isCorporateAdmin && ui.adminModeActive && ui.adminTargetWallet}
                             <div
@@ -1748,9 +1748,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 </button>
                             </div>
                         {/if}
-                        <button
-                            type="button"
-                            data-testid="header-agents-btn"
+                        </div><div class="order-2 md:order-3 lg:order-4 ml-auto md:ml-0 flex items-center gap-1.5 sm:gap-2 shrink-0"><button type="button" data-testid="header-agents-btn"
                             onclick={() => {
                                 ui.showFiatModal = false;
                                 ui.showWalletModal = false;
