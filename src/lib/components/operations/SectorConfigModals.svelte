@@ -82,9 +82,56 @@
     );
     let isAssetPickerOpen = $state(false);
     let assetSearchQuery = $state('');
-    let assetCategoryFilter = $state<
-        'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES' | 'MINEABLE'
-    >('ALL');
+    let isSearchingAssets = $state(false);
+    let discoveredPickerAssets = $state<UnifiedAsset[]>([]);
+    let assetDiscoverTimer: ReturnType<typeof setTimeout> | undefined;
+    let searchSeq = 0;
+    let assetCategoryFilter = $state<'ALL' | 'CRYPTO' | 'EQUITIES' | 'COMMODITIES' | 'MINEABLE'>('ALL');
+
+    $effect(() => () => clearTimeout(assetDiscoverTimer));
+    $effect(() => {
+        if (!isAssetPickerOpen) { discoveredPickerAssets = []; isSearchingAssets = false; }
+    });
+    $effect(() => {
+        if (isAssetPickerOpen) {
+            ui.syncSubOverlay('ops_asset_picker', true, () => { isAssetPickerOpen = false; assetSearchQuery = ''; });
+        } else if (isSectorModalOpen) {
+            ui.syncSubOverlay('ops_new_split', true, () => { isSectorModalOpen = false; });
+        } else {
+            ui.syncSubOverlay('ops_asset_picker', false, () => {});
+        }
+    });
+
+    function handleModalAssetSearchInput(raw: string) {
+        assetSearchQuery = raw;
+        const trimmed = raw.trim();
+        if (trimmed.length > 0 && assetCategoryFilter !== 'ALL') assetCategoryFilter = 'ALL';
+        clearTimeout(assetDiscoverTimer);
+        if (trimmed.length < 2) { isSearchingAssets = false; discoveredPickerAssets = []; return; }
+        const seq = ++searchSeq;
+        isSearchingAssets = true;
+        assetDiscoverTimer = setTimeout(async () => {
+            try {
+                const res = await treasury.discoverAndRegisterToken(trimmed, true);
+                if (seq === searchSeq && Array.isArray(res?.matches)) discoveredPickerAssets = res.matches;
+            } finally {
+                if (seq === searchSeq) isSearchingAssets = false;
+            }
+        }, 200);
+    }
+
+    function selectCustomModalTicker() {
+        const clean = assetSearchQuery.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+        if (clean.length < 2) return;
+        const customAsset = treasury.registerDiscoveredAsset(
+            { ticker: clean, name: clean + ' (Custom Asset)', assetClass: 'Ecosystem', network: 'KAS', contract: clean },
+            true
+        );
+        onAddOrToggleAssetInSector(assetPickerTarget, customAsset, assetPickerActionMode);
+        isAssetPickerOpen = false;
+        assetSearchQuery = '';
+        discoveredPickerAssets = [];
+    }
 
     let isDraftMultiAssetPlant = $derived(draftSelectedAssets.length >= 2);
     let isEditMultiAssetPlant = $derived(editSelectedAssets.length >= 2);
@@ -106,39 +153,38 @@
             : 0
     );
 
-    let filteredAssets = $derived(
-        treasury.registry.filter((a) => {
-            const q = assetSearchQuery.trim().toLowerCase();
-            const matchesSearch =
-                !q ||
-                a.ticker.toLowerCase().includes(q) ||
-                a.name.toLowerCase().includes(q) ||
-                a.assetClass.toLowerCase().includes(q);
-            if (!matchesSearch) return false;
-            if (assetCategoryFilter === 'MINEABLE') {
-                return mineableVaultMap.has(a.ticker.toUpperCase());
-            }
-            if (assetCategoryFilter === 'EQUITIES') {
-                return a.assetClass === 'Public Equity';
-            }
-            if (assetCategoryFilter === 'COMMODITIES') {
-                return (
-                    a.assetClass === 'Commodity' ||
-                    a.assetClass === 'Sovereign Debt'
-                );
-            }
-            if (assetCategoryFilter === 'CRYPTO') {
-                return (
-                    a.assetClass === 'Native L1' ||
-                    a.assetClass === 'Stablecoin' ||
-                    a.assetClass === 'Ecosystem' ||
-                    a.assetClass === 'DeFi' ||
-                    a.assetClass === 'Tokenized Asset'
-                );
-            }
+    let filteredAssets = $derived.by(() => {
+        const q = assetSearchQuery.trim().toLowerCase();
+        const combined = new Map<string, UnifiedAsset>();
+        for (const d of discoveredPickerAssets) if (d?.ticker) combined.set(d.ticker.toUpperCase(), d);
+        for (const r of treasury.registry) {
+            const k = String(r.ticker || '').toUpperCase();
+            if (k && !combined.has(k)) combined.set(k, r);
+        }
+        const matches = Array.from(combined.values()).filter((a) => {
+            const tick = String(a.ticker || '').toLowerCase();
+            const name = String(a.name || '').toLowerCase();
+            const cls = String(a.assetClass || '').toLowerCase();
+            const net = String(a.network || '').toLowerCase();
+            const contract = String(a.contract || '').toLowerCase();
+            const hit = !q || tick.includes(q) || name.includes(q) || cls.includes(q) || net.includes(q) || contract.includes(q);
+            if (!hit) return false;
+            if (assetCategoryFilter === 'MINEABLE') return mineableVaultMap.has(tick.toUpperCase()) || net === 'kas';
+            if (assetCategoryFilter === 'EQUITIES') return a.assetClass === 'Public Equity';
+            if (assetCategoryFilter === 'COMMODITIES') return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
+            if (assetCategoryFilter === 'CRYPTO') return a.assetClass !== 'Public Equity' && a.assetClass !== 'Commodity' && a.assetClass !== 'Sovereign Debt';
             return true;
-        })
-    );
+        });
+        if (!q) return matches;
+        return [...matches].sort((a, b) => {
+            const at = String(a.ticker || '').toLowerCase(), bt = String(b.ticker || '').toLowerCase();
+            if (at === q && bt !== q) return -1;
+            if (bt === q && at !== q) return 1;
+            if (at.startsWith(q) && !bt.startsWith(q)) return -1;
+            if (bt.startsWith(q) && !at.startsWith(q)) return 1;
+            return 0;
+        });
+    });
 
     function handleTokenIconError(e: Event) {
         const target = e.currentTarget as HTMLImageElement;
@@ -578,12 +624,9 @@
 {/if}
 
 {#if isAssetPickerOpen}
-    <div
-        class="fixed inset-0 z-[9995] flex items-center justify-center px-3 pt-4 pb-24 sm:p-4 bg-[#050505]/95"
-        transition:fade={{ duration: 150 }}
-    >
-        <div class="absolute inset-0 w-full h-full cursor-default border-none bg-transparent"></div>
-        <div class="relative z-10 w-full max-w-[490px] bg-[#0a0d12] border border-white/15 rounded-[28px] shadow-2xl flex flex-col overflow-hidden h-[590px]">
+    <div class="fixed inset-0 z-[9995] flex items-start sm:items-center justify-center px-3 pt-3 pb-6 sm:p-4 bg-[#050505]/95 overflow-y-auto" transition:fade={{ duration: 150 }}>
+        <button type="button" aria-label="Close Asset Picker" onclick={() => { isAssetPickerOpen = false; assetSearchQuery = ""; discoveredPickerAssets = []; }} class="fixed inset-0 w-full h-full cursor-default border-none bg-transparent"></button>
+        <div class="relative z-10 w-full max-w-[490px] bg-[#0a0d12] border border-white/15 rounded-[24px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden max-h-[82dvh] sm:h-[560px]">
             <div class="p-4 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
                 <button
                     type="button"
@@ -602,23 +645,37 @@
                             ? 'Add Asset to 50% KAS Liquidity Plant'
                             : 'Select Target Asset'}
                     </h3>
-                    <span class="text-[8px] font-mono text-[#18C6A5] uppercase">
-                        
-                    </span>
+                    {#if isSearchingAssets}<span class="text-[8px] font-mono text-[#18C6A5] uppercase animate-pulse mt-0.5">Searching Oracle &amp; KRC-20...</span>{/if}
                 </div>
                 <div class="w-8"></div>
             </div>
             <div class="p-3 border-b border-white/10 bg-[#0a0d12] flex flex-col gap-2">
-                <div class="relative">
-                    <input
-                        aria-label="Asset Search"
-                        data-testid="operations-asset-search-input"
-                        type="text"
-                        bind:value={assetSearchQuery}
-                        placeholder="Search NVDA, SPY, SILO, BEDRCK, NACHO, XAU..."
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-2.5 text-xs font-mono text-white outline-none transition-colors"
-                    />
-                </div>
+                <div class="relative flex items-center">
+    <input
+        aria-label="Asset Search"
+        data-testid="operations-asset-search-input"
+        type="text"
+        value={assetSearchQuery}
+        oninput={(e) => handleModalAssetSearchInput((e.currentTarget as HTMLInputElement).value)}
+        onkeydown={(e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                if (filteredAssets.length > 0) {
+                    onAddOrToggleAssetInSector(assetPickerTarget, filteredAssets[0], assetPickerActionMode);
+                    isAssetPickerOpen = false;
+                    assetSearchQuery = "";
+                } else {
+                    selectCustomModalTicker();
+                }
+            }
+        }}
+        placeholder="Search BTC, USDC, NVDA, NACHO, SILO, XAU..."
+        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/60 rounded-xl pl-4 pr-9 py-2.5 text-xs font-mono text-white outline-none transition-colors"
+    />
+    {#if assetSearchQuery}
+        <button type="button" aria-label="Clear Search" onclick={() => { assetSearchQuery = ""; discoveredPickerAssets = []; isSearchingAssets = false; }} class="absolute right-2.5 text-neutral-400 hover:text-white text-sm px-1 cursor-pointer">&times;</button>
+    {/if}
+</div>
                 <div class="grid grid-cols-5 gap-1">
                     {#each [
                         { id: 'ALL', label: 'All' },
@@ -640,7 +697,17 @@
             </div>
             <div class="flex-1 overflow-y-auto p-2 bg-[#0a0d12] hide-scrollbar">
                 <div class="flex flex-col gap-1">
-                    {#each filteredAssets as asset (asset.ticker)}
+                    {#if filteredAssets.length === 0}
+    <div class="py-8 px-4 text-center flex flex-col items-center gap-3 font-mono">
+        <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+            {isSearchingAssets ? "Searching Oracle & KRC-20..." : "No indexed feed for " + assetSearchQuery.trim()}
+        </span>
+        {#if !isSearchingAssets && /^[A-Za-z0-9]{2,10}$/.test(assetSearchQuery.trim())}
+            <button type="button" onclick={selectCustomModalTicker} class="tactile-btn px-4 py-2 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-wider cursor-pointer">+ Add {assetSearchQuery.trim().toUpperCase()}</button>
+        {/if}
+    </div>
+{/if}
+{#each filteredAssets as asset (asset.ticker)}
                         {@const vaultInfo = mineableVaultMap.get(asset.ticker.toUpperCase())}
                         <button
                             type="button"

@@ -110,6 +110,45 @@
     let draftThreshold = $state(DEFAULT_RESERVE_PAYOUT_KAS);
     let draftAutoPayout = $state(true);
     let draftAssets = $state<PlantAssetTarget[]>([]);
+    let isPickerSearching = $state(false);
+    let discoveredInlineAssets = $state<UnifiedAsset[]>([]);
+    let pickerDiscoverTimer: ReturnType<typeof setTimeout> | undefined;
+    let inlineSearchSeq = 0;
+
+    $effect(() => () => clearTimeout(pickerDiscoverTimer));
+    $effect(() => {
+        const key = 'sector_edit_' + sector.id;
+        ui.syncSubOverlay(key, isEditing, cancelInlineEditor);
+        return () => ui.syncSubOverlay(key, false, () => {});
+    });
+
+    function handleInlinePickerInput(raw: string) {
+        pickerQuery = raw;
+        const trimmed = raw.trim();
+        if (trimmed.length > 0 && pickerCategory !== 'ALL') pickerCategory = 'ALL';
+        clearTimeout(pickerDiscoverTimer);
+        if (trimmed.length < 2) { isPickerSearching = false; discoveredInlineAssets = []; return; }
+        const seq = ++inlineSearchSeq;
+        isPickerSearching = true;
+        pickerDiscoverTimer = setTimeout(async () => {
+            try {
+                const res = await treasury.discoverAndRegisterToken(trimmed, true);
+                if (seq === inlineSearchSeq && Array.isArray(res?.matches)) discoveredInlineAssets = res.matches;
+            } finally {
+                if (seq === inlineSearchSeq) isPickerSearching = false;
+            }
+        }, 200);
+    }
+
+    function selectCustomInlineTicker() {
+        const clean = pickerQuery.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+        if (clean.length < 2) return;
+        const customAsset = treasury.registerDiscoveredAsset(
+            { ticker: clean, name: clean + ' (Custom Asset)', assetClass: 'Ecosystem', network: 'KAS', contract: clean },
+            true
+        );
+        selectDraftAsset(customAsset);
+    }
 
     function handleTokenIconError(e: Event) {
         const target = e.currentTarget as HTMLImageElement;
@@ -170,42 +209,29 @@
 
     let filteredAssets = $derived.by(() => {
         const q = pickerQuery.trim().toLowerCase();
-        const matches = treasury.registry.filter((a) => {
+        const combined = new Map<string, UnifiedAsset>();
+        for (const d of discoveredInlineAssets) if (d?.ticker) combined.set(d.ticker.toUpperCase(), d);
+        for (const r of treasury.registry) {
+            const k = String(r.ticker || '').toUpperCase();
+            if (k && !combined.has(k)) combined.set(k, r);
+        }
+        const matches = Array.from(combined.values()).filter((a) => {
             const tick = String(a.ticker || '').toLowerCase();
             const name = String(a.name || '').toLowerCase();
             const cls = String(a.assetClass || '').toLowerCase();
             const net = String(a.network || '').toLowerCase();
             const contract = String(a.contract || '').toLowerCase();
-            const matchesSearch =
-                !q ||
-                tick.includes(q) ||
-                name.includes(q) ||
-                cls.includes(q) ||
-                net.includes(q) ||
-                contract.includes(q);
-            if (!matchesSearch) return false;
-            if (pickerCategory === 'MINEABLE') {
-                return mineableVaultMap.has(tick.toUpperCase());
-            }
-            if (pickerCategory === 'EQUITIES') {
-                return a.assetClass === 'Public Equity';
-            }
-            if (pickerCategory === 'COMMODITIES') {
-                return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
-            }
-            if (pickerCategory === 'CRYPTO') {
-                return (
-                    a.assetClass !== 'Public Equity' &&
-                    a.assetClass !== 'Commodity' &&
-                    a.assetClass !== 'Sovereign Debt'
-                );
-            }
+            const hit = !q || tick.includes(q) || name.includes(q) || cls.includes(q) || net.includes(q) || contract.includes(q);
+            if (!hit) return false;
+            if (pickerCategory === 'MINEABLE') return mineableVaultMap.has(tick.toUpperCase()) || net === 'kas';
+            if (pickerCategory === 'EQUITIES') return a.assetClass === 'Public Equity';
+            if (pickerCategory === 'COMMODITIES') return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
+            if (pickerCategory === 'CRYPTO') return a.assetClass !== 'Public Equity' && a.assetClass !== 'Commodity' && a.assetClass !== 'Sovereign Debt';
             return true;
         });
         if (!q) return matches;
         return [...matches].sort((a, b) => {
-            const at = String(a.ticker || '').toLowerCase();
-            const bt = String(b.ticker || '').toLowerCase();
+            const at = String(a.ticker || '').toLowerCase(), bt = String(b.ticker || '').toLowerCase();
             if (at === q && bt !== q) return -1;
             if (bt === q && at !== q) return 1;
             if (at.startsWith(q) && !bt.startsWith(q)) return -1;
@@ -229,13 +255,13 @@
             treasury.syncRwaOraclePrices();
         }
         pickerMode = initialPicker;
-        pickerQuery = '';
+        pickerQuery = ''; discoveredInlineAssets = []; isPickerSearching = false;
     }
 
     function cancelInlineEditor() {
         isEditing = false;
         pickerMode = 'closed';
-        pickerQuery = '';
+        pickerQuery = ''; discoveredInlineAssets = []; isPickerSearching = false;
     }
 
     function selectDraftAsset(asset: UnifiedAsset) {
@@ -478,9 +504,9 @@
     <div
         role="button"
         tabindex="0"
-        onclick={() => openInlineEditor(isLp ? 'closed' : 'replace_primary')}
+        onclick={() => openInlineEditor(isLp ? 'add_secondary' : 'replace_primary')}
         onkeydown={(e) => {
-            if (e.key === 'Enter') openInlineEditor(isLp ? 'closed' : 'replace_primary');
+            if (e.key === 'Enter') openInlineEditor(isLp ? 'add_secondary' : 'replace_primary');
         }}
         class="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.05] min-w-0 group"
     >
@@ -777,53 +803,62 @@
             {/if}
 
             <!-- INLINE SEARCHABLE TOKEN PICKER -->
-            {#if pickerMode !== 'closed'}
+            {#if pickerMode !== "closed"}
                 <div class="bg-[#06080b] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col gap-2">
                     <div class="flex flex-wrap items-center gap-1.5">
-                        <input
-                            type="text"
-                            bind:value={pickerQuery}
-                            placeholder="SEARCH KAS, USDC, BTC, NVDA, TSLA, XAU, SILO..."
-                            class="flex-1 min-w-[160px] bg-[#11161f] border border-white/10 focus:border-[#18C6A5] rounded-lg px-2.5 py-1.5 text-[10px] text-white uppercase outline-none"
-                        />
+                        <div class="relative flex-1 min-w-[170px] flex items-center">
+                            <input
+                                type="text"
+                                data-testid="sector-inline-asset-search-{sector.id}"
+                                value={pickerQuery}
+                                onmousedown={(e) => e.stopPropagation()}
+                                ontouchstart={(e) => e.stopPropagation()}
+                                oninput={(e) => handleInlinePickerInput((e.currentTarget as HTMLInputElement).value)}
+                                onkeydown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        if (filteredAssets.length > 0) selectDraftAsset(filteredAssets[0]);
+                                        else selectCustomInlineTicker();
+                                    }
+                                }}
+                                placeholder="SEARCH BTC, USDC, NVDA, NACHO, SILO..."
+                                class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5] rounded-lg pl-2.5 pr-7 py-1.5 text-[10px] text-white outline-none"
+                            />
+                            {#if pickerQuery}
+                                <button type="button" onclick={() => { pickerQuery = ""; discoveredInlineAssets = []; isPickerSearching = false; }} class="absolute right-2 text-neutral-400 hover:text-white text-xs cursor-pointer">&times;</button>
+                            {/if}
+                        </div>
                         {#each [
-                            { id: 'ALL', label: 'All' },
-                            { id: 'CRYPTO', label: 'Crypto' },
-                            { id: 'EQUITIES', label: 'Stocks' },
-                            { id: 'COMMODITIES', label: 'Gold' },
-                            { id: 'MINEABLE', label: 'KRC-20' }
+                            { id: "ALL", label: "All" },
+                            { id: "CRYPTO", label: "Crypto" },
+                            { id: "EQUITIES", label: "Stocks" },
+                            { id: "COMMODITIES", label: "Gold" },
+                            { id: "MINEABLE", label: "KRC-20" }
                         ] as cat (cat.id)}
-                            <button
-                                type="button"
-                                onclick={() => (pickerCategory = cat.id as any)}
-                                class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-400 hover:text-white border border-white/5'}"
-                            >
-                                {cat.label}
-                            </button>
+                            <button type="button" onclick={() => (pickerCategory = cat.id as any)} class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-400 hover:text-white border border-white/5'}">{cat.label}</button>
                         {/each}
                     </div>
-
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-[168px] overflow-y-auto pr-0.5">
+                    {#if isPickerSearching}
+                        <span class="text-[8px] font-bold uppercase tracking-wider text-[#18C6A5] px-1 animate-pulse">Searching Oracle &amp; KRC-20 Indexer...</span>
+                    {/if}
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-[176px] overflow-y-auto pr-0.5">
+                        {#if filteredAssets.length === 0 && !isPickerSearching}
+                            <div class="col-span-full py-3 text-center flex flex-col items-center gap-2">
+                                <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500">No indexed feed for "{pickerQuery.trim()}"</span>
+                                {#if /^[A-Za-z0-9]{2,10}$/.test(pickerQuery.trim())}
+                                    <button type="button" onclick={selectCustomInlineTicker} class="tactile-btn px-3 py-1 rounded-lg border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer">+ Add {pickerQuery.trim().toUpperCase()}</button>
+                                {/if}
+                            </div>
+                        {/if}
                         {#each filteredAssets as asset (asset.ticker)}
-                            <button
-                                type="button"
-                                onclick={() => selectDraftAsset(asset)}
-                                class="bg-[#11161f] hover:bg-[#161d29] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer"
-                            >
+                            <button type="button" onclick={() => { pickerQuery = ""; discoveredInlineAssets = []; selectDraftAsset(asset); }} class="bg-[#11161f] hover:bg-[#161d29] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer">
                                 <div class="flex flex-col min-w-0">
-                                    <span class="text-[10px] font-black text-white uppercase truncate">
-                                        {asset.ticker}
-                                    </span>
-                                    <span class="text-[8px] text-neutral-500 uppercase truncate">
-                                        {asset.assetClass}
-                                    </span>
+                                    <span class="text-[10px] font-black text-white uppercase truncate">{asset.ticker}</span>
+                                    <span class="text-[8px] text-neutral-400 truncate">{asset.name}</span>
                                 </div>
                                 {#if asset.spotPrice > 0}
-                                    <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">
-                                        ${asset.spotPrice < 1
-                                            ? asset.spotPrice.toFixed(4)
-                                            : asset.spotPrice.toFixed(2)}
-                                    </span>
+                                    <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">${asset.spotPrice < 1 ? asset.spotPrice.toFixed(4) : asset.spotPrice.toFixed(2)}</span>
                                 {/if}
                             </button>
                         {/each}
