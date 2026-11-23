@@ -1116,7 +1116,193 @@
                     )}%
                 </span>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxCountrySelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Tax Authority / Country
+                    </label>
+                    <select
+                        id="taxCountrySelect"
+                        data-testid="tax-country-select"
+                        bind:value={countryCode}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    >
+                        {#each COUNTRY_TAX_MATRIX as c (c.code)}
+                            <option value={c.code}>{c.code} — {c.name}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxStateSelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        US State / Region
+                    </label>
+                    <select
+                        id="taxStateSelect"
+                        data-testid="tax-state-select"
+                        bind:value={stateRegion}
+                        disabled={countryCode !== 'US'}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none disabled:opacity-40"
+                    >
+                        {#each US_STATE_TAX_MATRIX as st (st.code)}
+                            <option value={st.code}>
+                                {st.code} — {st.name} ({st.ratePct.toFixed(2)}%)
+                            </option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxEntitySelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Entity Structure
+                    </label>
+                    <select
+                        id="taxEntitySelect"
+                        data-testid="tax-entity-select"
+                        bind:value={entityType}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    >
+                        {#each ENTITY_STRUCTURE_OPTIONS as ent (ent.id)}
+                            <option value={ent.id}>{ent.label}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label
+                        for="taxFilingSelect"
+                        class="text-[9px] font-bold uppercase tracking-widest text-neutral-400"
+                    >
+                        Filing Status
+                    </label>
+                    <select
+                        id="taxFilingSelect"
+                        data-testid="tax-filing-select"
+                        bind:value={filingStatus}
+                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                    >
+                        {#each FILING_STATUS_OPTIONS as fs (fs.id)}
+                            <option value={fs.id}>{fs.label}</option>
+                        {/each}
+                    </select>
+                </div>
+            </div>
+            <div
+                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+            >
+                <div class="flex items-center gap-3">
+                    <input
+                        id="cpaOverrideToggle"
+                        data-testid="cpa-override-toggle"
+                        type="checkbox"
+                        bind:checked={useCustomOverride}
+                        class="w-4 h-4 accent-[#18C6A5] cursor-pointer"
+                    />
+                    <label
+                        for="cpaOverrideToggle"
+                        class="text-[10px] font-bold uppercase tracking-wider text-neutral-200 cursor-pointer"
+                    >
+                        Enable CPA Custom Withholding Rate Override ({customOverrideRate.toFixed(
+                            1
+                        )}%)
+                    </label>
+                </div>
+                {#if useCustomOverride}
+                    <div class="flex items-center gap-3 flex-1 max-w-md">
+                        <input
+                            type="range"
+                            min="0"
+                            max="50"
+                            step="0.5"
+                            bind:value={customOverrideRate}
+                            class="w-full custom-range-slider cursor-pointer"
+                        />
+                        <span
+                            class="text-xs font-black text-[#18C6A5] w-14 text-right"
+                        >
+                            {customOverrideRate.toFixed(1)}%
+                        </span>
+                    </div>
+                {/if}
+            </div>
+            <div
+                class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#11161f] border border-amber-500/30 rounded-2xl p-4"
+            >
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="legalName"
+                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                    >
+                        Legal / Entity Name (Local AES-256-GCM Only)
+                    </label>
+                    <input
+                        id="legalName"
+                        type="text"
+                        bind:value={legalName}
+                        placeholder="Perennia Mining Holdings, LLC"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                    />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="tin"
+                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                    >
+                        Tax ID / EIN / SSN (Local Browser Only)
+                    </label>
+                    <input
+                        id="tin"
+                        type="text"
+                        bind:value={tinEin}
+                        placeholder="XX-XXXXXXX"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                    />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label
+                        for="address"
+                        class="text-[9px] font-bold uppercase tracking-widest text-amber-400"
+                    >
+                        Domicile Address (Local PDF Stamp Only)
+                    </label>
+                    <input
+                        id="address"
+                        type="text"
+                        bind:value={businessAddress}
+                        placeholder="Richardson, TX 75080"
+                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                    />
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button
+                    type="button"
+                    onclick={() => (showJurisdictionDrawer = false)}
+                    class="tactile-btn px-5 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-400 hover:text-white cursor-pointer"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    data-testid="save-tax-profile-btn"
+                    disabled={isSavingProfile}
+                    class="tactile-btn px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/50 cursor-pointer"
+                >
+                    {isSavingProfile
+                        ? 'Saving...'
+                        : `Save ${rateCalculation.jurisdictionCode} Profile ✓`}
+                </button>
+            </div>
+        </form>
+    {/if}
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
             <div class="h-5 flex items-center justify-between gap-2">
                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
