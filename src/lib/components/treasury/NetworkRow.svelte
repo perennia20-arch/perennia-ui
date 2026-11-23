@@ -1173,10 +1173,10 @@
                         const tick = (asset.ticker || asset.symbol || 'KAS').toUpperCase();
                         ui.openFiatModal(tick, tick === DEFAULT_ECOSYSTEM_TICKER, '');
                     }}
-                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
+                    class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-1.5 sm:px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-normal sm:tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                 >
-                    Buy
+                    Buy Crypto
                 </button>
                 <button
                     type="button"
@@ -2061,81 +2061,51 @@
                 </div>
             {/if}
 
-            {#if filteredSubAssets.length > 0}
+                        {#if filteredSubAssets.length > 0}
                 <div class="flex flex-col gap-2 pt-1">
                     {#each filteredSubAssets as token}
-                        {@const subColdRule =
-                            coldVaultRulesMap?.[
-                                String(token.symbol || '').toUpperCase()
-                            ] || null}
-                        <div class="bg-[#11161f] hover:bg-[#161d29] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-2 sm:ml-6 md:ml-10">
+                        {@const subColdRule = coldVaultRulesMap?.[String(token.symbol || "").toUpperCase()] || null}
+                        {@const subBal = Number(token.onChain ?? token.balance ?? 0)}
+                        {@const subSyn = Number(token.synthetic ?? 0)}
+                        {@const subUsd = (subBal + subSyn) * Number(token.price || 0)}
+                        <div class="bg-[#11161f] hover:bg-[#161d29] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-0 sm:ml-6 md:ml-10">
                             <div
-                                class="flex flex-wrap items-center justify-between p-3.5 cursor-pointer select-none gap-3"
-                                onclick={() => {
-                                    expandedSubToken =
-                                        expandedSubToken === token.symbol
-                                            ? null
-                                            : token.symbol;
-                                }}
+                                class="grid grid-cols-[minmax(0,1fr)_auto] sm:flex sm:flex-wrap items-center justify-between p-3 sm:p-3.5 cursor-pointer select-none gap-x-2 gap-y-2.5 sm:gap-3"
+                                onclick={() => { expandedSubToken = expandedSubToken === token.symbol ? null : token.symbol; }}
                                 role="button"
                                 tabindex="0"
                             >
-                                <div class="flex items-center gap-3.5">
-                                    <div
-                                        class="w-9 h-9 rounded-lg bg-[#0a0d12] border border-white/10 flex items-center justify-center text-xs font-black"
-                                        style="color: {token.hex};"
-                                    >
+                                <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                                    <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[#0a0d12] border border-white/10 flex items-center justify-center text-xs font-black shrink-0" style="color: {token.hex};">
                                         {#if token.imgUrl}
-                                            <img
-                                                src={token.imgUrl}
-                                                class="w-5 h-5 object-contain"
-                                                alt={token.symbol}
-                                                onerror={(e) =>
-                                                    ((
-                                                        e.currentTarget as HTMLImageElement
-                                                    ).style.display = 'none')}
-                                            />
+                                            <img src={token.imgUrl} class="w-4 h-4 sm:w-5 sm:h-5 object-contain" alt={token.symbol} onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")} />
                                         {:else}
                                             <span>{token.symbol[0]}</span>
                                         {/if}
                                     </div>
-                                    <div class="flex flex-col"><div class="flex flex-wrap items-center gap-1.5"><span class="text-xs font-bold tracking-wider text-white">{token.symbol}</span>{#if token.badge}<span class="text-[8px] bg-[#0a0d12] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{token.badge}</span>{/if}{#if subColdRule?.autoSweepEnabled && subColdRule?.coldDestinationAddress}<span class="text-[8px] bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold">COLD ≥{subColdRule.overflowCeiling}</span>{/if}</div></div></div><div class="order-3 sm:order-2 w-full sm:w-auto flex items-center gap-1.5 pt-2 sm:pt-0 border-t border-white/5 sm:border-none" onclick={(e) => e.stopPropagation()}><button type="button" data-testid="buy-with-usd-btn-{token.symbol}" onclick={(e) => { e.stopPropagation(); const subTick = String(token.symbol || 'SILO').toUpperCase(); ui.openFiatModal(subTick, subTick === DEFAULT_ECOSYSTEM_TICKER, ''); }} class="tactile-btn flex-1 sm:flex-none justify-center px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap">Buy</button><button type="button" onclick={(e) => openQuickAction(e, 'withdraw', token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap">Send</button><button type="button" data-testid="cold-vault-btn-{token.symbol}" onclick={(e) => openQuickAction(e, 'cold_vault', token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap">Cold</button><button type="button" aria-label="Delete Token" onclick={(e) => { e.stopPropagation(); onDeleteToken(token.symbol); }} class="text-neutral-500 hover:text-red-400 transition-colors cursor-pointer px-1.5 ml-auto sm:ml-1" title="Remove token from vault">✕</button></div><div class="order-2 sm:order-3 flex flex-col items-end ml-auto sm:ml-0">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                        <span class="text-xs font-bold tracking-wider text-white shrink-0">{token.symbol}</span>
+                                        {#if token.badge}
+                                            <span class="text-[7px] sm:text-[8px] bg-[#0a0d12] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase truncate">{token.badge}</span>
+                                        {/if}
+                                        {#if subColdRule?.autoSweepEnabled && subColdRule?.coldDestinationAddress}
+                                            <span class="hidden sm:inline text-[8px] bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold shrink-0">COLD &ge;{subColdRule.overflowCeiling}</span>
+                                        {/if}
+                                    </div>
+                                </div>
+                                <div class="col-span-2 sm:col-span-1 order-3 sm:order-2 w-full sm:w-auto flex items-center gap-1.5 pt-2 sm:pt-0 border-t border-white/5 sm:border-none" onclick={(e) => e.stopPropagation()}>
+                                    <button type="button" data-testid="buy-with-usd-btn-{token.symbol}" onclick={(e) => { e.stopPropagation(); const subTick = String(token.symbol || "SILO").toUpperCase(); ui.openFiatModal(subTick, subTick === DEFAULT_ECOSYSTEM_TICKER, ""); }} class="tactile-btn flex-1 sm:flex-none justify-center px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-black uppercase tracking-normal text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap">Buy Crypto</button>
+                                    <button type="button" onclick={(e) => openQuickAction(e, "withdraw", token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap">Send</button>
+                                    <button type="button" data-testid="cold-vault-btn-{token.symbol}" onclick={(e) => openQuickAction(e, "cold_vault", token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap">Cold</button>
+                                    <button type="button" aria-label="Delete Token" onclick={(e) => { e.stopPropagation(); onDeleteToken(token.symbol); }} class="text-neutral-500 hover:text-red-400 transition-colors cursor-pointer px-1.5 ml-auto sm:ml-1 text-xs" title="Remove token from vault">&times;</button>
+                                </div>
+                                <div class="order-2 sm:order-3 flex flex-col items-end shrink-0 whitespace-nowrap ml-auto sm:ml-0">
                                     <span class="text-xs font-mono font-bold text-white tabular-nums">
-                                        {(
-                                            token.onChain ??
-                                            token.balance ??
-                                            0
-                                        ).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 6
-                                        })}
-                                        {token.symbol}
-                                        <span class="text-[9px] text-neutral-400"
-                                            >L1</span
-                                        >
+                                        {subBal.toLocaleString(undefined, { minimumFractionDigits: Math.min(tokenDecimals, 2), maximumFractionDigits: Math.min(tokenDecimals, 4) })} {token.symbol} <span class="text-[9px] text-neutral-400">L1</span>
                                     </span>
                                     <span class="text-[9px] font-mono text-neutral-400 tabular-nums flex items-center gap-1.5">
-                                        {#if (token.synthetic ?? 0) > 0}
-                                            <span class="text-amber-400">
-                                                (+{Number(
-                                                    token.synthetic
-                                                ).toFixed(4)} pending)
-                                            </span>
-                                        {/if}
-                                        <span>
-                                            ≈ ${(
-                                                ((token.onChain ??
-                                                    token.balance ??
-                                                    0) +
-                                                    (token.synthetic ?? 0)) *
-                                                (token.price || 0)
-                                            ).toLocaleString(undefined, {
-                                                minimumFractionDigits:
-                                                    fiatDecimals,
-                                                maximumFractionDigits:
-                                                    fiatDecimals
-                                            })}
-                                        </span>
+                                        {#if subSyn > 0}<span class="text-amber-400">(+{subSyn.toFixed(4)} pending)</span>{/if}
+                                        <span>&approx; ${subUsd.toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}</span>
                                     </span>
                                 </div>
                             </div>
