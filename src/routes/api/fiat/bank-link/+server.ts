@@ -28,7 +28,7 @@ await dbPool.query(`ALTER TABLE fiat_bank_rails ADD COLUMN IF NOT EXISTS stripe_
 await dbPool.query(`ALTER TABLE fiat_bank_rails ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR(128)`).catch(() => {});
 
 const stripe = new Stripe(sk, { apiVersion: '2024-06-20' as any });
-const body = await request.json().catch(() => ({}));
+if (String(env.ALLOW_DIRECT_STRIPE_PI || "").toLowerCase() !== "true") return json({ error: "Direct bank ACH debit is disabled; use Hosted Crypto Onramp." }, { status: 503 }); const body = await request.json().catch(() => ({}));
 
 try {
 if (String(body.action || 'CREATE').toUpperCase().startsWith('CREATE')) {
@@ -76,8 +76,8 @@ const last4 = String(ub.last4 || '0000').replace(/\D/g, '').slice(-4) || '0000';
 const acctType: 'CHECKING' | 'SAVINGS' =
 String(ub.account_type || '').toUpperCase() === 'SAVINGS' ? 'SAVINGS' : 'CHECKING';
 const rn = String(ub.routing_number || '').replace(/\D/g, '');
-const enc = encryptBankRailRecordStrict({
-routingNumber: rn.length === 9 ? rn : '021000021',
+if (rn.length !== 9) return json({ error: "Full 9-digit routing number unavailable." }, { status: 400 }); const enc = encryptBankRailRecordStrict({
+routingNumber: rn,
 accountNumber: `000000${last4}`,
 bankLabel: label,
 accountType: acctType,

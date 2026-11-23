@@ -63,12 +63,12 @@ export const INSTITUTIONAL_WIRE_THRESHOLD_CENTS = 10_000_000;
 
 export const MERCURY_COLUMN_WIRE_INSTRUCTIONS = {
     beneficiaryName: 'Perennia, LLC',
-    beneficiaryAddress: '2508 Buttercup Drive, Richardson, TX 75082',
+    beneficiaryAddress: 'Registered Agent on File (Texas SOS #806549837)',
     bankName: 'Column N.A. (Mercury)',
-    accountDescriptor: 'COLUMN NA-MERCURY ending in 9901',
-    routingNumber: '121145433',
-    accountNumber: '580798008849901',
-    accountLast4: '9901',
+    accountDescriptor: 'COLUMN NA-MERCURY (Private OTC Desk)',
+    routingNumber: 'PRIVATE-OTC',
+    accountNumber: 'PRIVATE-ESCROW-ONLY',
+    accountLast4: 'OTC',
     bankAddress:
         '1 Letterman Drive, Building A, Suite A4-700, San Francisco, CA 94129',
     accountType: 'COMMERCIAL CHECKING'
@@ -917,7 +917,7 @@ export async function downloadWireSlipPdf(
             ],
             [
                 'ABA ROUTING / ACCOUNT #',
-                `Routing: ${wi.routingNumber || '121145433'} • Account: ${wi.accountNumber || '580798008849901'}`
+                `Routing: ${wi.routingNumber || 'PRIVATE-OTC'} • Account: ${wi.accountNumber || 'PRIVATE-ESCROW-ONLY'}`
             ],
             [
                 'BANK ADDRESS',
@@ -971,7 +971,7 @@ export async function downloadWireSlipPdf(
             y -= 34;
         }
         page.drawText(
-            'Verified by Perennia, LLC Fiat Bridge • Column N.A. / Mercury Checking (*9901) • Zero-PII Client Receipt.',
+            'Verified by Perennia, LLC Fiat Bridge • Column N.A. / Mercury Checking (*OTC) • Zero-PII Client Receipt.',
             {
                 x: 36,
                 y: 36,

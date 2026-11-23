@@ -847,7 +847,7 @@ async function dispatchKaspaOrKrc20OnChain(
         }
     };
 
-    const batchId = `BATCH-${crypto
+    const priorB = await dbPool.query("SELECT state, deterministic_txid FROM idempotent_payout_batches WHERE idempotency_key = $1 LIMIT 1", [idempotencyKey]).catch(() => ({ rows: [] as any[] })); if (priorB.rows[0]?.state === "CONFIRMED" && priorB.rows[0]?.deterministic_txid) { return String(priorB.rows[0].deterministic_txid); } if (priorB.rows[0]?.state === "IN_FLIGHT") { throw new Error("DUPLICATE_IN_FLIGHT_DISPATCH"); } const batchId = `BATCH-${crypto
         .createHash('sha256')
         .update(idempotencyKey)
         .digest('hex')
@@ -1163,7 +1163,7 @@ export async function executeOrQueueL1Dispatch(params: {
     destinationAddress: string;
     asset: string;
     amount: number;
-    sourceType?: string;
+    sourceType?: string; idempotencyKey?: string;
     spotPrice?: number;
 }): Promise<{
     success: boolean;
@@ -1225,7 +1225,7 @@ export async function executeOrQueueL1Dispatch(params: {
     const evmCfg = EVM_CHAIN_CONFIG[cleanAsset];
     const network = evmCfg ? evmCfg.networkLabel : cleanAsset;
     const contractAddress = evmCfg?.contractAddress;
-    const payoutId = `PER-L1-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
+    const payoutId = params.idempotencyKey ? `PER-L1-${String(params.idempotencyKey).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48)}` : `PER-L1-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
     let dispatchedTxHash = '';
     let queueReason = '';
 
@@ -1331,7 +1331,7 @@ export async function executeOrQueueL1Dispatch(params: {
                 record.status
             ]
         );
-        await dbPool.query(
+        if (sourceType !== "fiat_onramp_l1" && sourceType !== "cold_airlock_sweep") { await dbPool.query(
             `INSERT INTO tax_ledger_events
              (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution, tx_hash, payout_address)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -1347,7 +1347,7 @@ export async function executeOrQueueL1Dispatch(params: {
                 resolvedTxHash,
                 destinationAddress
             ]
-        );
+        ); }
     } catch (dbErr) {
         console.warn('L1 payout queue DB logging notice:', dbErr);
     }

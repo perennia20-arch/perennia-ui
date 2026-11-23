@@ -57,9 +57,9 @@ function resolveAllowedOrigin(
     if (
         clean === currentOrigin ||
         TRUSTED_ORIGINS.has(clean) ||
-        /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/i.test(
+        (process.env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/i.test(
             clean
-        )
+        ))
     ) {
         return clean;
     }
@@ -75,9 +75,9 @@ function isOriginTrustedForCsrf(
     return (
         clean === currentOrigin ||
         TRUSTED_ORIGINS.has(clean) ||
-        /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/i.test(
+        (process.env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/i.test(
             clean
-        )
+        ))
     );
 }
 
@@ -143,7 +143,7 @@ export const handle: Handle = async ({ event, resolve }) => {
                 'Access-Control-Allow-Origin': allowedOrigin,
                 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
                 'Access-Control-Allow-Headers':
-                    'Content-Type, Authorization, Stripe-Signature, X-Webhook-Signature, X-Bridge-Signature, X-Perennia-Sandbox',
+                    'Content-Type, Authorization, Stripe-Signature, X-Webhook-Signature, X-Bridge-Signature',
                 'Access-Control-Allow-Credentials': 'true',
                 Vary: 'Origin'
             }

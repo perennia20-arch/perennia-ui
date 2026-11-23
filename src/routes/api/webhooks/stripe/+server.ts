@@ -222,7 +222,7 @@ async function resolveLiveAssetSpotUsd(tickerRaw: string): Promise<number> {
     } catch {
         // Ignore
     }
-    return ticker === 'KAS' ? 0.15 : 0;
+    return 0;
 }
 
 async function resolveBalanceTransactionNetCents(
@@ -800,7 +800,7 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
         const idempKey = `perennia:webhook:stripe:fulfilled:${orderId}`;
         const acquiredLock = await redis
             .set(idempKey, '1', 'EX', 86400, 'NX')
-            .catch(() => 'OK');
+            .catch(() => null);
         if (!acquiredLock) {
             return json({
                 received: true,
@@ -822,7 +822,7 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
             );
         }
 
-        const safePrincipalUsd = roundCents(safeFulfilledPrincipalCents / 100);
+        const claimLock = await client.query("INSERT INTO fiat_onramp_orders (order_id, wallet_address, target_asset, fiat_amount_usd, fee_usd, net_usd_converted, locked_spot_price, estimated_kas, wire_memo, status) VALUES ($1, $2, $3, 0, 0, 0, 0, 0, $1, 'SETTLING_LOCKED') ON CONFLICT (order_id) DO UPDATE SET status = 'SETTLING_LOCKED', updated_at = CURRENT_TIMESTAMP WHERE fiat_onramp_orders.status NOT IN ('COMPLETED', 'SETTLING_LOCKED') RETURNING order_id", [orderId, resolvedPrefixedWallet, resolvedAsset]); if (claimLock.rowCount === 0) { return json({ received: true, success: true, alreadyCompleted: true, orderId }); } const safePrincipalUsd = roundCents(safeFulfilledPrincipalCents / 100);
         const perenniaFeeUsd = roundCents(perenniaFeeCents / 100);
         const grossChargeUsd = roundCents(grossChargeCents / 100);
         const totalFeeUsd = roundCents(
@@ -854,7 +854,7 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
                     destinationAddress: resolvedPrefixedWallet,
                     asset: resolvedAsset,
                     amount: deliveredTokens,
-                    sourceType: 'fiat_onramp_l1',
+                    sourceType: 'fiat_onramp_l1', idempotencyKey: orderId,
                     spotPrice: targetSpot
                 });
                 if (l1Res.txHash) txHash = l1Res.txHash;

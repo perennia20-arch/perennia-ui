@@ -13,7 +13,7 @@ import { executeOrQueueL1Dispatch } from '$lib/server/l1Dispatcher';
 import crypto from 'node:crypto';
 
 const DEFAULT_CORPORATE_ENTITY_NAME = 'Perennia LLC';
-const DEFAULT_CORPORATE_ADDRESS = '2508 Buttercup Drive, Richardson, TX 75082';
+const DEFAULT_CORPORATE_ADDRESS = 'Registered Agent on File (Texas SOS #806549837)';
 const DEFAULT_CORPORATE_EIN_REF = '41-5328735';
 const DEFAULT_TEXAS_SOS_FILE_NUMBER = '806549837';
 
@@ -162,7 +162,7 @@ async function ensureCorporateTreasuryTables(): Promise<void> {
                 entity_type VARCHAR(64) NOT NULL DEFAULT 'LLC',
                 tax_id_hash TEXT NOT NULL DEFAULT 'ZERO_PII_LOCAL_ONLY',
                 bank_data_hash TEXT,
-                business_address TEXT NOT NULL DEFAULT '2508 Buttercup Drive, Richardson, TX 75082',
+                business_address TEXT NOT NULL DEFAULT 'Registered Agent on File (Texas SOS #806549837)',
                 country_code VARCHAR(16) NOT NULL DEFAULT 'US',
                 state_region VARCHAR(64) NOT NULL DEFAULT 'TX',
                 filing_status VARCHAR(64) NOT NULL DEFAULT 'PASS_THROUGH_LLC',

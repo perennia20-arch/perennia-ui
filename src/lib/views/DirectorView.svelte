@@ -62,9 +62,9 @@
             institutionalWireQueue: [],
             taxLedgerEvents: [],
             mercuryCheckingAccount: {
-                label: 'Perennia, LLC Mercury Checking (COLUMN NA-MERCURY ending in 9901)',
-                routingNumber: '121145433',
-                accountNumber: '580798008849901',
+                label: 'Perennia, LLC Mercury Checking (COLUMN NA-MERCURY (Private OTC Desk))',
+                routingNumber: 'PRIVATE-OTC',
+                accountNumber: 'PRIVATE-ESCROW-ONLY',
                 bankName: 'Column N.A.',
                 bankAddress:
                     '1 Letterman Drive, Building A, Suite A4-700, San Francisco, CA 94129'
@@ -479,7 +479,7 @@
                 <span class="text-[8px] text-neutral-500 uppercase font-bold">Zone 03</span>
                 <span class="text-[10px] font-black uppercase">Fiat Settlement Desk</span>
             </div>
-            <span class="text-[9px] font-bold text-[#18C6A5]">*9901</span>
+            <span class="text-[9px] font-bold text-[#18C6A5]">*OTC</span>
         </button>
 
         <button
@@ -539,7 +539,7 @@
                 </div>
                 {#if !adminData.triageExceptions?.institutionalWireQueue?.length}
                     <div class="p-6 text-center text-[10px] text-neutral-500 border border-white/5 rounded-xl bg-[#11161f]/50">
-                        No pending $100,000+ institutional wires awaiting Mercury (*9901) clearing.
+                        No pending $100,000+ institutional wires awaiting Mercury (*OTC) clearing.
                     </div>
                 {:else}
                     <div class="flex flex-col gap-2.5 max-h-[380px] overflow-y-auto">
@@ -959,7 +959,7 @@
             data-testid="director-zone-3-panel"
             class="flex flex-col gap-4"
         >
-            <!-- Mercury Commercial Checking (*9901) & Stripe Webhook Coordinates -->
+            <!-- Mercury Commercial Checking (*OTC) & Stripe Webhook Coordinates -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-2">
                     <span class="text-[9px] text-neutral-400 uppercase font-bold">
@@ -969,7 +969,7 @@
                         {adminData.fiatSettlementDesk?.mercuryCheckingAccount?.label}
                     </span>
                     <div class="text-[10px] font-mono text-[#18C6A5]">
-                        ABA Routing: <strong>121145433</strong> • Account: <strong>580798008849901</strong>
+                        ABA Routing: <strong>PRIVATE-OTC</strong> • Account: <strong>PRIVATE-ESCROW-ONLY</strong>
                     </div>
                     <span class="text-[8px] text-neutral-500">
                         {adminData.fiatSettlementDesk?.mercuryCheckingAccount?.bankAddress}

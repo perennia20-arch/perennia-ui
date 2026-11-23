@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ request, cookies }: RequestEvent) =
             const client = await dbPool.connect();
             try {
                 const res = await client.query(
-                    'SELECT code, is_used FROM invite_codes WHERE UPPER(code) = UPPER($1) AND is_used = false LIMIT 1',
+                    'UPDATE invite_codes SET is_used = true WHERE code = (SELECT code FROM invite_codes WHERE UPPER(code) = UPPER($1) AND is_used = false LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING code',
                     [rawCode]
                 );
                 if (res.rows.length === 0) {

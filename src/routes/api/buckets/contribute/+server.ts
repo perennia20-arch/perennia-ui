@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
         if (!bucketId || !txHash) {
             return json({ error: 'bucketId and signed L1 txHash are required.' }, { status: 400 });
         }
-        const isSandboxRequest = request.headers.get('x-perennia-sandbox') === 'true';
+        const isSandboxRequest = false;
         const result = await recordManualBucketContribution({
             bucketId,
             contributorWallet: sessionWallet,

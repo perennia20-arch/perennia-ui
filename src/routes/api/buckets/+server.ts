@@ -85,7 +85,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
             const canModify =
                 cleanCaller === creatorClean ||
                 isWalletMasterAdmin(prefCaller) ||
-                creatorClean === defaultEscrowClean;
+                false;
             if (!canModify) {
                 return json({ error: 'FORBIDDEN: Only the bucket creator may change Public/Private visibility.' }, { status: 403 });
             }
@@ -99,13 +99,13 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
                      creator_wallet = CASE WHEN $4 THEN $3 ELSE creator_wallet END,
                      updated_at = CURRENT_TIMESTAMP
                  WHERE bucket_id = $1`,
-                [bucketId, nextVis, prefCaller, creatorClean === defaultEscrowClean]
+                [bucketId, nextVis, prefCaller, false]
             );
             const snapshot = await listCommunityBuckets(prefCaller);
             return json({ success: true, bucketId, visibility: nextVis, buckets: snapshot.buckets });
         }
 
-        if (action === 'DELETE_BUCKET' && request.headers.get('x-perennia-sandbox') === 'true') {
+        if (action === 'DELETE_BUCKET' && isWalletMasterAdmin(prefCaller)) {
             const bucketId = String(body.bucketId || '').trim();
             await dbPool.query(
                 `DELETE FROM settlement_buckets WHERE bucket_id = $1 AND creator_wallet = $2 AND bucket_id NOT IN ('BUCKET-USDC','BUCKET-BTC','BUCKET-ETH','BUCKET-SOL','BUCKET-SILO')`,

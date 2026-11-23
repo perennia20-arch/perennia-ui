@@ -604,7 +604,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     data.error || 'Failed to execute bank purchase.'
                 );
             }
-			if (data.stripeStatus === 'requires_action' && data.clientSecret) { const c3 = await confirmStripeCard3ds('modal', data.clientSecret); if (c3.error) throw new Error(c3.error); }
+			if (data.stripeOnrampRedirectUrl && browser) { window.location.href = data.stripeOnrampRedirectUrl; return; } if (data.stripeStatus === 'requires_action' && data.clientSecret) { const c3 = await confirmStripeCard3ds('modal', data.clientSecret); if (c3.error) throw new Error(c3.error); }
             if (data.bankLast4) {
                 savedBankLast4 = data.bankLast4;
                 savedBankRailMeta = {

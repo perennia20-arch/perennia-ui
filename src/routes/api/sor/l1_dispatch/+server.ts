@@ -32,7 +32,7 @@ async function isAuthorizedDispatcherCall(
         }
     }
 
-    const sessionId = cookies.get('perennia_session');
+    const sessionId = '';
     if (sessionId) {
         const sessionWallet = await redis.get(`session:${sessionId}`);
         if (sessionWallet) {

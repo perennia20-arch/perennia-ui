@@ -31,12 +31,12 @@ const INSTITUTIONAL_WIRE_THRESHOLD_CENTS = 10_000_000;
 
 const MERCURY_COLUMN_WIRE_COORDINATES = {
     beneficiaryName: 'Perennia, LLC',
-    beneficiaryAddress: '2508 Buttercup Drive, Richardson, TX 75082',
+    beneficiaryAddress: 'Registered Agent on File (Texas SOS #806549837)',
     bankName: 'Column N.A. (Mercury)',
-    accountDescriptor: 'COLUMN NA-MERCURY ending in 9901',
-    routingNumber: '121145433',
-    accountNumber: '580798008849901',
-    accountLast4: '9901',
+    accountDescriptor: 'COLUMN NA-MERCURY (Private OTC Desk)',
+    routingNumber: 'PRIVATE-OTC',
+    accountNumber: 'PRIVATE-ESCROW-ONLY',
+    accountLast4: 'OTC',
     bankAddress:
         '1 Letterman Drive, Building A, Suite A4-700, San Francisco, CA 94129',
     accountType: 'COMMERCIAL CHECKING'
@@ -150,7 +150,7 @@ function isUsableBridgeApiKey(rawKey: string | undefined): boolean {
 }
 
 function areLiveProductionGatewaysActive(request: Request): boolean {
-    if (request.headers.get('x-perennia-sandbox') === 'true') {
+    if (false) {
         return false;
     }
     if (String(env.SANDBOX_MODE || '').toLowerCase() === 'true') {
@@ -1229,7 +1229,7 @@ async function chargeViaStripeIfConfigured(params: {
     const stripe = new Stripe(rawStripeKey, {
         apiVersion: '2024-06-20' as any
     });
-    const amountCents = Math.max(100, Math.round(params.grossChargeCents));
+    if (String(env.ALLOW_DIRECT_STRIPE_PI || "").toLowerCase() !== "true") { return { stripeUsed: false, paymentIntentId: null, clientSecret: null, stripeStatus: null, isLiveKey: true }; } const amountCents = Math.max(100, Math.round(params.grossChargeCents));
     const metadata: Record<string, string> = {
         partner_order_id: params.orderId,
         wallet_address: params.walletAddress,
@@ -2386,7 +2386,7 @@ export const POST: RequestHandler = async ({
                 );
                 const liveGatewaysActive =
                     areLiveProductionGatewaysActive(request);
-                if (liveGatewaysActive && !isDirector) {
+                if (!isDirector) {
                     return json(
                         {
                             error: 'FORBIDDEN: Manual settlement release is locked to Director or verified webhook authentication when live fiat gateways are active.'
@@ -2792,7 +2792,7 @@ export const POST: RequestHandler = async ({
             targetAsset
         );
 
-        if (isDirectMercuryWire) {
+        if (isDirectMercuryWire && !(await isAuthorizedDirectorRequest(request, sessionWallet))) { return json({ error: "Institutional OTC Wire Desk requires prior Director onboarding." }, { status: 403 }); } if (isDirectMercuryWire) {
             bridgeVirtualAccountId = `mercury_wire_${onrampSessionId.toLowerCase()}`;
         } else {
             const onrampSessionRes =
@@ -2874,7 +2874,7 @@ export const POST: RequestHandler = async ({
         const wholesaleWithdrawId =
             targetAsset === 'KAS' || targetAsset === 'SILO'
                 ? `LOCAL-VAULT-UTXO-${onrampSessionId.slice(-6)}`
-                : `DROPSHIP-WD-${onrampSessionId.slice(-6)}`;
+                : `DROPSHIP-WD-${onrampSessionId.slice(-6)}`; if (!isDirectMercuryWire && !stripeOnrampSessionId && !stripePaymentIntentId) { return json({ error: "Hosted Crypto Onramp is completing Stripe partner activation. To fund your wallet today, send KAS or USDC from an external wallet or exchange to your Receive address." }, { status: 503 }); }
 
         const client = await dbPool.connect();
         let finalStatus = isDirectMercuryWire
@@ -2944,12 +2944,12 @@ export const POST: RequestHandler = async ({
             );
 
             let achFloatFrontedUsd = 0, canFrontAchFromFloat = false;
-			if (!isDirectMercuryWire && body.instantBankDebit !== false && isLiveStripeKey && stripeStatus === 'processing' && usedVerifiedStripePm && quote.principalUsd > 0 && quote.principalUsd <= 250) {
+			if (!isDirectMercuryWire && body.instantBankDebit !== false && isLiveStripeKey && stripeStatus === 'processing' && usedVerifiedStripePm && quote.principalUsd > 0 && false) {
 				const fl = await client.query(`UPDATE fiat_float_ledger SET local_kas_reserve_usd = local_kas_reserve_usd - $1, updated_at = CURRENT_TIMESTAMP WHERE ledger_id = 'PRIMARY_FLOAT' AND local_kas_reserve_usd >= $1 RETURNING local_kas_reserve_usd`, [quote.principalUsd]).catch(() => ({ rowCount: 0 }));
 				if ((fl.rowCount ?? 0) > 0) { canFrontAchFromFloat = true; achFloatFrontedUsd = quote.principalUsd; }
 			}
 			const hasValidSource = Boolean(bankRailResult.decrypted) || usedVerifiedStripePm || stripeStatus === 'succeeded' || (!isLiveStripeKey && String(body.paymentMethod || '').toLowerCase() === 'card');
-			const shouldFulfillImmediately = !isDirectMercuryWire && body.instantBankDebit !== false && hasValidSource && (!isLiveStripeKey || stripeStatus === 'succeeded' || canFrontAchFromFloat);
+			const shouldFulfillImmediately = false && !isDirectMercuryWire && body.instantBankDebit !== false && hasValidSource && (!isLiveStripeKey || stripeStatus === 'succeeded' || canFrontAchFromFloat);
 			if (shouldFulfillImmediately) {
 				const fulfilled = await executeImmediateOrderFulfillment({ client, orderId: onrampSessionId, cleanWallet: cleanAddressOnly, targetAsset, settlementTarget, autoStakeSilo, fiatUsd: quote.totalGrossChargeUsd, feeUsd: quote.feeUsd, perenniaFeeUsd: quote.perenniaFeeUsd, netUsd: quote.principalUsd, liveTargetSpot: targetSpotPrice, kasSpot: kasSpotPrice, destinationAddress: body.destinationAddress, preferredTxHash: stripePaymentIntentId || undefined, prequotedTokens: quote.estimatedTokens, achFloatFrontedUsd });
                 finalStatus = 'COMPLETED';

@@ -1236,9 +1236,9 @@ export const GET: RequestHandler = async ({
                 institutionalWireQueue,
                 taxLedgerEvents: taxEventsRecent,
                 mercuryCheckingAccount: {
-                    label: 'Perennia, LLC Mercury Checking (COLUMN NA-MERCURY ending in 9901)',
-                    routingNumber: '121145433',
-                    accountNumber: '580798008849901',
+                    label: 'Perennia, LLC Mercury Checking (COLUMN NA-MERCURY (Private OTC Desk))',
+                    routingNumber: 'PRIVATE-OTC',
+                    accountNumber: 'PRIVATE-ESCROW-ONLY',
                     bankName: 'Column N.A.',
                     bankAddress:
                         '1 Letterman Drive, Building A, Suite A4-700, San Francisco, CA 94129'
