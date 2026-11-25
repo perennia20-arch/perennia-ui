@@ -1,7 +1,15 @@
-// WINDOWS (FRONTEND): C:\Users\send2\perennia-v5\perennia-frontend\src\lib\stores\treasury.svelte.ts
 import { browser } from '$app/environment';
 import type { AssetClass, ThemeColors } from './type';
 import { operations } from './operations.svelte';
+import {
+    KAS_DECIMALS,
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    ORACLE_E8_DECIMALS,
+    formatAtomicToDecimal,
+    parseDecimalToAtomic,
+    parseU128Str,
+    type U128Str
+} from '$lib/crypto/atomicMath';
 
 export const DEFAULT_ECOSYSTEM_TICKER = 'SILO';
 export const DEFAULT_RWA_INDEX_TICKER = 'PERX';
@@ -42,20 +50,69 @@ export const SUPPORTED_ASSETS = [
     ...SUPPORTED_RWA_TICKERS
 ] as const;
 
+export function atomicDecimalsForAsset(ticker: string): number {
+    switch (ticker.trim().toUpperCase()) {
+        case 'USDC':
+        case 'USDT':
+        case 'KUSDT':
+        case 'USD':
+        case 'XRP':
+        case 'TRX':
+        case 'ADA':
+            return 6;
+        case 'SOL':
+        case 'SUI':
+        case 'TON':
+            return 9;
+        case 'ETH':
+        case 'ARB':
+        case 'BASE':
+        case 'POL':
+        case 'AVAX':
+        case 'LINK':
+            return 18;
+        default:
+            return KAS_DECIMALS;
+    }
+}
+
+const COINGECKO_ID_TO_TICKER: Record<string, string> = {
+    kaspa: 'KAS',
+    bitcoin: 'BTC',
+    ethereum: 'ETH',
+    solana: 'SOL',
+    dogecoin: 'DOGE',
+    ripple: 'XRP',
+    'usd-coin': 'USDC',
+    tether: 'USDT',
+    avalanche: 'AVAX',
+    sui: 'SUI',
+    tron: 'TRX',
+    zcash: 'ZEC',
+    arbitrum: 'ARB',
+    'matic-network': 'POL',
+    'polygon-ecosystem-token': 'POL'
+};
+
 export class UnifiedAsset {
     id: string;
     ticker: string;
-    name: string; //'Unknown Asset');
-    assetClass: AssetClass; //'Ecosystem');
-    network: string; //'KAS');
-    theme: ThemeColors; //{ hex: '#18C6A5', pastel: '#99f6e4' });
-    imgUrl: string; //'');
+    name: string;
+    assetClass: AssetClass;
+    network: string;
+    decimals: number;
+    theme: ThemeColors;
+    imgUrl: string;
     contract = $state<string | undefined>(undefined);
     address = $state('Awaiting Decryption');
     onChain = $state(0);
+    onChainAtomic = $state<U128Str>('0');
+    /** @deprecated Non-custodial L1 only; always 0. */
     synthetic = $state(0);
+    /** @deprecated Non-custodial L1 only; always 0. */
     lpStaked = $state(0);
     spotPrice = $state(0);
+    spotPriceE8 = $state<U128Str>('0');
     delta = $state(0);
     apy = $state<number | undefined>(undefined);
     accruedYield = $state<number | undefined>(undefined);
@@ -68,18 +125,32 @@ export class UnifiedAsset {
         this.name = init.name || 'Unknown Asset';
         this.assetClass = init.assetClass || 'Ecosystem';
         this.network = init.network || 'KAS';
+        this.decimals = init.decimals ?? atomicDecimalsForAsset(this.ticker);
         this.theme = init.theme || { hex: '#18C6A5', pastel: '#99f6e4' };
         this.imgUrl = init.imgUrl || '';
         this.contract = init.contract;
         if (init.address !== undefined) this.address = init.address;
-        if (init.spotPrice !== undefined) this.spotPrice = init.spotPrice;
-        if (init.onChain !== undefined) this.onChain = init.onChain;
-        if (init.synthetic !== undefined) this.synthetic = init.synthetic;
-        if (init.lpStaked !== undefined) this.lpStaked = init.lpStaked;
+        if (init.spotPriceE8 !== undefined) {
+            const e8 = parseU128Str(init.spotPriceE8, 'spotPriceE8');
+            this.spotPriceE8 = e8.toString();
+            this.spotPrice = Number(formatAtomicToDecimal(e8, ORACLE_E8_DECIMALS));
+        } else if (init.spotPrice !== undefined && Number.isFinite(init.spotPrice) && init.spotPrice > 0) {
+            const e8 = parseDecimalToAtomic(init.spotPrice, ORACLE_E8_DECIMALS, 'floor');
+            this.spotPriceE8 = e8.toString();
+            this.spotPrice = Number(formatAtomicToDecimal(e8, ORACLE_E8_DECIMALS));
+        }
+        if (init.onChainAtomic !== undefined) {
+            const atomic = parseU128Str(init.onChainAtomic, 'onChainAtomic');
+            this.onChainAtomic = atomic.toString();
+            this.onChain = Number(formatAtomicToDecimal(atomic, this.decimals));
+        } else if (init.onChain !== undefined && Number.isFinite(init.onChain) && init.onChain >= 0) {
+            const atomic = parseDecimalToAtomic(init.onChain, this.decimals, 'floor');
+            this.onChainAtomic = atomic.toString();
+            this.onChain = Number(formatAtomicToDecimal(atomic, this.decimals));
+        }
         if (init.delta !== undefined) this.delta = init.delta;
     }
 
-    // --- UI COMPATIBILITY ALIASES ---
     get symbol() {
         return this.ticker;
     }
@@ -98,22 +169,26 @@ export class UnifiedAsset {
             : String(this.assetClass || 'TOKEN').toUpperCase();
     }
     get availableBalance() {
-        return this.onChain + this.synthetic;
+        return this.onChain;
     }
+    /** @deprecated Non-custodial L1 only; always 0. */
     get ledgerBalance() {
-        return this.synthetic;
+        return 0;
     }
+    /** @deprecated Non-custodial L1 only; always 0. */
     get stakedBalance() {
-        return this.lpStaked;
+        return 0;
     }
     get totalBalance() {
-        return this.onChain + this.synthetic + this.lpStaked;
+        return this.onChain;
     }
 }
 
 class TreasuryStore {
     registry = $state<UnifiedAsset[]>([]);
     discoveredTickers = $state<string[]>([]);
+    spotOracleOnline = $state<boolean>(false);
+    spotOracleError = $state<string | null>(null);
     rwaOracleOnline = $state<boolean>(false);
     rwaOracleError = $state<string | null>(null);
 
@@ -122,6 +197,14 @@ class TreasuryStore {
         if (browser) {
             this.syncRwaOraclePrices();
         }
+    }
+
+    get livePricingUnavailable(): boolean {
+        return !this.spotOracleOnline || this.getAsset('KAS').spotPriceE8 === '0';
+    }
+
+    get pricingStatusMessage(): string | null {
+        return this.livePricingUnavailable ? LIVE_PRICING_UNAVAILABLE_MESSAGE : null;
     }
 
     get visibleAssets() {
@@ -146,8 +229,6 @@ class TreasuryStore {
                 asset.ticker === 'KAS' ||
                 asset.ticker === DEFAULT_ECOSYSTEM_TICKER ||
                 asset.onChain > 0 ||
-                asset.synthetic > 0 ||
-                asset.lpStaked > 0 ||
                 targeted.has(asset.ticker)
         );
     }
@@ -157,6 +238,17 @@ class TreasuryStore {
             (sum, a) => sum + a.totalBalance * a.spotPrice,
             0
         );
+    }
+
+    markOracleUnavailable(reason = LIVE_PRICING_UNAVAILABLE_MESSAGE) {
+        this.spotOracleOnline = false;
+        this.spotOracleError = reason;
+        const kas = this.registry.find((a) => a.ticker === 'KAS');
+        if (kas) {
+            kas.spotPrice = 0;
+            kas.spotPriceE8 = '0';
+        }
+        operations.setKasOracleUsdE8(null);
     }
 
     getAsset(ticker: string): UnifiedAsset {
@@ -181,29 +273,45 @@ class TreasuryStore {
         const asset = this.registry.find((a) => a.ticker === clean);
         if (asset) {
             if (updates.name !== undefined) asset.name = updates.name;
-            if (updates.assetClass !== undefined)
-                asset.assetClass = updates.assetClass;
+            if (updates.assetClass !== undefined) asset.assetClass = updates.assetClass;
             if (updates.network !== undefined) asset.network = updates.network;
             if (updates.theme !== undefined) asset.theme = updates.theme;
             if (updates.imgUrl !== undefined) asset.imgUrl = updates.imgUrl;
-            if (updates.onChain !== undefined) asset.onChain = updates.onChain;
-            if (updates.synthetic !== undefined)
-                asset.synthetic = updates.synthetic;
-            if (updates.lpStaked !== undefined)
-                asset.lpStaked = updates.lpStaked;
-            if (updates.spotPrice !== undefined)
-                asset.spotPrice = updates.spotPrice;
+            if (updates.onChainAtomic !== undefined) {
+                const atomic = parseU128Str(updates.onChainAtomic, 'onChainAtomic');
+                asset.onChainAtomic = atomic.toString();
+                asset.onChain = Number(formatAtomicToDecimal(atomic, asset.decimals));
+            } else if (updates.onChain !== undefined && Number.isFinite(updates.onChain) && updates.onChain >= 0) {
+                const atomic = parseDecimalToAtomic(updates.onChain, asset.decimals, 'floor');
+                asset.onChainAtomic = atomic.toString();
+                asset.onChain = Number(formatAtomicToDecimal(atomic, asset.decimals));
+            }
+            if (updates.spotPriceE8 !== undefined) {
+                const e8 = parseU128Str(updates.spotPriceE8, 'spotPriceE8');
+                asset.spotPriceE8 = e8.toString();
+                asset.spotPrice = Number(formatAtomicToDecimal(e8, ORACLE_E8_DECIMALS));
+            } else if (updates.spotPrice !== undefined && Number.isFinite(updates.spotPrice)) {
+                if (updates.spotPrice > 0) {
+                    const e8 = parseDecimalToAtomic(updates.spotPrice, ORACLE_E8_DECIMALS, 'floor');
+                    asset.spotPriceE8 = e8.toString();
+                    asset.spotPrice = Number(formatAtomicToDecimal(e8, ORACLE_E8_DECIMALS));
+                } else {
+                    asset.spotPriceE8 = '0';
+                    asset.spotPrice = 0;
+                }
+            }
             if (updates.delta !== undefined) asset.delta = updates.delta;
             if (updates.address !== undefined) asset.address = updates.address;
-            if (updates.contract !== undefined)
-                asset.contract = updates.contract;
+            if (updates.contract !== undefined) asset.contract = updates.contract;
             if (updates.apy !== undefined) asset.apy = updates.apy;
-            if (updates.accruedYield !== undefined)
-                asset.accruedYield = updates.accruedYield;
-            if (updates.siloVolume !== undefined)
-                asset.siloVolume = updates.siloVolume;
-            if (updates.validator !== undefined)
-                asset.validator = updates.validator;
+            if (updates.accruedYield !== undefined) asset.accruedYield = updates.accruedYield;
+            if (updates.siloVolume !== undefined) asset.siloVolume = updates.siloVolume;
+            if (updates.validator !== undefined) asset.validator = updates.validator;
+            if (clean === 'KAS') {
+                operations.setKasOracleUsdE8(
+                    asset.spotPriceE8 !== '0' ? asset.spotPriceE8 : null
+                );
+            }
         } else {
             const newAsset = new UnifiedAsset({
                 ticker: clean,
@@ -211,20 +319,21 @@ class TreasuryStore {
                 assetClass: updates.assetClass || 'Ecosystem',
                 network: updates.network || clean,
                 spotPrice: updates.spotPrice ?? 0,
+                spotPriceE8: updates.spotPriceE8,
+                onChain: updates.onChain,
+                onChainAtomic: updates.onChainAtomic,
                 theme: updates.theme || { hex: '#18C6A5', pastel: '#99f6e4' },
                 imgUrl: updates.imgUrl || '',
                 contract: updates.contract
             });
-            if (updates.onChain !== undefined)
-                newAsset.onChain = updates.onChain;
-            if (updates.synthetic !== undefined)
-                newAsset.synthetic = updates.synthetic;
-            if (updates.lpStaked !== undefined)
-                newAsset.lpStaked = updates.lpStaked;
             if (updates.delta !== undefined) newAsset.delta = updates.delta;
-            if (updates.address !== undefined)
-                newAsset.address = updates.address;
+            if (updates.address !== undefined) newAsset.address = updates.address;
             this.registry = [...this.registry, newAsset];
+            if (clean === 'KAS') {
+                operations.setKasOracleUsdE8(
+                    newAsset.spotPriceE8 !== '0' ? newAsset.spotPriceE8 : null
+                );
+            }
         }
     }
 
@@ -371,7 +480,13 @@ class TreasuryStore {
                                 .toUpperCase()
                                 .replace(/[^A-Z0-9]/g, '');
                             const liq = Number(p?.liquidity?.usd || 0);
-                            if (!net || sym.length < 2 || sym.length > 10 || liq < 1000 || seen.has(sym)) {
+                            if (
+                                !net ||
+                                sym.length < 2 ||
+                                sym.length > 10 ||
+                                liq < 1000 ||
+                                seen.has(sym)
+                            ) {
                                 continue;
                             }
                             seen.add(sym);
@@ -400,6 +515,49 @@ class TreasuryStore {
 
         return { primary, matches };
     }
+
+    async syncSpotOraclePrices(): Promise<boolean> {
+        if (!browser) return false;
+        try {
+            const res = await fetch('/api/prices');
+            if (res.status === 503 || !res.ok) {
+                this.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                return false;
+            }
+            const data = (await res.json().catch(() => null)) as Record<string, any> | null;
+            if (!data || typeof data !== 'object') {
+                this.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                return false;
+            }
+
+            let kasValid = false;
+            for (const [cgId, ticker] of Object.entries(COINGECKO_ID_TO_TICKER)) {
+                const entry = data[cgId];
+                const usd = Number(entry?.usd ?? 0);
+                const delta = Number(entry?.usd_24h_change ?? 0);
+                if (Number.isFinite(usd) && usd > 0) {
+                    this.updateAsset(ticker, {
+                        spotPrice: usd,
+                        delta: Number.isFinite(delta) ? delta : 0
+                    });
+                    if (ticker === 'KAS') kasValid = true;
+                }
+            }
+
+            if (!kasValid) {
+                this.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                return false;
+            }
+
+            this.spotOracleOnline = true;
+            this.spotOracleError = null;
+            return true;
+        } catch {
+            this.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            return false;
+        }
+    }
+
     async syncRwaOraclePrices(): Promise<boolean> {
         if (!browser) return false;
         try {
@@ -413,30 +571,25 @@ class TreasuryStore {
                         .toUpperCase();
                     const spot = Number(item.spotPrice ?? item.price ?? 0);
                     const delta = Number(item.change24h ?? 0);
-                    if (ticker && spot > 0) {
+                    if (ticker && Number.isFinite(spot) && spot > 0) {
                         this.updateAsset(ticker, {
                             spotPrice: spot,
-                            delta: isFinite(delta) ? delta : 0
+                            delta: Number.isFinite(delta) ? delta : 0
                         });
                         updatedCount++;
                     }
                 }
                 this.rwaOracleOnline = updatedCount > 0;
                 this.rwaOracleError =
-                    updatedCount > 0
-                        ? null
-                        : 'Pyth Hermes returned 0 active RWA feeds.';
+                    updatedCount > 0 ? null : LIVE_PRICING_UNAVAILABLE_MESSAGE;
                 return updatedCount > 0;
-            } else {
-                this.rwaOracleOnline = false;
-                this.rwaOracleError =
-                    data.error || `Pyth Hermes Oracle HTTP ${res.status}`;
-                return false;
             }
-        } catch (err: any) {
             this.rwaOracleOnline = false;
-            this.rwaOracleError =
-                err.message || 'Pyth Hermes Oracle network error.';
+            this.rwaOracleError = LIVE_PRICING_UNAVAILABLE_MESSAGE;
+            return false;
+        } catch {
+            this.rwaOracleOnline = false;
+            this.rwaOracleError = LIVE_PRICING_UNAVAILABLE_MESSAGE;
             return false;
         }
     }
@@ -475,7 +628,7 @@ class TreasuryStore {
                 name: 'USD Coin',
                 assetClass: 'Stablecoin',
                 network: 'ETH',
-                spotPrice: 1.0,
+                spotPrice: 0,
                 contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
                 imgUrl: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032',
                 theme: { hex: '#3B82F6', pastel: '#bfdbfe' }
@@ -485,7 +638,7 @@ class TreasuryStore {
                 name: 'Tether USD',
                 assetClass: 'Stablecoin',
                 network: 'ETH',
-                spotPrice: 1.0,
+                spotPrice: 0,
                 contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
                 imgUrl: 'https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032',
                 theme: { hex: '#18C6A5', pastel: '#99f6e4' }
@@ -596,7 +749,6 @@ class TreasuryStore {
                 spotPrice: 0,
                 theme: { hex: '#0052FF', pastel: '#bfdbfe' }
             }),
-            // --- WALL STREET EQUITIES & COMPUTE/ENERGY LEADERS (PYTH HERMES VERIFIED) ---
             new UnifiedAsset({
                 ticker: 'SPY',
                 name: 'S&P 500 Index (bCSPX)',
@@ -678,7 +830,6 @@ class TreasuryStore {
                 contract: '0x277b69923f8886d886c920d3616c2182f9d59c9c',
                 theme: { hex: '#F59E0B', pastel: '#fde68a' }
             }),
-            // --- PHYSICAL COMMODITIES & SOVEREIGN DEBT (PYTH HERMES VERIFIED) ---
             new UnifiedAsset({
                 ticker: 'XAU',
                 name: 'Physical Gold Oz (PAXG)',

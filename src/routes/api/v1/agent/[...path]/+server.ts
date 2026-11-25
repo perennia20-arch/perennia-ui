@@ -4,6 +4,9 @@ import { env } from '$env/dynamic/private';
 const PASSTHROUGH_REQ_HEADERS = [
     'authorization',
     'x-agent-key',
+    'x-agent-nonce',
+    'x-idempotency-key',
+    'last-event-id',
     'content-type',
     'accept'
 ] as const;
@@ -16,12 +19,43 @@ const PASSTHROUGH_RES_HEADERS = [
     'x-content-type-options'
 ] as const;
 
+const AGENT_NONCE_RE = /^[A-Za-z0-9_-]{16,128}$/;
+
+function resolveAgentUpstreamBase(): string {
+    const raw =
+        env.AGENT_BACKEND_URL ||
+        env.RUST_BACKEND_URL ||
+        (env.UBUNTU_NODE_IP ? `http://${env.UBUNTU_NODE_IP}:8002` : 'http://127.0.0.1:8002');
+    return raw.trim().replace(/\/+$/, '');
+}
+
 async function proxyAgentGateway(event: RequestEvent): Promise<Response> {
-    const baseUrl = (env.RUST_BACKEND_URL || 'http://127.0.0.1:8002')
-        .trim()
-        .replace(/\/+$/, '');
+    const baseUrl = resolveAgentUpstreamBase();
     const subPath = (event.params.path ?? '').replace(/^\/+/, '');
     const targetUrl = `${baseUrl}/api/v1/agent/${subPath}${event.url.search}`;
+
+    const method = event.request.method.toUpperCase();
+    const nonceHeader = event.request.headers.get('x-agent-nonce');
+    if (
+        method === 'POST' &&
+        (subPath === 'chronos/bid' || subPath === 'chronos/zktls-unlock') &&
+        nonceHeader !== null &&
+        !AGENT_NONCE_RE.test(nonceHeader.trim())
+    ) {
+        return json(
+            {
+                ok: false,
+                isError: true,
+                error: 'INVALID_INPUT',
+                message:
+                    'Invalid X-Agent-Nonce format (expected 16..128 alphanumeric, underscore, or hyphen characters).'
+            },
+            {
+                status: 400,
+                headers: { 'Cache-Control': 'no-store' }
+            }
+        );
+    }
 
     const outHeaders = new Headers();
     for (const h of PASSTHROUGH_REQ_HEADERS) {
@@ -43,7 +77,6 @@ async function proxyAgentGateway(event: RequestEvent): Promise<Response> {
     const realIp = event.request.headers.get('x-real-ip');
     if (realIp) outHeaders.set('x-real-ip', realIp);
 
-    const method = event.request.method.toUpperCase();
     const isStream = subPath === 'stream';
     const body =
         method === 'GET' || method === 'HEAD'
@@ -71,14 +104,13 @@ async function proxyAgentGateway(event: RequestEvent): Promise<Response> {
             status: upstream.status,
             headers: resHeaders
         });
-    } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Upstream connection refused';
+    } catch {
         return json(
             {
                 ok: false,
                 isError: true,
-                error: 'AGENT_GATEWAY_UNREACHABLE',
-                message: `Rust Agent Gateway unreachable: ${msg}`
+                error: 'NODE_UNAVAILABLE',
+                message: 'Agent gateway is temporarily unavailable.'
             },
             {
                 status: 503,
