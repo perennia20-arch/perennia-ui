@@ -7,6 +7,19 @@ import {
     normalizeKaspaBase32Strict,
     normalizeKaspaAddressStrict
 } from '$lib/server/kms';
+import {
+    KAS_DECIMALS,
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    ORACLE_E8_DECIMALS,
+    normalizeAllocationBps,
+    parseDecimalToAtomic,
+    type EpochPayoutOutboxItem,
+    type MatureAccrualSnapshot,
+    type SolvencyProofSnapshot,
+    type ThermostatValveRecord,
+    type U128Str,
+    type VaultLockRecord
+} from '$lib/crypto/atomicMath';
 
 async function isForgePubliclyUnlocked(): Promise<boolean> {
     const envFlag = String(env.FEATURE_FORGE_PUBLIC || '')
@@ -52,6 +65,66 @@ function resolveAutoStratumEndpoint(hashrateTh: number): string {
     return 'stratum+tcp://pool.perennia.io:3332';
 }
 
+function normalizeSectorAllocations(rawSectors: unknown[]): Array<Record<string, unknown>> {
+    return rawSectors.map((item) => {
+        if (!item || typeof item !== 'object') return {};
+        const sector = item as Record<string, unknown>;
+        let allocationBps = 0;
+        try {
+            allocationBps = normalizeAllocationBps({
+                allocationBps: sector.allocationBps,
+                allocationPercentage: sector.allocationPercentage
+            });
+        } catch {
+            allocationBps = 0;
+        }
+        return {
+            ...sector,
+            allocationBps,
+            /** @deprecated Batch 3 UI shim; use `allocationBps` (`0..=10_000`). */
+            allocationPercentage: Math.round(allocationBps / 100)
+        };
+    });
+}
+
+async function callUpstreamStateAction(
+    rustBackendUrl: string,
+    internalToken: string,
+    prefixedWallet: string,
+    action: string,
+    payload: Record<string, unknown> = {}
+): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> {
+    try {
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (internalToken) {
+            headers.Authorization = `Bearer ${internalToken}`;
+        }
+        const res = await fetch(`${rustBackendUrl.replace(/\/+$/, '')}/v1/state/action`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                wallet: prefixedWallet,
+                action,
+                payload
+            }),
+            signal: AbortSignal.timeout(3500)
+        });
+        const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        return {
+            ok: res.ok && Boolean(body?.success),
+            status: res.status,
+            data:
+                body?.data && typeof body.data === 'object'
+                    ? (body.data as Record<string, unknown>)
+                    : null
+        };
+    } catch {
+        return { ok: false, status: 503, data: null };
+    }
+}
+
 export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
     const sessionId = cookies.get('perennia_session');
     if (!sessionId) {
@@ -73,22 +146,38 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
     const cleanWallet = normalizeKaspaBase32Strict(effectiveWalletRaw);
     const prefixedWallet = normalizeKaspaAddressStrict(effectiveWalletRaw);
 
+    const rustBackendUrl =
+        env.RUST_BACKEND_URL ||
+        `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
+    const internalToken = String(
+        env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || ''
+    )
+        .trim()
+        .replace(/^['"]|['"]$/g, '');
+
     try {
         await ensureUserCommandCenterTable().catch(() => {});
 
         const [
             ccRes,
             workersRes,
-            reservoirRes,
             epochRaw,
             diffRaw,
-            rewardRaw, daaRaw, forgeUnlocked] = await Promise.all([
+            rewardRaw,
+            daaRaw,
+            kasSpotRaw,
+            forgeUnlocked,
+            accrualRes,
+            vaultLocksRes,
+            valvesRes,
+            solvencyRes
+        ] = await Promise.all([
             dbPool
                 .query(
                     `SELECT layout_state FROM user_command_centers WHERE wallet_address = $1 OR wallet_address = $2 ORDER BY last_updated DESC NULLS LAST LIMIT 1`,
                     [prefixedWallet, cleanWallet]
                 )
-                .catch(() => ({ rows: [] as any[] })),
+                .catch(() => ({ rows: [] as Record<string, unknown>[] })),
             dbPool
                 .query(
                     `SELECT worker_id, worker_name, hardware_model, current_hashrate, valid_shares, rejected_shares, blocks_found, last_seen
@@ -97,43 +186,59 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
                      ORDER BY last_seen DESC NULLS LAST`,
                     [cleanWallet]
                 )
-                .catch(() => ({ rows: [] as any[] })),
-            dbPool
-                .query(
-                    `SELECT streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-                     FROM yield_reservoirs
-                     WHERE wallet_address = $1 OR wallet_address = $2
-                     ORDER BY streaming_balance_kas DESC
-                     LIMIT 1`,
-                    [prefixedWallet, cleanWallet]
-                )
-                .catch(() => ({ rows: [] as any[] })),
+                .catch(() => ({ rows: [] as Record<string, unknown>[] })),
             redis.get('perennia:settlement:epoch_telemetry').catch(() => null),
             redis.get('oracle:network_difficulty').catch(() => null),
-            redis.get('oracle:block_reward').catch(() => null), redis.get('pool:virtual_daa_score').catch(() => null),
-            isForgePubliclyUnlocked()
+            redis.get('oracle:block_reward').catch(() => null),
+            redis.get('pool:virtual_daa_score').catch(() => null),
+            redis.get('oracle:spot:KAS_USDC').catch(() => null),
+            isForgePubliclyUnlocked(),
+            callUpstreamStateAction(
+                rustBackendUrl,
+                internalToken,
+                prefixedWallet,
+                'GET_MATURE_ACCRUAL_AND_OUTBOX'
+            ),
+            callUpstreamStateAction(
+                rustBackendUrl,
+                internalToken,
+                prefixedWallet,
+                'GET_VAULT_LOCKS'
+            ),
+            callUpstreamStateAction(
+                rustBackendUrl,
+                internalToken,
+                prefixedWallet,
+                'GET_THERMOSTAT_VALVES'
+            ),
+            callUpstreamStateAction(
+                rustBackendUrl,
+                internalToken,
+                prefixedWallet,
+                'GET_SOLVENCY_PROOF'
+            )
         ]);
 
-        const savedState: Record<string, any> =
+        const savedState: Record<string, unknown> =
             ccRes.rows.length > 0 &&
             ccRes.rows[0].layout_state &&
             typeof ccRes.rows[0].layout_state === 'object'
-                ? ccRes.rows[0].layout_state
+                ? (ccRes.rows[0].layout_state as Record<string, unknown>)
                 : {};
 
-        let workers: any[] = Array.isArray(savedState.workers)
-            ? [...savedState.workers]
+        let workers: Array<Record<string, unknown>> = Array.isArray(savedState.workers)
+            ? [...(savedState.workers as Array<Record<string, unknown>>)]
             : [];
-        const sectors: any[] = Array.isArray(savedState.sectors)
-            ? [...savedState.sectors]
-            : [];
-        const customTokens: any[] = Array.isArray(savedState.customTokens)
+        const sectors = normalizeSectorAllocations(
+            Array.isArray(savedState.sectors) ? savedState.sectors : []
+        );
+        const customTokens: unknown[] = Array.isArray(savedState.customTokens)
             ? [...savedState.customTokens]
             : [];
         const systemMode = String(savedState.systemMode || 'SOVEREIGN');
 
         if (workersRes.rows.length > 0) {
-            const dbWorkersByName = new Map<string, any>();
+            const dbWorkersByName = new Map<string, Record<string, unknown>>();
             for (const row of workersRes.rows) {
                 const name = String(row.worker_name || 'Rig').trim();
                 dbWorkersByName.set(name.toLowerCase(), row);
@@ -154,7 +259,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
                         ? Number(((validShares / totalShares) * 100).toFixed(2))
                         : 100.0;
                 const lastSeenMs = dbMatch.last_seen
-                    ? new Date(dbMatch.last_seen).getTime()
+                    ? new Date(String(dbMatch.last_seen)).getTime()
                     : 0;
                 const isOnline =
                     liveHashTh > 0 && Date.now() - lastSeenMs < 5 * 60 * 1000;
@@ -164,7 +269,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
                     hashRate: liveHashTh,
                     stratumUrl:
                         w.stratumUrl || resolveAutoStratumEndpoint(liveHashTh),
-                    walletWorker: `${prefixedWallet}.${w.name || dbMatch.worker_name}`,
+                    walletWorker: `${prefixedWallet}.${String(w.name || dbMatch.worker_name)}`,
                     hardwareType:
                         w.hardwareType ||
                         dbMatch.hardware_model ||
@@ -191,13 +296,12 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
                         ? Number(((validShares / totalShares) * 100).toFixed(2))
                         : 100.0;
                 const lastSeenMs = dbRow.last_seen
-                    ? new Date(dbRow.last_seen).getTime()
+                    ? new Date(String(dbRow.last_seen)).getTime()
                     : 0;
 
                 workers.push({
                     id: String(
-                        dbRow.worker_id ||
-                            wName.toUpperCase().slice(0, 8)
+                        dbRow.worker_id || wName.toUpperCase().slice(0, 8)
                     ),
                     type: 'physical',
                     name: wName,
@@ -218,14 +322,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             }
         }
 
-        const streamingBalanceKas = Number(
-            reservoirRes.rows[0]?.streaming_balance_kas || 0
-        );
-        const totalYieldKas = Number(
-            reservoirRes.rows[0]?.total_yield_kas || 0
-        );
-
-        let epochTelemetry: any = null;
+        let epochTelemetry: unknown = null;
         if (epochRaw) {
             try {
                 epochTelemetry = JSON.parse(epochRaw);
@@ -234,8 +331,51 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             }
         }
 
-        const networkDifficulty = diffRaw ? parseFloat(diffRaw) || 0 : 0;
-        const blockRewardKas = rewardRaw ? parseFloat(rewardRaw) || 0 : 0;
+        let kasOracleUsdE8: U128Str | null = null;
+        if (kasSpotRaw) {
+            try {
+                const parsedE8 = parseDecimalToAtomic(kasSpotRaw.trim(), ORACLE_E8_DECIMALS, 'floor');
+                if (parsedE8 > 0n) {
+                    kasOracleUsdE8 = parsedE8.toString();
+                }
+            } catch {
+                kasOracleUsdE8 = null;
+            }
+        }
+
+        let blockRewardSompi: U128Str | undefined;
+        let blockRewardKasLegacy: number | undefined;
+        if (rewardRaw) {
+            try {
+                const rewardSompi = parseDecimalToAtomic(rewardRaw.trim(), KAS_DECIMALS, 'floor');
+                if (rewardSompi > 0n) {
+                    blockRewardSompi = rewardSompi.toString();
+                    blockRewardKasLegacy = Number(rewardRaw.trim()) || undefined;
+                }
+            } catch {
+                blockRewardSompi = undefined;
+            }
+        }
+
+        const networkDifficulty = diffRaw ? Number(diffRaw) || 0 : 0;
+        const engineOnline =
+            accrualRes.ok || vaultLocksRes.ok || valvesRes.ok || solvencyRes.ok;
+        const oracleOnline =
+            kasOracleUsdE8 !== null &&
+            accrualRes.status !== 503 &&
+            solvencyRes.status !== 503;
+
+        const matureAccrual = (accrualRes.data?.accrual ?? null) as MatureAccrualSnapshot | null;
+        const payoutOutbox = Array.isArray(accrualRes.data?.outbox)
+            ? (accrualRes.data.outbox as EpochPayoutOutboxItem[])
+            : [];
+        const vaultLocks = Array.isArray(vaultLocksRes.data?.vaults)
+            ? (vaultLocksRes.data.vaults as VaultLockRecord[])
+            : [];
+        const thermostatValves = Array.isArray(valvesRes.data?.valves)
+            ? (valvesRes.data.valves as ThermostatValveRecord[])
+            : [];
+        const solvencyProof = (solvencyRes.data ?? null) as SolvencyProofSnapshot | null;
 
         return json({
             wallet: prefixedWallet,
@@ -245,16 +385,32 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             workers,
             sectors,
             customTokens,
-            streamingBalanceKas,
-            totalYieldKas,
+            matureAccrual,
+            payoutOutbox,
+            vaultLocks,
+            thermostatValves,
+            solvencyProof,
+            kasOracleUsdE8,
+            engineOnline,
+            oracleOnline,
+            livePricingUnavailable: !oracleOnline,
+            pricingStatusMessage: oracleOnline ? null : LIVE_PRICING_UNAVAILABLE_MESSAGE,
             epochTelemetry,
             networkDifficulty: networkDifficulty > 0 ? networkDifficulty : undefined,
-            blockRewardKas: blockRewardKas > 0 ? blockRewardKas : undefined, virtualDaaScore: daaRaw ? parseInt(daaRaw, 10) || 0 : 0
+            blockRewardSompi,
+            /** @deprecated Batch 2/3 shim; prefer `blockRewardSompi` (`U128Str`). */
+            blockRewardKas: blockRewardKasLegacy,
+            virtualDaaScore: daaRaw ? parseInt(daaRaw, 10) || 0 : 0
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('State Hydration Error:', err);
         return json(
-            { error: err?.message || 'Failed to load command center state.' },
+            {
+                error:
+                    err instanceof Error
+                        ? err.message
+                        : 'Failed to load command center state.'
+            },
             { status: 500 }
         );
     }
@@ -302,14 +458,18 @@ export const POST: RequestHandler = async ({
                 ? existingRes.rows[0].layout_state
                 : {};
 
+        const nextSectors = Array.isArray(body.sectors)
+            ? normalizeSectorAllocations(body.sectors)
+            : normalizeSectorAllocations(
+                  Array.isArray(prevLayout.sectors) ? prevLayout.sectors : []
+              );
+
         const nextLayout = {
             ...prevLayout,
             workers: Array.isArray(body.workers)
                 ? body.workers
                 : prevLayout.workers || [],
-            sectors: Array.isArray(body.sectors)
-                ? body.sectors
-                : prevLayout.sectors || [],
+            sectors: nextSectors,
             customTokens: Array.isArray(body.customTokens)
                 ? body.customTokens
                 : prevLayout.customTokens || [],
@@ -343,10 +503,15 @@ export const POST: RequestHandler = async ({
             wallet: prefixedWallet,
             state: nextLayout
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('State Persistence Error:', err);
         return json(
-            { error: err?.message || 'Failed to persist command center state.' },
+            {
+                error:
+                    err instanceof Error
+                        ? err.message
+                        : 'Failed to persist command center state.'
+            },
             { status: 500 }
         );
     }

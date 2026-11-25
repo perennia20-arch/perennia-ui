@@ -1,13 +1,8 @@
-import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import type { SovereignVaultKeys } from '$lib/crypto/honeycomb';
 import {
     hexToBytes,
     bytesToHex,
-    writeUint16LE,
-    writeUint32LE,
-    writeBigUint64LE,
-    concatBytes,
     decodeAddressToScript,
     resolveKasplexProtocolInfo
 } from '$lib/crypto/kaspaAddress';
@@ -21,10 +16,33 @@ import {
     getChainExplorerTxUrl,
     signAndBroadcastNonKaspaL1Transfer
 } from '$lib/crypto/multiChainSigner';
+import {
+    KAS_DECIMALS,
+    MIN_CHANGE_SOMPI,
+    NATIVE_SUBNETWORK_ID_HEX,
+    POST_TOCCATA_TX_VERSION,
+    RELAY_FEE_PER_GRAM_SOMPI,
+    SIGHASH_ALL,
+    SIGHASH_SINGLE_ANYONECANPAY,
+    computeKaspaTxV1InputSighash,
+    computePostToccataMassAndFee,
+    computePostToccataStorageMass,
+    normalizeSubnetworkIdHex,
+    parseDecimalToAtomic,
+    parseKasDecimalToSompi,
+    parseSompiU64,
+    signSorPskt,
+    signVaultCancelPskt,
+    type Kip20CovenantBinding,
+    type PostToccataTxOutput,
+    type PostToccataTransactionV1,
+    type PsktPayload
+} from '$lib/crypto/atomicMath';
 
 export * from '$lib/crypto/kaspaAddress';
 export * from '$lib/crypto/silverscript';
 export * from '$lib/crypto/multiChainSigner';
+export * from '$lib/crypto/atomicMath';
 
 class TransactionEngineState {
     decryptedPrivateKeyHex = $state('');
@@ -43,214 +61,123 @@ class TransactionEngineState {
 
 export const txState = new TransactionEngineState();
 
-const SIGHASH_ALL = 0x01;
-const SIGHASH_SINGLE_ANYONECANPAY = 0x83;
-const TX_SIGNING_KEY = new TextEncoder().encode('TransactionSigningHash');
-const BASE_COMPUTE_MASS = 200n;
-const MASS_PER_INPUT = 1200n;
-const MASS_PER_OUTPUT = 450n;
-const STORAGE_MASS_PARAMETER = 1_000_000_000_000n;
-const FEE_PER_GRAM = 110n;
-const MIN_CHANGE_SOMPI = 10_000_000n;
-
-function calculateComputeMass(
-    numInputs: number,
-    numOutputs: number,
-    payloadByteLen = 0
-): bigint {
-    return (
-        BASE_COMPUTE_MASS +
-        BigInt(numInputs) * MASS_PER_INPUT +
-        BigInt(numOutputs) * MASS_PER_OUTPUT +
-        BigInt(payloadByteLen)
-    );
+function extractUtxoSpk(u: any, fallbackHex?: string): { version: number; scriptPublicKey: string } {
+    const raw = u?.scriptPublicKey ?? u?.utxoEntry?.scriptPublicKey;
+    if (typeof raw === 'string') {
+        return { version: 0, scriptPublicKey: raw };
+    }
+    if (raw && typeof raw === 'object') {
+        return {
+            version: Number(raw.version ?? 0),
+            scriptPublicKey: String(raw.scriptPublicKey ?? fallbackHex ?? '')
+        };
+    }
+    return { version: 0, scriptPublicKey: String(fallbackHex ?? '') };
 }
 
-function calculateStorageMass(inputAmounts: bigint[], outputAmounts: bigint[]): bigint {
-    if (inputAmounts.length === 0 || outputAmounts.length === 0) {
-        return 0n;
-    }
-    let harmonicOuts = 0n;
-    for (const v of outputAmounts) {
-        harmonicOuts += v > 0n ? STORAGE_MASS_PARAMETER / v : STORAGE_MASS_PARAMETER;
-    }
-    if (outputAmounts.length === 1 || inputAmounts.length >= outputAmounts.length) {
-        let sumIns = 0n;
-        for (const v of inputAmounts) {
-            sumIns += v;
-        }
-        const meanIns = sumIns / BigInt(inputAmounts.length);
-        if (meanIns <= 0n) {
-            return harmonicOuts;
-        }
-        const arithmeticIns =
-            BigInt(inputAmounts.length) * (STORAGE_MASS_PARAMETER / meanIns);
-        return harmonicOuts > arithmeticIns ? harmonicOuts - arithmeticIns : 0n;
-    } else {
-        let harmonicIns = 0n;
-        for (const v of inputAmounts) {
-            if (v > 0n) {
-                harmonicIns += STORAGE_MASS_PARAMETER / v;
-            }
-        }
-        return harmonicOuts > harmonicIns ? harmonicOuts - harmonicIns : 0n;
-    }
+function readUtxoAmountSompi(u: any): bigint {
+    return parseSompiU64(u?.amount ?? u?.utxoEntry?.amount ?? '0', 'utxo.amount');
 }
 
-function normalizeSubnetworkIdHex(subnetworkId: string | undefined): string {
-    const clean = String(subnetworkId || '')
-        .trim()
-        .replace(/^0x/i, '')
-        .replace(/[^0-9a-fA-F]/g, '')
-        .toLowerCase();
-    if (!clean) return '0000000000000000000000000000000000000000';
-    return clean.padStart(40, '0').slice(0, 40);
+function wipePrivateKeyState(privKeyBytes: Uint8Array) {
+    if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+    txState.decryptedPrivateKeyHex = '0'.repeat(64);
+    txState.decryptedPrivateKeyHex = '';
 }
 
-export function computePayloadHash(
-    subnetworkId: string | undefined,
-    payloadHex: string | undefined
-): Uint8Array {
-    const normalizedSubnet = normalizeSubnetworkIdHex(subnetworkId);
-    const isNativeSubnetwork =
-        normalizedSubnet === '0000000000000000000000000000000000000000';
-    const payloadBytes = payloadHex ? hexToBytes(payloadHex) : new Uint8Array(0);
-    if (isNativeSubnetwork && payloadBytes.length === 0) {
-        return new Uint8Array(32);
+async function postSignedTransactionToProxy(
+    tx: PostToccataTransactionV1,
+    errPrefix = 'ERR_BROADCAST_REJECTED'
+): Promise<string> {
+    const broadcastRes = await fetch('/api/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction: tx })
+    });
+    if (!broadcastRes.ok) {
+        const errData = await broadcastRes.json().catch(() => ({}));
+        throw new Error(`${errPrefix}: ${errData.error || 'Node refused payload'}`);
     }
-    return new Uint8Array(
-        blake2b(
-            concatBytes(writeBigUint64LE(BigInt(payloadBytes.length)), payloadBytes),
-            { dkLen: 32, key: TX_SIGNING_KEY }
-        )
-    );
+    const resData = await broadcastRes.json();
+    const txId = String(resData.transactionId || resData.id || '');
+    if (!txId) {
+        throw new Error(`${errPrefix}: Missing transactionId in broadcast response`);
+    }
+    return txId;
 }
 
-function computeInputSighash(
-    tx: any,
-    inputIndex: number,
-    utxoSpkHex: string,
-    utxoAmount: bigint,
-    sighashType: number
-): Uint8Array {
-    const isAnyoneCanPay = (sighashType & 0x80) !== 0;
-    const baseMask = sighashType & 0x7f;
-    const isSingle = baseMask === 0x03 || baseMask === 0x04;
-    const isNone = baseMask === 0x02;
-    const prevOutsHash: Uint8Array = isAnyoneCanPay
-        ? new Uint8Array(32)
-        : new Uint8Array(
-              blake2b(
-                  concatBytes(
-                      ...tx.inputs.map((i: any) =>
-                          concatBytes(
-                              hexToBytes(i.previousOutpoint.transactionId),
-                              writeUint32LE(Number(i.previousOutpoint.index))
-                          )
-                      )
-                  ),
-                  { dkLen: 32, key: TX_SIGNING_KEY }
-              )
-          );
-    const sequencesHash: Uint8Array =
-        isAnyoneCanPay || isSingle || isNone
-            ? new Uint8Array(32)
-            : new Uint8Array(
-                  blake2b(
-                      concatBytes(
-                          ...tx.inputs.map((i: any) =>
-                              writeBigUint64LE(BigInt(i.sequence ?? 0))
-                          )
-                      ),
-                      { dkLen: 32, key: TX_SIGNING_KEY }
-                  )
-              );
-    const sigOpCountsHash: Uint8Array = isAnyoneCanPay
-        ? new Uint8Array(32)
-        : new Uint8Array(
-              blake2b(
-                  concatBytes(
-                      ...tx.inputs.map((i: any) => new Uint8Array([Number(i.sigOpCount ?? 1)]))
-                  ),
-                  { dkLen: 32, key: TX_SIGNING_KEY }
-              )
-          );
-    let outputsHash: Uint8Array;
-    if (isNone) {
-        outputsHash = new Uint8Array(32);
-    } else if (isSingle) {
-        if (inputIndex >= tx.outputs.length) {
-            outputsHash = new Uint8Array(32);
-        } else {
-            const singleOut = tx.outputs[inputIndex];
-            const spkStr =
-                typeof singleOut.scriptPublicKey === 'string'
-                    ? singleOut.scriptPublicKey
-                    : singleOut.scriptPublicKey?.scriptPublicKey || '';
-            const spkBytes = hexToBytes(spkStr);
-            outputsHash = new Uint8Array(
-                blake2b(
-                    concatBytes(
-                        writeBigUint64LE(BigInt(singleOut.amount ?? singleOut.value ?? 0)),
-                        writeUint16LE(0),
-                        writeBigUint64LE(BigInt(spkBytes.length)),
-                        spkBytes
-                    ),
-                    { dkLen: 32, key: TX_SIGNING_KEY }
-                )
-            );
-        }
-    } else {
-        outputsHash = new Uint8Array(
-            blake2b(
-                concatBytes(
-                    ...tx.outputs.map((o: any) => {
-                        const spkStr =
-                            typeof o.scriptPublicKey === 'string'
-                                ? o.scriptPublicKey
-                                : o.scriptPublicKey?.scriptPublicKey || '';
-                        const spkBytes = hexToBytes(spkStr);
-                        return concatBytes(
-                            writeBigUint64LE(BigInt(o.amount ?? o.value ?? 0)),
-                            writeUint16LE(0),
-                            writeBigUint64LE(BigInt(spkBytes.length)),
-                            spkBytes
-                        );
-                    })
-                ),
-                { dkLen: 32, key: TX_SIGNING_KEY }
-            )
+/**
+ * Signs and broadcasts a `BUILD_VAULT_CANCEL_PSKT` Path A owner cancellation PSKT locally.
+ */
+export async function signAndBroadcastVaultCancelPskt(params: {
+    pskt: PsktPayload;
+    redeemScriptHex?: string;
+    feeBreakdown?: { storageMass?: number | string };
+}): Promise<string> {
+    if (!txState.decryptedPrivateKeyHex) throw new Error('ERR_VAULT_LOCKED');
+    txState.isBroadcasting = true;
+    txState.error = '';
+    const keySnapshot = txState.decryptedPrivateKeyHex;
+    txState.decryptedPrivateKeyHex = '0'.repeat(64);
+    txState.decryptedPrivateKeyHex = '';
+    try {
+        const signedTx = signVaultCancelPskt({
+            pskt: params.pskt,
+            privateKeyHex: keySnapshot,
+            redeemScriptHex: params.redeemScriptHex,
+            storageMass: params.feeBreakdown?.storageMass
+        });
+        const txId = await postSignedTransactionToProxy(
+            signedTx,
+            'ERR_VAULT_CANCEL_BROADCAST_REJECTED'
         );
+        txState.lastTxId = txId;
+        txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+        return txId;
+    } catch (e: any) {
+        txState.error = e?.message || 'Vault cancellation broadcast failed';
+        throw e;
+    } finally {
+        txState.isBroadcasting = false;
+        txState.decryptedPrivateKeyHex = '0'.repeat(64);
+        txState.decryptedPrivateKeyHex = '';
     }
-    const input = tx.inputs[inputIndex];
-    const spkBytes = hexToBytes(utxoSpkHex);
-    const normalizedSubnet = normalizeSubnetworkIdHex(tx.subnetworkId);
-    const subnetworkIdBytes: Uint8Array =
-        normalizedSubnet !== '0000000000000000000000000000000000000000'
-            ? hexToBytes(normalizedSubnet)
-            : new Uint8Array(20);
-    const payloadHash = computePayloadHash(normalizedSubnet, tx.payload);
-    const sigHashData = concatBytes(
-        writeUint16LE(Number(tx.version ?? 0)),
-        prevOutsHash,
-        sequencesHash,
-        sigOpCountsHash,
-        hexToBytes(input.previousOutpoint.transactionId),
-        writeUint32LE(Number(input.previousOutpoint.index)),
-        writeUint16LE(0),
-        writeBigUint64LE(BigInt(spkBytes.length)),
-        spkBytes,
-        writeBigUint64LE(utxoAmount),
-        writeBigUint64LE(BigInt(input.sequence ?? 0)),
-        new Uint8Array([Number(input.sigOpCount ?? 1)]),
-        outputsHash,
-        writeBigUint64LE(BigInt(tx.lockTime ?? 0)),
-        subnetworkIdBytes,
-        writeBigUint64LE(BigInt(tx.gas ?? 0)),
-        payloadHash,
-        new Uint8Array([sighashType])
-    );
-    return new Uint8Array(blake2b(sigHashData, { dkLen: 32, key: TX_SIGNING_KEY }));
+}
+
+/**
+ * Signs and broadcasts an unsigned `:8002` `POST /v1/sor/execute` PSKT locally.
+ */
+export async function signAndBroadcastSorPskt(params: {
+    pskt: PsktPayload;
+    formattedUtxos?: any[];
+}): Promise<string> {
+    if (!txState.decryptedPrivateKeyHex) throw new Error('ERR_VAULT_LOCKED');
+    txState.isBroadcasting = true;
+    txState.error = '';
+    const keySnapshot = txState.decryptedPrivateKeyHex;
+    txState.decryptedPrivateKeyHex = '0'.repeat(64);
+    txState.decryptedPrivateKeyHex = '';
+    try {
+        const signedTx = signSorPskt({
+            pskt: params.pskt,
+            privateKeyHex: keySnapshot,
+            formattedUtxos: params.formattedUtxos
+        });
+        const txId = await postSignedTransactionToProxy(
+            signedTx,
+            'ERR_SOR_BROADCAST_REJECTED'
+        );
+        txState.lastTxId = txId;
+        txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+        return txId;
+    } catch (e: any) {
+        txState.error = e?.message || 'Swap broadcast failed';
+        throw e;
+    } finally {
+        txState.isBroadcasting = false;
+        txState.decryptedPrivateKeyHex = '0'.repeat(64);
+        txState.decryptedPrivateKeyHex = '';
+    }
 }
 
 export async function executeSovereignPSBT(
@@ -263,9 +190,11 @@ export async function executeSovereignPSBT(
     let privKeyBytes: Uint8Array = new Uint8Array(0);
     try {
         privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
-        const tx = JSON.parse(JSON.stringify(unsignedTx));
-        for (let i = 0; i < tx.inputs.length; i++) {
-            const input = tx.inputs[i];
+        const rawTx = JSON.parse(JSON.stringify(unsignedTx));
+        const inputAmounts: bigint[] = [];
+        const inputSpks: Array<{ version: number; scriptPublicKey: string }> = [];
+
+        const txInputs = (rawTx.inputs || []).map((input: any, i: number) => {
             const utxo = utxoReferenceData.find(
                 (u) =>
                     (u.transactionId ?? u.outpoint?.transactionId) ===
@@ -274,51 +203,83 @@ export async function executeSovereignPSBT(
                         Number(input.previousOutpoint.index)
             );
             if (!utxo) throw new Error(`ERR_MISSING_UTXO_REFERENCE_FOR_INPUT_${i}`);
-            const spkHex =
-                typeof utxo.scriptPublicKey === 'string'
-                    ? utxo.scriptPublicKey
-                    : utxo.scriptPublicKey?.scriptPublicKey ??
-                      utxo.utxoEntry?.scriptPublicKey?.scriptPublicKey;
-            const amt = BigInt(Math.round(Number(utxo.amount ?? utxo.utxoEntry?.amount ?? 0)));
-            const sighash = computeInputSighash(tx, i, spkHex, amt, SIGHASH_ALL);
-            const signature = schnorr.sign(sighash, privKeyBytes);
-            input.signatureScript = `41${bytesToHex(signature)}01`;
-        }
-        for (const output of tx.outputs) {
-            delete output._metadata;
-        }
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
-        const broadcastRes = await fetch('/api/broadcast', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction: tx })
+            const spk = extractUtxoSpk(utxo);
+            const amt = readUtxoAmountSompi(utxo);
+            inputAmounts.push(amt);
+            inputSpks.push(spk);
+            return {
+                previousOutpoint: {
+                    transactionId: input.previousOutpoint.transactionId,
+                    index: Number(input.previousOutpoint.index)
+                },
+                signatureScript: '',
+                sequence: Number(input.sequence ?? 0),
+                sigOpCount: Math.max(1, Number(input.sigOpCount ?? 1))
+            };
         });
-        if (!broadcastRes.ok) {
-            const errData = await broadcastRes.json().catch(() => ({}));
-            throw new Error(
-                `ERR_BROADCAST_REJECTED: ${errData.error || 'Node refused payload'}`
+
+        const outputAmounts: bigint[] = [];
+        const txOutputs: PostToccataTxOutput[] = (rawTx.outputs || []).map(
+            (output: any, idx: number) => {
+                delete output._metadata;
+                const amt = parseSompiU64(output.amount ?? output.value, `psbt.outputs[${idx}].amount`);
+                outputAmounts.push(amt);
+                const spk = extractUtxoSpk(output);
+                const cov = output.covenant as Kip20CovenantBinding | undefined;
+                return {
+                    amount: amt.toString(),
+                    scriptPublicKey: spk,
+                    ...(cov ? { covenant: cov } : {})
+                };
+            }
+        );
+
+        const storageMass =
+            rawTx.storageMass !== undefined && rawTx.storageMass !== null
+                ? parseSompiU64(rawTx.storageMass, 'storageMass')
+                : computePostToccataStorageMass(inputAmounts, outputAmounts);
+
+        const tx: PostToccataTransactionV1 = {
+            version: POST_TOCCATA_TX_VERSION,
+            inputs: txInputs,
+            outputs: txOutputs,
+            lockTime: Number(rawTx.lockTime ?? 0),
+            subnetworkId: normalizeSubnetworkIdHex(rawTx.subnetworkId),
+            gas: Number(rawTx.gas ?? 0),
+            payload: String(rawTx.payload ?? ''),
+            storageMass: storageMass.toString()
+        };
+
+        for (let i = 0; i < tx.inputs.length; i += 1) {
+            const sighash = computeKaspaTxV1InputSighash(
+                tx,
+                i,
+                inputSpks[i].scriptPublicKey,
+                inputAmounts[i],
+                SIGHASH_ALL,
+                inputSpks[i].version
             );
+            const signature = schnorr.sign(sighash, privKeyBytes);
+            tx.inputs[i].signatureScript = `41${bytesToHex(signature)}01`;
         }
-        const resData = await broadcastRes.json();
-        txState.lastTxId = resData.transactionId || resData.id;
-        txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txState.lastTxId);
-        return txState.lastTxId;
+
+        wipePrivateKeyState(privKeyBytes);
+        const txId = await postSignedTransactionToProxy(tx, 'ERR_BROADCAST_REJECTED');
+        txState.lastTxId = txId;
+        txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+        return txId;
     } catch (e: any) {
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }
 
 export async function signClientP2pOffer(
-    sellAmountKas: number,
-    buyAmountKas: number,
+    sellAmountKas: number | string,
+    buyAmountKas: number | string,
     utxos: any[]
 ): Promise<string> {
     if (!txState.decryptedPrivateKeyHex) throw new Error('ERR_VAULT_LOCKED');
@@ -329,36 +290,39 @@ export async function signClientP2pOffer(
         privKeyBytes = hexToBytes(txState.decryptedPrivateKeyHex);
         const myPubKeyBytes = schnorr.getPublicKey(privKeyBytes);
         const sellerScriptHex = `20${bytesToHex(myPubKeyBytes)}ac`;
-        const targetSellSompi = BigInt(Math.round(sellAmountKas * 1e8));
-        const targetBuySompi = BigInt(Math.round(buyAmountKas * 1e8));
+        const targetSellSompi = parseKasDecimalToSompi(sellAmountKas, 'floor');
+        const targetBuySompi = parseKasDecimalToSompi(buyAmountKas, 'floor');
         if (targetSellSompi <= 0n || targetBuySompi <= 0n) {
             throw new Error('ERR_INVALID_P2P_AMOUNTS');
         }
         const sortedUtxos = [...(utxos || [])].sort((a, b) => {
-            const amtA = BigInt(Math.round(Number(a.amount ?? a.utxoEntry?.amount ?? 0)));
-            const amtB = BigInt(Math.round(Number(b.amount ?? b.utxoEntry?.amount ?? 0)));
+            const amtA = readUtxoAmountSompi(a);
+            const amtB = readUtxoAmountSompi(b);
             return amtA < amtB ? 1 : amtA > amtB ? -1 : 0;
         });
+
         let gatheredSompi = 0n;
-        let currentMass = calculateComputeMass(0, 2, 0);
-        const usedUtxos: any[] = [];
-        const txInputs: any[] = [];
+        let networkFeeSompi = 0n;
+        const usedUtxos: Array<{
+            transactionId: string;
+            index: number;
+            amount: string;
+            scriptPublicKey: string;
+        }> = [];
+        const inputAmounts: bigint[] = [];
+        const txInputs: PostToccataTransactionV1['inputs'] = [];
+
         for (const u of sortedUtxos) {
-            const amt = BigInt(Math.round(Number(u.amount ?? u.utxoEntry?.amount ?? 0)));
+            const amt = readUtxoAmountSompi(u);
             if (amt <= 0n) continue;
-            const txId = u.transactionId ?? u.outpoint?.transactionId;
+            const txId = String(u.transactionId ?? u.outpoint?.transactionId);
             const index = Number(u.index ?? u.outpoint?.index ?? 0);
-            const spkHex =
-                typeof u.scriptPublicKey === 'string'
-                    ? u.scriptPublicKey
-                    : u.scriptPublicKey?.scriptPublicKey ??
-                      u.utxoEntry?.scriptPublicKey?.scriptPublicKey ??
-                      sellerScriptHex;
+            const spk = extractUtxoSpk(u, sellerScriptHex);
             usedUtxos.push({
                 transactionId: txId,
                 index,
-                amount: Number(amt),
-                scriptPublicKey: spkHex
+                amount: amt.toString(),
+                scriptPublicKey: spk.scriptPublicKey
             });
             txInputs.push({
                 previousOutpoint: {
@@ -369,64 +333,82 @@ export async function signClientP2pOffer(
                 sequence: 0,
                 sigOpCount: 1
             });
+            inputAmounts.push(amt);
             gatheredSompi += amt;
-            currentMass += MASS_PER_INPUT;
-            const networkFeeSompi = currentMass * FEE_PER_GRAM;
+            const massInfo = computePostToccataMassAndFee({
+                inputSompi: inputAmounts,
+                outputSompi: [targetBuySompi],
+                feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+            });
+            networkFeeSompi = massInfo.networkFeeSompi;
             if (gatheredSompi >= targetSellSompi + networkFeeSompi) break;
         }
-        const networkFeeSompi = currentMass * FEE_PER_GRAM;
+
         const totalRequired = targetSellSompi + networkFeeSompi;
         if (gatheredSompi < totalRequired) {
             throw new Error(
                 `ERR_INSUFFICIENT_MASS: Required ${totalRequired} sompi to lock P2P offer, found ${gatheredSompi} sompi.`
             );
         }
-        const txOutputs: Array<{ amount: number; scriptPublicKey: string }> = [
+
+        const outputAmounts: bigint[] = [targetBuySompi];
+        const txOutputs: PostToccataTxOutput[] = [
             {
-                amount: Number(targetBuySompi),
-                scriptPublicKey: sellerScriptHex
+                amount: targetBuySompi.toString(),
+                scriptPublicKey: { version: 0, scriptPublicKey: sellerScriptHex }
             }
         ];
         if (gatheredSompi >= totalRequired + MIN_CHANGE_SOMPI) {
+            const changeSompi = gatheredSompi - totalRequired;
+            outputAmounts.push(changeSompi);
             txOutputs.push({
-                amount: Number(gatheredSompi - totalRequired),
-                scriptPublicKey: sellerScriptHex
+                amount: changeSompi.toString(),
+                scriptPublicKey: { version: 0, scriptPublicKey: sellerScriptHex }
             });
         }
         while (txOutputs.length < txInputs.length) {
+            outputAmounts.push(0n);
             txOutputs.push({
-                amount: 0,
-                scriptPublicKey: sellerScriptHex
+                amount: '0',
+                scriptPublicKey: { version: 0, scriptPublicKey: sellerScriptHex }
             });
         }
-        const tx = {
-            version: 0,
+
+        const finalMass = computePostToccataMassAndFee({
+            inputSompi: inputAmounts,
+            outputSompi: outputAmounts,
+            feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+        });
+
+        const tx: PostToccataTransactionV1 = {
+            version: POST_TOCCATA_TX_VERSION,
             inputs: txInputs,
             outputs: txOutputs,
             lockTime: 0,
-            subnetworkId: '0000000000000000000000000000000000000000',
+            subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
             gas: 0,
-            payload: ''
+            payload: '',
+            storageMass: finalMass.storageMass.toString()
         };
-        for (let i = 0; i < tx.inputs.length; i++) {
+
+        for (let i = 0; i < tx.inputs.length; i += 1) {
             const u = usedUtxos[i];
-            const sighash = computeInputSighash(
+            const sighash = computeKaspaTxV1InputSighash(
                 tx,
                 i,
                 u.scriptPublicKey,
-                BigInt(u.amount),
+                parseSompiU64(u.amount, `usedUtxos[${i}].amount`),
                 SIGHASH_SINGLE_ANYONECANPAY
             );
             const sig = schnorr.sign(sighash, privKeyBytes);
             tx.inputs[i].signatureScript = `41${bytesToHex(sig)}83`;
         }
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
+        wipePrivateKeyState(privKeyBytes);
         const psbtJson = {
             version: tx.version,
             inputs: tx.inputs,
             outputs: tx.outputs,
+            storageMass: tx.storageMass,
             used_utxos: usedUtxos
         };
         return bytesToHex(new TextEncoder().encode(JSON.stringify(psbtJson)));
@@ -434,10 +416,8 @@ export async function signClientP2pOffer(
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }
 
@@ -464,31 +444,42 @@ export async function executeClientP2pFill(
         }
         const sellerPsbtJsonStr = new TextDecoder().decode(hexToBytes(sellerPsbtHex));
         const sellerPsbt = JSON.parse(sellerPsbtJsonStr);
-        const finalInputs: any[] = [...(sellerPsbt.inputs || [])];
-        const finalOutputs: any[] = [...(sellerPsbt.outputs || [])];
+        const finalInputs: PostToccataTransactionV1['inputs'] = [...(sellerPsbt.inputs || [])];
+        const finalOutputs: PostToccataTxOutput[] = (sellerPsbt.outputs || []).map(
+            (out: any, idx: number) => ({
+                amount: parseSompiU64(out.amount ?? out.value ?? '0', `sellerPsbt.outputs[${idx}].amount`).toString(),
+                scriptPublicKey: extractUtxoSpk(out),
+                ...(out.covenant ? { covenant: out.covenant } : {})
+            })
+        );
         const allUtxos: any[] = [...(sellerPsbt.used_utxos || [])];
-        const sellAmountKas = Number(orderData.sellAmount || 0);
-        const buyAmountKas = Number(orderData.buyAmount || 0);
-        const targetBuyerSompi = BigInt(Math.round(buyAmountKas * 1e8));
-        const sellerProceedsSompi = BigInt(Math.round(sellAmountKas * 1e8));
+        const targetBuyerSompi = parseKasDecimalToSompi(
+            orderData.buyAmountAtomic
+                ? '0'
+                : (orderData.buyAmount ?? '0'),
+            'floor'
+        );
+        const resolvedTargetBuyerSompi = orderData.buyAmountAtomic
+            ? parseSompiU64(orderData.buyAmountAtomic, 'orderData.buyAmountAtomic')
+            : targetBuyerSompi;
+        const sellerProceedsSompi = orderData.sellAmountAtomic
+            ? parseSompiU64(orderData.sellAmountAtomic, 'orderData.sellAmountAtomic')
+            : parseKasDecimalToSompi(orderData.sellAmount ?? '0', 'floor');
+
         let gatheredSompi = 0n;
         const buyerInputIndices: number[] = [];
-        let currentMass = calculateComputeMass(
-            finalInputs.length,
-            finalOutputs.length + 2,
-            0
+        const inputAmounts: bigint[] = allUtxos.map((u) => readUtxoAmountSompi(u));
+        const baseOutputAmounts: bigint[] = finalOutputs.map((o) =>
+            parseSompiU64(o.amount, 'finalOutput.amount')
         );
+
+        let networkFeeSompi = 0n;
         for (const u of buyerUtxos || []) {
-            const amt = BigInt(Math.round(Number(u.amount ?? u.utxoEntry?.amount ?? 0)));
+            const amt = readUtxoAmountSompi(u);
             if (amt <= 0n) continue;
-            const txId = u.transactionId ?? u.outpoint?.transactionId;
+            const txId = String(u.transactionId ?? u.outpoint?.transactionId);
             const index = Number(u.index ?? u.outpoint?.index ?? 0);
-            const spkHex =
-                typeof u.scriptPublicKey === 'string'
-                    ? u.scriptPublicKey
-                    : u.scriptPublicKey?.scriptPublicKey ??
-                      u.utxoEntry?.scriptPublicKey?.scriptPublicKey ??
-                      buyerScriptHex;
+            const spk = extractUtxoSpk(u, buyerScriptHex);
             buyerInputIndices.push(finalInputs.length);
             finalInputs.push({
                 previousOutpoint: {
@@ -502,68 +493,71 @@ export async function executeClientP2pFill(
             allUtxos.push({
                 transactionId: txId,
                 index,
-                amount: Number(amt),
-                scriptPublicKey: spkHex
+                amount: amt.toString(),
+                scriptPublicKey: spk.scriptPublicKey
             });
+            inputAmounts.push(amt);
             gatheredSompi += amt;
-            currentMass += MASS_PER_INPUT;
-            const networkFeeSompi = currentMass * FEE_PER_GRAM;
-            if (gatheredSompi >= targetBuyerSompi + networkFeeSompi) break;
+            const massInfo = computePostToccataMassAndFee({
+                inputSompi: inputAmounts,
+                outputSompi: [...baseOutputAmounts, sellerProceedsSompi],
+                feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+            });
+            networkFeeSompi = massInfo.networkFeeSompi;
+            if (gatheredSompi >= resolvedTargetBuyerSompi + networkFeeSompi) break;
         }
-        const networkFeeSompi = currentMass * FEE_PER_GRAM;
-        const totalRequired = targetBuyerSompi + networkFeeSompi;
+
+        const totalRequired = resolvedTargetBuyerSompi + networkFeeSompi;
         if (gatheredSompi < totalRequired) {
             throw new Error(
                 `ERR_INSUFFICIENT_MASS: Required ${totalRequired} sompi to fill P2P offer, available ${gatheredSompi} sompi.`
             );
         }
+
         finalOutputs.push({
-            amount: Number(sellerProceedsSompi),
-            scriptPublicKey: buyerScriptHex
+            amount: sellerProceedsSompi.toString(),
+            scriptPublicKey: { version: 0, scriptPublicKey: buyerScriptHex }
         });
         if (gatheredSompi >= totalRequired + MIN_CHANGE_SOMPI) {
             finalOutputs.push({
-                amount: Number(gatheredSompi - totalRequired),
-                scriptPublicKey: buyerScriptHex
+                amount: (gatheredSompi - totalRequired).toString(),
+                scriptPublicKey: { version: 0, scriptPublicKey: buyerScriptHex }
             });
         }
-        const tx = {
-            version: Number(sellerPsbt.version ?? 0),
+
+        const finalMass = computePostToccataMassAndFee({
+            inputSompi: inputAmounts,
+            outputSompi: finalOutputs.map((o) => parseSompiU64(o.amount, 'finalOutputs.amount')),
+            feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+        });
+
+        const tx: PostToccataTransactionV1 = {
+            version: POST_TOCCATA_TX_VERSION,
             inputs: finalInputs,
             outputs: finalOutputs,
             lockTime: 0,
-            subnetworkId: '0000000000000000000000000000000000000000',
+            subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
             gas: 0,
-            payload: ''
+            payload: '',
+            storageMass: finalMass.storageMass.toString()
         };
+
         for (const buyerIdx of buyerInputIndices) {
             const u = allUtxos[buyerIdx];
-            const sighash = computeInputSighash(
+            const spk = extractUtxoSpk(u, buyerScriptHex);
+            const sighash = computeKaspaTxV1InputSighash(
                 tx,
                 buyerIdx,
-                u.scriptPublicKey,
-                BigInt(Math.round(Number(u.amount))),
-                SIGHASH_ALL
+                spk.scriptPublicKey,
+                readUtxoAmountSompi(u),
+                SIGHASH_ALL,
+                spk.version
             );
             const sig = schnorr.sign(sighash, privKeyBytes);
             tx.inputs[buyerIdx].signatureScript = `41${bytesToHex(sig)}01`;
         }
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
-        const broadcastRes = await fetch('/api/broadcast', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction: tx })
-        });
-        if (!broadcastRes.ok) {
-            const errData = await broadcastRes.json().catch(() => ({}));
-            throw new Error(
-                `ERR_P2P_BROADCAST_REJECTED: ${errData.error || 'Node rejected atomic swap'}`
-            );
-        }
-        const resData = await broadcastRes.json();
-        const txId = resData.transactionId || resData.id;
+        wipePrivateKeyState(privKeyBytes);
+        const txId = await postSignedTransactionToProxy(tx, 'ERR_P2P_BROADCAST_REJECTED');
         await fetch('/api/p2p', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -580,24 +574,22 @@ export async function executeClientP2pFill(
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }
 
 export async function executeSovereignKrc20Transfer(
     ticker: string,
     destinationAddress: string,
-    amountTokens: number
+    amountTokens: number | string
 ): Promise<string> {
     if (!txState.decryptedPrivateKeyHex) throw new Error('ERR_VAULT_LOCKED');
     const cleanTicker = ticker.trim().toUpperCase();
     const formattedDest = destinationAddress.trim().toLowerCase().startsWith('kaspa:')
         ? destinationAddress.trim().toLowerCase()
         : `kaspa:${destinationAddress.trim().toLowerCase()}`;
-    const baseUnits = BigInt(Math.round(amountTokens * 1e8)).toString();
+    const baseUnits = parseDecimalToAtomic(amountTokens, KAS_DECIMALS, 'floor').toString();
     const inscriptionJson = JSON.stringify({
         p: 'krc-20',
         op: 'transfer',
@@ -617,11 +609,11 @@ export async function executeSovereignKrc20Transfer(
     const utxos = Array.isArray(utxoData) ? utxoData : utxoData.entries || [];
     return executeSovereignKrc20Envelope(
         {
-            version: 0,
+            version: POST_TOCCATA_TX_VERSION,
             inputs: [],
             outputs: [],
             lockTime: 0,
-            subnetworkId: '0000000000000000000000000000000000000000',
+            subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
             gas: 0,
             payload: payloadHex
         },
@@ -679,12 +671,12 @@ async function signAndBroadcastSingleKrc20EnvelopeWithKey(
         }
     }
     const sortedUtxos = [...availableUtxos].sort((a, b) => {
-        const amtA = BigInt(Math.round(Number(a.amount ?? a.utxoEntry?.amount ?? 0)));
-        const amtB = BigInt(Math.round(Number(b.amount ?? b.utxoEntry?.amount ?? 0)));
+        const amtA = readUtxoAmountSompi(a);
+        const amtB = readUtxoAmountSompi(b);
         return amtA < amtB ? 1 : amtA > amtB ? -1 : 0;
     });
     const totalWalletSompi = sortedUtxos.reduce(
-        (sum, u) => sum + BigInt(Math.round(Number(u.amount ?? u.utxoEntry?.amount ?? 0))),
+        (sum, u) => sum + readUtxoAmountSompi(u),
         0n
     );
     const includeKasplexFeeOutput =
@@ -693,25 +685,34 @@ async function signAndBroadcastSingleKrc20EnvelopeWithKey(
         totalWalletSompi >= carrierSompi + kasplexFeeSompi + 500_000n;
     const targetOutputSompi =
         carrierSompi + (includeKasplexFeeOutput ? kasplexFeeSompi : 0n);
-    const estimatedOutputCount = includeKasplexFeeOutput ? 3 : 2;
+
     let gathered = 0n;
     let fee = 0n;
     const selectedUtxos: any[] = [];
+    const inputAmounts: bigint[] = [];
     const consumedKeys = new Set<string>();
+    const baseOutAmounts =
+        includeKasplexFeeOutput && kasplexFeeScriptHex
+            ? [carrierSompi, kasplexFeeSompi]
+            : [carrierSompi];
+
     for (const u of sortedUtxos) {
-        const amt = BigInt(Math.round(Number(u.amount ?? u.utxoEntry?.amount ?? 0)));
+        const amt = readUtxoAmountSompi(u);
         if (amt <= 0n) continue;
         selectedUtxos.push(u);
+        inputAmounts.push(amt);
         const uTxId = u.outpoint?.transactionId ?? u.transactionId;
         const uIdx = Number(u.outpoint?.index ?? u.index ?? 0);
         consumedKeys.add(`${uTxId}:${uIdx}`);
         gathered += amt;
-        const computeMass = calculateComputeMass(
-            selectedUtxos.length,
-            estimatedOutputCount,
-            payloadBytes.length
-        );
-        fee = computeMass * FEE_PER_GRAM;
+
+        const provisionalMass = computePostToccataMassAndFee({
+            inputSompi: inputAmounts,
+            outputSompi: [...baseOutAmounts, MIN_CHANGE_SOMPI],
+            payloadByteLen: payloadBytes.length,
+            feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+        });
+        fee = provisionalMass.networkFeeSompi;
         if (gathered >= targetOutputSompi + fee) break;
     }
     if (gathered < targetOutputSompi + fee) {
@@ -719,6 +720,7 @@ async function signAndBroadcastSingleKrc20EnvelopeWithKey(
             `ERR_INSUFFICIENT_MASS: Required ${targetOutputSompi + fee} sompi for protocol envelope, available ${gathered} sompi.`
         );
     }
+
     const changeSompi = gathered - targetOutputSompi - fee;
     const txInputs = selectedUtxos.map((u) => ({
         previousOutpoint: {
@@ -729,64 +731,68 @@ async function signAndBroadcastSingleKrc20EnvelopeWithKey(
         sequence: 0,
         sigOpCount: 1
     }));
-    const txOutputs: Array<{ amount: number; scriptPublicKey: string }> = [
+    const outputAmounts: bigint[] = [carrierSompi];
+    const txOutputs: PostToccataTxOutput[] = [
         {
-            amount: Number(carrierSompi),
-            scriptPublicKey: destScriptHex
+            amount: carrierSompi.toString(),
+            scriptPublicKey: { version: 0, scriptPublicKey: destScriptHex }
         }
     ];
     if (includeKasplexFeeOutput && kasplexFeeScriptHex) {
+        outputAmounts.push(kasplexFeeSompi);
         txOutputs.push({
-            amount: Number(kasplexFeeSompi),
-            scriptPublicKey: kasplexFeeScriptHex
+            amount: kasplexFeeSompi.toString(),
+            scriptPublicKey: { version: 0, scriptPublicKey: kasplexFeeScriptHex }
         });
     }
     let changeOutputIndex = -1;
     if (changeSompi >= MIN_CHANGE_SOMPI) {
         changeOutputIndex = txOutputs.length;
+        outputAmounts.push(changeSompi);
         txOutputs.push({
-            amount: Number(changeSompi),
-            scriptPublicKey: selfScriptHex
+            amount: changeSompi.toString(),
+            scriptPublicKey: { version: 0, scriptPublicKey: selfScriptHex }
         });
     }
+
+    const finalMass = computePostToccataMassAndFee({
+        inputSompi: inputAmounts,
+        outputSompi: outputAmounts,
+        payloadByteLen: payloadBytes.length,
+        feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+    });
+
     const normalizedSubnet = normalizeSubnetworkIdHex(unsignedTx?.subnetworkId);
     const normalizedLockTime = Math.max(0, Number(unsignedTx?.lockTime ?? 0));
     const normalizedGas = Math.max(0, Number(unsignedTx?.gas ?? 0));
-    const tx = {
-        version: Number(unsignedTx?.version ?? 0),
+    const tx: PostToccataTransactionV1 = {
+        version: POST_TOCCATA_TX_VERSION,
         inputs: txInputs,
         outputs: txOutputs,
         lockTime: normalizedLockTime,
         subnetworkId: normalizedSubnet,
         gas: normalizedGas,
-        payload: payloadHex
+        payload: payloadHex,
+        storageMass: finalMass.storageMass.toString()
     };
-    for (let i = 0; i < tx.inputs.length; i++) {
+
+    for (let i = 0; i < tx.inputs.length; i += 1) {
         const u = selectedUtxos[i];
-        const spkHex =
-            typeof u.scriptPublicKey === 'string'
-                ? u.scriptPublicKey
-                : u.scriptPublicKey?.scriptPublicKey ??
-                  u.utxoEntry?.scriptPublicKey?.scriptPublicKey ??
-                  selfScriptHex;
-        const amt = BigInt(Math.round(Number(u.amount ?? u.utxoEntry?.amount ?? 0)));
-        const sighash = computeInputSighash(tx, i, spkHex, amt, SIGHASH_ALL);
+        const spk = extractUtxoSpk(u, selfScriptHex);
+        const amt = inputAmounts[i];
+        const sighash = computeKaspaTxV1InputSighash(
+            tx,
+            i,
+            spk.scriptPublicKey,
+            amt,
+            SIGHASH_ALL,
+            spk.version
+        );
         const sig = schnorr.sign(sighash, privKeyBytes);
         tx.inputs[i].signatureScript = `41${bytesToHex(sig)}01`;
     }
-    const broadcastRes = await fetch('/api/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction: tx })
-    });
-    if (!broadcastRes.ok) {
-        const errData = await broadcastRes.json().catch(() => ({}));
-        throw new Error(
-            `ERR_KRC20_BROADCAST_REJECTED: ${errData.error || 'Node refused inscription payload'}`
-        );
-    }
-    const resData = await broadcastRes.json();
-    const txId = String(resData.transactionId || resData.id);
+
+    const txId = await postSignedTransactionToProxy(tx, 'ERR_KRC20_BROADCAST_REJECTED');
     const remainingUtxos = sortedUtxos.filter((u) => {
         const uTxId = u.outpoint?.transactionId ?? u.transactionId;
         const uIdx = Number(u.outpoint?.index ?? u.index ?? 0);
@@ -796,7 +802,7 @@ async function signAndBroadcastSingleKrc20EnvelopeWithKey(
         remainingUtxos.push({
             transactionId: txId,
             index: changeOutputIndex,
-            amount: Number(changeSompi),
+            amount: changeSompi.toString(),
             scriptPublicKey: selfScriptHex
         });
     }
@@ -838,9 +844,7 @@ export async function executeSovereignKrc20Envelope(
             resolvedUtxos,
             explicitRecipientAddress
         );
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
+        wipePrivateKeyState(privKeyBytes);
         txState.lastTxId = txId;
         txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
         return txId;
@@ -848,10 +852,8 @@ export async function executeSovereignKrc20Envelope(
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }
 
@@ -896,13 +898,12 @@ export async function executeSovereignKrc20DeployWithCapTableFanout(params: {
         currentUtxos = deployResult.remainingUtxos;
         const cleanTicker = params.ticker.trim().toUpperCase();
         const clampedDec = Math.max(0, Math.min(18, Math.floor(params.decimals || 8)));
-        const multiplier = 10n ** BigInt(clampedDec);
         const fanoutReceipts: CapTableFanoutReceipt[] = [];
         const validAllocations = (params.capTable || []).filter(
             (row) => row.checksumValid && row.amount > 0
         );
         for (const entry of validAllocations) {
-            const baseUnits = (BigInt(Math.round(entry.amount)) * multiplier).toString();
+            const baseUnits = parseDecimalToAtomic(entry.amount, clampedDec, 'floor').toString();
             const isTimelocked = entry.cliffDays > 0 || entry.linearDays > 0;
             const entryStandard: ForgeTokenStandard =
                 entry.tokenStandard === 'KCC-20' ? 'KCC-20' : 'KRC-20';
@@ -953,11 +954,11 @@ export async function executeSovereignKrc20DeployWithCapTableFanout(params: {
             const fanoutRes = await signAndBroadcastSingleKrc20EnvelopeWithKey(
                 privKeyBytes,
                 {
-                    version: 0,
+                    version: POST_TOCCATA_TX_VERSION,
                     inputs: [],
                     outputs: [],
                     lockTime: lockTimeMs,
-                    subnetworkId: '0000000000000000000000000000000000000000',
+                    subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
                     gas: 0,
                     payload: transferPayloadHex
                 },
@@ -979,9 +980,7 @@ export async function executeSovereignKrc20DeployWithCapTableFanout(params: {
                 kcc20StateCommitment: resolvedStateRoot
             });
         }
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
+        wipePrivateKeyState(privKeyBytes);
         txState.lastTxId = deployTxId;
         txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', deployTxId);
         txState.lastFanoutReceipts = fanoutReceipts;
@@ -990,10 +989,8 @@ export async function executeSovereignKrc20DeployWithCapTableFanout(params: {
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }
 
@@ -1056,7 +1053,7 @@ export async function executeMultiChainL1Transfer(params: {
 
 export async function executeSovereignTransaction(
     destinationAddress: string,
-    amountKas: number
+    amountKas: number | string
 ): Promise<string> {
     if (!txState.decryptedPrivateKeyHex) throw new Error('ERR_VAULT_LOCKED');
     txState.isBroadcasting = true;
@@ -1075,52 +1072,49 @@ export async function executeSovereignTransaction(
         if (!utxoFetchRes.ok) throw new Error('ERR_UTXO_PROXY_UNREACHABLE');
         const utxoData = await utxoFetchRes.json();
         const utxos = Array.isArray(utxoData) ? utxoData : utxoData.entries || [];
-        const targetSompi = BigInt(Math.floor(amountKas * 1e8));
+        const targetSompi = parseKasDecimalToSompi(amountKas, 'floor');
         if (targetSompi <= 0n) {
             throw new Error(
                 'ERR_INVALID_AMOUNT: Transfer amount must be greater than 0 sompi.'
             );
         }
         const sortedUtxos = [...utxos].sort((a, b) => {
-            const amtA = BigInt(a.amount ?? a.utxoEntry?.amount ?? 0);
-            const amtB = BigInt(b.amount ?? b.utxoEntry?.amount ?? 0);
+            const amtA = readUtxoAmountSompi(a);
+            const amtB = readUtxoAmountSompi(b);
             return amtA < amtB ? 1 : amtA > amtB ? -1 : 0;
         });
         let gathered = 0n;
         let fee = 0n;
+        let finalStorageMass = 0n;
         const selectedUtxos: any[] = [];
         const inputAmounts: bigint[] = [];
         for (const u of sortedUtxos) {
+            const amt = readUtxoAmountSompi(u);
+            if (amt <= 0n) continue;
             selectedUtxos.push(u);
-            const amt = BigInt(u.amount ?? u.utxoEntry?.amount ?? 0);
             inputAmounts.push(amt);
             gathered += amt;
-            const computeMassTwoOutputs = calculateComputeMass(
-                selectedUtxos.length,
-                2,
-                0
-            );
-            const provisionalFee = computeMassTwoOutputs * FEE_PER_GRAM;
+
+            const provisionalMass1 = computePostToccataMassAndFee({
+                inputSompi: inputAmounts,
+                outputSompi: [targetSompi, MIN_CHANGE_SOMPI],
+                feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+            });
             const provisionalChange =
-                gathered > targetSompi + provisionalFee
-                    ? gathered - (targetSompi + provisionalFee)
+                gathered > targetSompi + provisionalMass1.networkFeeSompi
+                    ? gathered - (targetSompi + provisionalMass1.networkFeeSompi)
                     : 0n;
             const provisionalOutputs =
                 provisionalChange >= MIN_CHANGE_SOMPI
                     ? [targetSompi, provisionalChange]
                     : [targetSompi];
-            const computeMass = calculateComputeMass(
-                selectedUtxos.length,
-                provisionalOutputs.length,
-                0
-            );
-            const storageMass = calculateStorageMass(
-                inputAmounts,
-                provisionalOutputs
-            );
-            const effectiveMass =
-                computeMass > storageMass ? computeMass : storageMass;
-            fee = effectiveMass * FEE_PER_GRAM;
+            const mass2 = computePostToccataMassAndFee({
+                inputSompi: inputAmounts,
+                outputSompi: provisionalOutputs,
+                feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+            });
+            fee = mass2.networkFeeSompi;
+            finalStorageMass = mass2.storageMass;
             if (gathered >= targetSompi + fee) break;
         }
         if (gathered < targetSompi + fee) {
@@ -1143,67 +1137,57 @@ export async function executeSovereignTransaction(
                 sigOpCount: 1
             };
         });
-        const txOutputs = [
+        const outputAmounts: bigint[] = [targetSompi];
+        const txOutputs: PostToccataTxOutput[] = [
             {
-                amount: Number(targetSompi),
-                scriptPublicKey: destScriptHex
+                amount: targetSompi.toString(),
+                scriptPublicKey: { version: 0, scriptPublicKey: destScriptHex }
             }
         ];
         if (change >= MIN_CHANGE_SOMPI) {
+            outputAmounts.push(change);
             txOutputs.push({
-                amount: Number(change),
-                scriptPublicKey: sourceScriptHex
+                amount: change.toString(),
+                scriptPublicKey: { version: 0, scriptPublicKey: sourceScriptHex }
             });
         }
-        const tx = {
-            version: 0,
+        finalStorageMass = computePostToccataStorageMass(inputAmounts, outputAmounts);
+        const tx: PostToccataTransactionV1 = {
+            version: POST_TOCCATA_TX_VERSION,
             inputs: txInputs,
             outputs: txOutputs,
             lockTime: 0,
-            subnetworkId: '0000000000000000000000000000000000000000',
+            subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
             gas: 0,
             payload: '',
-            mass: 0,
-            storageMass: 0
+            storageMass: finalStorageMass.toString()
         };
-        for (let i = 0; i < tx.inputs.length; i++) {
+        for (let i = 0; i < tx.inputs.length; i += 1) {
             const utxo = selectedUtxos[i];
-            const spkHex =
-                typeof utxo.scriptPublicKey === 'string'
-                    ? utxo.scriptPublicKey
-                    : utxo.scriptPublicKey?.scriptPublicKey ??
-                      utxo.utxoEntry?.scriptPublicKey?.scriptPublicKey;
-            const amt = BigInt(utxo.amount ?? utxo.utxoEntry?.amount);
-            const sighash = computeInputSighash(tx, i, spkHex, amt, SIGHASH_ALL);
+            const spk = extractUtxoSpk(utxo, sourceScriptHex);
+            const amt = inputAmounts[i];
+            const sighash = computeKaspaTxV1InputSighash(
+                tx,
+                i,
+                spk.scriptPublicKey,
+                amt,
+                SIGHASH_ALL,
+                spk.version
+            );
             const signature = schnorr.sign(sighash, privKeyBytes);
             tx.inputs[i].signatureScript = `41${bytesToHex(signature)}01`;
         }
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
-        const broadcastRes = await fetch('/api/broadcast', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction: tx })
-        });
-        if (!broadcastRes.ok) {
-            const errData = await broadcastRes.json().catch(() => ({}));
-            throw new Error(
-                `ERR_BROADCAST_REJECTED: ${errData.error || 'Node refused payload'}`
-            );
-        }
-        const resData = await broadcastRes.json();
-        txState.lastTxId = resData.transactionId || resData.id;
-        txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txState.lastTxId);
-        return txState.lastTxId;
+        wipePrivateKeyState(privKeyBytes);
+        const txId = await postSignedTransactionToProxy(tx, 'ERR_BROADCAST_REJECTED');
+        txState.lastTxId = txId;
+        txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+        return txId;
     } catch (e: any) {
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }
 
@@ -1234,35 +1218,39 @@ export async function executeSovereignUtxoCompound(): Promise<{
             );
         }
         const sortedUtxos = [...utxos].sort((a, b) => {
-            const amtA = BigInt(a.amount ?? a.utxoEntry?.amount ?? 0);
-            const amtB = BigInt(b.amount ?? b.utxoEntry?.amount ?? 0);
+            const amtA = readUtxoAmountSompi(a);
+            const amtB = readUtxoAmountSompi(b);
             return amtA < amtB ? -1 : amtA > amtB ? 1 : 0;
         });
         const selectedUtxos = sortedUtxos.slice(0, 80);
         let gathered = 0n;
         const inputAmounts: bigint[] = [];
         for (const u of selectedUtxos) {
-            const amt = BigInt(u.amount ?? u.utxoEntry?.amount ?? 0);
+            const amt = readUtxoAmountSompi(u);
             inputAmounts.push(amt);
             gathered += amt;
         }
-        const computeMass = calculateComputeMass(selectedUtxos.length, 1, 0);
-        const provisionalFee = computeMass * FEE_PER_GRAM;
-        if (gathered <= provisionalFee) {
+        const pass1 = computePostToccataMassAndFee({
+            inputSompi: inputAmounts,
+            outputSompi: [gathered > 10_000n ? gathered - 10_000n : 1n],
+            feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+        });
+        if (gathered <= pass1.networkFeeSompi) {
             throw new Error(
                 'ERR_INSUFFICIENT_MASS: Selected UTXO sum cannot cover compounding network fee.'
             );
         }
-        const provisionalOutput = gathered - provisionalFee;
-        const storageMass = calculateStorageMass(inputAmounts, [provisionalOutput]);
-        const effectiveMass = computeMass > storageMass ? computeMass : storageMass;
-        const finalFee = effectiveMass * FEE_PER_GRAM;
-        if (gathered <= finalFee) {
+        const pass2 = computePostToccataMassAndFee({
+            inputSompi: inputAmounts,
+            outputSompi: [gathered - pass1.networkFeeSompi],
+            feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+        });
+        if (gathered <= pass2.networkFeeSompi) {
             throw new Error(
                 'ERR_INSUFFICIENT_MASS: Selected UTXO sum cannot cover effective storage mass fee.'
             );
         }
-        const finalOutputSompi = gathered - finalFee;
+        const finalOutputSompi = gathered - pass2.networkFeeSompi;
         const txInputs = selectedUtxos.map((u) => {
             const txId = u.outpoint?.transactionId ?? u.transactionId;
             const index = u.outpoint?.index ?? u.index;
@@ -1276,51 +1264,42 @@ export async function executeSovereignUtxoCompound(): Promise<{
                 sigOpCount: 1
             };
         });
-        const txOutputs = [
+        const txOutputs: PostToccataTxOutput[] = [
             {
-                amount: Number(finalOutputSompi),
-                scriptPublicKey: selfScriptHex
+                amount: finalOutputSompi.toString(),
+                scriptPublicKey: { version: 0, scriptPublicKey: selfScriptHex }
             }
         ];
-        const tx = {
-            version: 0,
+        const finalStorageMass = computePostToccataStorageMass(inputAmounts, [
+            finalOutputSompi
+        ]);
+        const tx: PostToccataTransactionV1 = {
+            version: POST_TOCCATA_TX_VERSION,
             inputs: txInputs,
             outputs: txOutputs,
             lockTime: 0,
-            subnetworkId: '0000000000000000000000000000000000000000',
+            subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
             gas: 0,
             payload: '',
-            mass: 0,
-            storageMass: 0
+            storageMass: finalStorageMass.toString()
         };
-        for (let i = 0; i < tx.inputs.length; i++) {
+        for (let i = 0; i < tx.inputs.length; i += 1) {
             const utxo = selectedUtxos[i];
-            const spkHex =
-                typeof utxo.scriptPublicKey === 'string'
-                    ? utxo.scriptPublicKey
-                    : utxo.scriptPublicKey?.scriptPublicKey ??
-                      utxo.utxoEntry?.scriptPublicKey?.scriptPublicKey;
-            const amt = BigInt(utxo.amount ?? utxo.utxoEntry?.amount);
-            const sighash = computeInputSighash(tx, i, spkHex, amt, SIGHASH_ALL);
+            const spk = extractUtxoSpk(utxo, selfScriptHex);
+            const amt = inputAmounts[i];
+            const sighash = computeKaspaTxV1InputSighash(
+                tx,
+                i,
+                spk.scriptPublicKey,
+                amt,
+                SIGHASH_ALL,
+                spk.version
+            );
             const signature = schnorr.sign(sighash, privKeyBytes);
             tx.inputs[i].signatureScript = `41${bytesToHex(signature)}01`;
         }
-        privKeyBytes.fill(0);
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
-        const broadcastRes = await fetch('/api/broadcast', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction: tx })
-        });
-        if (!broadcastRes.ok) {
-            const errData = await broadcastRes.json().catch(() => ({}));
-            throw new Error(
-                `ERR_BROADCAST_REJECTED: ${errData.error || 'Node refused compounding payload'}`
-            );
-        }
-        const resData = await broadcastRes.json();
-        const txId = resData.transactionId || resData.id;
+        wipePrivateKeyState(privKeyBytes);
+        const txId = await postSignedTransactionToProxy(tx, 'ERR_BROADCAST_REJECTED');
         txState.lastTxId = txId;
         txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
         return { txId, compoundedCount: selectedUtxos.length };
@@ -1328,9 +1307,7 @@ export async function executeSovereignUtxoCompound(): Promise<{
         txState.error = e.message;
         throw e;
     } finally {
-        if (privKeyBytes.length > 0) privKeyBytes.fill(0);
+        wipePrivateKeyState(privKeyBytes);
         txState.isBroadcasting = false;
-        txState.decryptedPrivateKeyHex = '0'.repeat(64);
-        txState.decryptedPrivateKeyHex = '';
     }
 }

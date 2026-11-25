@@ -3,6 +3,17 @@ import { createRequire } from 'module';
 import { env } from '$env/dynamic/private';
 import { redis } from '$lib/server/redis';
 import { dbPool } from '$lib/server/db';
+import {
+    BroadcastValidationError,
+    KAS_DECIMALS,
+    USD_MICROS_DECIMALS,
+    atomicToUsdMicrosFloor,
+    formatAtomicToDecimal,
+    parseDecimalToAtomic,
+    parseSompiU64,
+    validateAndSanitizePostToccataBroadcastTx,
+    type PostToccataTransactionV1
+} from '$lib/crypto/atomicMath';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
@@ -17,78 +28,78 @@ end
 return nil
 `;
 
+class UpstreamConsensusRejectionError extends Error {
+    readonly status: number;
+
+    constructor(status: number, message: string) {
+        super(message);
+        this.name = 'UpstreamConsensusRejectionError';
+        this.status = status;
+    }
+}
+
 function normalizeKaspaBase32(addr: string): string {
     return addr.trim().toLowerCase().replace(/^kaspa:/i, '').trim();
 }
 
-function sanitizeTransactionForRest(rawTx: any) {
-    const cloned = JSON.parse(JSON.stringify(rawTx));
-    const inputs = (cloned.inputs || []).map((inp: any) => ({
-        previousOutpoint: {
-            transactionId: inp.previousOutpoint?.transactionId || inp.transactionId,
-            index: Number(inp.previousOutpoint?.index ?? inp.index ?? 0)
-        },
-        signatureScript: inp.signatureScript || '',
-        sequence: Number(inp.sequence ?? 0),
-        sigOpCount: Number(inp.sigOpCount ?? 1)
-    }));
-    const outputs = (cloned.outputs || []).map((out: any) => {
-        const rawSpk =
-            typeof out.scriptPublicKey === 'string'
-                ? out.scriptPublicKey
-                : out.scriptPublicKey?.scriptPublicKey || '';
-        const spkVersion =
-            typeof out.scriptPublicKey === 'object' && out.scriptPublicKey !== null
-                ? Number(out.scriptPublicKey.version ?? 0)
-                : 0;
-        return {
-            amount: Number(out.amount ?? out.value ?? 0),
-            scriptPublicKey: {
-                version: spkVersion,
-                scriptPublicKey: rawSpk
-            }
-        };
-    });
+function buildRestWireTransaction(sanitizedTx: PostToccataTransactionV1) {
     return {
         transaction: {
-            version: Number(cloned.version ?? 0),
-            inputs,
-            outputs,
-            lockTime: Number(cloned.lockTime ?? 0),
-            subnetworkId:
-                cloned.subnetworkId || '0000000000000000000000000000000000000000',
-            gas: Number(cloned.gas ?? 0),
-            payload: cloned.payload || ''
+            version: sanitizedTx.version,
+            inputs: sanitizedTx.inputs.map((inp) => ({
+                previousOutpoint: {
+                    transactionId: inp.previousOutpoint.transactionId,
+                    index: inp.previousOutpoint.index
+                },
+                signatureScript: inp.signatureScript,
+                sequence: inp.sequence,
+                sigOpCount: inp.sigOpCount
+            })),
+            outputs: sanitizedTx.outputs.map((out) => {
+                const sompiBig = parseSompiU64(out.amount, 'output.amount');
+                const safeNumeric =
+                    sompiBig <= BigInt(Number.MAX_SAFE_INTEGER)
+                        ? Number(sompiBig)
+                        : out.amount;
+                return {
+                    amount: safeNumeric,
+                    scriptPublicKey: {
+                        version: out.scriptPublicKey.version,
+                        scriptPublicKey: out.scriptPublicKey.scriptPublicKey
+                    },
+                    ...(out.covenant ? { covenant: out.covenant } : {})
+                };
+            }),
+            lockTime: sanitizedTx.lockTime,
+            subnetworkId: sanitizedTx.subnetworkId,
+            gas: sanitizedTx.gas,
+            payload: sanitizedTx.payload,
+            storageMass: sanitizedTx.storageMass
         }
     };
 }
 
-function sanitizeTransactionForWrpc(rawTx: any) {
-    const cloned = JSON.parse(JSON.stringify(rawTx));
-    if (Array.isArray(cloned.outputs)) {
-        for (const output of cloned.outputs) {
-            delete output._metadata;
-        }
-    }
-    return cloned;
-}
-
 async function broadcastViaLocalRustNode(
-    tx: any,
+    sanitizedTx: PostToccataTransactionV1,
     rustBackendUrl: string
-): Promise<string> {
-    const sanitized = sanitizeTransactionForRest(tx);
+): Promise<{ txId: string; source: string }> {
     const endpoint = `${rustBackendUrl.replace(/\/+$/, '')}/v1/broadcast`;
     const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sanitized),
+        body: JSON.stringify({ transaction: sanitizedTx }),
         signal: AbortSignal.timeout(5000)
     });
     if (!res.ok) {
         const errText = await res.text().catch(() => '');
+        if (res.status === 400 || res.status === 422) {
+            throw new UpstreamConsensusRejectionError(
+                422,
+                `Local Rust node rejected transaction (${res.status}): ${errText}`
+            );
+        }
         throw new Error(
-            `Local Rust gRPC broadcast rejected (${res.status}): ${errText}`
+            `Local Rust gRPC broadcast failed (${res.status}): ${errText}`
         );
     }
     const data = await res.json();
@@ -96,11 +107,17 @@ async function broadcastViaLocalRustNode(
     if (!txId) {
         throw new Error('Local Rust gRPC node returned no transactionId');
     }
-    return String(txId);
+    return {
+        txId: String(txId),
+        source: String(data.source || 'kaspad_grpc')
+    };
 }
 
-async function broadcastViaWrpc(tx: any, wrpcUrl: string): Promise<string> {
-    const cleanTx = sanitizeTransactionForWrpc(tx);
+async function broadcastViaWrpc(
+    sanitizedTx: PostToccataTransactionV1,
+    wrpcUrl: string
+): Promise<string> {
+    const cleanTx = buildRestWireTransaction(sanitizedTx).transaction;
     return new Promise((resolve, reject) => {
         let isResolved = false;
         const ws = new WebSocket(wrpcUrl);
@@ -118,13 +135,19 @@ async function broadcastViaWrpc(tx: any, wrpcUrl: string): Promise<string> {
             };
             ws.send(JSON.stringify(rpcPayload));
         });
-        ws.on('message', (data: any) => {
+        ws.on('message', (data: unknown) => {
             if (isResolved) return;
             isResolved = true;
             clearTimeout(timeout);
             ws.terminate();
             try {
-                const response = JSON.parse(data.toString());
+                const rawText =
+                    typeof data === 'string'
+                        ? data
+                        : data instanceof Buffer
+                          ? data.toString('utf8')
+                          : String(data);
+                const response = JSON.parse(rawText);
                 if (response.error) {
                     reject(new Error(response.error.message || 'wRPC rejected transaction'));
                     return;
@@ -135,8 +158,12 @@ async function broadcastViaWrpc(tx: any, wrpcUrl: string): Promise<string> {
                     return;
                 }
                 resolve(String(txId));
-            } catch (err: any) {
-                reject(new Error(`Failed to parse wRPC response: ${err.message}`));
+            } catch (err: unknown) {
+                reject(
+                    new Error(
+                        `Failed to parse wRPC response: ${err instanceof Error ? err.message : 'parse error'}`
+                    )
+                );
             }
         });
         ws.on('close', (code: number) => {
@@ -154,8 +181,11 @@ async function broadcastViaWrpc(tx: any, wrpcUrl: string): Promise<string> {
     });
 }
 
-async function broadcastViaRest(tx: any, restBaseUrl: string): Promise<string> {
-    const restPayload = sanitizeTransactionForRest(tx);
+async function broadcastViaRest(
+    sanitizedTx: PostToccataTransactionV1,
+    restBaseUrl: string
+): Promise<string> {
+    const restPayload = buildRestWireTransaction(sanitizedTx);
     const endpoint = `${restBaseUrl.replace(/\/+$/, '')}/transactions`;
     const res = await fetch(endpoint, {
         method: 'POST',
@@ -178,13 +208,13 @@ async function broadcastViaRest(tx: any, restBaseUrl: string): Promise<string> {
 async function finalizeBroadcastAccounting(
     sessionWallet: string,
     transactionId: string,
-    fallbackOutputKas: number
-): Promise<{ promotedSwap: boolean; swapOrder: any | null }> {
+    firstOutputSompi: bigint
+): Promise<{ promotedSwap: boolean; swapOrder: Record<string, unknown> | null }> {
     const cleanWallet = normalizeKaspaBase32(sessionWallet);
     const prefixedWallet = `kaspa:${cleanWallet}`;
     const pendingSwapKey = `perennia:pending_swap:${cleanWallet}`;
     let promotedSwap = false;
-    let swapOrder: any | null = null;
+    let swapOrder: Record<string, unknown> | null = null;
     try {
         const promotedRaw = await redis.eval(
             LUA_PROMOTE_PENDING_SWAP,
@@ -195,7 +225,7 @@ async function finalizeBroadcastAccounting(
         if (promotedRaw && typeof promotedRaw === 'string') {
             promotedSwap = true;
             try {
-                swapOrder = JSON.parse(promotedRaw);
+                swapOrder = JSON.parse(promotedRaw) as Record<string, unknown>;
             } catch {
                 swapOrder = null;
             }
@@ -206,10 +236,35 @@ async function finalizeBroadcastAccounting(
     } catch (redisErr) {
         console.error('Failed to promote pending swap in Redis:', redisErr);
     }
-    const amountKas =
-        swapOrder && typeof swapOrder.amount_kas === 'number' && swapOrder.amount_kas > 0
-            ? swapOrder.amount_kas
-            : fallbackOutputKas;
+
+    let amountKasStr = formatAtomicToDecimal(firstOutputSompi, KAS_DECIMALS, KAS_DECIMALS);
+    let amountSompi = firstOutputSompi;
+    if (swapOrder) {
+        try {
+            if (swapOrder.amount_sompi !== undefined && swapOrder.amount_sompi !== null) {
+                amountSompi = parseSompiU64(swapOrder.amount_sompi, 'swapOrder.amount_sompi');
+                amountKasStr = formatAtomicToDecimal(amountSompi, KAS_DECIMALS, KAS_DECIMALS);
+            } else if (
+                typeof swapOrder.amount_kas === 'string' ||
+                (typeof swapOrder.amount_kas === 'number' &&
+                    Number.isFinite(swapOrder.amount_kas) &&
+                    swapOrder.amount_kas > 0)
+            ) {
+                const parsedSompi = parseDecimalToAtomic(
+                    swapOrder.amount_kas,
+                    KAS_DECIMALS,
+                    'floor'
+                );
+                if (parsedSompi > 0n) {
+                    amountSompi = parsedSompi;
+                    amountKasStr = formatAtomicToDecimal(amountSompi, KAS_DECIMALS, KAS_DECIMALS);
+                }
+            }
+        } catch {
+            // Retain validated firstOutputSompi on malformed queued telemetry
+        }
+    }
+
     const actionType = promotedSwap ? 'SOVEREIGN_SWAP' : 'SOVEREIGN_TRANSFER';
     let client;
     try {
@@ -218,22 +273,58 @@ async function finalizeBroadcastAccounting(
             `INSERT INTO pending_transactions (tx_id, wallet_address, amount_kas, action_type, status)
              VALUES ($1, $2, $3, $4, 'PENDING')
              ON CONFLICT (tx_id) DO NOTHING`,
-            [transactionId, prefixedWallet, amountKas, actionType]
+            [transactionId, prefixedWallet, amountKasStr, actionType]
         );
         if (promotedSwap && swapOrder) {
             const targetAsset = String(swapOrder.target_asset || 'USDC').toUpperCase();
-            const estimatedOutput = Number(swapOrder.estimated_output || 0);
-            const spotPrice = Number(swapOrder.spot_price || 0);
-            const grossUsd =
-                targetAsset === 'USDC' || targetAsset === 'USDT' || targetAsset === 'USD'
-                    ? estimatedOutput
-                    : amountKas * spotPrice;
-            if (grossUsd > 0 && estimatedOutput > 0) {
+            const estOutAtomic =
+                swapOrder.estimated_output_atomic !== undefined
+                    ? parseDecimalToAtomic(String(swapOrder.estimated_output_atomic), 0, 'floor')
+                    : swapOrder.estimated_output !== undefined
+                      ? parseDecimalToAtomic(
+                            swapOrder.estimated_output as string | number,
+                            KAS_DECIMALS,
+                            'floor'
+                        )
+                      : 0n;
+            const spotE8 =
+                swapOrder.spot_price_e8 !== undefined
+                    ? parseDecimalToAtomic(String(swapOrder.spot_price_e8), 0, 'floor')
+                    : swapOrder.spot_price !== undefined
+                      ? parseDecimalToAtomic(
+                            swapOrder.spot_price as string | number,
+                            KAS_DECIMALS,
+                            'floor'
+                        )
+                      : 0n;
+
+            let grossUsdMicros = 0n;
+            if (targetAsset === 'USDC' || targetAsset === 'USDT' || targetAsset === 'USD') {
+                grossUsdMicros =
+                    swapOrder.estimated_output !== undefined
+                        ? parseDecimalToAtomic(
+                              swapOrder.estimated_output as string | number,
+                              USD_MICROS_DECIMALS,
+                              'floor'
+                          )
+                        : 0n;
+            } else if (spotE8 > 0n && amountSompi > 0n) {
+                grossUsdMicros = atomicToUsdMicrosFloor(amountSompi, KAS_DECIMALS, spotE8);
+            }
+
+            if (grossUsdMicros > 0n && estOutAtomic > 0n) {
+                const grossUsdStr = formatAtomicToDecimal(
+                    grossUsdMicros,
+                    USD_MICROS_DECIMALS,
+                    USD_MICROS_DECIMALS
+                );
+                const estOutStr = formatAtomicToDecimal(estOutAtomic, KAS_DECIMALS, KAS_DECIMALS);
+                const spotStr = formatAtomicToDecimal(spotE8, KAS_DECIMALS, KAS_DECIMALS);
                 await client.query(
                     `INSERT INTO tax_ledger_events
                      (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution)
                      VALUES ($1, $2, 'DEX_SWAP', $3, $4, $5)`,
-                    [cleanWallet, targetAsset, grossUsd, estimatedOutput, spotPrice]
+                    [cleanWallet, targetAsset, grossUsdStr, estOutStr, spotStr]
                 );
             }
         }
@@ -254,22 +345,42 @@ export async function POST({ request, cookies }: RequestEvent) {
     if (!sessionWallet) {
         return json({ error: 'SESSION_EXPIRED' }, { status: 401 });
     }
-    let payload: any;
+
+    let payload: unknown;
     try {
         const rawBody = await request.json();
         payload = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
+        if (
+            payload &&
+            typeof payload === 'object' &&
+            typeof (payload as Record<string, unknown>).transaction === 'string'
+        ) {
+            payload = {
+                ...(payload as Record<string, unknown>),
+                transaction: JSON.parse(String((payload as Record<string, unknown>).transaction))
+            };
+        }
     } catch {
         return json({ error: 'INVALID_PAYLOAD_FORMAT' }, { status: 400 });
     }
-    let tx = payload?.transaction || payload;
-    if (typeof tx === 'string') {
-        try {
-            tx = JSON.parse(tx);
-        } catch {
-            return json({ error: 'MALFORMED_TRANSACTION_JSON_STRING' }, { status: 400 });
+
+    let sanitizedTx: PostToccataTransactionV1;
+    let firstOutputSompi: bigint;
+    try {
+        const validated = validateAndSanitizePostToccataBroadcastTx(payload);
+        sanitizedTx = validated.transaction;
+        firstOutputSompi = validated.firstOutputSompi;
+    } catch (err: unknown) {
+        if (err instanceof BroadcastValidationError) {
+            return json(
+                {
+                    success: false,
+                    code: err.code,
+                    error: err.message
+                },
+                { status: 400 }
+            );
         }
-    }
-    if (!tx || !Array.isArray(tx.inputs) || !Array.isArray(tx.outputs)) {
         return json({ error: 'MALFORMED_TRANSACTION_PAYLOAD' }, { status: 400 });
     }
 
@@ -281,27 +392,42 @@ export async function POST({ request, cookies }: RequestEvent) {
         (env.KASPA_NODE_IP ? `ws://${env.KASPA_NODE_IP}:18110` : '');
 
     let transactionId = '';
+    let source = 'kaspad_grpc';
     let lastError = '';
 
     try {
-        transactionId = await broadcastViaLocalRustNode(tx, rustBackendUrl);
-    } catch (grpcErr: any) {
-        lastError = grpcErr.message || 'Local Rust gRPC broadcast failed';
+        const res = await broadcastViaLocalRustNode(sanitizedTx, rustBackendUrl);
+        transactionId = res.txId;
+        source = res.source;
+    } catch (grpcErr: unknown) {
+        if (grpcErr instanceof UpstreamConsensusRejectionError) {
+            return json(
+                {
+                    success: false,
+                    error: grpcErr.message
+                },
+                { status: 422 }
+            );
+        }
+        lastError =
+            grpcErr instanceof Error ? grpcErr.message : 'Local Rust gRPC broadcast failed';
         console.warn(
             `⚠️ [Perennia Proxy] Local Rust gRPC broadcast failed (${lastError}). Checking local wRPC / REST fallback...`
         );
         if (wrpcUrl) {
             try {
-                transactionId = await broadcastViaWrpc(tx, wrpcUrl);
-            } catch (wrpcErr: any) {
-                lastError = `${lastError} | wRPC: ${wrpcErr.message}`;
+                transactionId = await broadcastViaWrpc(sanitizedTx, wrpcUrl);
+                source = 'wrpc_fallback';
+            } catch (wrpcErr: unknown) {
+                lastError = `${lastError} | wRPC: ${wrpcErr instanceof Error ? wrpcErr.message : 'failed'}`;
             }
         }
         if (!transactionId) {
             try {
-                transactionId = await broadcastViaRest(tx, kaspaRestUrl);
-            } catch (restErr: any) {
-                lastError = `${lastError} | REST: ${restErr.message}`;
+                transactionId = await broadcastViaRest(sanitizedTx, kaspaRestUrl);
+                source = 'rest_fallback';
+            } catch (restErr: unknown) {
+                lastError = `${lastError} | REST: ${restErr instanceof Error ? restErr.message : 'failed'}`;
             }
         }
     }
@@ -312,24 +438,24 @@ export async function POST({ request, cookies }: RequestEvent) {
             lastError
         );
         return json(
-            { error: lastError || 'Node rejected transaction broadcast' },
+            {
+                success: false,
+                error: lastError || 'Node rejected transaction broadcast'
+            },
             { status: 422 }
         );
     }
 
-    const outputAmountSompi = Number(
-        tx.outputs[0]?.amount ?? tx.outputs[0]?.value ?? 0
-    );
-    const outputAmountKas = outputAmountSompi / 1e8;
     const { promotedSwap } = await finalizeBroadcastAccounting(
         sessionWallet,
         transactionId,
-        outputAmountKas
+        firstOutputSompi
     );
     return json(
         {
             success: true,
             transactionId,
+            source,
             promotedSwap
         },
         { status: 200 }

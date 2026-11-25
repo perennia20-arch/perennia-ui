@@ -8,9 +8,14 @@ import {
     resolveMasterTreasuryKasAddressOptional
 } from '$lib/server/kms';
 import {
-    executeOrQueueL1Dispatch,
-    computeReservoirHmac
-} from '$lib/server/l1Dispatcher';
+    KAS_DECIMALS,
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    ORACLE_DEPENDENT_STATE_ACTIONS,
+    SOVEREIGN_L1_STATE_ACTIONS,
+    formatAtomicToDecimal,
+    normalizeStateActionPayload,
+    parseSompiU64
+} from '$lib/crypto/atomicMath';
 import { blake2b } from '@noble/hashes/blake2.js';
 import crypto from 'node:crypto';
 
@@ -28,28 +33,6 @@ const GATED_FORGE_ACTIONS = new Set([
     'RETROACTIVE_FORGE_UPGRADE',
     'FUND_MINEABLE_KRC20_VAULT'
 ]);
-
-const LUA_ATOMIC_DEBIT_TOKEN_LEDGER = `
-local asset = ARGV[1]
-local req = tonumber(ARGV[2])
-local primary = tonumber(redis.call('HGET', KEYS[1], asset) or '0')
-if primary >= req then
-    redis.call('HINCRBYFLOAT', KEYS[1], asset, -req)
-    return {1, tostring(0)}
-end
-if asset == 'KAS' then
-    local unassigned = tonumber(redis.call('HGET', KEYS[1], 'Unassigned KAS') or '0')
-    if (primary + unassigned) >= req then
-        local from_unassigned = req - primary
-        if primary > 0 then
-            redis.call('HSET', KEYS[1], 'KAS', '0')
-        end
-        redis.call('HINCRBYFLOAT', KEYS[1], 'Unassigned KAS', -from_unassigned)
-        return {1, tostring(from_unassigned)}
-    end
-end
-return {0, tostring(0)}
-`;
 
 function isLocalOrLanRequest(url: URL, request: Request): boolean {
     const hostCandidates = [
@@ -584,7 +567,14 @@ async function queryLiveHotWalletAirlockTelemetry() {
                 );
                 if (balRes.ok) {
                     const balData = await balRes.json();
-                    hotBalanceKas = (Number(balData?.balance) || 0) / 1e8;
+                    const rawBal = balData?.balance ?? '0';
+                    const sompi =
+                        typeof rawBal === 'string' || typeof rawBal === 'number'
+                            ? parseSompiU64(rawBal, 'hotBalanceSompi')
+                            : 0n;
+                    hotBalanceKas = Number(
+                        formatAtomicToDecimal(sompi, KAS_DECIMALS, 4)
+                    );
                 }
             } catch {
                 hotBalanceKas = 0;
@@ -885,8 +875,15 @@ export const POST: RequestHandler = async ({
             cleanWallet = normalizeKaspaBase32Strict(payload.targetWallet);
         }
         const prefixedWallet = `kaspa:${cleanWallet}`;
-        const action = String(payload.action || '').toUpperCase();
-        const reqPayload = payload.payload || {};
+        const action = String(payload.action || '').trim().toUpperCase();
+        const rawReqPayload = payload.payload || {};
+        const normalizedAction = normalizeStateActionPayload(action, rawReqPayload);
+        if (!normalizedAction.ok) {
+            return json(normalizedAction.body, {
+                status: normalizedAction.status
+            });
+        }
+        const reqPayload: Record<string, any> = normalizedAction.payload;
 
         if (action === 'SET_FORGE_PUBLIC_FLAG') {
             if (!isCorpAdmin) {
@@ -981,21 +978,49 @@ export const POST: RequestHandler = async ({
         const rustBackendUrl =
             env.RUST_BACKEND_URL ||
             `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
+        const internalToken = String(
+            env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || ''
+        )
+            .trim()
+            .replace(/^['"]|['"]$/g, '');
+        const isStrictSovereignOrOracle =
+            SOVEREIGN_L1_STATE_ACTIONS.has(action) ||
+            ORACLE_DEPENDENT_STATE_ACTIONS.has(action);
+
+        if (
+            isStrictSovereignOrOracle &&
+            !internalToken &&
+            String(env.ENFORCE_INTERNAL_AUTH || 'true').toLowerCase() !== 'false'
+        ) {
+            return json(
+                {
+                    success: false,
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                    error: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                    message: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                },
+                { status: 503 }
+            );
+        }
 
         let rustRejectionStatus: number | null = null;
         let rustRejectionBody: Record<string, unknown> | null = null;
 
         try {
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json'
+            };
+            if (internalToken) {
+                headers.Authorization = `Bearer ${internalToken}`;
+            }
             const rustRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || ''}`
-                },
+                headers,
                 body: JSON.stringify({
-                    wallet: cleanWallet,
-                    action: payload.action,
-                    payload: payload.payload
+                    wallet: prefixedWallet,
+                    action,
+                    payload: reqPayload
                 }),
                 keepalive: true,
                 signal: AbortSignal.timeout(5500)
@@ -1003,6 +1028,24 @@ export const POST: RequestHandler = async ({
             if (rustRes.ok) {
                 const data = await rustRes.json();
                 return json(data, { status: 200 });
+            }
+            if (rustRes.status === 503) {
+                const err503 = (await rustRes.json().catch(() => null)) as Record<
+                    string,
+                    unknown
+                > | null;
+                return json(
+                    {
+                        success: false,
+                        livePricingUnavailable: true,
+                        uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                        error:
+                            (err503?.error as string) ||
+                            LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                        message: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                    },
+                    { status: 503 }
+                );
             }
             if (rustRes.status >= 400 && rustRes.status < 500) {
                 rustRejectionStatus = rustRes.status;
@@ -1018,9 +1061,40 @@ export const POST: RequestHandler = async ({
                         rustRejectionBody = { success: false, error: rawErr.trim() };
                     }
                 }
+                return json(
+                    rustRejectionBody || {
+                        success: false,
+                        error: 'Upstream state action rejected.'
+                    },
+                    { status: rustRejectionStatus }
+                );
+            }
+            if (isStrictSovereignOrOracle) {
+                return json(
+                    {
+                        success: false,
+                        livePricingUnavailable: true,
+                        uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                        error: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                        message: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                    },
+                    { status: 503 }
+                );
             }
         } catch {
-            // Fall through to direct PostgreSQL handling when Rust node is unreachable
+            if (isStrictSovereignOrOracle) {
+                return json(
+                    {
+                        success: false,
+                        livePricingUnavailable: true,
+                        uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                        error: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                        message: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                    },
+                    { status: 503 }
+                );
+            }
+            // Fall through to legacy PostgreSQL handling only for non-Sovereign/non-Oracle actions
         }
 
         if (
@@ -1298,172 +1372,6 @@ export const POST: RequestHandler = async ({
                 },
                 { status: 200 }
             );
-        }
-
-        if (
-            action === 'SWEEP_TOKEN_TO_COLD_VAULT_NOW' ||
-            action === 'SWEEP_TO_COLD_VAULT_NOW' ||
-            action === 'WITHDRAW_SYNTHETIC_ASSET'
-        ) {
-            await ensureStateAuxiliaryTables();
-            const ticker = String(
-                reqPayload.assetTicker ||
-                    reqPayload.ticker ||
-                    reqPayload.asset ||
-                    'KAS'
-            )
-                .trim()
-                .toUpperCase();
-            const amount = Number(
-                reqPayload.amount ??
-                    reqPayload.amountTokens ??
-                    reqPayload.amountKas ??
-                    0
-            );
-            if (!Number.isFinite(amount) || amount <= 0) {
-                return json(
-                    {
-                        success: false,
-                        error: 'Sweep/withdrawal amount must be greater than 0.'
-                    },
-                    { status: 400 }
-                );
-            }
-
-            let destination = String(
-                reqPayload.coldDestinationAddress ||
-                    reqPayload.coldKaspaAddress ||
-                    reqPayload.destination ||
-                    reqPayload.destinationAddress ||
-                    ''
-            ).trim();
-
-            if (!destination) {
-                const ruleRes = await dbPool.query(
-                    `SELECT cold_destination_address FROM user_cold_vault_rules
-                     WHERE (wallet_address = $1 OR wallet_address = $2) AND asset_ticker = $3
-                     LIMIT 1`,
-                    [prefixedWallet, cleanWallet, ticker]
-                );
-                destination = String(
-                    ruleRes.rows[0]?.cold_destination_address || ''
-                ).trim();
-            }
-
-            if (!destination) {
-                return json(
-                    {
-                        success: false,
-                        error: `Save a Cold Storage destination address for ${ticker} before sweeping.`
-                    },
-                    { status: 400 }
-                );
-            }
-
-            const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-            const debitRes = (await redis.eval(
-                LUA_ATOMIC_DEBIT_TOKEN_LEDGER,
-                1,
-                userLedgerKey,
-                ticker,
-                amount.toString()
-            )) as [number, string];
-
-            if (!debitRes || Number(debitRes[0]) !== 1) {
-                return json(
-                    {
-                        success: false,
-                        error: `INSUFFICIENT_BALANCE: Insufficient ${ticker} in batch settlement queue to sweep ${amount.toFixed(4)} ${ticker}.`
-                    },
-                    { status: 400 }
-                );
-            }
-
-            const fromUnassigned = parseFloat(debitRes[1] || '0') || 0;
-            if (fromUnassigned > 1e-9 && ticker === 'KAS') {
-                const resRow = await dbPool.query(
-                    `SELECT streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-                     FROM yield_reservoirs
-                     WHERE wallet_address = $1 OR wallet_address = $2
-                     LIMIT 1`,
-                    [prefixedWallet, cleanWallet]
-                );
-                if (resRow.rows.length > 0) {
-                    const r = resRow.rows[0];
-                    const nextStream = Math.max(
-                        0,
-                        Number(r.streaming_balance_kas || 0) - fromUnassigned
-                    );
-                    const totalY = Number(r.total_yield_kas || 0);
-                    const newHmac = computeReservoirHmac(
-                        prefixedWallet,
-                        nextStream,
-                        totalY,
-                        r.lp_tokens
-                    );
-                    await dbPool.query(
-                        `UPDATE yield_reservoirs
-                         SET streaming_balance_kas = $3,
-                             row_hmac_sig = $4,
-                             last_updated = CURRENT_TIMESTAMP
-                         WHERE wallet_address = $1 OR wallet_address = $2`,
-                        [prefixedWallet, cleanWallet, nextStream, newHmac]
-                    );
-                }
-            }
-
-            try {
-                const dispatchRes = await executeOrQueueL1Dispatch({
-                    wallet: prefixedWallet,
-                    destinationAddress: destination,
-                    asset: ticker,
-                    amount,
-                    sourceType:
-                        action === 'WITHDRAW_SYNTHETIC_ASSET'
-                            ? 'ledger_withdrawal'
-                            : 'cold_airlock_sweep'
-                });
-
-                await dbPool
-                    .query(
-                        `UPDATE user_cold_vault_rules
-                         SET last_sweep_txid = $3,
-                             last_sweep_amount = $4,
-                             last_sweep_at = CURRENT_TIMESTAMP,
-                             updated_at = CURRENT_TIMESTAMP
-                         WHERE (wallet_address = $1 OR wallet_address = $2) AND asset_ticker = $5`,
-                        [
-                            prefixedWallet,
-                            cleanWallet,
-                            dispatchRes.txHash,
-                            amount,
-                            ticker
-                        ]
-                    )
-                    .catch(() => {});
-
-                return json(
-                    {
-                        success: true,
-                        transaction_id: dispatchRes.txHash,
-                        data: dispatchRes
-                    },
-                    { status: 200 }
-                );
-            } catch (dispatchErr: any) {
-                await redis
-                    .hincrbyfloat(userLedgerKey, ticker, amount)
-                    .catch(() => {});
-                return json(
-                    {
-                        success: false,
-                        error:
-                            dispatchErr?.message ||
-                            `Failed to dispatch ${ticker} to Cold Vault.`
-                    },
-                    { status: 503 }
-                );
-            }
         }
 
         if (action === 'ADD_CUSTOM_TOKEN' || action === 'REMOVE_CUSTOM_TOKEN') {
