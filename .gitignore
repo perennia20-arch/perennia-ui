@@ -20,3 +20,7 @@ frontend-dist.tar.gz
 test-results/
 .backups/
 .perennia-*.mjs
+perennia-backend-settlement.xml
+perennia-frontend-ops.xml
+rust-audit.xml
+settlement-audit.xml
