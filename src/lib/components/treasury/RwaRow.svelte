@@ -335,7 +335,7 @@
                     if (!isManaging) rwaSearchQuery = '';
                 }}
                 class="w-10 h-5 rounded-full border transition-colors duration-300 relative cursor-pointer focus:outline-none shrink-0"
-                style="background-color: {isManaging ? '#18C6A520' : '#11161f'}; border-color: {isManaging ? '#18C6A550' : 'rgba(255,255,255,0.15)'};"
+                style="background-color: {isManaging ? '#18C6A520' : '#11161f'}; border-color: {isManaging ? '#18C6A550' : 'rgba(255,255,255,0.14)'};"
             >
                 <div
                     class="absolute top-[1px] w-4 h-4 rounded-full transition-all duration-300 shadow-sm"
@@ -474,7 +474,7 @@
                                             toggleSelection(asset.ticker);
                                         }}
                                         class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none ml-2"
-                                        style="background-color: {selectedRwas.includes(asset.ticker) ? '#18C6A520' : '#11161f'}; border-color: {selectedRwas.includes(asset.ticker) ? '#18C6A550' : 'rgba(255,255,255,0.15)'};"
+                                        style="background-color: {selectedRwas.includes(asset.ticker) ? '#18C6A520' : '#11161f'}; border-color: {selectedRwas.includes(asset.ticker) ? '#18C6A550' : 'rgba(255,255,255,0.14)'};"
                                     >
                                         <div
                                             class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm"

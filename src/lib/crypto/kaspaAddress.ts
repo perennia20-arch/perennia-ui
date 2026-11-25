@@ -1,4 +1,5 @@
 import { blake2b } from '@noble/hashes/blake2.js';
+import { formatAtomicToDecimal } from '$lib/crypto/atomicMath';
 
 export const KASPA_UNSPENDABLE_BURN_ADDRESS =
     'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
@@ -333,8 +334,8 @@ export async function resolveKasplexProtocolInfo(): Promise<KasplexProtocolInfo>
                 feeAddress,
                 opFeeDeploySompi,
                 opFeeMintSompi,
-                opFeeDeployKas: Number(opFeeDeploySompi) / 1e8,
-                opFeeMintKas: Number(opFeeMintSompi) / 1e8,
+                opFeeDeployKas: Number(formatAtomicToDecimal(opFeeDeploySompi, 8)),
+                opFeeMintKas: Number(formatAtomicToDecimal(opFeeMintSompi, 8)),
                 syncedBlockScore: String(result.block_score || result.daa_score || '')
             };
         }

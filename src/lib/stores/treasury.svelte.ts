@@ -107,9 +107,8 @@ export class UnifiedAsset {
     address = $state('Awaiting Decryption');
     onChain = $state(0);
     onChainAtomic = $state<U128Str>('0');
-    /** @deprecated Non-custodial L1 only; always 0. */
+    // Non-custodial L1 only: synthetic and custodial LP balances remain 0.
     synthetic = $state(0);
-    /** @deprecated Non-custodial L1 only; always 0. */
     lpStaked = $state(0);
     spotPrice = $state(0);
     spotPriceE8 = $state<U128Str>('0');
@@ -171,11 +170,9 @@ export class UnifiedAsset {
     get availableBalance() {
         return this.onChain;
     }
-    /** @deprecated Non-custodial L1 only; always 0. */
     get ledgerBalance() {
         return 0;
     }
-    /** @deprecated Non-custodial L1 only; always 0. */
     get stakedBalance() {
         return 0;
     }

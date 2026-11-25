@@ -46,10 +46,11 @@ export interface SettlementConfig {
 export interface Sector {
     id: string;
     name: string;
-    allocationPercentage: number;
+    allocationBps?: number;
+    allocationPercentage?: number;
     routeMode: RouteMode;
     settlementConfig: SettlementConfig;
-    pendingKaspa: number;
+    pendingKaspa?: number;
     width: number;
     lastSettledAt?: number;
 }

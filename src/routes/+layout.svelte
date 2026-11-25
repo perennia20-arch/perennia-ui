@@ -66,7 +66,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         | 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'
     >('SOVEREIGN_WIRE_ACH');
     let globalFiatDeliveryMode = $state<
-        'LEDGER_KAS' | 'L1_KAS' | 'AUTO_STAKE_SILO'
+        'L1_KAS' | 'L1_SELF_CUSTODY'
     >('L1_KAS');
     let globalAssetSearch = $state('');
     let showGlobalAssetDropdown = $state(false);
@@ -158,12 +158,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 globalFiatError = null;
                 globalFiatSuccessOrder = null;
                 showGlobalAssetDropdown = false;
-                if (
-                    ui.fiatModalTargetTicker === DEFAULT_ECOSYSTEM_TICKER &&
-                    ui.fiatModalAutoStakeSilo
-                ) {
-                    globalFiatDeliveryMode = 'AUTO_STAKE_SILO';
-                } else if (globalFiatDeliveryMode === 'AUTO_STAKE_SILO') {
+                ui.fiatModalAutoStakeSilo = false;
+                if (globalFiatDeliveryMode !== 'L1_SELF_CUSTODY') {
                     globalFiatDeliveryMode = 'L1_KAS';
                 }
                 checkGlobalBankRailStatus();
@@ -202,12 +198,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             assetTicker: selectedGlobalTargetAsset.ticker,
             grossUsd: Math.max(0, parseFloat(globalFiatUsdInput) || 0),
             spotPriceUsd: globalTargetSpotUsd,
-            autoStakeSilo:
-                ui.fiatModalAutoStakeSilo ||
-                globalFiatDeliveryMode === 'AUTO_STAKE_SILO',
-            bundledKasOrSilo:
-                ui.fiatModalAutoStakeSilo ||
-                globalFiatDeliveryMode === 'AUTO_STAKE_SILO',
+            autoStakeSilo: false,
+            bundledKasOrSilo: false,
             wholesaleFloorActive: globalWholesaleFloorActive,
             paymentMethod: globalFiatGatewayMethod
         })
@@ -378,7 +370,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 			const r2 = await fetch('/api/fiat/bank-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'FINALIZE_SETUP_INTENT', setupIntentId: conf.setupIntent.id }) });
 			const d2 = await r2.json().catch(() => ({}));
 			if (!r2.ok) throw new Error(d2.error || 'Bank verification incomplete.');
-			stripeVerifiedAch = true; savedBankLast4 = d2.bankLast4; showInlineBankSetup = false; globalFiatGatewayMethod = 'ach'; globalFiatDeliveryMode = 'LEDGER_KAS';
+			stripeVerifiedAch = true; savedBankLast4 = d2.bankLast4; showInlineBankSetup = false; globalFiatGatewayMethod = 'ach'; globalFiatDeliveryMode = 'L1_KAS';
 			inlineBankBanner = `✓ Verified Instant ACH (${d2.bankLabel} *${d2.bankLast4}) Ready for 1-Click Buy`;
 		} catch (e: any) { globalFiatError = e?.message || 'Bank verification failed.'; }
 		finally { isLinkingStripeBank = false; }
@@ -422,7 +414,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 }
             }
 			const blRes = await fetch('/api/fiat/bank-link').catch(() => null);
-			if (blRes && blRes.ok) { const bl = await blRes.json(); stripeVerifiedAch = Boolean(bl.stripeVerifiedAch); if (stripeVerifiedAch) { savedBankLast4 = bl.bankLast4 || savedBankLast4; showInlineBankSetup = false; globalFiatGatewayMethod = 'ach'; globalFiatDeliveryMode = 'LEDGER_KAS'; } }
+			if (blRes && blRes.ok) { const bl = await blRes.json(); stripeVerifiedAch = Boolean(bl.stripeVerifiedAch); if (stripeVerifiedAch) { savedBankLast4 = bl.bankLast4 || savedBankLast4; showInlineBankSetup = false; globalFiatGatewayMethod = 'ach'; globalFiatDeliveryMode = 'L1_KAS'; } }
         } catch {
             // Ignore transient status error
         }
@@ -549,10 +541,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         globalFiatError = null;
         globalFiatSuccessOrder = null;
         const targetTicker = (ui.fiatModalTargetTicker || 'KAS').toUpperCase();
-        const isAutoStakeSilo =
-            targetTicker === DEFAULT_ECOSYSTEM_TICKER &&
-            (ui.fiatModalAutoStakeSilo ||
-                globalFiatDeliveryMode === 'AUTO_STAKE_SILO');
+        const isAutoStakeSilo = false;
         const resolvedLabel =
             inlineBankLabel.trim() ||
             inlineAbaTelemetry.institutionName ||
@@ -575,11 +564,9 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     : isCardMethod
                       ? 'CARD_INSTANT'
                       : globalFiatPaymentRail,
-                settlementTarget: isAutoStakeSilo
-                    ? 'AUTO_STAKE_SILO'
-                    : globalFiatDeliveryMode,
-                autoStakeSilo: isAutoStakeSilo,
-                bundledKasOrSilo: isAutoStakeSilo,
+                settlementTarget: globalFiatDeliveryMode,
+                autoStakeSilo: false,
+                bundledKasOrSilo: false,
                 instantBankDebit: !isBridgePushWire,
                 bankLabel: resolvedLabel,
                 accountType: inlineAccountType
@@ -726,10 +713,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         if (!browser || !walletAddr) return;
         try {
             const requests: Promise<Response>[] = [
-                fetch(`/api/balance?address=${encodeURIComponent(walletAddr)}`),
-                fetch(
-                    `/api/user/ledger?wallet=${encodeURIComponent(walletAddr)}`
-                )
+                fetch(`/api/balance?address=${encodeURIComponent(walletAddr)}`)
             ];
             if (identity.isCorporateAdmin && !ui.adminModeActive) {
                 requests.push(
@@ -738,24 +722,16 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     )
                 );
             }
-            const [balRes, ledgerRes, corpRes] = await Promise.all(requests);
+            const [balRes, corpRes] = await Promise.all(requests);
             if (balRes.ok) {
                 const balData = await balRes.json();
-                if (typeof balData.balance === 'number') {
+                if (balData.balanceSompi !== undefined && balData.balanceSompi !== null) {
+                    treasury.updateAsset('KAS', {
+                        onChainAtomic: String(balData.balanceSompi),
+                        ...(typeof balData.balance === 'number' ? { onChain: balData.balance } : {})
+                    });
+                } else if (typeof balData.balance === 'number') {
                     treasury.updateAsset('KAS', { onChain: balData.balance });
-                }
-            }
-            if (ledgerRes.ok) {
-                const ledgerBalances = await ledgerRes.json();
-                for (const [ticker, amount] of Object.entries(ledgerBalances)) {
-                    if (
-                        ticker !== 'unassignedReserveKas' &&
-                        ticker !== 'unassignedReserveTargetKas'
-                    ) {
-                        treasury.updateAsset(ticker.toUpperCase(), {
-                            synthetic: Number(amount) || 0
-                        });
-                    }
                 }
             }
             if (corpRes && corpRes.ok) {
@@ -789,6 +765,10 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 const parsed = await res.json();
                 operations.workers = parsed.workers || [];
                 operations.sectors = parsed.sectors || [];
+                operations.hydrateSovereignState(parsed);
+                if (parsed.oracleOnline === false || parsed.livePricingUnavailable === true) {
+                    treasury.markOracleUnavailable();
+                }
                 if (parsed.systemMode) ui.systemMode = parsed.systemMode;
                 if (typeof parsed.forgePublicEnabled === 'boolean') {
                     identity.forgePublicEnabled = parsed.forgePublicEnabled;
@@ -953,28 +933,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     return;
                                 }
                                 if (parsed.yield_update) {
-                                    if (incWallet === cleanTarget) {
-                                        operations.sectors =
-                                            operations.sectors.map((s) => {
-                                                const update =
-                                                    parsed.sectors?.find(
-                                                        (u: any) =>
-                                                            u.id === s.id
-                                                    );
-                                                if (
-                                                    update &&
-                                                    s.pendingKaspa !==
-                                                        update.pendingKaspa
-                                                ) {
-                                                    return {
-                                                        ...s,
-                                                        pendingKaspa:
-                                                            update.pendingKaspa
-                                                    };
-                                                }
-                                                return s;
-                                            });
-                                    }
                                     window.dispatchEvent(
                                         new CustomEvent(
                                             'perennia:yield_update',
@@ -1500,7 +1458,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             class="app-wrapper min-h-[100dvh]  w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-clip {appAwakened ? 'glow-active' : 'dormant'}"
         >
             <header
-                class="min-h-[3.75rem] lg:h-20 bg-[#070b0e]/95 backdrop-blur-md flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
+                class="min-h-[3.75rem] lg:h-20 bg-[#06080b] flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
             >
                 <div
                     class="w-full max-w-[1720px] px-3 sm:px-5 lg:px-8 flex flex-wrap md:flex-nowrap justify-between md:justify-start items-center h-full gap-x-2 gap-y-2"
@@ -2028,12 +1986,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                         item.ticker !== DEFAULT_ECOSYSTEM_TICKER
                                     ) {
                                         ui.fiatModalAutoStakeSilo = false;
-                                        if (
-                                            globalFiatDeliveryMode ===
-                                            'AUTO_STAKE_SILO'
-                                        ) {
-                                            globalFiatDeliveryMode = 'L1_KAS';
-                                        }
+                                        globalFiatDeliveryMode = 'L1_KAS';
                                     }
                                     showGlobalAssetDropdown = false;
                                 }}

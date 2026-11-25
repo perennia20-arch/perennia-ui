@@ -107,6 +107,9 @@
 
     let tokenBHex = $derived(lpTokenB.theme?.hex || ambientSecondaryHex || '#3B82F6');
     let siloHex = $derived(siloAsset.theme?.hex || '#18C6A5');
+    let livePricingUnavailable = $derived(
+        Boolean(treasury.livePricingUnavailable) || !(Number(lpTokenA?.spotPrice || 0) > 0)
+    );
 
     let activeFeePct = $derived(
         _num((
@@ -195,7 +198,7 @@
                         style="background-color: {tokenBHex}; box-shadow: 0 0 10px {tokenBHex}80;"
                     ></span>
                     <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                        Add Liquidity
+                        Maker Liquidity Vault
                     </h3>
                 </div>
                 {#if extraPlantLegs.length < 3}
@@ -539,6 +542,7 @@
 <button type="button" data-testid="dex-supply-lp-btn"
                     onclick={onExecuteSupplyLiquidity}
                     disabled={isProvidingLiquidity ||
+                        livePricingUnavailable ||
                         !(parseFloat(lpAmountA) > 0)}
                     class="tactile-btn w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest text-white cursor-pointer disabled:opacity-45 transition-all duration-300"
                     style="
@@ -547,9 +551,9 @@
                     "
                 >
                     {#if isProvidingLiquidity}
-                        Supplying Liquidity...
+                        Registering Vault...
                     {:else}
-                        Add KAS/{lpTokenB.ticker} Liquidity
+                        Create KAS/{lpTokenB.ticker} Maker Vault
                     {/if}
                 </button>
             </div>
@@ -558,7 +562,7 @@
             {#if Array.isArray(lpPositions) && lpPositions.length > 0}
                 <div class="flex flex-col gap-2 pt-2 border-t border-white/10">
                     <span class="text-[9px] font-black uppercase tracking-widest text-neutral-400 px-1">
-                        Your Pools ({lpPositions.length})
+                        Your Maker Vaults ({lpPositions.length})
                     </span>
                     {#each (Array.isArray(lpPositions) ? lpPositions : []) as pos, idx (pos?.id ?? idx)}
                         <div
@@ -580,15 +584,12 @@
                                 type="button"
                                 data-testid="withdraw-lp-btn-{pos.id}"
                                 onclick={() => onWithdrawLpPosition(pos.id)}
-                                disabled={isWithdrawingLp === pos.id ||
-                                    Boolean(pos.isLocked)}
+                                disabled={isWithdrawingLp === pos.id}
                                 class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer disabled:opacity-40"
                             >
                                 {isWithdrawingLp === pos.id
                                     ? '...'
-                                    : pos.isLocked
-                                      ? 'Locked'
-                                      : 'Withdraw'}
+                                    : 'Cancel & Return'}
                             </button>
                         </div>
                     {/each}
@@ -686,7 +687,7 @@
             >
                 <div class="flex items-center justify-between gap-2">
                     <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
-                        Stake {DEFAULT_ECOSYSTEM_TICKER}
+                        Verify On-Chain {DEFAULT_ECOSYSTEM_TICKER}
                     </span>
                     <div class="flex items-center gap-1">
                         {#each [0.25, 0.5, 0.75, 1.0] as pct}
@@ -704,7 +705,7 @@
                             onclick={() =>
                                 ui.openFiatModal(
                                     DEFAULT_ECOSYSTEM_TICKER,
-                                    true, '')}
+                                    false, '')}
                             class="tactile-btn px-2 py-0.5 rounded-md text-[9px] font-black text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer ml-0.5"
                         >
                             + Buy
@@ -784,9 +785,9 @@
                     "
                 >
                     {#if isStakingSilo}
-                        Staking {DEFAULT_ECOSYSTEM_TICKER}...
+                        Checking {DEFAULT_ECOSYSTEM_TICKER}...
                     {:else}
-                        Stake {DEFAULT_ECOSYSTEM_TICKER} →
+                        Verify {DEFAULT_ECOSYSTEM_TICKER} Fee Shield →
                     {/if}
                 </button>
             </div>

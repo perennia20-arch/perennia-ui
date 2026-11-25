@@ -2,8 +2,16 @@
     import { fade } from 'svelte/transition';
 
     const CORE_TABLES = [
+        'stratum_mature_accruals',
+        'epoch_payout_outbox',
+        'vault_locks',
+        'thermostat_valves',
+        'settlement_receipts',
+        'solvency_circuit_events',
+        'agent_api_keys',
+        'agent_execution_receipts',
+        'agent_x402_credits',
         'user_command_centers',
-        'yield_reservoirs',
         'worker_profiles',
         'network_blocks',
         'liquidity_providers',
@@ -28,7 +36,7 @@
     ] as const;
 
     let {
-        selectedTable = $bindable('yield_reservoirs'),
+        selectedTable = $bindable('vault_locks'),
         tableRows = [],
         isLoadingTable = false,
         tableSearchFilter = $bindable(''),

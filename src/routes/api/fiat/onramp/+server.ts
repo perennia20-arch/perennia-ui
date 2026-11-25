@@ -14,9 +14,12 @@ import {
     type DecryptedBankRailPayload
 } from '$lib/server/kms';
 import {
-    executeOrQueueL1Dispatch,
-    computeReservoirHmac
+    executeOrQueueL1Dispatch
 } from '$lib/server/l1Dispatcher';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    parseDecimalToAtomic
+} from '$lib/crypto/atomicMath';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
 
@@ -505,7 +508,7 @@ function estimateConservativeChangeNowFallbackOutput(
             ? 1.25
             : clean === 'ETH' || clean === 'USDT'
               ? 0.5
-              : 0.15;
+              : 0.2;
     const externalSpreadFactor = 0.9965;
     const effectiveUsd = Math.max(
         netUsdAfterPerenniaFee * 0.92,
@@ -743,11 +746,7 @@ const savingsVsCoinbaseUsd = roundCents(
         Math.max(0, totalGrossChargeUsd - competitorFeeUsd)
     );
 
-    const isSiloOrKasBundle =
-        Boolean(params.autoStakeSilo) ||
-        Boolean(params.bundledKasOrSilo) ||
-        String(params.settlementTarget || '').toUpperCase() ===
-            'AUTO_STAKE_SILO';
+    const isSiloOrKasBundle = Boolean(params.autoStakeSilo) || Boolean(params.bundledKasOrSilo);
 
     const routingTopology =
         resolvedMethod === 'wire'
@@ -838,7 +837,7 @@ async function ensureFiatOnrampTables() {
                 payment_method VARCHAR(32) NOT NULL DEFAULT 'ach',
                 tier_name VARCHAR(32) NOT NULL DEFAULT 'RETAIL',
                 tier_bps INTEGER NOT NULL DEFAULT 85,
-                settlement_target VARCHAR(64) NOT NULL DEFAULT 'LEDGER_KAS',
+                settlement_target VARCHAR(64) NOT NULL DEFAULT 'L1_KAS',
                 target_asset VARCHAR(32) NOT NULL DEFAULT 'KAS',
                 target_spot_price DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 estimated_tokens DOUBLE PRECISION NOT NULL DEFAULT 0.0,
@@ -1703,70 +1702,6 @@ async function isAuthorizedDirectorRequest(
     return isWalletMasterAdmin(sessionWallet);
 }
 
-async function creditPlatformBalanceAndSyncReservoir(
-    client: any,
-    cleanWallet: string,
-    targetAsset: string,
-    deliveredTokens: number
-) {
-    const prefixedWallet = `kaspa:${cleanWallet}`;
-    const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-    await redis
-        .hincrbyfloat(userLedgerKey, targetAsset, deliveredTokens)
-        .catch(() => {});
-    const resRow = await client
-        .query(
-            `SELECT wallet_address, streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-             FROM yield_reservoirs
-             WHERE wallet_address = $1 OR wallet_address = $2
-             ORDER BY streaming_balance_kas DESC
-             LIMIT 1`,
-            [prefixedWallet, cleanWallet]
-        )
-        .catch(() => ({ rows: [] as any[] }));
-    const existingRow = resRow.rows[0];
-    const targetPk = existingRow?.wallet_address || prefixedWallet;
-    let streamKas = Number(existingRow?.streaming_balance_kas || 0);
-    const totalYieldKas = Number(existingRow?.total_yield_kas || 0);
-    const lpTokens: Record<string, number> = {
-        ...(existingRow?.lp_tokens || {})
-    };
-    if (targetAsset === 'KAS') {
-        streamKas = Number((streamKas + deliveredTokens).toFixed(8));
-    } else {
-        lpTokens[targetAsset] = Number(
-            ((Number(lpTokens[targetAsset] || 0)) + deliveredTokens).toFixed(8)
-        );
-    }
-    const newHmac = computeReservoirHmac(
-        prefixedWallet,
-        streamKas,
-        totalYieldKas,
-        lpTokens
-    );
-    await client
-        .query(
-            `INSERT INTO yield_reservoirs
-             (wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens, verified_onchain_credits_kas, row_hmac_sig, last_updated)
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-             ON CONFLICT (wallet_address) DO UPDATE SET
-                streaming_balance_kas = EXCLUDED.streaming_balance_kas,
-                lp_tokens = EXCLUDED.lp_tokens,
-                verified_onchain_credits_kas = GREATEST(yield_reservoirs.verified_onchain_credits_kas, EXCLUDED.verified_onchain_credits_kas),
-                row_hmac_sig = EXCLUDED.row_hmac_sig,
-                last_updated = CURRENT_TIMESTAMP`,
-            [
-                targetPk,
-                streamKas,
-                totalYieldKas,
-                JSON.stringify(lpTokens),
-                Math.max(totalYieldKas, streamKas),
-                newHmac
-            ]
-        )
-        .catch(() => {});
-}
-
 async function executeImmediateOrderFulfillment(params: {
     client: any;
     orderId: string;
@@ -1819,45 +1754,22 @@ async function executeImmediateOrderFulfillment(params: {
         params.preferredTxHash ||
         `ONRAMP-${cleanTarget}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     let l1DispatchedOnChain = false;
-    if (params.autoStakeSilo && cleanTarget === 'SILO') {
-        await params.client.query(
-            `INSERT INTO silo_staking_positions (wallet_address, token_ticker, amount_staked, status, tx_hash)
-             VALUES ($1, 'SILO', $2, 'ACTIVE', $3)`,
-            [`kaspa:${params.cleanWallet}`, deliveredTokens, txHash]
-        );
-    } else if ((params.settlementTarget === 'L1_KAS' || params.settlementTarget === 'L1_SELF_CUSTODY') && !(Number(params.achFloatFrontedUsd || 0) > 0) && !(cleanTarget === 'KAS' && String(env.SANDBOX_MODE || '').toLowerCase() !== 'true' && String(params.destinationAddress || params.cleanWallet).trim().toLowerCase().replace(/^kaspa:/, '') === String(env.PERENNIA_HOT_KAS_ADDRESS || env.PERENNIA_MASTER_TREASURY_KAS || '').trim().toLowerCase().replace(/^kaspa:/, ''))) {
-        try {
-            const destAddr = String(
-                params.destinationAddress || `kaspa:${params.cleanWallet}`
-            ).trim();
-            const l1Res = await executeOrQueueL1Dispatch({
-                wallet: `kaspa:${params.cleanWallet}`,
-                destinationAddress: destAddr,
-                asset: cleanTarget,
-                amount: deliveredTokens,
-                sourceType: 'fiat_onramp_l1',
-                spotPrice: params.liveTargetSpot
-            });
-            txHash = l1Res.txHash || txHash;
-            l1DispatchedOnChain = l1Res.status === 'DISPATCHED_ONCHAIN';
-        } catch {
-            l1DispatchedOnChain = false;
-        }
-        if (!l1DispatchedOnChain) {
-            await creditPlatformBalanceAndSyncReservoir(
-                params.client,
-                params.cleanWallet,
-                cleanTarget,
-                deliveredTokens
-            );
-        }
-    } else {
-        await creditPlatformBalanceAndSyncReservoir(
-            params.client,
-            params.cleanWallet,
-            cleanTarget,
-            deliveredTokens
-        );
+    try {
+        const destAddr = String(
+            params.destinationAddress || `kaspa:${params.cleanWallet}`
+        ).trim();
+        const l1Res = await executeOrQueueL1Dispatch({
+            wallet: `kaspa:${params.cleanWallet}`,
+            destinationAddress: destAddr,
+            asset: cleanTarget,
+            amount: deliveredTokens,
+            sourceType: 'fiat_onramp_l1',
+            spotPrice: params.liveTargetSpot
+        });
+        txHash = l1Res.txHash || txHash;
+        l1DispatchedOnChain = l1Res.status === 'DISPATCHED_ONCHAIN';
+    } catch {
+        l1DispatchedOnChain = false;
     }
 
     const perenniaNetFeeUsd = Math.max(
@@ -1952,6 +1864,11 @@ async function executeImmediateOrderFulfillment(params: {
         deliveredTokens > 0
             ? params.fiatUsd / deliveredTokens
             : params.liveTargetSpot;
+    const deliveredAtomic = parseDecimalToAtomic(
+        deliveredTokens.toFixed(8),
+        8,
+        'floor'
+    ).toString();
     await params.client.query(
         `INSERT INTO hifo_tax_lots
          (wallet_address, asset_ticker, kas_sompi, initial_tokens, remaining_sompi, remaining_tokens, fmv_usd_per_token, total_cost_basis_usd, source_event_type, source_tx_hash, status)
@@ -1959,7 +1876,7 @@ async function executeImmediateOrderFulfillment(params: {
         [
             params.cleanWallet,
             cleanTarget,
-            Math.round(deliveredTokens * 1e8),
+            deliveredAtomic,
             deliveredTokens,
             unitFmv,
             params.fiatUsd,
@@ -2016,7 +1933,7 @@ export const GET: RequestHandler = async ({
                 url.searchParams.get('paymentRail') || 'STRIPE_ACH_DIRECT_DEBIT',
             paymentMethod: url.searchParams.get('paymentMethod') || undefined,
             settlementTarget:
-                url.searchParams.get('settlementTarget') || 'LEDGER_KAS',
+                url.searchParams.get('settlementTarget') || 'L1_KAS',
             autoStakeSilo: url.searchParams.get('autoStakeSilo') === 'true',
             bundledKasOrSilo:
                 url.searchParams.get('bundledKasOrSilo') === 'true',
@@ -2027,6 +1944,8 @@ export const GET: RequestHandler = async ({
             return json(
                 {
                     success: false,
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
                     circuitBreakerTripped: true,
                     error: quote.circuitBreakerReason,
                     quote
@@ -2473,9 +2392,11 @@ export const POST: RequestHandler = async ({
                     Number(row.fee_usd || perenniaFeeUsd)
                 );
                 const autoStakeSilo = Boolean(row.auto_stake_silo);
-                const settlementTarget = String(
-                    row.settlement_target || 'LEDGER_KAS'
-                ).toUpperCase();
+                const settlementTarget =
+                    String(row.settlement_target || 'L1_KAS').toUpperCase() ===
+                    'L1_SELF_CUSTODY'
+                        ? 'L1_SELF_CUSTODY'
+                        : 'L1_KAS';
 
                 const fulfilled = await executeImmediateOrderFulfillment({
                     client,
@@ -2627,16 +2548,19 @@ export const POST: RequestHandler = async ({
             kasSpotPrice
         );
         const requestedTarget = String(
-            body.settlementTarget || 'LEDGER_KAS'
+            body.settlementTarget || 'L1_KAS'
         ).toUpperCase();
-        const autoStakeSilo =
-            targetAsset === 'SILO' &&
-            (Boolean(body.autoStakeSilo) ||
-                requestedTarget === 'AUTO_STAKE_SILO');
-        const bundledKasOrSilo =
-            Boolean(body.bundledKasOrSilo) ||
-            autoStakeSilo ||
-            requestedTarget === 'AUTO_STAKE_SILO';
+        if (requestedTarget === 'LEDGER_KAS' || requestedTarget === 'AUTO_STAKE_SILO') {
+            return json(
+                {
+                    error: 'NON_CUSTODIAL_L1_ONLY',
+                    message: 'Purchases settle directly to your self-custody wallet or cold storage.'
+                },
+                { status: 422 }
+            );
+        }
+        const autoStakeSilo = false;
+        const bundledKasOrSilo = false;
         const requestedRailUpper = String(
             body.paymentRail || 'STRIPE_ACH_DIRECT_DEBIT'
         ).toUpperCase();
@@ -2656,6 +2580,9 @@ export const POST: RequestHandler = async ({
         if (quote.circuitBreakerTripped) {
             return json(
                 {
+                    success: false,
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
                     error: quote.circuitBreakerReason,
                     circuitBreakerTripped: true,
                     quote
@@ -2757,11 +2684,8 @@ export const POST: RequestHandler = async ({
             quote.grossUsd,
             quote.perenniaFeeUsd
         );
-        const settlementTarget = autoStakeSilo
-            ? 'AUTO_STAKE_SILO'
-            : requestedTarget === 'L1_KAS'
-              ? 'L1_KAS'
-              : 'LEDGER_KAS';
+        const settlementTarget =
+            requestedTarget === 'L1_SELF_CUSTODY' ? 'L1_SELF_CUSTODY' : 'L1_KAS';
 
         let clientIp = '127.0.0.1';
         try {

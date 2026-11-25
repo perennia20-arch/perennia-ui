@@ -159,9 +159,10 @@ export const SANDBOX_ONLINE_WORKER: Worker = {
 export const SANDBOX_DEMO_SECTOR: Sector = {
     id: 'TUT-SILO-01',
     name: 'SILO-KAS-01',
+    allocationBps: 5000,
     allocationPercentage: 50.0,
     routeMode: 'hold',
-    pendingKaspa: 48.25,
+    pendingKaspa: 0,
     width: 6,
     settlementConfig: {
         targetAsset: {
@@ -221,11 +222,11 @@ export const SANDBOX_TAX_EVENTS = [
         rawEventType: 'YIELD',
         asset: { ticker: 'KAS', color: '#18C6A5' },
         amount: 1000.0,
-        usdValueAtTime: 150.0,
-        costBasisUsd: 150.0,
+        usdValueAtTime: 160.0,
+        costBasisUsd: 160.0,
         realizedGainLossUsd: 0.0,
         holdingPeriod: 'SHORT_TERM',
-        spotPriceAtExecution: 0.15,
+        spotPriceAtExecution: 0.16,
         txHash: 'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
         explorerUrl:
             'https://kas.fyi/transaction/b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
@@ -1859,7 +1860,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             badge: 'Tax Fortress • Step 10 of 15',
             title: 'Passive HIFO Lot Matching & Schedule D Dispositions',
             description:
-                'Here is your Passive HIFO lot table. Notice how your open lots are automatically sorted from highest FMV cost basis ($0.1800) to lowest ($0.1500):',
+                'Here is your Passive HIFO lot table. Notice how your open lots are automatically sorted from highest FMV cost basis ($0.1800) to lowest ($0.1600):',
             bullets: [
                 'Automatic Tax Optimization: When you swap or off-ramp KAS, the engine automatically consumes your highest cost-basis lot first to minimize realized capital gains.',
                 'Schedule D Term Tracking: Tracks exact holding days on every lot (Short-Term vs. Long-Term >365 days), which you can inspect in tab 03 (Schedule D Matched Dispositions).',

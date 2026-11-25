@@ -11,9 +11,12 @@ import {
     perenniaKMS
 } from '$lib/server/kms';
 import {
-    computeReservoirHmac,
     executeOrQueueL1Dispatch
 } from '$lib/server/l1Dispatcher';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    parseDecimalToAtomic
+} from '$lib/crypto/atomicMath';
 
 const STRIPE_API_VERSION = '2024-06-20';
 const STRIPE_WEBHOOK_DESTINATION_ID = 'we_1SZq78Rp3z9WFHwIL1koY';
@@ -93,7 +96,7 @@ async function ensureStripeWebhookTables(): Promise<void> {
                 payment_method VARCHAR(32) NOT NULL DEFAULT 'ach',
                 tier_name VARCHAR(32) NOT NULL DEFAULT 'RETAIL',
                 tier_bps INTEGER NOT NULL DEFAULT 85,
-                settlement_target VARCHAR(64) NOT NULL DEFAULT 'LEDGER_KAS',
+                settlement_target VARCHAR(64) NOT NULL DEFAULT 'L1_KAS',
                 target_asset VARCHAR(32) NOT NULL DEFAULT 'KAS',
                 target_spot_price DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 estimated_tokens DOUBLE PRECISION NOT NULL DEFAULT 0.0,
@@ -112,7 +115,7 @@ async function ensureStripeWebhookTables(): Promise<void> {
                 competitor_fee_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 guest_savings_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 net_usd_converted DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-                locked_spot_price DOUBLE PRECISION NOT NULL DEFAULT 0.15,
+                locked_spot_price DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 estimated_kas DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 delivered_kas DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 wire_memo VARCHAR(80) NOT NULL DEFAULT '',
@@ -286,75 +289,6 @@ async function resolveBalanceTransactionNetCents(
     return fallbackTargetNetCents;
 }
 
-async function creditWalletReservoirAndRedis(
-    client: any,
-    cleanWallet: string,
-    targetAsset: string,
-    deliveredTokens: number
-): Promise<void> {
-    const prefixedWallet = `kaspa:${cleanWallet}`;
-    await redis
-        .hincrbyfloat(
-            `dev:sor:treasury:balances:${cleanWallet}`,
-            targetAsset,
-            deliveredTokens
-        )
-        .catch(() => {});
-
-    const resRow = await client
-        .query(
-            `SELECT wallet_address, streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-             FROM yield_reservoirs
-             WHERE wallet_address = $1 OR wallet_address = $2
-             ORDER BY streaming_balance_kas DESC
-             LIMIT 1`,
-            [prefixedWallet, cleanWallet]
-        )
-        .catch(() => ({ rows: [] as any[] }));
-
-    const existing = resRow.rows[0];
-    const pkWallet = existing?.wallet_address || prefixedWallet;
-    let streamKas = Number(existing?.streaming_balance_kas || 0);
-    const totalYieldKas = Number(existing?.total_yield_kas || 0);
-    const lpTokens: Record<string, number> = {
-        ...(existing?.lp_tokens || {})
-    };
-    if (targetAsset === 'KAS') {
-        streamKas = Number((streamKas + deliveredTokens).toFixed(8));
-    } else {
-        lpTokens[targetAsset] = Number(
-            ((Number(lpTokens[targetAsset] || 0)) + deliveredTokens).toFixed(8)
-        );
-    }
-    const rowHmac = computeReservoirHmac(
-        prefixedWallet,
-        streamKas,
-        totalYieldKas,
-        lpTokens
-    );
-    await client
-        .query(
-            `INSERT INTO yield_reservoirs
-             (wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens, verified_onchain_credits_kas, row_hmac_sig, last_updated)
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-             ON CONFLICT (wallet_address) DO UPDATE SET
-                streaming_balance_kas = EXCLUDED.streaming_balance_kas,
-                lp_tokens = EXCLUDED.lp_tokens,
-                verified_onchain_credits_kas = GREATEST(yield_reservoirs.verified_onchain_credits_kas, EXCLUDED.verified_onchain_credits_kas),
-                row_hmac_sig = EXCLUDED.row_hmac_sig,
-                last_updated = CURRENT_TIMESTAMP`,
-            [
-                pkWallet,
-                streamKas,
-                totalYieldKas,
-                JSON.stringify(lpTokens),
-                Math.max(totalYieldKas, streamKas),
-                rowHmac
-            ]
-        )
-        .catch(() => {});
-}
-
 export const GET: RequestHandler = async () => {
     return json({
         online: true,
@@ -509,7 +443,7 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
                       target_asset, quoted_principal_cents, perennia_fee_cents, stripe_gateway_fee_cents,
                       gross_charge_cents, fiat_amount_usd, fee_usd, hard_cost_usd, guaranteed_profit_usd,
                       net_usd_converted, locked_spot_price, estimated_kas, wire_memo, stripe_payment_intent_id, status)
-                     VALUES ($1, $2, 'STRIPE_ACH_DIRECT_DEBIT', 'ach', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 0.15, 0.0, $1, $14, 'ACH_PROCESSING_HOLD')
+                     VALUES ($1, $2, 'STRIPE_ACH_DIRECT_DEBIT', 'ach', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 0.0, 0.0, $1, $14, 'ACH_PROCESSING_HOLD')
                      ON CONFLICT (order_id) DO UPDATE SET
                         stripe_payment_intent_id = COALESCE(NULLIF(EXCLUDED.stripe_payment_intent_id, ''), fiat_onramp_orders.stripe_payment_intent_id),
                         status = CASE
@@ -664,12 +598,16 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
         )
             .trim()
             .toUpperCase();
-        const settlementTarget = String(
-            existingRow?.settlement_target || 'LEDGER_KAS'
+        const rawSettlementTarget = String(
+            existingRow?.settlement_target || 'L1_KAS'
         )
             .trim()
             .toUpperCase();
-        const autoStakeSilo = Boolean(existingRow?.auto_stake_silo);
+        const settlementTarget =
+            rawSettlementTarget === 'L1_SELF_CUSTODY'
+                ? 'L1_SELF_CUSTODY'
+                : 'L1_KAS';
+        const autoStakeSilo = false;
 
         const quotedPrincipalCents =
             Number(existingRow?.quoted_principal_cents || 0) > 0
@@ -733,7 +671,7 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
                   fulfilled_principal_cents, quarantine_reason, fiat_amount_usd, fee_usd,
                   hard_cost_usd, guaranteed_profit_usd, net_usd_converted, locked_spot_price,
                   estimated_kas, wire_memo, stripe_payment_intent_id, status)
-                 VALUES ($1, $2, 'STRIPE_CARD_GROSS_UP', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 0.15, 0.0, $1, $19, 'QUARANTINED_SHORTFALL')
+                 VALUES ($1, $2, 'STRIPE_CARD_GROSS_UP', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 0.0, 0.0, $1, $19, 'QUARANTINED_SHORTFALL')
                  ON CONFLICT (order_id) DO UPDATE SET
                     settled_net_cents = EXCLUDED.settled_net_cents,
                     fulfilled_principal_cents = EXCLUDED.fulfilled_principal_cents,
@@ -816,6 +754,8 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
             await redis.del(idempKey).catch(() => {});
             return json(
                 {
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
                     error: `ORACLE_HALT: Live spot price for ${resolvedAsset} is unavailable; holding webhook retry.`
                 },
                 { status: 503 }
@@ -837,50 +777,21 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
             piId ||
             `STRIPE-SETTLED-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
-        if (autoStakeSilo && resolvedAsset === 'SILO') {
-            await client.query(
-                `INSERT INTO silo_staking_positions (wallet_address, token_ticker, amount_staked, status, tx_hash)
-                 VALUES ($1, 'SILO', $2, 'ACTIVE', $3)`,
-                [resolvedPrefixedWallet, deliveredTokens, txHash]
-            );
-        } else if (
-            (settlementTarget === 'L1_KAS' ||
-                settlementTarget === 'L1_SELF_CUSTODY') &&
-            resolvedCleanWallet
-        ) {
+        if (resolvedCleanWallet) {
             try {
                 const l1Res = await executeOrQueueL1Dispatch({
                     wallet: resolvedPrefixedWallet,
                     destinationAddress: resolvedPrefixedWallet,
                     asset: resolvedAsset,
                     amount: deliveredTokens,
-                    sourceType: 'fiat_onramp_l1', idempotencyKey: orderId,
+                    sourceType: 'fiat_onramp_l1',
+                    idempotencyKey: orderId,
                     spotPrice: targetSpot
                 });
                 if (l1Res.txHash) txHash = l1Res.txHash;
-                if (l1Res.status !== 'DISPATCHED_ONCHAIN') {
-                    await creditWalletReservoirAndRedis(
-                        client,
-                        resolvedCleanWallet,
-                        resolvedAsset,
-                        deliveredTokens
-                    );
-                }
             } catch {
-                await creditWalletReservoirAndRedis(
-                    client,
-                    resolvedCleanWallet,
-                    resolvedAsset,
-                    deliveredTokens
-                );
+                // Keep generated non-custodial reference for outbox reconciliation
             }
-        } else if (resolvedCleanWallet) {
-            await creditWalletReservoirAndRedis(
-                client,
-                resolvedCleanWallet,
-                resolvedAsset,
-                deliveredTokens
-            );
         }
 
         // 60/40 Internal Treasury Split
@@ -989,7 +900,7 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
                     [
                         resolvedCleanWallet,
                         resolvedAsset,
-                        Math.round(deliveredTokens * 1e8),
+                        parseDecimalToAtomic(deliveredTokens.toFixed(8), 8, 'floor').toString(),
                         deliveredTokens,
                         unitFmv,
                         grossChargeUsd,

@@ -65,14 +65,6 @@
         const amt = mode === 'fill_remainder' ? rem : parseFloat(contributeInputKas);
         if (!Number.isFinite(amt) || amt <= 0) { errorMsg = 'Enter a valid KAS amount greater than 0.'; return; }
         if (amt > rem + 1e-4) { errorMsg = `Max remaining in this round is ${rem.toFixed(2)} KAS.`; return; }
-        if ((treasury.getAsset('KAS')?.synthetic || 0) >= amt - 1e-4) {
-			isMutating = true;
-			fetch('/api/buckets/contribute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bucketId: bucket.bucketId, mode, amountKas: Number(amt.toFixed(6)), txHash: 'RESERVOIR:' + Date.now() }) })
-				.then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok || d.error) throw new Error(d.error || 'Reservoir fill failed.'); treasury.updateAsset('KAS', { synthetic: Math.max(0, (treasury.getAsset('KAS')?.synthetic || 0) - Number(d.contributedKas || amt)) }); window.dispatchEvent(new CustomEvent('perennia:bucket_updated', { detail: d })); })
-				.catch((e: any) => { errorMsg = e?.message || 'Contribution failed.'; })
-				.finally(() => { isMutating = false; });
-			return;
-		}
 		identity.requestVaultAuthorization({
             actionType: 'BUCKET_CONTRIBUTE',
             bucketId: bucket.bucketId,
@@ -126,19 +118,6 @@
         activeContributeId = null;
         if (detail?.dispersalReceipt) dispersalReceipt = detail.dispersalReceipt;
         if (Array.isArray(detail?.buckets)) buckets = detail.buckets; else loadBuckets();
-        if (detail?.cycleDispersed && identity.activeAddress) {
-            fetch(`/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`)
-                .then((r) => (r.ok ? r.json() : null))
-                .then((led) => {
-                    if (led && typeof led === 'object') {
-                        for (const [k, v] of Object.entries(led)) {
-                            if (k !== 'unassignedReserveKas' && k !== 'unassignedReserveTargetKas') {
-                                treasury.updateAsset(k.toUpperCase(), { synthetic: Number(v) || 0 });
-                            }
-                        }
-                    }
-                }).catch(() => {});
-        }
     }
 
     onMount(() => {

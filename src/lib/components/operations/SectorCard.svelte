@@ -9,6 +9,10 @@
         getChainExplorerTxUrl
     } from '$lib/stores/transaction.svelte';
     import type {
+        SettlementReceiptRecord,
+        VaultLockRecord
+    } from '$lib/crypto/atomicMath';
+    import type {
         Sector,
         RouteMode,
         SettlementConfig,
@@ -16,11 +20,17 @@
     } from '$lib/stores/type';
     import {
         DEFAULT_RESERVE_PAYOUT_KAS,
-        toPlantTargetSpec,
-        normalizePlantTargets,
+        formatBpsToPctDisplay,
+        formatSettlementTierLabel,
+        formatSettledAssetAmount,
+        formatSompiToKasDisplay,
+        formatVaultStatusLabel,
         hydrateSectorTargetAssets,
-        type ViewSector,
-        type MineableKrc20VaultInfo
+        normalizePlantTargets,
+        readSectorAllocationBps,
+        toPlantTargetSpec,
+        type MineableKrc20VaultInfo,
+        type ViewSector
     } from './operationsHelpers';
 
     const _num = (v: unknown): number => {
@@ -38,7 +48,9 @@
         mineableVaultMap = new Map(),
         savedBankRailLast4 = null,
         savedBankRailMethod = 'ACH',
-        isPullingOutKey = null,
+        vaultLock = null,
+        latestReceipt = null,
+        livePricingUnavailable = false,
         resolveChainAddressForTicker,
         estimateSectorDailyKas,
         estimateSectorDailyUsd,
@@ -56,7 +68,7 @@
         onCommitUpdate,
         onSnapMaxRemaining,
         onInlineSaveSector,
-        onClaimPendingSectorKas
+        onOpenVaultLock
     }: {
         sector: ViewSector;
         displayHashrate: number;
@@ -67,7 +79,9 @@
         mineableVaultMap: Map<string, MineableKrc20VaultInfo>;
         savedBankRailLast4: string | null;
         savedBankRailMethod: string;
-        isPullingOutKey?: string | null;
+        vaultLock?: VaultLockRecord | null;
+        latestReceipt?: SettlementReceiptRecord | null;
+        livePricingUnavailable?: boolean;
         resolveChainAddressForTicker: (ticker: string) => string;
         estimateSectorDailyKas: (s: ViewSector) => number;
         estimateSectorDailyUsd: (s: ViewSector) => number;
@@ -92,10 +106,7 @@
             nextRouteMode: RouteMode,
             nextConfig: SettlementConfig
         ) => Promise<void>;
-        onClaimPendingSectorKas?: (params: {
-            sectorId?: string;
-            targetAsset?: string;
-        }) => Promise<void>;
+        onOpenVaultLock?: (s: Sector) => void;
     } = $props();
 
     let isEditing = $state(false);
@@ -127,13 +138,19 @@
         const trimmed = raw.trim();
         if (trimmed.length > 0 && pickerCategory !== 'ALL') pickerCategory = 'ALL';
         clearTimeout(pickerDiscoverTimer);
-        if (trimmed.length < 2) { isPickerSearching = false; discoveredInlineAssets = []; return; }
+        if (trimmed.length < 2) {
+            isPickerSearching = false;
+            discoveredInlineAssets = [];
+            return;
+        }
         const seq = ++inlineSearchSeq;
         isPickerSearching = true;
         pickerDiscoverTimer = setTimeout(async () => {
             try {
                 const res = await treasury.discoverAndRegisterToken(trimmed, true);
-                if (seq === inlineSearchSeq && Array.isArray(res?.matches)) discoveredInlineAssets = res.matches;
+                if (seq === inlineSearchSeq && Array.isArray(res?.matches)) {
+                    discoveredInlineAssets = res.matches;
+                }
             } finally {
                 if (seq === inlineSearchSeq) isPickerSearching = false;
             }
@@ -141,10 +158,20 @@
     }
 
     function selectCustomInlineTicker() {
-        const clean = pickerQuery.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+        const clean = pickerQuery
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '')
+            .slice(0, 10);
         if (clean.length < 2) return;
         const customAsset = treasury.registerDiscoveredAsset(
-            { ticker: clean, name: clean + ' (Custom Asset)', assetClass: 'Ecosystem', network: 'KAS', contract: clean },
+            {
+                ticker: clean,
+                name: `${clean} (Custom Asset)`,
+                assetClass: 'Ecosystem',
+                network: 'KAS',
+                contract: clean
+            },
             true
         );
         selectDraftAsset(customAsset);
@@ -158,21 +185,14 @@
         }
     }
 
-    function findLatestSettledEventForAsset(ticker: string) {
-        const clean = ticker.trim().toUpperCase();
-        return (ui.taxEvents || []).find(
-            (ev: any) =>
-                (ev.asset?.ticker || '').toUpperCase() === clean &&
-                ev.txHash &&
-                !String(ev.txHash).startsWith('PER-L1-')
-        );
-    }
-
     let isLp = $derived(sector.routeMode === 'auto-lp');
     let targetTicker = $derived(sector.settlementConfig?.targetAsset?.ticker || 'KAS');
     let isUsdSilo = $derived(!isLp && targetTicker === 'USD');
     let hex = $derived(sector.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5');
-    let mappedHash = $derived(displayHashrate * (sector.allocationPercentage / 100));
+    let allocationBps = $derived(readSectorAllocationBps(sector));
+    let allocationPctDisplay = $derived(formatBpsToPctDisplay(allocationBps, 2, true));
+    let allocationPctNumeric = $derived(allocationBps / 100);
+    let mappedHash = $derived((displayHashrate * allocationBps) / 10_000);
     let dailyKas = $derived(estimateSectorDailyKas(sector));
     let dailyUsd = $derived(estimateSectorDailyUsd(sector));
     let isDragged = $derived(dragSectorId === sector.id);
@@ -185,12 +205,14 @@
         sector.settlementConfig?.payoutAddress ||
             resolveChainAddressForTicker(targetTicker)
     );
-    let latestSettledEvent = $derived(findLatestSettledEventForAsset(targetTicker));
     let sectorExplorerUrl = $derived(
-        latestSettledEvent?.explorerUrl ||
-            (latestSettledEvent?.txHash
-                ? getChainExplorerTxUrl(targetTicker, latestSettledEvent.txHash)
-                : getChainExplorerAddressUrl(targetTicker, resolvedPayoutAddr))
+        latestReceipt?.destinationTxid
+            ? getChainExplorerTxUrl(latestReceipt.targetAsset || targetTicker, latestReceipt.destinationTxid)
+            : latestReceipt?.kaspaL1Txid
+              ? getChainExplorerTxUrl('KAS', latestReceipt.kaspaL1Txid)
+              : vaultLock?.covenantAddress
+                ? getChainExplorerAddressUrl('KAS', vaultLock.covenantAddress)
+                : getChainExplorerAddressUrl(targetTicker, resolvedPayoutAddr)
     );
     let plantTargets = $derived(isLp ? hydrateSectorTargetAssets(sector) : []);
     let plantPairLabel = $derived(
@@ -198,7 +220,15 @@
             ? plantTargets.map((t) => t.ticker).join(' / ')
             : `KAS / ${targetTicker}`
     );
-    let sectorPendingKas = $derived(Math.max(0, Number(sector.pendingKaspa || 0)));
+    let vaultBalanceKas = $derived(
+        vaultLock
+            ? formatSompiToKasDisplay(
+                  vaultLock.liveUtxoSompi || vaultLock.confirmedUtxoSompi || '0',
+                  4,
+                  true
+              )
+            : null
+    );
 
     let isDraftPlant = $derived(draftAssets.length >= 2);
     let draftPrimaryAsset = $derived(
@@ -221,17 +251,34 @@
             const cls = String(a.assetClass || '').toLowerCase();
             const net = String(a.network || '').toLowerCase();
             const contract = String(a.contract || '').toLowerCase();
-            const hit = !q || tick.includes(q) || name.includes(q) || cls.includes(q) || net.includes(q) || contract.includes(q);
+            const hit =
+                !q ||
+                tick.includes(q) ||
+                name.includes(q) ||
+                cls.includes(q) ||
+                net.includes(q) ||
+                contract.includes(q);
             if (!hit) return false;
-            if (pickerCategory === 'MINEABLE') return mineableVaultMap.has(tick.toUpperCase()) || net === 'kas';
+            if (pickerCategory === 'MINEABLE') {
+                return mineableVaultMap.has(tick.toUpperCase()) || net === 'kas';
+            }
             if (pickerCategory === 'EQUITIES') return a.assetClass === 'Public Equity';
-            if (pickerCategory === 'COMMODITIES') return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
-            if (pickerCategory === 'CRYPTO') return a.assetClass !== 'Public Equity' && a.assetClass !== 'Commodity' && a.assetClass !== 'Sovereign Debt';
+            if (pickerCategory === 'COMMODITIES') {
+                return a.assetClass === 'Commodity' || a.assetClass === 'Sovereign Debt';
+            }
+            if (pickerCategory === 'CRYPTO') {
+                return (
+                    a.assetClass !== 'Public Equity' &&
+                    a.assetClass !== 'Commodity' &&
+                    a.assetClass !== 'Sovereign Debt'
+                );
+            }
             return true;
         });
         if (!q) return matches;
         return [...matches].sort((a, b) => {
-            const at = String(a.ticker || '').toLowerCase(), bt = String(b.ticker || '').toLowerCase();
+            const at = String(a.ticker || '').toLowerCase();
+            const bt = String(b.ticker || '').toLowerCase();
             if (at === q && bt !== q) return -1;
             if (bt === q && at !== q) return 1;
             if (at.startsWith(q) && !bt.startsWith(q)) return -1;
@@ -239,7 +286,10 @@
             return 0;
         });
     });
-    function openInlineEditor(initialPicker: 'closed' | 'replace_primary' | 'add_secondary' = 'closed') {
+
+    function openInlineEditor(
+        initialPicker: 'closed' | 'replace_primary' | 'add_secondary' = 'closed'
+    ) {
         if (!isEditing) {
             draftName = sector.name;
             const hydrated = hydrateSectorTargetAssets(sector);
@@ -248,20 +298,26 @@
             draftPayoutAddr =
                 sector.settlementConfig?.payoutAddress ||
                 resolveChainAddressForTicker(prim?.ticker || 'KAS');
-            draftMode = (sector.settlementConfig?.mode as any) || 'epoch';
-            draftThreshold = Number(sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS);
+            draftMode = (sector.settlementConfig?.mode as 'epoch' | 'threshold' | 'appointment') || 'epoch';
+            draftThreshold = Number(
+                sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS
+            );
             draftAutoPayout = sector.settlementConfig?.autoPayout !== false;
             isEditing = true;
             treasury.syncRwaOraclePrices();
         }
         pickerMode = initialPicker;
-        pickerQuery = ''; discoveredInlineAssets = []; isPickerSearching = false;
+        pickerQuery = '';
+        discoveredInlineAssets = [];
+        isPickerSearching = false;
     }
 
     function cancelInlineEditor() {
         isEditing = false;
         pickerMode = 'closed';
-        pickerQuery = ''; discoveredInlineAssets = []; isPickerSearching = false;
+        pickerQuery = '';
+        discoveredInlineAssets = [];
+        isPickerSearching = false;
     }
 
     function selectDraftAsset(asset: UnifiedAsset) {
@@ -275,7 +331,11 @@
         }
 
         const secondaries = draftAssets
-            .filter((i) => i.ticker.toUpperCase() !== 'KAS' && i.ticker.toUpperCase() !== cleanTicker)
+            .filter(
+                (i) =>
+                    i.ticker.toUpperCase() !== 'KAS' &&
+                    i.ticker.toUpperCase() !== cleanTicker
+            )
             .slice(0, 3);
         if (cleanTicker !== 'KAS') {
             secondaries.push(toPlantTargetSpec(asset, 0));
@@ -326,7 +386,9 @@
         const secs = draftAssets.filter((i) => i.ticker.toUpperCase() !== 'KAS');
         const clamped = Math.max(1.0, Math.min(49.0, rawPct));
         const remOthers = Math.max(0.5, 50.0 - clamped);
-        const others = secs.filter((s) => s.ticker.toUpperCase() !== changedTicker.toUpperCase());
+        const others = secs.filter(
+            (s) => s.ticker.toUpperCase() !== changedTicker.toUpperCase()
+        );
         const oldSum = others.reduce((acc, o) => acc + Math.max(0.1, o.weightPct), 0);
         const updated = secs.map((s) => {
             if (s.ticker.toUpperCase() === changedTicker.toUpperCase()) {
@@ -366,7 +428,8 @@
                 targetAssets: normalized,
                 plantWeights: weightsMap,
                 plantPair: normalized.map((i) => i.ticker).join('/'),
-                payoutAddress: draftPayoutAddr.trim() || resolveChainAddressForTicker(targetObj.ticker),
+                payoutAddress:
+                    draftPayoutAddr.trim() || resolveChainAddressForTicker(targetObj.ticker),
                 autoPayout: draftAutoPayout,
                 mode: 'epoch',
                 threshold: DEFAULT_RESERVE_PAYOUT_KAS,
@@ -379,11 +442,16 @@
                 targetAsset: targetObj,
                 targetAssets: normalized,
                 plantWeights: weightsMap,
-                plantPair: isPlant ? normalized.map((i) => i.ticker).join('/') : targetObj.ticker,
+                plantPair: isPlant
+                    ? normalized.map((i) => i.ticker).join('/')
+                    : targetObj.ticker,
                 payoutAddress:
                     draftPayoutAddr.trim() || resolveChainAddressForTicker(targetObj.ticker),
                 autoPayout: draftAutoPayout,
-                mode: isPlant || targetObj.ticker.toUpperCase() !== 'KAS' ? 'epoch' : draftMode,
+                mode:
+                    isPlant || targetObj.ticker.toUpperCase() !== 'KAS'
+                        ? 'epoch'
+                        : draftMode,
                 threshold: Math.max(1, Number(draftThreshold) || DEFAULT_RESERVE_PAYOUT_KAS)
             };
 
@@ -393,13 +461,24 @@
                 const nameChanged = nextName !== sector.name;
                 operations.sectors = operations.sectors.map((s) =>
                     s.id === sector.id
-                        ? { ...s, name: nextName, routeMode: nextRouteMode, settlementConfig: nextConfig }
+                        ? {
+                              ...s,
+                              name: nextName,
+                              routeMode: nextRouteMode,
+                              settlementConfig: nextConfig
+                          }
                         : s
                 );
                 if (nameChanged) {
-                    await operations.dispatchStateAction('RENAME_SECTOR', { id: sector.id, name: nextName });
+                    await operations.dispatchStateAction('RENAME_SECTOR', {
+                        id: sector.id,
+                        name: nextName
+                    });
                 }
-                await operations.dispatchStateAction('UPDATE_SETTLEMENT', { id: sector.id, config: nextConfig });
+                await operations.dispatchStateAction('UPDATE_SETTLEMENT', {
+                    id: sector.id,
+                    config: nextConfig
+                });
             }
 
             isEditing = false;
@@ -424,7 +503,7 @@
     ondragover={(e) => onDragOver(e, sector.id)}
     ondragleave={onDragLeave}
     ondrop={(e) => onDrop(e, sector.id)}
-    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[#0c1017] rounded-xl px-3 py-2 flex flex-col gap-1.5 relative {isEditing ? 'cursor-default' : 'cursor-pointer'} min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02] brightness-125' : ''}"
+    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[#0c1017] rounded-xl px-3 py-2 flex flex-col gap-1.5 relative {isEditing ? 'cursor-default' : 'cursor-pointer'} min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02]' : ''}"
     style="border: 1px solid {isEditing ? `${hex}75` : 'rgba(255,255,255,0.08)'}; box-shadow: none;"
 >
     {#if activeBadge}
@@ -455,9 +534,27 @@
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
-            <span class="text-[10px] font-mono text-neutral-300 font-bold whitespace-nowrap tabular-nums">
-                {_num(sectorPendingKas).toFixed(4)} <span class="text-[#18C6A5]">KAS</span>
-            </span>
+            {#if vaultLock}
+                <span
+                    data-testid="sector-vault-badge-{sector.id}"
+                    class="text-[9px] font-mono text-[#18C6A5] bg-[#11161f] border border-[#18C6A5]/35 rounded px-1.5 py-0.5 font-bold whitespace-nowrap tabular-nums"
+                    title={formatVaultStatusLabel(vaultLock.status)}
+                >
+                    Vault {vaultBalanceKas} KAS
+                </span>
+            {:else if onOpenVaultLock}
+                <button
+                    type="button"
+                    onmousedown={(e) => e.stopPropagation()}
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        onOpenVaultLock(sector);
+                    }}
+                    class="text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-[#18C6A5] bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/40 rounded px-1.5 py-0.5 cursor-pointer"
+                >
+                    Lock Vault
+                </button>
+            {/if}
             {#if !isEditing}
                 <button
                     type="button"
@@ -500,7 +597,7 @@
         </div>
     </div>
 
-    <!-- ASSET & TELEMETRY ROW (Click directly to pick asset inline) -->
+    <!-- ASSET & TELEMETRY ROW -->
     <div
         role="button"
         tabindex="0"
@@ -548,7 +645,11 @@
                 >
                     {isLp ? plantPairLabel : isUsdSilo ? 'USD' : targetTicker} ▾
                 </span>
-                {#if !isUsdSilo && sectorExplorerUrl && sectorExplorerUrl !== '#'}
+                {#if latestReceipt}
+                    <span class="text-[7px] font-mono text-neutral-400 truncate">
+                        Last: {formatSettledAssetAmount(latestReceipt.settledAtomic, latestReceipt.targetAsset, 4)} {latestReceipt.targetAsset} • {formatSettlementTierLabel(latestReceipt.settlementTier)}
+                    </span>
+                {:else if !isUsdSilo && sectorExplorerUrl && sectorExplorerUrl !== '#'}
                     <a
                         href={sectorExplorerUrl}
                         target="_blank"
@@ -579,7 +680,12 @@
                       : sector.settlementConfig?.mode || 'epoch'}
             </span>
             <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
-                ~{_num(dailyKas).toFixed(1)} KAS/d <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
+                ~{_num(dailyKas).toFixed(1)} KAS/d
+                {#if livePricingUnavailable}
+                    <span class="text-amber-400">(Live pricing unavailable)</span>
+                {:else}
+                    <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
+                {/if}
             </span>
         </div>
     </div>
@@ -600,7 +706,7 @@
         <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
             <input
                 type="number"
-                value={sector.allocationPercentage}
+                value={allocationPctDisplay}
                 oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
                 onchange={() => onCommitUpdate(sector.id)}
                 class="sector-slim-num w-8 bg-transparent text-white text-[10px] outline-none text-right tabular-nums"
@@ -623,11 +729,11 @@
             min="0"
             max="100"
             step="0.1"
-            value={sector.allocationPercentage}
+            value={allocationPctNumeric}
             oninput={(e) => onSliderInput(sector.id, e)}
             onchange={() => onSliderChange(sector.id)}
             class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
-            style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) {Math.min(100,Math.max(0,_num(sector.allocationPercentage)))}%,rgba(255,255,255,0.08) 100%);"
+            style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) 100%);"
         />
 
         <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
@@ -642,7 +748,7 @@
         </div>
     </div>
 
-    <!-- INLINE EXPANDED SETTINGS DRAWER (No Separate Screen) -->
+    <!-- INLINE EXPANDED SETTINGS DRAWER -->
     {#if isEditing}
         <div
             data-testid="sector-inline-editor-{sector.id}"
@@ -658,7 +764,6 @@
             class="mt-1.5 pt-2.5 border-t border-white/10 flex flex-col gap-2.5 font-mono"
         >
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <!-- NAME -->
                 <div class="flex flex-col gap-1">
                     <label
                         for="inline-name-{sector.id}"
@@ -675,7 +780,6 @@
                     />
                 </div>
 
-                <!-- DESTINATION ADDRESS -->
                 <div class="flex flex-col gap-1">
                     <label
                         for="inline-dest-{sector.id}"
@@ -693,7 +797,6 @@
                 </div>
             </div>
 
-            <!-- GET PAID IN / POOL PAIRS -->
             {#if !isDraftPlant}
                 <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <button
@@ -802,8 +905,7 @@
                 </div>
             {/if}
 
-            <!-- INLINE SEARCHABLE TOKEN PICKER -->
-            {#if pickerMode !== "closed"}
+            {#if pickerMode !== 'closed'}
                 <div class="bg-[#06080b] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col gap-2">
                     <div class="flex flex-wrap items-center gap-1.5">
                         <div class="relative flex-1 min-w-[170px] flex items-center">
@@ -813,10 +915,11 @@
                                 value={pickerQuery}
                                 onmousedown={(e) => e.stopPropagation()}
                                 ontouchstart={(e) => e.stopPropagation()}
-                                oninput={(e) => handleInlinePickerInput((e.currentTarget as HTMLInputElement).value)}
+                                oninput={(e) =>
+                                    handleInlinePickerInput((e.currentTarget as HTMLInputElement).value)}
                                 onkeydown={(e) => {
                                     e.stopPropagation();
-                                    if (e.key === "Enter") {
+                                    if (e.key === 'Enter') {
                                         e.preventDefault();
                                         if (filteredAssets.length > 0) selectDraftAsset(filteredAssets[0]);
                                         else selectCustomInlineTicker();
@@ -826,39 +929,83 @@
                                 class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5] rounded-lg pl-2.5 pr-7 py-1.5 text-[10px] text-white outline-none"
                             />
                             {#if pickerQuery}
-                                <button type="button" onclick={() => { pickerQuery = ""; discoveredInlineAssets = []; isPickerSearching = false; }} class="absolute right-2 text-neutral-400 hover:text-white text-xs cursor-pointer">&times;</button>
+                                <button
+                                    type="button"
+                                    onclick={() => {
+                                        pickerQuery = '';
+                                        discoveredInlineAssets = [];
+                                        isPickerSearching = false;
+                                    }}
+                                    class="absolute right-2 text-neutral-400 hover:text-white text-xs cursor-pointer"
+                                >
+                                    &times;
+                                </button>
                             {/if}
                         </div>
                         {#each [
-                            { id: "ALL", label: "All" },
-                            { id: "CRYPTO", label: "Crypto" },
-                            { id: "EQUITIES", label: "Stocks" },
-                            { id: "COMMODITIES", label: "Gold" },
-                            { id: "MINEABLE", label: "KRC-20" }
+                            { id: 'ALL', label: 'All' },
+                            { id: 'CRYPTO', label: 'Crypto' },
+                            { id: 'EQUITIES', label: 'Stocks' },
+                            { id: 'COMMODITIES', label: 'Gold' },
+                            { id: 'MINEABLE', label: 'KRC-20' }
                         ] as cat (cat.id)}
-                            <button type="button" onclick={() => (pickerCategory = cat.id as any)} class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-400 hover:text-white border border-white/5'}">{cat.label}</button>
+                            <button
+                                type="button"
+                                onclick={() => (pickerCategory = cat.id as typeof pickerCategory)}
+                                class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-400 hover:text-white border border-white/5'}"
+                            >
+                                {cat.label}
+                            </button>
                         {/each}
                     </div>
                     {#if isPickerSearching}
-                        <span class="text-[8px] font-bold uppercase tracking-wider text-[#18C6A5] px-1 animate-pulse">Searching Oracle &amp; KRC-20 Indexer...</span>
+                        <span class="text-[8px] font-bold uppercase tracking-wider text-[#18C6A5] px-1 animate-pulse">
+                            Searching Live Price Feeds...
+                        </span>
                     {/if}
                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-[176px] overflow-y-auto pr-0.5">
                         {#if filteredAssets.length === 0 && !isPickerSearching}
                             <div class="col-span-full py-3 text-center flex flex-col items-center gap-2">
-                                <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500">No indexed feed for "{pickerQuery.trim()}"</span>
+                                <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500">
+                                    No indexed feed for "{pickerQuery.trim()}"
+                                </span>
                                 {#if /^[A-Za-z0-9]{2,10}$/.test(pickerQuery.trim())}
-                                    <button type="button" onclick={selectCustomInlineTicker} class="tactile-btn px-3 py-1 rounded-lg border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer">+ Add {pickerQuery.trim().toUpperCase()}</button>
+                                    <button
+                                        type="button"
+                                        onclick={selectCustomInlineTicker}
+                                        class="tactile-btn px-3 py-1 rounded-lg border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer"
+                                    >
+                                        + Add {pickerQuery.trim().toUpperCase()}
+                                    </button>
                                 {/if}
                             </div>
                         {/if}
                         {#each filteredAssets as asset (asset.ticker)}
-                            <button type="button" onclick={() => { pickerQuery = ""; discoveredInlineAssets = []; selectDraftAsset(asset); }} class="bg-[#11161f] hover:bg-[#161d29] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer">
+                            <button
+                                type="button"
+                                onclick={() => {
+                                    pickerQuery = '';
+                                    discoveredInlineAssets = [];
+                                    selectDraftAsset(asset);
+                                }}
+                                class="bg-[#11161f] hover:bg-[#161d29] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer"
+                            >
                                 <div class="flex flex-col min-w-0">
-                                    <span class="text-[10px] font-black text-white uppercase truncate">{asset.ticker}</span>
-                                    <span class="text-[8px] text-neutral-400 truncate">{asset.name}</span>
+                                    <span class="text-[10px] font-black text-white uppercase truncate">
+                                        {asset.ticker}
+                                    </span>
+                                    <span class="text-[8px] text-neutral-400 truncate">
+                                        {asset.name}
+                                    </span>
                                 </div>
-                                {#if asset.spotPrice > 0}
-                                    <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">${asset.spotPrice < 1 ? asset.spotPrice.toFixed(4) : asset.spotPrice.toFixed(2)}</span>
+                                {#if livePricingUnavailable}
+                                    <span class="text-[8px] font-bold text-amber-400 shrink-0">
+                                        Live pricing unavailable
+                                    </span>
+                                {:else if asset.spotPrice > 0}
+                                    <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">
+                                        ${asset.spotPrice < 1 ? asset.spotPrice.toFixed(4) : asset.spotPrice.toFixed(2)}
+                                    </span>
                                 {/if}
                             </button>
                         {/each}
@@ -866,7 +1013,7 @@
                 </div>
             {/if}
 
-            <!-- KAS DIRECT PAYOUT SCHEDULE + PENDING MOVE TO KAS + SAVE BAR -->
+            <!-- PAYOUT SCHEDULE + SELF-CUSTODY VAULT LOCK + SAVE BAR -->
             <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <div class="flex flex-wrap items-center gap-2">
                     {#if !isDraftPlant && draftPrimaryAsset.ticker.toUpperCase() === 'KAS'}
@@ -888,14 +1035,13 @@
                         </div>
                     {/if}
 
-                    {#if sectorPendingKas > 0 && onClaimPendingSectorKas}
+                    {#if onOpenVaultLock}
                         <button
                             type="button"
-                            onclick={() => onClaimPendingSectorKas({ sectorId: sector.id })}
-                            disabled={isPullingOutKey === sector.id}
-                            class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-white/15 hover:border-[#18C6A5]/50 text-[9px] font-black uppercase tracking-wider text-neutral-200 hover:text-white cursor-pointer disabled:opacity-40 tabular-nums"
+                            onclick={() => onOpenVaultLock(sector)}
+                            class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-white/15 hover:border-[#18C6A5]/50 text-[9px] font-black uppercase tracking-wider text-neutral-200 hover:text-white cursor-pointer"
                         >
-                            Move {sectorPendingKas.toFixed(4)} KAS → KAS
+                            {vaultLock ? 'Manage Vault Lock' : 'Create Self-Custody Vault'}
                         </button>
                     {/if}
                 </div>

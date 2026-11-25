@@ -94,7 +94,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
         bullets: [
             'Click [Boost +XX.X KAS in DEX] on any filling bucket to route the exact shortfall into the DEX',
             'Incoming DEX swaps act as the Anchor order and immediately sweep layered miner buckets on top',
-            'Unconverted KAS can be claimed directly to your Platform Balance at any time with 0 gas'
+            'Mature miner rewards flush automatically directly to your self-custody L1 wallet or active vault locks'
         ],
         tab: 'OPERATIONS',
         targetSelector: '[data-testid="global-pool-buckets-list"]',
@@ -110,10 +110,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
         title: '0.10% Wholesale Floor & Cheapest KAS',
         subtitle: 'Direct Self-Custody Delivery & ABA Mod-10 Verification',
         description:
-            'Perennia LLC never takes custody of customer swap principal. All swaps and on-ramp conversions enforce a strict 0.10% hard profit floor on top of rail costs for active miners, monthly pass subscribers, and the kickoff promo cohort (0.15% standard public tier).',
+            'Perennia LLC never takes custody of customer swap principal. All swaps and on-ramp conversions enforce a strict 0.10% hard profit floor on top of rail costs for active miners, monthly pass subscribers, and the kickoff promo cohort (0.20% standard public tier).',
         bullets: [
             'Instant 9-digit Federal Reserve ABA Mod-10 routing checksum verification',
-            'Direct delivery to your self-custody Kaspa L1 wallet or 1-click SILO auto-staking',
+            'Direct delivery to your self-custody Kaspa L1 wallet or hardware cold storage',
             'Downloadable PDF wire slips and ACH settlement receipts compiled locally in your browser'
         ],
         tab: 'DEX',
@@ -133,7 +133,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
             'Your 24-word BIP-39 mnemonic derives native keys across 11 blockchains (KAS, BTC, ETH, SOL, XRP, DOGE, POL, AVAX, SUI, TRX, ZEC) 100% locally in your browser. Configure per-token Cold Storage Airlock rules to automatically sweep excess balances to your hardware wallet.',
         bullets: [
             'Zero private keys or seed phrases ever leave your browser memory',
-            'HMAC-SHA256 row signatures protect your platform yield reservoir against tampering',
+            'Deterministic self-custody vault locks allow 24/7 owner cancellation with 0 custodial lock-in',
             '60-second Chronos Airlock daemon automatically dispatches overflow above your ceiling'
         ],
         tab: 'TREASURY',

@@ -21,10 +21,18 @@
         downloadWireSlipPdf,
         computeOnrampCostPlusQuote,
         calculateDirectionalSwapQuote,
+        buildNonCustodialSwapAmountAtomic,
+        dexAtomicDecimals,
+        formatSorQuoteDisplay,
         type LpPosition,
         type SecondaryPlantLeg,
         type SiloStakePosition
     } from '$lib/components/dex/dexHelpers';
+    import {
+        LIVE_PRICING_UNAVAILABLE_MESSAGE,
+        formatAtomicToDecimal,
+        parseKasDecimalToSompi
+    } from '$lib/crypto/atomicMath';
 
     type DexTab = 'swap' | 'liquidity' | 'p2p' | 'fiat';
     type TokenModalMode =
@@ -222,19 +230,69 @@
 
     let paySpotUsd = $derived(resolveLiveSpotUsd(payTicker));
     let receiveSpotUsd = $derived(resolveLiveSpotUsd(receiveTicker));
+    let swapQuote503 = $state(false);
+    let serverSorQuote = $state<Record<string, any> | null>(null);
+    let livePricingUnavailable = $derived(
+        Boolean(treasury.livePricingUnavailable) ||
+            paySpotUsd <= 0 ||
+            receiveSpotUsd <= 0 ||
+            swapQuote503
+    );
 
     let isActiveMiner = $derived((operations.workers || []).some((w) => w.isOnline && w.hashRate > 0));
     let swapQuote = $derived.by(() => {
         const parsedIn = Math.max(0, parseFloat(payAmount) || 0);
+        if (paySpotUsd <= 0 || receiveSpotUsd <= 0 || treasury.livePricingUnavailable) {
+            return { grossUsd: 0, protocolFeeUsd: 0, networkGasUsd: 0, feeUsd: 0, netUsd: 0, estimatedOut: 0, exchangeRate: 0, feeRateDecimal: 0, isDarkPoolPair: true, livePricingUnavailable: true };
+        }
         if (payTicker === 'USD') {
             const rateRatio = paySpotUsd > 0 && receiveSpotUsd > 0 ? paySpotUsd / receiveSpotUsd : 0;
-            if (parsedIn <= 0 || receiveSpotUsd <= 0) return { grossUsd: 0, protocolFeeUsd: 0, networkGasUsd: 0, feeUsd: 0, netUsd: 0, estimatedOut: 0, exchangeRate: rateRatio, feeRateDecimal: 0.0085, isDarkPoolPair: true };
+            if (parsedIn <= 0 || receiveSpotUsd <= 0) return { grossUsd: 0, protocolFeeUsd: 0, networkGasUsd: 0, feeUsd: 0, netUsd: 0, estimatedOut: 0, exchangeRate: rateRatio, feeRateDecimal: 0.0085, isDarkPoolPair: true, livePricingUnavailable: false };
             const q = computeOnrampCostPlusQuote({ assetTicker: receiveTicker, grossUsd: parsedIn, spotPriceUsd: receiveSpotUsd, wholesaleFloorActive: isActiveMiner, bundledKasOrSilo: receiveTicker === 'KAS' || receiveTicker === DEFAULT_ECOSYSTEM_TICKER });
-            return { grossUsd: q.grossUsd, protocolFeeUsd: q.perenniaFeeUsd, networkGasUsd: q.stripeGatewayFeeUsd, feeUsd: q.feeUsd, netUsd: q.guestNetUsd, estimatedOut: q.estimatedTokens, exchangeRate: rateRatio, feeRateDecimal: q.tierBps / 10000, isDarkPoolPair: true };
+            return { grossUsd: q.grossUsd, protocolFeeUsd: q.perenniaFeeUsd, networkGasUsd: q.stripeGatewayFeeUsd, feeUsd: q.feeUsd, netUsd: q.guestNetUsd, estimatedOut: q.estimatedTokens, exchangeRate: rateRatio, feeRateDecimal: q.tierBps / 10000, isDarkPoolPair: true, livePricingUnavailable: false };
         }
-        return calculateDirectionalSwapQuote({ payTicker, receiveTicker, payAmount: parsedIn, paySpotUsd, receiveSpotUsd, isActiveMiner, siloFeeCap: siloStakingTelemetry.feeRateCap, hasStakedSilo: Number(siloStakingTelemetry.combinedEligibleStaked || 0) > 0 });
+        return {
+            ...calculateDirectionalSwapQuote({ payTicker, receiveTicker, payAmount: parsedIn, paySpotUsd, receiveSpotUsd, isActiveMiner, siloFeeCap: siloStakingTelemetry.feeRateCap, hasStakedSilo: Number(siloStakingTelemetry.combinedEligibleStaked || 0) > 0 }),
+            livePricingUnavailable: false
+        };
     });
     let activeFeeRateDecimal = $derived(swapQuote.feeRateDecimal);
+
+    $effect(() => {
+        if (!browser) return;
+        const rawAmt = String(payAmount || '').trim();
+        if (!rawAmt || parseFloat(rawAmt) <= 0 || payTicker === receiveTicker || payTicker === 'USD' || receiveTicker === 'USD') {
+            serverSorQuote = null;
+            swapQuote503 = false;
+            return;
+        }
+        const ctrl = new AbortController();
+        const timer = setTimeout(async () => {
+            try {
+                const qRes = await fetch(
+                    `/api/sor/swap?payAsset=${encodeURIComponent(payTicker)}&receiveAsset=${encodeURIComponent(receiveTicker)}&amount=${encodeURIComponent(rawAmt)}`,
+                    { signal: ctrl.signal }
+                );
+                const qData = await qRes.json().catch(() => ({}));
+                if (qRes.status === 503 || qData?.livePricingUnavailable) {
+                    swapQuote503 = true;
+                    serverSorQuote = null;
+                    treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                    return;
+                }
+                if (qRes.ok && qData) {
+                    swapQuote503 = false;
+                    serverSorQuote = qData;
+                }
+            } catch {
+                // Keep fail-closed store state on transient abort
+            }
+        }, 180);
+        return () => {
+            clearTimeout(timer);
+            ctrl.abort();
+        };
+    });
 
     function formatSpotPriceDisplay(price: number): string {
         if (!Number.isFinite(price) || price <= 0) return '$0.00';
@@ -417,17 +475,14 @@
             if (identity.isWalletConnected && identity.activeAddress) {
                 requests.push(
                     fetch(
-                        `/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`
-                    ).catch(() => null),
-                    fetch(
                         `/api/balance?address=${encodeURIComponent(identity.activeAddress)}`
                     ).catch(() => null),
                     fetch('/api/state/action', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            action: 'GET_LP_POSITIONS',
-                            payload: {}
+                            action: 'GET_VAULT_LOCKS',
+                            payload: { walletAddress: identity.activeAddress }
                         })
                     }).catch(() => null),
                     fetch('/api/state/action', {
@@ -435,12 +490,12 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             action: 'GET_SILO_STAKING',
-                            payload: {}
+                            payload: { walletAddress: identity.activeAddress }
                         })
                     }).catch(() => null)
                 );
             }
-            const [p2pRes, ledgerRes, balRes, lpRes, siloRes] =
+            const [p2pRes, balRes, vaultRes, siloRes] =
                 await Promise.all(requests);
 
             if (p2pRes && p2pRes.ok) {
@@ -473,35 +528,65 @@
                 });
             }
 
-            if (ledgerRes && ledgerRes.ok) {
-                const ledgerData = await ledgerRes.json();
-                for (const [ticker, val] of Object.entries(ledgerData)) {
-                    if (
-                        ticker !== 'unassignedReserveKas' &&
-                        ticker !== 'unassignedReserveTargetKas'
-                    ) {
-                        treasury.updateAsset(ticker.toUpperCase(), {
-                            synthetic: Number(val) || 0
-                        });
-                    }
-                }
-            }
             if (balRes && balRes.ok) {
                 const balData = await balRes.json();
                 if (typeof balData.balance === 'number') {
-                    treasury.updateAsset('KAS', { onChain: balData.balance });
+                    treasury.updateAsset('KAS', { onChain: balData.balance, synthetic: 0 });
                 }
             }
-            if (lpRes && lpRes.ok) {
-                const lpData = await lpRes.json();
-                if (Array.isArray(lpData.data)) {
-                    lpPositions = Array.isArray(lpData.data) ? lpData.data.map((r: any) => ({ ...r, poolPair: r.poolPair || `${r.tickerA || 'KAS'}/${r.tickerB || 'USDC'}`, amountA: Number(r.amountA ?? r.kasAmount ?? r.kas_amount ?? 0), amountB: Number(r.amountB ?? r.tokenAmount ?? r.token_amount ?? 0), usdValue: Number(r.usdValue ?? r.usd_value ?? 0) })) : [];
-                }
+            if (vaultRes && vaultRes.ok) {
+                const vData = await vaultRes.json();
+                const rawLocks = Array.isArray(vData?.data?.vaultLocks)
+                    ? vData.data.vaultLocks
+                    : Array.isArray(vData?.data)
+                      ? vData.data
+                      : [];
+                const makerLocks = rawLocks.filter(
+                    (l: any) => String(l.vaultKind || '').toUpperCase() === 'MAKER_PLANT'
+                );
+                lpPositions = makerLocks.map((r: any) => {
+                    const threshKas = r.thresholdSompi
+                        ? Number(formatAtomicToDecimal(String(r.thresholdSompi), 8))
+                        : Number(r.thresholdKas || 0);
+                    return {
+                        id: String(r.vaultId || r.id || ''),
+                        lpId: String(r.vaultId || r.id || ''),
+                        poolPair: `KAS/${String(r.targetAsset || 'USDC').toUpperCase()}`,
+                        amountA: threshKas,
+                        amountB: 0,
+                        usdValue: Number((threshKas * resolveLiveSpotUsd('KAS')).toFixed(2)),
+                        isLocked: String(r.status || 'ACTIVE').toUpperCase() === 'ACTIVE',
+                        stakedAssetA: threshKas,
+                        stakedAssetB: 0,
+                        lockDurationDays: Number(r.lockDurationDays || 0),
+                        unlockDate: r.expiresAt || null,
+                        createdAt: r.createdAt || null,
+                        isUnlocked: String(r.status || '').toUpperCase() !== 'ACTIVE',
+                        multiplier: 1,
+                        weightedTvl: threshKas
+                    };
+                });
             }
             if (siloRes && siloRes.ok) {
                 const siloData = await siloRes.json();
                 if (siloData.data) {
-                    siloStakingTelemetry = { ...siloStakingTelemetry, ...siloData.data, combinedEligibleStaked: Number(siloData.data.combinedEligibleStaked ?? siloStakingTelemetry.combinedEligibleStaked ?? 0), feeRateCap: Number(siloData.data.feeRateCap ?? siloStakingTelemetry.feeRateCap ?? 0.005), positions: Array.isArray(siloData.data.positions) ? siloData.data.positions : [] };
+                    siloStakingTelemetry = {
+                        ...siloStakingTelemetry,
+                        ...siloData.data,
+                        combinedEligibleStaked: Number(
+                            siloData.data.combinedEligibleStaked ??
+                                siloStakingTelemetry.combinedEligibleStaked ??
+                                0
+                        ),
+                        feeRateCap: Number(
+                            siloData.data.feeRateCap ??
+                                siloStakingTelemetry.feeRateCap ??
+                                0.005
+                        ),
+                        positions: Array.isArray(siloData.data.positions)
+                            ? siloData.data.positions
+                            : []
+                    };
                 }
             }
         } catch {
@@ -530,17 +615,13 @@
             swapError = 'Pay asset and Receive asset must differ.';
             return;
         }
-        if (paySpotUsd <= 0 || receiveSpotUsd <= 0) {
-            swapError = `Live oracle price feed for ${paySpotUsd <= 0 ? payTicker : receiveTicker} is offline; failing closed.`;
+        if (livePricingUnavailable || paySpotUsd <= 0 || receiveSpotUsd <= 0) {
+            swapError = LIVE_PRICING_UNAVAILABLE_MESSAGE;
             return;
         }
 
         if (payTicker === 'USD') {
-            ui.openFiatModal(
-                receiveTicker,
-                receiveTicker === DEFAULT_ECOSYSTEM_TICKER,
-                payAmount
-            );
+            ui.openFiatModal(receiveTicker, false, payAmount);
             return;
         }
         if (receiveTicker === 'USD') {
@@ -548,83 +629,71 @@
             return;
         }
 
-        const ledgerAvail = Number(payToken.synthetic || 0);
         const onChainAvail = Number(payToken.onChain || 0);
-        const totalAvail = ledgerAvail + onChainAvail;
-
-        if (
-            !ui.isTutorialSandbox &&
-            parsedAmount > totalAvail + 1e-8
-        ) {
-            swapError = `Insufficient ${payTicker} balance: requested ${parsedAmount.toFixed(4)} ${payTicker}, available ${totalAvail.toFixed(4)} ${payTicker}.`;
+        if (!ui.isTutorialSandbox && parsedAmount > onChainAvail + 1e-8) {
+            swapError = `Insufficient ${payTicker} balance in your self-custody wallet (${onChainAvail.toFixed(4)} ${payTicker} available).`;
             return;
         }
 
-        if (
-!ui.isTutorialSandbox &&
-parsedAmount > ledgerAvail + 1e-8 &&
-parsedAmount > onChainAvail + 1e-8
-) {
-swapError = `Split ${payTicker} balance cannot be combined in one leg: max ${ledgerAvail.toFixed(4)} ${payTicker} in Vault or ${onChainAvail.toFixed(4)} ${payTicker} On-Chain.`;
-return;
-}
+        let amountAtomic = '0';
+        try {
+            amountAtomic = buildNonCustodialSwapAmountAtomic(String(payAmount), payTicker);
+        } catch {
+            swapError = 'Enter a valid swap amount.';
+            return;
+        }
+        if (amountAtomic === '0') {
+            swapError = 'Enter a valid swap amount greater than 0.';
+            return;
+        }
 
-const useOnChain =
-!ui.isTutorialSandbox &&
-ledgerAvail + 1e-8 < parsedAmount &&
-onChainAvail + 1e-8 >= parsedAmount;
+        const slippageBps = Math.max(1, Math.min(5000, Math.round(Number(slippagePct || 0.5) * 100)));
+        const resolvedDestAddr =
+            receiveToken.network === 'ETH' || receiveToken.network === 'BASE' || receiveToken.network === 'ARB'
+                ? identity.sovereignKeys?.ethereum?.address || identity.activeAddress
+                : receiveToken.network === 'SOL'
+                  ? identity.sovereignKeys?.solana?.address || identity.activeAddress
+                  : receiveToken.network === 'BTC'
+                    ? identity.sovereignKeys?.bitcoin?.address || identity.activeAddress
+                    : identity.activeAddress;
 
-if (useOnChain) {
-txState.lastTxId = '';
-txState.lastExplorerUrl = '';
-pendingOnchainSwapSummary = {
-payAsset: payTicker,
-payAmount: parsedAmount,
-receiveAsset: receiveTicker,
-estimatedOut: swapQuote.estimatedOut
-};
-awaitingOnchainSwapSignature = true;
-requestUniversalL1Signature({
-intentType: 'DEX_SWAP',
-payAsset: payTicker,
-network: payToken.network,
-contractAddress: payToken.contract,
-decimals: payToken.decimals,
-payAmount: parsedAmount,
-receiveAsset: receiveTicker,
-estimatedReceiveAmount: swapQuote.estimatedOut,
-destinationAddress: ''
-});
-return;
-}
-
-isExecuting = true;
-try {
-const res = await fetch('/api/sor/swap', {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({
-wallet: identity.activeAddress,
-payAsset: payTicker,
-receiveAsset: receiveTicker,
-payAmount: parsedAmount,
-amount: parsedAmount,
-executionMode: 'INSTANT_SOR',
-fundingSource: 'LEDGER'
+        isExecuting = true;
+        try {
+            const res = await fetch('/api/sor/swap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: identity.activeAddress,
+                    payAsset: payTicker,
+                    receiveAsset: receiveTicker,
+                    targetNetwork: receiveToken.network || 'KAS',
+                    destinationAddress: resolvedDestAddr,
+                    refundKaspaAddress: identity.activeAddress,
+                    amountAtomic,
+                    slippageBps
                 })
             });
 
             const data = await res.json().catch(() => ({}));
+            if (res.status === 503 || data?.livePricingUnavailable) {
+                swapQuote503 = true;
+                treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            }
             if (!res.ok || data.error) {
-                throw new Error(
-                    data.error || 'Swap execution rejected by router.'
-                );
+                throw new Error(data.uiMessage || data.error || 'Swap route unavailable.');
             }
 
+            const formattedQuote = formatSorQuoteDisplay(data, payTicker, receiveTicker);
+            const estOutNum = Number(formattedQuote.estimatedOutDecimal || swapQuote.estimatedOut || 0);
+            const routeType = String(data.routeType || 'L1_COW_ATOMIC_PSKT');
+
             if (
-                data.psbt &&
-                Array.isArray(data.psbt.inputs) &&
-                data.psbt.inputs.length > 0
+                (routeType === 'L1_COW_ATOMIC_PSKT' ||
+                    routeType === 'CROSS_CHAIN_OPSHA256_HTLC' ||
+                    routeType === 'TIER3_CHANGENOW_SPLIT_PSKT') &&
+                data.pskt &&
+                Array.isArray(data.pskt.inputs)
             ) {
                 txState.lastTxId = '';
                 txState.lastExplorerUrl = '';
@@ -632,54 +701,65 @@ fundingSource: 'LEDGER'
                     payAsset: payTicker,
                     payAmount: parsedAmount,
                     receiveAsset: receiveTicker,
-                    estimatedOut: Number(
-                        data.receivedAmount ??
-                            data.estimatedOutput ??
-                            data.estimated_output ??
-                            swapQuote.estimatedOut
-                    )
+                    estimatedOut: estOutNum
                 };
                 awaitingOnchainSwapSignature = true;
                 identity.requestVaultAuthorization({
-                    actionType: 'SWAP',
+                    actionType: 'SOR_PSKT',
+                    routeType,
+                    transactionUuid: data.transactionUuid,
                     payAsset: payTicker,
                     receiveAsset: receiveTicker,
-                    payAmount: parsedAmount.toString(),
-                    psbtData: {
-                        psbt: data.psbt,
-                        formattedUtxos: data.formattedUtxos || clientUtxos || []
-                    }
+                    payAmount: String(payAmount),
+                    estimatedOutput: formattedQuote.estimatedOutDecimal,
+                    destinationAddress: resolvedDestAddr,
+                    pskt: data.pskt,
+                    htlcCovenant: data.htlcCovenant ?? null,
+                    formattedUtxos: data.formattedUtxos || []
+                });
+                ui.showWalletModal = true;
+                return;
+            }
+
+            if (routeType === 'CROSS_CHAIN_DEPOSIT_INTENT') {
+                const depositAddr = String(
+                    data.depositIntent?.inboundDepositAddress ||
+                        data.inboundDepositAddress ||
+                        resolvedDestAddr
+                );
+                txState.lastTxId = '';
+                txState.lastExplorerUrl = '';
+                pendingOnchainSwapSummary = {
+                    payAsset: payTicker,
+                    payAmount: parsedAmount,
+                    receiveAsset: receiveTicker,
+                    estimatedOut: estOutNum
+                };
+                awaitingOnchainSwapSignature = true;
+                requestUniversalL1Signature({
+                    intentType: 'DEX_SWAP',
+                    payAsset: payTicker,
+                    network: payToken.network,
+                    contractAddress: payToken.contract,
+                    decimals: payToken.decimals || dexAtomicDecimals(payTicker),
+                    payAmount: parsedAmount,
+                    receiveAsset: receiveTicker,
+                    estimatedReceiveAmount: estOutNum,
+                    destinationAddress: depositAddr
                 });
                 return;
             }
 
-            const outQty = Number(
-                data.receivedAmount ??
-                    data.estimatedOutput ??
-                    data.estimated_output ??
-                    swapQuote.estimatedOut
-            );
-            const txRef = String(
-                data.txHash ||
-                    data.orderId ||
-                    data.transaction_uuid ||
-                    ''
-            );
+            const txRef = String(data.txHash || data.orderId || data.transactionUuid || '');
             lastSwapTxHash = txRef || null;
-            lastSwapExplorerUrl = txRef
-                ? getChainExplorerTxUrl(receiveTicker, txRef)
-                : null;
-            swapSuccessBanner = `Execution Confirmed: ${parsedAmount.toLocaleString()} ${payTicker} → ${outQty.toFixed(6)} ${receiveTicker} ✓`;
+            lastSwapExplorerUrl = txRef ? getChainExplorerTxUrl(receiveTicker, txRef) : null;
+            swapSuccessBanner = `Swap Submitted: ${parsedAmount.toLocaleString()} ${payTicker} → ${formattedQuote.estimatedOutDecimal} ${receiveTicker} ✓`;
             payAmount = '';
             triggerTileSweep();
-            ui.triggerMicroBadge(
-                'dex_swap_btn',
-                `${payTicker} → ${receiveTicker} CONFIRMED ✓`,
-                '#18C6A5'
-            );
+            ui.triggerMicroBadge('dex_swap_btn', `${payTicker} → ${receiveTicker} SUBMITTED ✓`, '#18C6A5');
             await syncUserBalances();
         } catch (err: any) {
-            swapError = err.message || 'Swap execution failed.';
+            swapError = err?.message || 'Swap execution failed.';
         } finally {
             if (!awaitingOnchainSwapSignature) {
                 isExecuting = false;
@@ -813,87 +893,64 @@ fundingSource: 'LEDGER'
     }
 
     async function executeSupplyLiquidity() {
-		swapError = null;
-		if (!identity.isWalletConnected) { ui.showWalletModal = true; return; }
-		if ((parseFloat(lpAmountA) || 0) > 0 && !(parseFloat(lpAmountB) > 0) && Number(lpTokenA?.spotPrice) > 0 && Number(lpTokenB?.spotPrice) > 0) {
-			const calcB = ((parseFloat(lpAmountA) * Number(lpTokenA.spotPrice)) * ((Number(lpWeightPctB) || 50) / 50)) / Number(lpTokenB.spotPrice);
-			lpAmountB = calcB >= 1 ? calcB.toFixed(2) : Number(calcB.toPrecision(4)).toString();
-		}
+        swapError = null;
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
+        if (livePricingUnavailable) {
+            swapError = LIVE_PRICING_UNAVAILABLE_MESSAGE;
+            return;
+        }
         const amtA = parseFloat(lpAmountA) || 0;
-        const amtB = parseFloat(lpAmountB) || 0;
-        if (amtA <= 0 || amtB <= 0) {
-            swapError = 'Enter valid liquidity amounts greater than 0.';
+        if (amtA <= 0) {
+            swapError = 'Enter a valid KAS amount greater than 0.';
             return;
         }
         isProvidingLiquidity = true;
         try {
-            const lockOpt =
-                LOCK_OPTIONS[lockDurationIndex] || LOCK_OPTIONS[0];
-            const pairSummary = [
-                'KAS',
-                lpTokenBTicker,
-                ...extraPlantLegs.map((l) => l.ticker)
-            ].join('/');
-            const weights: Record<string, number> = {
-                KAS: 0.5,
-                [lpTokenBTicker]: Number((lpWeightPctB / 100).toFixed(4))
-            };
-            const reserves: Record<string, number> = {
-                KAS: amtA,
-                [lpTokenBTicker]: amtB
-            };
-            const secondaryAssets: Array<{
-                ticker: string;
-                weightPct: number;
-                amount: number;
-            }> = [
-                {
-                    ticker: lpTokenBTicker,
-                    weightPct: lpWeightPctB,
-                    amount: amtB
-                }
-            ];
-            for (const leg of extraPlantLegs) {
-                weights[leg.ticker] = Number((leg.weightPct / 100).toFixed(4));
-                reserves[leg.ticker] = parseFloat(leg.amount) || 0;
-                secondaryAssets.push({
-                    ticker: leg.ticker,
-                    weightPct: leg.weightPct,
-                    amount: parseFloat(leg.amount) || 0
-                });
-            }
+            const thresholdSompi = parseKasDecimalToSompi(String(lpAmountA), 'floor').toString();
+            const destAddr =
+                lpTokenB.network === 'ETH' || lpTokenB.network === 'BASE' || lpTokenB.network === 'ARB'
+                    ? identity.sovereignKeys?.ethereum?.address || identity.activeAddress
+                    : lpTokenB.network === 'SOL'
+                      ? identity.sovereignKeys?.solana?.address || identity.activeAddress
+                      : lpTokenB.network === 'BTC'
+                        ? identity.sovereignKeys?.bitcoin?.address || identity.activeAddress
+                        : identity.activeAddress;
             const res = await fetch('/api/state/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'STAKE_LP',
+                    action: 'REGISTER_VAULT_LOCK',
                     payload: {
-                        poolPair: pairSummary,
-                        amountA: amtA,
-                        amountB: amtB,
-                        lockDurationDays: lockOpt.days,
-                        weights,
-                        reserves,
-                        secondaryAssets
+                        walletAddress: identity.activeAddress,
+                        vaultKind: 'MAKER_PLANT',
+                        targetAsset: lpTokenBTicker,
+                        targetNetwork: lpTokenB.network || 'KAS',
+                        thresholdSompi,
+                        makerSpreadBps: 50,
+                        destinationAddress: destAddr,
+                        refundKaspaAddress: identity.activeAddress
                     }
                 })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || data.error || data.success === false) {
                 throw new Error(
-                    data.error || 'Failed to provision liquidity plant.'
+                    data.uiMessage || data.error || 'Failed to register maker liquidity vault.'
                 );
             }
             lpAmountA = '';
             lpAmountB = '';
             ui.triggerMicroBadge(
                 'dex_lp_stake_btn',
-                `${pairSummary} STAKED ✓`,
+                `KAS/${lpTokenBTicker} VAULT ACTIVE ✓`,
                 '#18C6A5'
             );
             await syncUserBalances();
         } catch (err: any) {
-            swapError = err.message || 'Liquidity provisioning failed.';
+            swapError = err?.message || 'Maker vault registration failed.';
         } finally {
             isProvidingLiquidity = false;
         }
@@ -901,26 +958,39 @@ fundingSource: 'LEDGER'
 
     async function withdrawLpPosition(lpId: string) {
         swapError = null;
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
         isWithdrawingLp = lpId;
         try {
             const res = await fetch('/api/state/action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'WITHDRAW_LP',
-                    payload: { lpId }
+                    action: 'BUILD_VAULT_CANCEL_PSKT',
+                    payload: {
+                        vaultId: lpId,
+                        walletAddress: identity.activeAddress
+                    }
                 })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || data.error || data.success === false) {
                 throw new Error(
-                    data.error || 'Failed to withdraw LP position.'
+                    data.uiMessage || data.error || 'Failed to prepare vault cancellation.'
                 );
             }
-            ui.triggerMicroBadge(`lp_pos_${lpId}`, 'WITHDRAWN ✓', '#18C6A5');
+            identity.requestVaultAuthorization({
+                actionType: 'VAULT_CANCEL',
+                vaultId: lpId,
+                pskt: data.data?.pskt ?? data.pskt,
+                storageMass: data.data?.storageMass ?? data.storageMass
+            });
+            ui.showWalletModal = true;
             await syncUserBalances();
         } catch (err: any) {
-            swapError = err.message || 'LP withdrawal failed.';
+            swapError = err?.message || 'Vault cancellation failed.';
         } finally {
             isWithdrawingLp = null;
         }
@@ -928,9 +998,13 @@ fundingSource: 'LEDGER'
 
     async function executeStakeSilo() {
         swapError = null;
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
         const amt = parseFloat(siloStakeAmountInput) || 0;
         if (amt <= 0) {
-            swapError = 'Enter a valid SILO stake amount.';
+            swapError = 'Enter a valid SILO amount greater than 0.';
             return;
         }
         isStakingSilo = true;
@@ -939,26 +1013,21 @@ fundingSource: 'LEDGER'
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'STAKE_SILO',
-                    payload: {
-                        ticker: DEFAULT_ECOSYSTEM_TICKER,
-                        amount: amt
-                    }
+                    action: 'GET_SILO_STAKING',
+                    payload: { walletAddress: identity.activeAddress }
                 })
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok || data.error || data.success === false) {
-                throw new Error(data.error || 'Failed to stake SILO.');
+            if (res.ok && data.data) {
+                siloStakingTelemetry = {
+                    ...siloStakingTelemetry,
+                    ...data.data
+                };
             }
+            ui.triggerMicroBadge('silo_stake_btn', 'ON-CHAIN SILO VERIFIED ✓', '#18C6A5');
             siloStakeAmountInput = '';
-            ui.triggerMicroBadge(
-                'silo_stake_btn',
-                'FEE SHIELD ACTIVE ✓',
-                '#18C6A5'
-            );
-            await syncUserBalances();
         } catch (err: any) {
-            swapError = err.message || 'SILO staking failed.';
+            swapError = err?.message || 'Unable to verify on-chain SILO balance.';
         } finally {
             isStakingSilo = false;
         }
@@ -978,18 +1047,12 @@ fundingSource: 'LEDGER'
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || data.error || data.success === false) {
-                throw new Error(
-                    data.error || 'Failed to start 7-day cooldown.'
-                );
+                throw new Error(data.uiMessage || data.error || 'Failed to update fee tier cooldown.');
             }
-            ui.triggerMicroBadge(
-                `silo_pos_${stakeId}`,
-                '7D COOLDOWN STARTED ✓',
-                '#F59E0B'
-            );
+            ui.triggerMicroBadge(`silo_pos_${stakeId}`, 'COOLDOWN UPDATED ✓', '#F59E0B');
             await syncUserBalances();
         } catch (err: any) {
-            swapError = err.message || 'Cooldown initiation failed.';
+            swapError = err?.message || 'Cooldown update failed.';
         } finally {
             isMutatingSiloId = null;
         }
@@ -997,26 +1060,11 @@ fundingSource: 'LEDGER'
 
     async function claimUnstakedSilo(stakeId: string) {
         swapError = null;
-        isMutatingSiloId = stakeId;
-        try {
-            const res = await fetch('/api/state/action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'CLAIM_UNSTAKED_SILO',
-                    payload: { stakeId }
-                })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok || data.error || data.success === false) {
-                throw new Error(data.error || 'Failed to claim unstaked SILO.');
-            }
-            await syncUserBalances();
-        } catch (err: any) {
-            swapError = err.message || 'Failed to claim SILO.';
-        } finally {
-            isMutatingSiloId = null;
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
         }
+        await withdrawLpPosition(stakeId);
     }
 
     // --- P2P Orderbook Handlers ---
@@ -1308,7 +1356,14 @@ fundingSource: 'LEDGER'
             "
             in:fade={{ duration: 150 }}
         >
-            {#if swapError}
+            {#if livePricingUnavailable}
+                <div
+                    data-testid="swap-live-pricing-unavailable"
+                    class="bg-[#11161f] border border-amber-500/45 rounded-xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-amber-300"
+                >
+                    ⚠ {LIVE_PRICING_UNAVAILABLE_MESSAGE}
+                </div>
+            {:else if swapError}
                 <div
                     data-testid="swap-error-banner"
                     class="bg-red-950/30 border border-red-500/45 rounded-xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-red-400"
@@ -1578,21 +1633,24 @@ fundingSource: 'LEDGER'
                     data-testid="dex-execute-swap-btn"
                     onclick={executeSwap}
                     disabled={isExecuting ||
+                        livePricingUnavailable ||
                         !payAmount ||
                         parseFloat(payAmount) <= 0}
                     class="tactile-btn w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed text-white"
                     style="
-                        border-color: {parseFloat(payAmount) > 0
+                        border-color: {parseFloat(payAmount) > 0 && !livePricingUnavailable
                             ? `${ambientPrimaryHex}55`
                             : 'rgba(255,255,255,0.1)'};
                         background-image: radial-gradient(ellipse at center, {parseFloat(
                             payAmount
-                        ) > 0
+                        ) > 0 && !livePricingUnavailable
                             ? `${ambientPrimaryHex}26`
                             : 'transparent'}, transparent 70%);
                     "
                 >
-                    {#if isExecuting}
+                    {#if livePricingUnavailable}
+                        {LIVE_PRICING_UNAVAILABLE_MESSAGE}
+                    {:else if isExecuting}
                         Executing {payToken.ticker} → {receiveToken.ticker} Swap...
                     {:else if !payAmount || parseFloat(payAmount) <= 0}
                         Enter Amount
@@ -1821,7 +1879,7 @@ fundingSource: 'LEDGER'
     </div>
 {/if}
 {#if showDexProvidersModal}
-<div data-testid="dex-slippage-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/80 backdrop-blur-sm font-mono">
+<div data-testid="dex-slippage-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono">
   <div class="w-full max-w-[340px] bg-[#0a0d12] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
     <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Slippage</h3><button type="button" data-testid="close-dex-slippage-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm cursor-pointer">&#x2715;</button></div>
     <div class="grid grid-cols-3 gap-2">{#each [[0.5, 'Auto'], [0.1, '0.1%'], [1.0, '1.0%']] as [sVal, sLabel]}<button type="button" data-testid="slippage-pill-{sVal}" onclick={() => { slippagePct = Number(sVal); showDexProvidersModal = false; }} class="py-2.5 rounded-xl border text-xs font-black cursor-pointer {slippagePct === Number(sVal) ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300 hover:text-white'}">{sLabel}</button>{/each}</div>

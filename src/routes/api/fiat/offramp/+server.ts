@@ -14,30 +14,14 @@ import {
     perenniaKMS,
     type DecryptedBankRailPayload
 } from '$lib/server/kms';
-import { computeReservoirHmac } from '$lib/server/l1Dispatcher';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    formatAtomicToDecimal,
+    mulBpsCeil,
+    parseDecimalToAtomic,
+    parseSompiU64
+} from '$lib/crypto/atomicMath';
 import crypto from 'node:crypto';
-
-const LUA_ATOMIC_DEBIT_FIAT_LEDGER = `
-local asset = ARGV[1]
-local req = tonumber(ARGV[2])
-local primary = tonumber(redis.call('HGET', KEYS[1], asset) or '0')
-if primary >= req then
-    redis.call('HINCRBYFLOAT', KEYS[1], asset, -req)
-    return {1, tostring(0)}
-end
-if asset == 'KAS' then
-    local unassigned = tonumber(redis.call('HGET', KEYS[1], 'Unassigned KAS') or '0')
-    if (primary + unassigned) >= req then
-        local from_unassigned = req - primary
-        if primary > 0 then
-            redis.call('HSET', KEYS[1], 'KAS', '0')
-        end
-        redis.call('HINCRBYFLOAT', KEYS[1], 'Unassigned KAS', -from_unassigned)
-        return {1, tostring(from_unassigned)}
-    end
-end
-return {0, tostring(0)}
-`;
 
 function roundCents(val: number): number {
     return Math.round(val * 100) / 100;
@@ -368,7 +352,7 @@ async function verifyOnchainKasTransaction(params: {
             .trim()
             .toLowerCase();
         const outputs = Array.isArray(txData?.outputs) ? txData.outputs : [];
-        let treasuryPaidSompi = 0;
+        let treasuryPaidSompi = 0n;
         for (const out of outputs) {
             const outAddr = String(
                 out?.script_public_key_address || out?.address || ''
@@ -376,14 +360,19 @@ async function verifyOnchainKasTransaction(params: {
                 .trim()
                 .toLowerCase();
             if (outAddr === expectedTreasuryClean) {
-                treasuryPaidSompi += Number(out?.amount || 0);
+                treasuryPaidSompi += parseSompiU64(String(out?.amount ?? '0'));
             }
         }
-        const requiredSompi = Math.floor(params.minAmountKas * 0.97 * 1e8);
+        const fullExpectedSompi = parseDecimalToAtomic(
+            params.minAmountKas.toFixed(8),
+            8,
+            'floor'
+        );
+        const requiredSompi = (fullExpectedSompi * 9700n) / 10_000n;
         if (treasuryPaidSompi < requiredSompi) {
             return {
                 verified: false,
-                reason: `ONCHAIN_OUTPUT_MISMATCH: Transaction ${cleanTxId} paid ${(treasuryPaidSompi / 1e8).toFixed(4)} KAS to Master Treasury (${expectedTreasuryClean}), required at least ${(requiredSompi / 1e8).toFixed(4)} KAS.`
+                reason: `ONCHAIN_OUTPUT_MISMATCH: Transaction ${cleanTxId} paid ${formatAtomicToDecimal(treasuryPaidSompi, 8)} KAS to Master Treasury (${expectedTreasuryClean}), required at least ${formatAtomicToDecimal(requiredSompi, 8)} KAS.`
             };
         }
         return { verified: true };
@@ -868,7 +857,7 @@ async function consumeHifoLotsForOfframp(params: {
                     [
                         lot.lot_id,
                         nextRem,
-                        Math.round(nextRem * 1e8),
+                        parseDecimalToAtomic(nextRem.toFixed(8), 8, 'floor').toString(),
                         nextStatus
                     ]
                 )
@@ -885,7 +874,7 @@ async function consumeHifoLotsForOfframp(params: {
                         lot.lot_id,
                         params.cleanWallet,
                         params.sourceAsset,
-                        Math.round(consumed * 1e8),
+                        parseDecimalToAtomic(consumed.toFixed(8), 8, 'floor').toString(),
                         consumed,
                         acqDate.toISOString(),
                         holdDays,
@@ -937,7 +926,7 @@ async function consumeHifoLotsForOfframp(params: {
                         params.cleanWallet,
                         params.sourceAsset,
                         acqDate.toISOString(),
-                        Math.round(remainingToDispose * 1e8),
+                        parseDecimalToAtomic(remainingToDispose.toFixed(8), 8, 'floor').toString(),
                         remainingToDispose,
                         unitFmv,
                         declaredTotalBasis,
@@ -962,7 +951,7 @@ async function consumeHifoLotsForOfframp(params: {
                             extLotId,
                             params.cleanWallet,
                             params.sourceAsset,
-                            Math.round(remainingToDispose * 1e8),
+                            parseDecimalToAtomic(remainingToDispose.toFixed(8), 8, 'floor').toString(),
                             remainingToDispose,
                             acqDate.toISOString(),
                             holdDays,
@@ -1316,7 +1305,7 @@ export const POST: RequestHandler = async ({
                     cleanWallet,
                     assetTicker,
                     acquiredAtIso,
-                    Math.round(amountTokens * 1e8),
+                    parseDecimalToAtomic(amountTokens.toFixed(8), 8, 'floor').toString(),
                     amountTokens,
                     fmvPerToken,
                     resolvedTotalBasis,
@@ -1405,6 +1394,23 @@ export const POST: RequestHandler = async ({
             });
         }
 
+        const cleanSourceMode = String(sourceMode || 'onchain_kas').toLowerCase();
+        const isInternalLedger =
+            cleanSourceMode === 'ledger_kas' ||
+            cleanSourceMode === 'ledger_usdc' ||
+            cleanSourceMode === 'platform_balance' ||
+            cleanSourceMode.startsWith('ledger_');
+
+        if (isInternalLedger) {
+            return json(
+                {
+                    error: 'NON_CUSTODIAL_L1_ONLY',
+                    message: 'Off-ramp settlements only accept direct transfers from your self-custody wallet.'
+                },
+                { status: 422 }
+            );
+        }
+
         if (resolvedRouting && resolvedAccount) {
             if (resolvedRouting.length !== 9 || resolvedAccount.length < 4) {
                 return json(
@@ -1485,6 +1491,8 @@ export const POST: RequestHandler = async ({
             return json(
                 {
                     error: quote.circuitBreakerReason,
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
                     circuitBreakerTripped: true,
                     quote
                 },
@@ -1494,32 +1502,6 @@ export const POST: RequestHandler = async ({
 
         let wireReferenceId = `PER-ACH-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
         const bankLast4 = resolvedAccount.slice(-4);
-        const cleanSourceMode = String(sourceMode || 'onchain_kas').toLowerCase();
-        const isInternalLedger =
-            cleanSourceMode === 'ledger_kas' ||
-            cleanSourceMode === 'ledger_usdc' ||
-            cleanSourceMode === 'platform_balance' ||
-            cleanSourceMode.startsWith('ledger_');
-        const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-
-        if (isInternalLedger) {
-            const rawLedger = await redis.hgetall(userLedgerKey);
-            const primaryBal =
-                parseFloat(rawLedger?.[resolvedAssetTicker] || '0') || 0;
-            const unassignedBal =
-                resolvedAssetTicker === 'KAS'
-                    ? parseFloat(rawLedger?.['Unassigned KAS'] || '0') || 0
-                    : 0;
-            const totalAvailableLedger = primaryBal + unassignedBal;
-            if (totalAvailableLedger + 1e-8 < parsedAmountCrypto) {
-                return json(
-                    {
-                        error: `INSUFFICIENT_LEDGER_BALANCE: Requested ${parsedAmountCrypto.toFixed(4)} ${resolvedAssetTicker}, available Platform Balance is ${totalAvailableLedger.toFixed(4)} ${resolvedAssetTicker}.`
-                    },
-                    { status: 400 }
-                );
-            }
-        }
 
         const corpLiquidationAddr = resolveBridgeCorporateLiquidationAddress();
 
@@ -1567,89 +1549,7 @@ export const POST: RequestHandler = async ({
 
         let settlementTxId = providedTxId ? String(providedTxId).trim() : '';
 
-        if (isInternalLedger) {
-            const debitRes = (await redis.eval(
-                LUA_ATOMIC_DEBIT_FIAT_LEDGER,
-                1,
-                userLedgerKey,
-                resolvedAssetTicker,
-                parsedAmountCrypto.toString()
-            )) as [number, string];
-
-            if (!debitRes || Number(debitRes[0]) !== 1) {
-                return json(
-                    {
-                        error: `Atomic ledger debit failed: Insufficient ${resolvedAssetTicker} in Platform Balance.`
-                    },
-                    { status: 400 }
-                );
-            }
-
-            const fromUnassigned = parseFloat(debitRes[1] || '0') || 0;
-            const resRow = await dbPool
-                .query(
-                    `SELECT wallet_address, streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-                     FROM yield_reservoirs
-                     WHERE wallet_address = $1 OR wallet_address = $2
-                     ORDER BY streaming_balance_kas DESC
-                     LIMIT 1`,
-                    [prefixedWallet, cleanWallet]
-                )
-                .catch(() => ({ rows: [] as any[] }));
-
-            if (resRow.rows.length > 0) {
-                const r = resRow.rows[0];
-                const targetPk = r.wallet_address || prefixedWallet;
-                let nextStreamKas = Number(r.streaming_balance_kas || 0);
-                const totalYieldKas = Number(r.total_yield_kas || 0);
-                const lpTokens: Record<string, number> = {
-                    ...(r.lp_tokens || {})
-                };
-
-                if (resolvedAssetTicker === 'KAS' && fromUnassigned > 1e-9) {
-                    nextStreamKas = Math.max(0, nextStreamKas - fromUnassigned);
-                } else if (
-                    resolvedAssetTicker !== 'KAS' &&
-                    lpTokens[resolvedAssetTicker] !== undefined
-                ) {
-                    lpTokens[resolvedAssetTicker] = Math.max(
-                        0,
-                        Number(
-                            (
-                                Number(lpTokens[resolvedAssetTicker]) -
-                                parsedAmountCrypto
-                            ).toFixed(8)
-                        )
-                    );
-                }
-
-                const newHmac = computeReservoirHmac(
-                    prefixedWallet,
-                    nextStreamKas,
-                    totalYieldKas,
-                    lpTokens
-                );
-
-                await dbPool
-                    .query(
-                        `UPDATE yield_reservoirs
-                         SET streaming_balance_kas = $2,
-                             lp_tokens = $3,
-                             row_hmac_sig = $4,
-                             last_updated = CURRENT_TIMESTAMP
-                         WHERE wallet_address = $1`,
-                        [
-                            targetPk,
-                            nextStreamKas,
-                            JSON.stringify(lpTokens),
-                            newHmac
-                        ]
-                    )
-                    .catch(() => {});
-            }
-
-            settlementTxId = `LEDGER-FIAT-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
-        } else if (cleanSourceMode === 'direct_wholesale_deposit') {
+        if (cleanSourceMode === 'direct_wholesale_deposit') {
             settlementTxId =
                 settlementTxId ||
                 depositMeta.changenowExchangeId ||

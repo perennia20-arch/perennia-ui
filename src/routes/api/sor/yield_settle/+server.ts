@@ -213,17 +213,20 @@ export const POST = async ({ request }: RequestEvent) => {
             ? wallet.toLowerCase()
             : `kaspa:${wallet.toLowerCase()}`;
         const cleanWallet = formattedWallet.replace('kaspa:', '').trim();
-        const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
         amountKasReceived = Number(amountKas);
-        userLedgerKeyRef = userLedgerKey;
         const cleanTargetAsset = String(targetAsset).trim().toUpperCase();
 
         const kasSpotStr = await redis.get('oracle:spot:KAS_USDC');
         const targetSpotStr = await redis.get(`oracle:spot:${cleanTargetAsset}_USDC`);
 
-        if (!kasSpotStr) {
-            throw new Error(
-                'L1 Spot Oracle Feed Unavailable for KAS. Yield settlement aborted.'
+        if (!kasSpotStr || !(parseFloat(kasSpotStr) > 0)) {
+            return json(
+                {
+                    error: 'SERVICE_UNAVAILABLE',
+                    livePricingUnavailable: true,
+                    uiMessage: 'Live pricing unavailable'
+                },
+                { status: 503 }
             );
         }
 
@@ -234,9 +237,14 @@ export const POST = async ({ request }: RequestEvent) => {
             cleanTargetAsset !== 'USDT' &&
             cleanTargetAsset !== 'USD'
         ) {
-            if (!targetSpotStr) {
-                throw new Error(
-                    `L1 Spot Oracle Feed Unavailable for ${cleanTargetAsset}. Yield settlement aborted.`
+            if (!targetSpotStr || !(parseFloat(targetSpotStr) > 0)) {
+                return json(
+                    {
+                        error: 'SERVICE_UNAVAILABLE',
+                        livePricingUnavailable: true,
+                        uiMessage: 'Live pricing unavailable'
+                    },
+                    { status: 503 }
                 );
             }
             targetPrice = parseFloat(targetSpotStr);
@@ -450,17 +458,6 @@ export const POST = async ({ request }: RequestEvent) => {
         );
     } catch (error: any) {
         console.error('Yield Settlement Fault:', error.message || error);
-        if (amountKasReceived > 0 && userLedgerKeyRef && !isSweptAndFinalized) {
-            try {
-                await redis.hincrbyfloat(userLedgerKeyRef, 'KAS', amountKasReceived);
-                console.log(
-                    `⚡ [Rollback Success] ${amountKasReceived} KAS refunded to ${userLedgerKeyRef}`
-                );
-            } catch (revertErr: any) {
-                console.error('CRITICAL: Failed to rollback KAS ledger state!', revertErr);
-            }
-            error.message = `${error.message || 'Unknown error'}. Ledger reverted and ${amountKasReceived} KAS refunded.`;
-        }
         return json(
             { error: 'Internal Server Error', message: error.message },
             { status: 500 }

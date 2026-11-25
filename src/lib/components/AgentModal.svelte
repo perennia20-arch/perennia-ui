@@ -4,6 +4,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
+    import { formatAtomicToDecimal } from '$lib/crypto/atomicMath';
 
     interface AgentKeyItem {
         keyId: string;
@@ -241,7 +242,7 @@
                 ? telJson.sleeveBalances.find((b: any) => b?.ticker === 'KAS')
                 : null;
             const kasBal = kasEntry?.balanceE8
-                ? (Number(kasEntry.balanceE8) / 1e8).toFixed(2)
+                ? formatAtomicToDecimal(String(kasEntry.balanceE8), 8, 2, false)
                 : '0.00';
 
             pingResult = {

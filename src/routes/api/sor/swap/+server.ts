@@ -951,7 +951,7 @@ export const GET: RequestHandler = async ({ url, cookies, locals }: RequestEvent
             ...waterfall,
             competitorAmmAprPct: COMPETITOR_STANDARD_AMM_APR_PCT
         },
-        /** @deprecated UI display shims; prefer U128Str fields above. */
+        /* Render-boundary numeric projections derived from atomic fields above. */
         amount: Number(formatAtomicToDecimal(amountInAtomic, payDecimals)),
         paySpotUsd: Number(formatAtomicToDecimal(paySpotE8, ORACLE_E8_DECIMALS)),
         receiveSpotUsd: Number(formatAtomicToDecimal(receiveSpotE8, ORACLE_E8_DECIMALS)),
@@ -1161,7 +1161,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
         return json({
             ...sorResult,
             deliveryMode: 'ONCHAIN_L1',
-            /** @deprecated Batch 4 UI shims; prefer `SorExecuteResponseV1` fields above. */
+            /* Render-boundary numeric projections derived from SorExecuteResponseV1 fields above. */
             transaction_uuid: sorResult.transactionUuid,
             estimatedOutput: estimatedOutputDisplay,
             estimated_output: estimatedOutputDisplay,

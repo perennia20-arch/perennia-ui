@@ -2,6 +2,12 @@ import { browser } from '$app/environment';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { ui } from '$lib/stores/ui.svelte';
 import { identity } from '$lib/stores/identity.svelte';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    USD_MICROS_DECIMALS,
+    formatAtomicToDecimal,
+    parseDecimalToAtomic
+} from '$lib/crypto/atomicMath';
 
 export const HARD_PROFIT_FLOOR_RATE = 0.001;
 export const BUY_KAS_INBOUND_FEE_RATE = 0.002;
@@ -12,13 +18,90 @@ export const STANDARD_PUBLIC_SWAP_FEE_RATE = 0.002;
 export const PUBLIC_MAX_SWAP_FEE_RATE = 0.0085;
 export const DARK_POOL_RESERVE_TICKERS = new Set(['KAS','BTC','ETH','SOL','USDC','USDT','SILO']);
 
+export function dexAtomicDecimals(ticker: string): number {
+    const clean = String(ticker || '').trim().toUpperCase();
+    if (clean === 'USDC' || clean === 'USDT') return 6;
+    if (clean === 'SOL') return 9;
+    if (clean === 'ETH' || clean === 'BASE') return 18;
+    return 8;
+}
+
+export interface FormattedSorQuoteDisplay {
+    livePricingUnavailable: boolean;
+    routeType: string;
+    estimatedOutDecimal: string;
+    minOutputDecimal: string;
+    protocolFeeDecimal: string;
+    networkFeeKasDecimal: string;
+    grossUsdDecimal: string;
+    netUsdDecimal: string;
+    feeBps: number;
+    feePctLabel: string;
+    feeTierLabel: string;
+}
+
+/** Formats raw `:8002` U128Str SOR quote fields at UI render boundaries without float math. */
+export function formatSorQuoteDisplay(
+    quote: Record<string, any> | null | undefined,
+    payTicker: string,
+    receiveTicker: string
+): FormattedSorQuoteDisplay {
+    if (!quote || quote.livePricingUnavailable) {
+        return {
+            livePricingUnavailable: true,
+            routeType: '',
+            estimatedOutDecimal: '0',
+            minOutputDecimal: '0',
+            protocolFeeDecimal: '0',
+            networkFeeKasDecimal: '0',
+            grossUsdDecimal: '0.00',
+            netUsdDecimal: '0.00',
+            feeBps: 0,
+            feePctLabel: '0.00%',
+            feeTierLabel: LIVE_PRICING_UNAVAILABLE_MESSAGE
+        };
+    }
+    const payDec = dexAtomicDecimals(payTicker);
+    const recDec = dexAtomicDecimals(receiveTicker);
+    const feeBps = Math.max(0, Math.trunc(Number(quote.feeBps || 0)));
+    return {
+        livePricingUnavailable: false,
+        routeType: String(quote.routeType || 'L1_COW_ATOMIC_PSKT'),
+        estimatedOutDecimal: quote.estimatedOutputAtomic
+            ? formatAtomicToDecimal(String(quote.estimatedOutputAtomic), recDec)
+            : '0',
+        minOutputDecimal: quote.minOutputAtomic
+            ? formatAtomicToDecimal(String(quote.minOutputAtomic), recDec)
+            : '0',
+        protocolFeeDecimal: quote.protocolFeeAtomic
+            ? formatAtomicToDecimal(String(quote.protocolFeeAtomic), payDec)
+            : '0',
+        networkFeeKasDecimal: quote.networkFeeSompi
+            ? formatAtomicToDecimal(String(quote.networkFeeSompi), 8)
+            : '0',
+        grossUsdDecimal: quote.grossUsdMicros
+            ? formatAtomicToDecimal(String(quote.grossUsdMicros), USD_MICROS_DECIMALS)
+            : '0.00',
+        netUsdDecimal: quote.netUsdMicros
+            ? formatAtomicToDecimal(String(quote.netUsdMicros), USD_MICROS_DECIMALS)
+            : '0.00',
+        feeBps,
+        feePctLabel: `${(feeBps / 100).toFixed(2)}%`,
+        feeTierLabel: String(quote.feeTierLabel || '')
+    };
+}
+
+export function buildNonCustodialSwapAmountAtomic(decimalInput: string, payTicker: string): string {
+    return parseDecimalToAtomic(decimalInput || '0', dexAtomicDecimals(payTicker), 'floor').toString();
+}
+
 export function estimateModeledLegGasUsd(ticker: string): number {
     const c = String(ticker || '').trim().toUpperCase();
     if (c === 'KAS' || c === 'SILO') return 0.002;
     if (c === 'BTC') return 0.65;
     if (['ETH','USDC','USDT','XAU'].includes(c)) return 0.25;
     if (['SOL','ARB','BASE','POL','AVAX','SUI','XRP','DOGE','TRX'].includes(c)) return 0.02;
-    return 0.15;
+    return 0.12;
 }
 
 export function calculateDirectionalSwapQuote(p: {

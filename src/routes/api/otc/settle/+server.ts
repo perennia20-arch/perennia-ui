@@ -3,15 +3,15 @@ import { json, type RequestEvent } from '@sveltejs/kit';
 import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
+import { executeOrQueueL1Dispatch } from '$lib/server/l1Dispatcher';
+import { LIVE_PRICING_UNAVAILABLE_MESSAGE } from '$lib/crypto/atomicMath';
 import crypto from 'crypto';
 
 // ============================================================================
-// SOVEREIGN OTC DESK SETTLEMENT HOOK
+// SOVEREIGN OTC DESK SETTLEMENT HOOK (Non-Custodial L1 Only)
 // Executed by Corporate Admin upon receipt of traditional fiat wire transfers.
-// Automatically dispenses crypto and stamps the compliance ledger.
 // ============================================================================
 export const POST = async ({ request }: RequestEvent) => {
-    // Zero-Trust Admin Authentication (Timing-Attack Protected)
     if (!env.PERENNIA_ADMIN_KEY) {
         return json({ error: 'CRITICAL: PERENNIA_ADMIN_KEY not configured.' }, { status: 500 });
     }
@@ -22,7 +22,7 @@ export const POST = async ({ request }: RequestEvent) => {
     const providedBuffer = Buffer.from(providedAuth);
 
     if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
-         return json({ error: 'Unauthorized OTC execution' }, { status: 401 });
+        return json({ error: 'Unauthorized OTC execution' }, { status: 401 });
     }
 
     try {
@@ -33,41 +33,46 @@ export const POST = async ({ request }: RequestEvent) => {
         }
 
         const formattedWallet = walletAddress.startsWith('kaspa:') ? walletAddress : `kaspa:${walletAddress}`;
+        const upperAsset = String(cryptoCurrency).trim().toUpperCase();
 
-        // 1. Calculate OTC Spread for Protocol Fee Weaponization
-        const kasSpotStr = await redis.get(`oracle:spot:${cryptoCurrency.toUpperCase()}_USDC`);
-        const spotPrice = kasSpotStr ? parseFloat(kasSpotStr) : 0;
-        
+        const kasSpotStr = await redis.get(`oracle:spot:${upperAsset}_USDC`);
+        const spotPrice =
+            upperAsset === 'USDC' || upperAsset === 'USDT'
+                ? 1.0
+                : kasSpotStr
+                  ? parseFloat(kasSpotStr) || 0
+                  : 0;
+
         if (spotPrice <= 0) {
-            return json({ error: 'Oracle unavailable. Cannot calculate OTC spread safety margins.' }, { status: 500 });
+            return json(
+                {
+                    error: 'SERVICE_UNAVAILABLE',
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                },
+                { status: 503 }
+            );
         }
 
         const fairValueUsd = cryptoAmount * spotPrice;
-        const spreadProfitUsd = fiatAmount - fairValueUsd; // Difference between what they paid in fiat and the market value
+        const spreadProfitUsd = fiatAmount - fairValueUsd;
 
         if (spreadProfitUsd < 0) {
             return json({ error: 'OTC Trade underwater. Slippage bounds exceeded.' }, { status: 422 });
         }
 
+        let l1Dispatch: any = null;
         let client;
         try {
             client = await dbPool.connect();
 
-            // Lock the Execution into the Ledger (Removed IRS 1099-DA explicit mapping, purely DeFi tracking)
             await client.query(
                 `INSERT INTO tax_ledger_events 
                 (wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution)
                 VALUES ($1, $2, 'OTC_SETTLEMENT', $3, $4, $5)`,
-                [
-                    formattedWallet.toLowerCase(),
-                    cryptoCurrency.toUpperCase(),
-                    fiatAmount,
-                    cryptoAmount,
-                    spotPrice
-                ]
+                [formattedWallet.toLowerCase(), upperAsset, fiatAmount, cryptoAmount, spotPrice]
             );
 
-            // 2. Weaponize the OTC Spread: Route profit to the Netting Queue for LP distribution
             if (spreadProfitUsd > 0) {
                 const nettingOrder = {
                     wallet: formattedWallet,
@@ -81,29 +86,25 @@ export const POST = async ({ request }: RequestEvent) => {
                 await redis.rpush('perennia:sor:netting_queue', JSON.stringify(nettingOrder));
             }
 
-            // 3. Dispatch physical UTXOs via Rust gRPC (Fire and Forget)
-            const rustBackendUrl = env.RUST_BACKEND_URL || 'http://127.0.0.1:8002';
-            await fetch(`${rustBackendUrl}/v1/state/action`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': expectedAuth },
-                body: JSON.stringify({
-                    wallet: 'kaspa:treasury_master',
-                    action: 'DISPATCH_OTC_UTXOS',
-                    payload: {
-                        destination: formattedWallet,
-                        amount: cryptoAmount,
-                        asset: cryptoCurrency
-                    }
-                })
-            }).catch(e => console.error("Rust dispatch failed:", e));
-
+            l1Dispatch = await executeOrQueueL1Dispatch({
+                wallet: formattedWallet,
+                destinationAddress: formattedWallet,
+                asset: upperAsset,
+                amount: Number(cryptoAmount),
+                sourceType: 'otc_settlement_l1',
+                spotPrice
+            }).catch((e) => ({ status: 'QUEUED_FOR_L1_DISPATCH', error: String(e?.message || e) }));
         } finally {
             if (client) client.release();
         }
 
-        return json({ success: true, message: 'OTC Trade Settled & Protocol Fees Weaponized' });
+        return json({
+            success: true,
+            l1Dispatch,
+            message: 'OTC Trade Settled & Queued for Non-Custodial L1 Delivery'
+        });
     } catch (e: any) {
-        console.error("OTC Settlement Fault:", e);
+        console.error('OTC Settlement Fault:', e);
         return json({ error: 'Internal Server Error', details: e.message }, { status: 500 });
     }
 };

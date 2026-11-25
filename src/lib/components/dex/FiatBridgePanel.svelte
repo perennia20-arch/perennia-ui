@@ -13,6 +13,7 @@
     } from '$lib/stores/treasury.svelte';
     import { txState } from '$lib/stores/transaction.svelte';
     import { requestUniversalL1Signature } from '$lib/stores/kaspaStore.svelte';
+    import { LIVE_PRICING_UNAVAILABLE_MESSAGE } from '$lib/crypto/atomicMath';
     import {
         evaluateAbaRoutingNumber,
         getPayoutStageIndex,
@@ -51,9 +52,7 @@
     let offrampTargetUsdInput = $state('500');
     let offrampAssetTicker = $state('KAS');
     let isOfframpDropdownOpen = $state(false);
-    let offrampSourceMode = $state<
-        'onchain_kas' | 'platform_balance' | 'ledger_kas' | 'ledger_usdc'
-    >('onchain_kas');
+    let offrampSourceMode = $state<'onchain_kas' | 'direct_wholesale_deposit'>('onchain_kas');
     let otcCryptoAmountInput = $state('');
     let externalCostBasisUsdInput = $state('');
     let payoutMethod = $state<'ach' | 'wire'>('ach');
@@ -72,9 +71,7 @@
         | 'STRIPE_CRYPTO_ONRAMP'
         | 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'
     >('SOVEREIGN_WIRE_ACH');
-    let onrampSettlementTarget = $state<
-        'LEDGER_KAS' | 'L1_KAS' | 'AUTO_STAKE_SILO'
-    >('L1_KAS');
+    let onrampSettlementTarget = $state<'L1_KAS' | 'L1_SELF_CUSTODY'>('L1_KAS');
 
     let offrampBankLabel = $state('Bank Account');
     let offrampAccountType = $state<'CHECKING' | 'SAVINGS'>('CHECKING');
@@ -287,18 +284,25 @@
     let offrampTargetSpotUsd = $derived(
         resolveSpotForTicker(offrampAssetTicker)
     );
+    let fiatOracle503 = $state(false);
+    let onrampLivePricingUnavailable = $derived(
+        Boolean(treasury.livePricingUnavailable) ||
+            fiatOracle503 ||
+            !(onrampTargetSpotUsd > 0)
+    );
+    let offrampLivePricingUnavailable = $derived(
+        Boolean(treasury.livePricingUnavailable) ||
+            fiatOracle503 ||
+            !(offrampTargetSpotUsd > 0)
+    );
 
     let onrampCostPlusQuote = $derived(
         computeOnrampCostPlusQuote({
             assetTicker: onrampTargetTicker,
             grossUsd: Math.max(0, parseFloat(onrampFiatAmountUsd) || 0),
             spotPriceUsd: onrampTargetSpotUsd,
-            autoStakeSilo:
-                onrampAutoStakeSilo ||
-                onrampSettlementTarget === 'AUTO_STAKE_SILO',
-            bundledKasOrSilo:
-                onrampAutoStakeSilo ||
-                onrampSettlementTarget === 'AUTO_STAKE_SILO',
+            autoStakeSilo: false,
+            bundledKasOrSilo: false,
             wholesaleFloorActive:
                 wholesaleFloorActive ||
                 Boolean(minerLoyaltyTelemetry?.activeMiner),
@@ -379,13 +383,6 @@
 
     let offrampAvailableSourceBalance = $derived.by(() => {
         const asset = treasury.getAsset(offrampAssetTicker);
-        if (
-            offrampSourceMode === 'platform_balance' ||
-            offrampSourceMode === 'ledger_kas' ||
-            offrampSourceMode === 'ledger_usdc'
-        ) {
-            return asset.synthetic || 0;
-        }
         return asset.onChain || 0;
     });
 
@@ -408,6 +405,12 @@
                 );
             }
             const [offRes, onRes, loyaltyRes] = await Promise.all(requests);
+            if ((offRes && offRes.status === 503) || (onRes && onRes.status === 503)) {
+                fiatOracle503 = true;
+                treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            } else {
+                fiatOracle503 = false;
+            }
             if (offRes && offRes.ok) {
                 const status = await offRes.json();
                 circleDirectActive = Boolean(status.circleConfigured);
@@ -606,10 +609,7 @@
         onrampError = null;
         onrampSessionData = null;
         const targetTicker = onrampTargetTicker.trim().toUpperCase();
-        const isAutoStake =
-            targetTicker === DEFAULT_ECOSYSTEM_TICKER &&
-            (onrampAutoStakeSilo ||
-                onrampSettlementTarget === 'AUTO_STAKE_SILO');
+        const isAutoStake = false;
         const resolvedLabel =
             offrampBankLabel.trim() ||
             abaTelemetry.institutionName ||
@@ -632,11 +632,9 @@
                     : isCardMethod
                       ? 'CARD_INSTANT'
                       : 'SOVEREIGN_WIRE_ACH',
-                settlementTarget: isAutoStake
-                    ? 'AUTO_STAKE_SILO'
-                    : onrampSettlementTarget,
-                autoStakeSilo: isAutoStake,
-                bundledKasOrSilo: isAutoStake,
+                settlementTarget: onrampUseColdStorage ? 'L1_SELF_CUSTODY' : onrampSettlementTarget,
+                autoStakeSilo: false,
+                bundledKasOrSilo: false,
                 instantBankDebit: !isPushWire,
                 bankLabel: resolvedLabel,
                 accountType: offrampAccountType
@@ -656,9 +654,14 @@
                 body: JSON.stringify(payload)
             });
             const data = await res.json().catch(() => ({}));
+            if (res.status === 503 || data?.livePricingUnavailable) {
+                fiatOracle503 = true;
+                treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            }
             if (!res.ok) {
                 throw new Error(
-                    data.error || 'Failed to execute bank purchase.'
+                    data.uiMessage || data.error || 'Failed to execute bank purchase.'
                 );
             }
 			if (data.stripeStatus === 'requires_action' && data.clientSecret) { const c3 = await confirmStripeCard3ds('panel', data.clientSecret); if (c3.error) throw new Error(c3.error); }
@@ -809,20 +812,11 @@
                 'Link or enter your 9-digit routing number and account number first.';
             return;
         }
-        const isLedgerSale =
-            offrampSourceMode === 'platform_balance' ||
-            offrampSourceMode === 'ledger_kas' ||
-            offrampSourceMode === 'ledger_usdc';
-        if (isLedgerSale && parsedCrypto > offrampAvailableSourceBalance + 1e-8) {
-            offrampError = `Insufficient ${offrampAssetTicker} in Balance (${offrampAvailableSourceBalance.toFixed(4)} available).`;
-            return;
-        }
         try {
-            const resolvedSourceMode = isLedgerSale
-                ? offrampAssetTicker === 'USDC'
-                    ? 'ledger_usdc'
-                    : 'platform_balance'
-                : 'direct_wholesale_deposit';
+            const resolvedSourceMode =
+                offrampSourceMode === 'direct_wholesale_deposit'
+                    ? 'direct_wholesale_deposit'
+                    : 'onchain_kas';
             const extBasisParsed = parseFloat(externalCostBasisUsdInput);
             const payload: Record<string, any> = {
                 wallet: identity.activeAddress,
@@ -850,8 +844,14 @@
                 body: JSON.stringify(payload)
             });
             const data = await res.json().catch(() => ({}));
+            if (res.status === 503 || data?.livePricingUnavailable) {
+                fiatOracle503 = true;
+                treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+                offrampError = LIVE_PRICING_UNAVAILABLE_MESSAGE;
+                return;
+            }
             if (!res.ok) {
-                offrampError = data.error || 'Off-Ramp order rejected.';
+                offrampError = data.uiMessage || data.error || 'Off-Ramp order rejected.';
                 return;
             }
             activeOfframpPass = {
@@ -886,9 +886,7 @@
                 status: data.status || 'AWAITING_ONCHAIN_CONFIRMATIONS'
             };
             activeStep = 3;
-            offrampSuccessBanner = isLedgerSale
-                ? `Sold ${parsedCrypto.toFixed(4)} ${offrampAssetTicker} → $${Number(activeOfframpPass.netFiatUsd).toFixed(2)} USD Queued (${activeOfframpPass.payoutId})`
-                : `Payout Order Created (${activeOfframpPass.payoutId} • $${Number(activeOfframpPass.netFiatUsd).toFixed(2)} USD)`;
+            offrampSuccessBanner = `Payout Order Created (${activeOfframpPass.payoutId} • $${Number(activeOfframpPass.netFiatUsd).toFixed(2)} USD)`;
             ui.triggerMicroBadge(
                 'dex_fiat_btn',
                 `OFF-RAMP ${activeOfframpPass.payoutId} ARMED ✓`,
@@ -1116,13 +1114,9 @@
                         data-testid="fiat-asset-pill-{quickAsset}"
                         onclick={() => {
                             onrampTargetTicker = quickAsset;
-                            if (quickAsset !== DEFAULT_ECOSYSTEM_TICKER) {
-                                onrampAutoStakeSilo = false;
-                                if (
-                                    onrampSettlementTarget === 'AUTO_STAKE_SILO'
-                                ) {
-                                    onrampSettlementTarget = 'L1_KAS';
-                                }
+                            onrampAutoStakeSilo = false;
+                            if (!onrampUseColdStorage) {
+                                onrampSettlementTarget = 'L1_KAS';
                             }
                         }}
                     >
@@ -1442,6 +1436,7 @@
                     data-testid="fiat-generate-pass-cta"
                     onclick={initiateFiatOnramp}
                     disabled={isInitializingOnramp ||
+                        onrampLivePricingUnavailable ||
                         onrampCostPlusQuote.circuitBreakerTripped}
                     class="tactile-btn w-full py-4 rounded-2xl text-white text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 transition-all duration-300"
                     style="
@@ -1486,7 +1481,16 @@
             </div>
         </div>
 
-        {#if onrampError || onrampCostPlusQuote.circuitBreakerTripped}
+        {#if onrampLivePricingUnavailable}
+            <div
+                data-testid="fiat-onramp-live-pricing-unavailable"
+                class="bg-[#0a0d12] border border-amber-500/45 p-3.5 rounded-xl text-center"
+            >
+                <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300">
+                    {LIVE_PRICING_UNAVAILABLE_MESSAGE}
+                </span>
+            </div>
+        {:else if onrampError || onrampCostPlusQuote.circuitBreakerTripped}
             <div
                 data-testid="fiat-circuit-breaker-banner"
                 class="bg-red-950/25 border border-red-500/40 p-3.5 rounded-xl text-center"
@@ -1827,21 +1831,19 @@
                         ? 'bg-[#161d29] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
-                    Wallet ({treasury
+                    Self-Custody Wallet ({treasury
                         .getAsset(offrampAssetTicker)
                         .onChain.toFixed(2)})
                 </button>
                 <button
                     type="button"
-                    onclick={() => (offrampSourceMode = 'platform_balance')}
-                    class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {offrampSourceMode !==
-                    'onchain_kas'
+                    onclick={() => (offrampSourceMode = 'direct_wholesale_deposit')}
+                    class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {offrampSourceMode ===
+                    'direct_wholesale_deposit'
                         ? 'bg-[#161d29] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
-                    Balance ({treasury
-                        .getAsset(offrampAssetTicker)
-                        .synthetic.toFixed(2)})
+                    External Wallet Deposit
                 </button>
             </div>
             <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
@@ -1967,7 +1969,16 @@
                     </button>
                 </div>
             {/if}
-            {#if offrampError || offrampCostPlusQuote.circuitBreakerTripped}
+            {#if offrampLivePricingUnavailable || onrampLivePricingUnavailable}
+                <div
+                    data-testid="fiat-live-pricing-unavailable"
+                    class="bg-[#0a0d12] border border-amber-500/45 p-3 rounded-xl text-center"
+                >
+                    <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300">
+                        {LIVE_PRICING_UNAVAILABLE_MESSAGE}
+                    </span>
+                </div>
+            {:else if offrampError || offrampCostPlusQuote.circuitBreakerTripped}
                 <div class="bg-red-950/25 border border-red-500/40 p-3 rounded-xl text-center">
                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-red-400">
                         {offrampError ||
@@ -1987,6 +1998,7 @@
                 data-testid="fiat-offramp-generate-pass-cta"
                 onclick={generateOfframpSettlementPass}
                 disabled={isExecuting ||
+                    offrampLivePricingUnavailable ||
                     offrampCostPlusQuote.circuitBreakerTripped}
                 class="tactile-btn w-full py-4 rounded-2xl text-white text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 transition-all duration-300"
                 style="

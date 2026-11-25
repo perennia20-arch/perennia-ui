@@ -2,7 +2,12 @@ import { redis } from '$lib/server/redis';
 import { dbPool } from '$lib/server/db';
 import { env } from '$env/dynamic/private';
 import { normalizeKaspaAddressStrict } from '$lib/server/kms';
-import { computeReservoirHmac, executeOrQueueL1Dispatch } from '$lib/server/l1Dispatcher';
+import { executeOrQueueL1Dispatch } from '$lib/server/l1Dispatcher';
+import {
+	formatAtomicToDecimal,
+	parseDecimalToAtomic,
+	parseSompiU64
+} from '$lib/crypto/atomicMath';
 
 type QueryableClient = {
 	query: (text: string, values?: any[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
@@ -455,18 +460,20 @@ if (res.ok) {
 const txData = await res.json().catch(() => null);
 const outputs = Array.isArray(txData?.outputs) ? txData.outputs : [];
 if (outputs.length > 0) {
-let paidSompi = 0;
+let paidSompi = 0n;
 for (const out of outputs) {
 if (String(out?.script_public_key_address || '').trim() === targetKasAddr) {
-paidSompi += Number(out?.amount || 0);
+paidSompi += parseSompiU64(String(out?.amount ?? '0'));
 }
 }
-const paidKas = paidSompi / 1e8;
-if (paidKas <= 0) {
+if (paidSompi <= 0n) {
 return { ok: false, status: 403, error: `ONCHAIN_RECIPIENT_MISMATCH: Kaspa tx ${cleanTxId.slice(0, 12)}... did not pay Perennia vault.` };
 }
-if (paidKas + 0.05 < params.amount * 0.98) {
-return { ok: false, status: 422, error: `UNDERPAID_ONCHAIN_TX: Expected ${params.amount.toFixed(4)} KAS, found ${paidKas.toFixed(4)} KAS.` };
+const expectedSompi = parseDecimalToAtomic(params.amount.toFixed(8), 8, 'floor');
+const minAcceptableSompi = (expectedSompi * 9800n) / 10_000n;
+const bufferSompi = 5_000_000n;
+if (paidSompi + bufferSompi < minAcceptableSompi) {
+return { ok: false, status: 422, error: `UNDERPAID_ONCHAIN_TX: Expected ${params.amount.toFixed(4)} KAS, found ${formatAtomicToDecimal(paidSompi, 8)} KAS.` };
 }
 verificationState = 'KASPA_L1_OUTPUT_VERIFIED';
 kasVerified = true;
@@ -505,11 +512,12 @@ if (!btcRes || !btcRes.ok) {
 return { ok: false, status: 422, error: `UNVERIFIED_BTC_TX: Bitcoin tx ${cleanTxId.slice(0, 12)}... not found on mempool.` };
 }
 const btcData = await btcRes.json().catch(() => null);
-let paidSats = 0;
+let paidSats = 0n;
 for (const vout of Array.isArray(btcData?.vout) ? btcData.vout : []) {
-if (String(vout?.scriptpubkey_address || '').trim() === trustedSettlementAddr) paidSats += Number(vout?.value || 0);
+if (String(vout?.scriptpubkey_address || '').trim() === trustedSettlementAddr) paidSats += parseSompiU64(String(vout?.value ?? '0'));
 }
-if (paidSats / 1e8 < params.amount * 0.98) {
+const expectedSats = parseDecimalToAtomic(params.amount.toFixed(8), 8, 'floor');
+if (paidSats < (expectedSats * 9800n) / 10_000n) {
 return { ok: false, status: 422, error: `UNDERPAID_BTC_TX: Expected ${params.amount} BTC to Perennia vault.` };
 }
 verificationState = 'BTC_L1_OUTPUT_VERIFIED';
@@ -646,60 +654,15 @@ const dest = isSyntheticRwaAsset(rec) ? '' : String(params.destinationAddress ||
 				};
 			}
 		} catch {
-			// Fallback below credits internal reservoir so user value is never dropped
+			// Fall through to queued L1 status
 		}
-	}
-
-	const client = await dbPool.connect();
-	try {
-		await client.query('BEGIN');
-		const r = await client.query(
-			`SELECT wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens
-			 FROM yield_reservoirs
-			 WHERE wallet_address IN ($1, $2)
-			 ORDER BY (wallet_address = $1) DESC
-			 LIMIT 1
-			 FOR UPDATE`,
-			[params.prefixedWallet, params.cleanWallet]
-		);
-		const row = r.rows[0];
-		let streamKas = Number(row?.streaming_balance_kas || 0);
-		const totalYieldKas = Number(row?.total_yield_kas || 0);
-		const lpTokens: Record<string, number> = { ...(row?.lp_tokens || {}) };
-		if (rec === 'KAS') {
-			streamKas += params.estimatedOutput;
-		} else {
-			lpTokens[rec] = Number(lpTokens[rec] || 0) + params.estimatedOutput;
-		}
-		const targetPk = row?.wallet_address || params.prefixedWallet;
-		const newHmac = computeReservoirHmac(params.prefixedWallet, streamKas, totalYieldKas, lpTokens);
-		await client.query(
-			`INSERT INTO yield_reservoirs (
-wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens, verified_onchain_credits_kas, row_hmac_sig, last_updated
-) VALUES ($1, $2, $3, $4, GREATEST($2, $3), $5, CURRENT_TIMESTAMP)
-ON CONFLICT (wallet_address) DO UPDATE SET
-streaming_balance_kas = EXCLUDED.streaming_balance_kas,
-lp_tokens = EXCLUDED.lp_tokens,
-verified_onchain_credits_kas = GREATEST(COALESCE(yield_reservoirs.verified_onchain_credits_kas, 0), EXCLUDED.streaming_balance_kas, EXCLUDED.total_yield_kas),
-row_hmac_sig = EXCLUDED.row_hmac_sig,
-last_updated = CURRENT_TIMESTAMP`,
-			[targetPk, streamKas, totalYieldKas, JSON.stringify(lpTokens), newHmac]
-		);
-		await client.query('COMMIT');
-		await redis
-			.hincrbyfloat(`dev:sor:treasury:balances:${params.cleanWallet}`, rec, params.estimatedOutput)
-			.catch(() => {});
-	} catch {
-		await client.query('ROLLBACK').catch(() => {});
-	} finally {
-		client.release();
 	}
 
 	return {
 		dispatched: false,
-		status: 'CREDITED_TO_VAULT_FALLBACK',
+		status: 'QUEUED_FOR_L1_DISPATCH',
 		txHash: '',
 		explorerUrl: '',
-		fallbackCreditedToVault: true
+		fallbackCreditedToVault: false
 	};
 }

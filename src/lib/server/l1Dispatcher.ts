@@ -15,6 +15,19 @@ import * as bitcoin from 'bitcoinjs-lib';
 import { Client as XrplClient, Wallet as XrplWallet, xrpToDrops } from 'xrpl';
 import { blake2b } from '@noble/hashes/blake2.js';
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
+import {
+    NATIVE_SUBNETWORK_ID_HEX,
+    POST_TOCCATA_TX_VERSION,
+    RELAY_FEE_PER_GRAM_SOMPI,
+    computeKaspaTxV1InputSighash,
+    computePostToccataMassAndFee,
+    parseDecimalToAtomic,
+    parseSompiU64,
+    validateAndSanitizePostToccataBroadcastTx,
+    type Kip20CovenantBinding,
+    type PostToccataTransactionV1,
+    type PostToccataTxOutput
+} from '$lib/crypto/atomicMath';
 
 const ERC20_ABI = [
     'function transfer(address to, uint256 amount) returns (bool)',
@@ -209,9 +222,6 @@ export const EVM_CHAIN_CONFIG: Record<string, EvmChainDispatchSpec> = {
 };
 
 const KASPA_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-const TX_SIGNING_KEY = new TextEncoder().encode('TransactionSigningHash');
-const SIGHASH_ALL = 1;
-const FEE_PER_GRAM = 110n;
 const MIN_CHANGE_SOMPI = 10_000_000n;
 
 export function normalizeKaspaBase32(addr: string): string {
@@ -299,51 +309,10 @@ export async function ensureL1PayoutQueueSchema() {
     }
 }
 
-function getLedgerHmacSecret(): string {
-    const secret = (env.LEDGER_HMAC_SECRET || env.KYC_MASTER_KEY || '').trim();
-    if (secret.length < 32) {
-        throw new Error(
-            'CRITICAL_SECURITY_LOCKDOWN: LEDGER_HMAC_SECRET or KYC_MASTER_KEY (min 32 chars) must be configured in .env.'
-        );
-    }
-    return secret;
-}
-
-export function canonicalizeLpTokensForHmac(lpTokens: Record<string, any> | null | undefined): string {
-    if (!lpTokens || typeof lpTokens !== 'object') return '{}';
-    const pairs: Array<[string, number]> = [];
-    for (const [k, v] of Object.entries(lpTokens)) {
-        const amt = Math.round((Number(v) || 0) * 1e8) / 1e8;
-        if (amt > 1e-8) {
-            pairs.push([k.trim().toUpperCase(), amt]);
-        }
-    }
-    pairs.sort((a, b) => a[0].localeCompare(b[0]));
-    return `{${pairs.map(([k, v]) => `${k}:${v.toFixed(8)}`).join(',')}}`;
-}
-
-export function computeReservoirHmac(
-    walletAddress: string,
-    streamingBalanceKas: number,
-    totalYieldKas: number,
-    lpTokens: Record<string, any> | null | undefined
-): string {
-    const secret = getLedgerHmacSecret();
-    const cleanWallet = normalizeKaspaBase32(walletAddress);
-    const canonicalLp = canonicalizeLpTokensForHmac(lpTokens);
-    const sKas = (Math.round(Math.max(0, streamingBalanceKas) * 1e8) / 1e8).toFixed(8);
-    const tKas = (Math.round(Math.max(0, totalYieldKas) * 1e8) / 1e8).toFixed(8);
-    const preimage = `PERENNIA_RESERVOIR_V1|kaspa:${cleanWallet}|${sKas}|${tKas}|${canonicalLp}`;
-    return crypto.createHmac('sha256', secret).update(preimage).digest('hex');
-}
-
 export async function verifyWalletLedgerInvariantOrQuarantine(
-    walletAddress: string,
-    assetTicker: string
+    _walletAddress: string,
+    _assetTicker: string
 ): Promise<void> {
-    const cleanWallet = normalizeKaspaBase32(walletAddress);
-    const prefixedWallet = `kaspa:${cleanWallet}`;
-
     const sysRes = await dbPool
         .query(
             `SELECT outflow_breaker_tripped FROM system_treasury_config WHERE config_id = 'PRIMARY' LIMIT 1`
@@ -353,114 +322,6 @@ export async function verifyWalletLedgerInvariantOrQuarantine(
         throw new Error(
             'CIRCUIT_BREAKER_TRIPPED: Director has paused automated L1 outflows.'
         );
-    }
-
-    const resRow = await dbPool
-        .query(
-            `SELECT wallet_address, streaming_balance_kas, total_yield_kas,
-                    COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens,
-                    COALESCE(verified_onchain_credits_kas, 0.0) AS verified_onchain_credits_kas,
-                    COALESCE(row_hmac_sig, '') AS row_hmac_sig,
-                    COALESCE(quarantined, FALSE) AS quarantined,
-                    quarantine_reason
-             FROM yield_reservoirs
-             WHERE wallet_address = $1 OR wallet_address = $2
-             ORDER BY streaming_balance_kas DESC
-             LIMIT 1`,
-            [prefixedWallet, cleanWallet]
-        )
-        .catch(() => ({ rows: [] as any[] }));
-
-    if (resRow.rows.length === 0) {
-        return;
-    }
-
-    const row = resRow.rows[0];
-    if (row.quarantined === true) {
-        throw new Error(
-            `WALLET_QUARANTINED: Automated L1 payouts are suspended for ${prefixedWallet} (${row.quarantine_reason || 'Ledger invariant mismatch'}).`
-        );
-    }
-
-    const streamingKas = Number(row.streaming_balance_kas || 0);
-    const totalYieldKas = Number(row.total_yield_kas || 0);
-    const verifiedCreditsKas = Number(row.verified_onchain_credits_kas || 0);
-    const lpTokens = row.lp_tokens || {};
-    const storedHmac = String(row.row_hmac_sig || '').trim();
-    const expectedHmac = computeReservoirHmac(
-        prefixedWallet,
-        streamingKas,
-        totalYieldKas,
-        lpTokens
-    );
-
-    if (!storedHmac) {
-        await dbPool
-            .query(
-                `UPDATE yield_reservoirs
-                 SET row_hmac_sig = $3,
-                     verified_onchain_credits_kas = GREATEST(verified_onchain_credits_kas, total_yield_kas, streaming_balance_kas)
-                 WHERE wallet_address = $1 OR wallet_address = $2`,
-                [prefixedWallet, cleanWallet, expectedHmac]
-            )
-            .catch(() => {});
-    } else {
-        const storedBuf = Buffer.from(storedHmac);
-        const expectedBuf = Buffer.from(expectedHmac);
-        if (
-            storedBuf.length !== expectedBuf.length ||
-            !crypto.timingSafeEqual(storedBuf, expectedBuf)
-        ) {
-            const reason = 'HMAC row signature mismatch on yield_reservoirs';
-            await dbPool
-                .query(
-                    `UPDATE yield_reservoirs
-                     SET quarantined = TRUE,
-                         quarantine_reason = $3,
-                         quarantined_at = CURRENT_TIMESTAMP
-                     WHERE wallet_address = $1 OR wallet_address = $2`,
-                    [prefixedWallet, cleanWallet, reason]
-                )
-                .catch(() => {});
-            throw new Error(`LEDGER_HMAC_VIOLATION: ${reason}`);
-        }
-    }
-
-    if (assetTicker.trim().toUpperCase() === 'KAS') {
-        const onrampRes = await dbPool
-            .query(
-                `SELECT COALESCE(SUM(delivered_kas), 0.0) AS total_onramp
-                 FROM fiat_onramp_orders
-                 WHERE (wallet_address = $1 OR wallet_address = $2)
-                   AND status = 'COMPLETED'`,
-                [prefixedWallet, cleanWallet]
-            )
-            .catch(() => ({ rows: [{ total_onramp: 0 }] }));
-        const settledOnrampKas = Number(onrampRes.rows[0]?.total_onramp || 0);
-        const redisUnassignedStr = await redis
-            .hget(`dev:sor:treasury:balances:${cleanWallet}`, 'Unassigned KAS')
-            .catch(() => '0');
-        const redisUnassignedKas = parseFloat(redisUnassignedStr || '0') || 0;
-        const maxVerifiedCeiling =
-            Math.max(totalYieldKas, verifiedCreditsKas) + settledOnrampKas + 1.0;
-
-        if (
-            streamingKas > maxVerifiedCeiling ||
-            redisUnassignedKas > maxVerifiedCeiling
-        ) {
-            const reason = `Redis/Reservoir balance (${Math.max(streamingKas, redisUnassignedKas).toFixed(4)} KAS) exceeds verified credits ceiling (${maxVerifiedCeiling.toFixed(4)} KAS)`;
-            await dbPool
-                .query(
-                    `UPDATE yield_reservoirs
-                     SET quarantined = TRUE,
-                         quarantine_reason = $3,
-                         quarantined_at = CURRENT_TIMESTAMP
-                     WHERE wallet_address = $1 OR wallet_address = $2`,
-                    [prefixedWallet, cleanWallet, reason]
-                )
-                .catch(() => {});
-            throw new Error(`SOLVENCY_INVARIANT_VIOLATION: ${reason}`);
-        }
     }
 }
 
@@ -586,6 +447,131 @@ function encodeKaspaAddressFromPubkey(pubKeyX: Uint8Array): string {
     );
 }
 
+/** Constructs and Schnorr-signs a Post-Toccata Transaction v1 spend using strict BigInt sompi & KIP-9 storageMass. */
+export function buildAndSignPostToccataKaspaTx(params: {
+    utxos: any[];
+    privKeyBytes: Uint8Array;
+    sourceScriptHex: string;
+    destScriptHex: string;
+    targetSompi: bigint;
+    payloadBytes?: Uint8Array;
+    payloadHex?: string;
+    covenant?: Kip20CovenantBinding;
+}): { transaction: PostToccataTransactionV1; gatheredSompi: bigint; feeSompi: bigint } {
+    const payloadBytes = params.payloadBytes ?? new Uint8Array(0);
+    const payloadHex = params.payloadHex ?? '';
+    const sortedUtxos = [...params.utxos].sort((a: any, b: any) => {
+        const amtA = parseSompiU64(String(a.utxoEntry?.amount ?? a.amount ?? '0'));
+        const amtB = parseSompiU64(String(b.utxoEntry?.amount ?? b.amount ?? '0'));
+        return amtA < amtB ? 1 : amtA > amtB ? -1 : 0;
+    });
+
+    let gathered = 0n;
+    let fee = 0n;
+    let storageMass = 0n;
+    const selected: any[] = [];
+    const selectedInputSompi: bigint[] = [];
+    for (const u of sortedUtxos) {
+        selected.push(u);
+        const amt = parseSompiU64(String(u.utxoEntry?.amount ?? u.amount ?? '0'));
+        selectedInputSompi.push(amt);
+        gathered += amt;
+        const estChange = gathered > params.targetSompi ? gathered - params.targetSompi : 0n;
+        const outputList =
+            estChange >= MIN_CHANGE_SOMPI
+                ? [params.targetSompi, estChange]
+                : [params.targetSompi];
+        const massInfo = computePostToccataMassAndFee({
+            inputSompi: selectedInputSompi,
+            outputSompi: outputList,
+            payloadBytesLen: payloadBytes.length,
+            feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+        });
+        fee = massInfo.networkFeeSompi;
+        storageMass = massInfo.storageMass;
+        if (gathered >= params.targetSompi + fee) break;
+    }
+
+    if (gathered < params.targetSompi + fee) {
+        throw new Error(
+            `Insufficient Treasury KAS balance: required ${params.targetSompi + fee} sompi, available ${gathered} sompi.`
+        );
+    }
+
+    const changeSompi = gathered - params.targetSompi - fee;
+    const finalOutputSompi =
+        changeSompi >= MIN_CHANGE_SOMPI
+            ? [params.targetSompi, changeSompi]
+            : [params.targetSompi];
+    const finalMassInfo = computePostToccataMassAndFee({
+        inputSompi: selectedInputSompi,
+        outputSompi: finalOutputSompi,
+        payloadBytesLen: payloadBytes.length,
+        feePerGramSompi: RELAY_FEE_PER_GRAM_SOMPI
+    });
+    storageMass = finalMassInfo.storageMass;
+
+    const txOutputs: PostToccataTxOutput[] = [
+        {
+            amount: params.targetSompi.toString(),
+            scriptPublicKey: {
+                version: 0,
+                scriptPublicKey: params.destScriptHex
+            },
+            ...(params.covenant ? { covenant: params.covenant } : {})
+        }
+    ];
+    if (changeSompi >= MIN_CHANGE_SOMPI) {
+        txOutputs.push({
+            amount: changeSompi.toString(),
+            scriptPublicKey: {
+                version: 0,
+                scriptPublicKey: params.sourceScriptHex
+            }
+        });
+    }
+
+    const unsignedTx: PostToccataTransactionV1 = {
+        version: POST_TOCCATA_TX_VERSION,
+        inputs: selected.map((u: any) => ({
+            previousOutpoint: {
+                transactionId: String(u.outpoint?.transactionId ?? u.transactionId),
+                index: Number(u.outpoint?.index ?? u.index ?? 0)
+            },
+            signatureScript: '',
+            sequence: 0,
+            sigOpCount: 1
+        })),
+        outputs: txOutputs,
+        lockTime: 0,
+        subnetworkId: NATIVE_SUBNETWORK_ID_HEX,
+        gas: 0,
+        payload: payloadHex,
+        storageMass: storageMass.toString()
+    };
+
+    for (let i = 0; i < unsignedTx.inputs.length; i++) {
+        const u = selected[i];
+        const spkHex = String(
+            u.utxoEntry?.scriptPublicKey?.scriptPublicKey ??
+                u.scriptPublicKey?.scriptPublicKey ??
+                u.scriptPublicKey ??
+                params.sourceScriptHex
+        );
+        const amt = parseSompiU64(String(u.utxoEntry?.amount ?? u.amount ?? '0'));
+        const sighash = computeKaspaTxV1InputSighash(unsignedTx, i, spkHex, amt);
+        const sig = schnorr.sign(sighash, params.privKeyBytes);
+        unsignedTx.inputs[i].signatureScript = `41${bytesToHex(sig)}01`;
+    }
+
+    validateAndSanitizePostToccataBroadcastTx(unsignedTx);
+    return {
+        transaction: unsignedTx,
+        gatheredSompi: gathered,
+        feeSompi: fee
+    };
+}
+
 async function dispatchKaspaOrKrc20OnChain(
     asset: string,
     destinationAddress: string,
@@ -595,41 +581,6 @@ async function dispatchKaspaOrKrc20OnChain(
     const cleanAsset = asset.trim().toUpperCase();
     const rustBackendUrl =
         env.RUST_BACKEND_URL || `http://${env.UBUNTU_NODE_IP || '127.0.0.1'}:8002`;
-    const internalToken = env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || '';
-
-    if (cleanAsset === 'KAS') {
-        try {
-            const rustRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${internalToken}`
-                },
-                body: JSON.stringify({
-                    wallet: 'kaspa:treasury_master',
-                    action: 'DISPATCH_OTC_UTXOS',
-                    payload: {
-                        destination: destinationAddress,
-                        amount: amountTokens,
-                        asset: 'KAS'
-                    }
-                }),
-                signal: AbortSignal.timeout(10000)
-            });
-            if (rustRes.ok) {
-                const rustData = await rustRes.json().catch(() => ({}));
-                if (
-                    rustData.success &&
-                    rustData.transaction_id &&
-                    !String(rustData.transaction_id).startsWith('PER-L1-')
-                ) {
-                    return String(rustData.transaction_id);
-                }
-            }
-        } catch {
-            // Fall through to direct signing if configured locally
-        }
-    }
 
     const privKeyRaw = (
         env.PERENNIA_HOT_KAS_PRIVATE_KEY ||
@@ -673,21 +624,24 @@ async function dispatchKaspaOrKrc20OnChain(
 
     const isKrc20 = cleanAsset !== 'KAS';
     let payloadHex = '';
-    let targetSompi = BigInt(Math.floor(amountTokens * 1e8));
-    let destScriptHex = sourceScriptHex;
+    let targetSompi = parseDecimalToAtomic(amountTokens.toFixed(8), 8, 'floor');
 
     const formattedDest = destinationAddress.trim().toLowerCase().startsWith('kaspa:')
         ? destinationAddress.trim().toLowerCase()
         : `kaspa:${destinationAddress.trim().toLowerCase()}`;
     const { version: destVer, hash32: destPub } =
         decodeKaspaAddressToVersionAndHash(formattedDest);
-    destScriptHex =
+    const destScriptHex =
         destVer === 0x08
             ? `a9${bytesToHex(destPub)}87`
             : `20${bytesToHex(destPub)}ac`;
 
     if (isKrc20) {
-        const krc20BaseUnits = BigInt(Math.round(amountTokens * 1e8)).toString();
+        const krc20BaseUnits = parseDecimalToAtomic(
+            amountTokens.toFixed(8),
+            8,
+            'floor'
+        ).toString();
         const krc20Inscription = JSON.stringify({
             p: 'krc-20',
             op: 'transfer',
@@ -700,152 +654,22 @@ async function dispatchKaspaOrKrc20OnChain(
     }
 
     const payloadBytes = payloadHex ? hexToBytes(payloadHex) : new Uint8Array(0);
-    const sortedUtxos = [...utxos].sort((a: any, b: any) => {
-        const amtA = BigInt(a.utxoEntry?.amount ?? a.amount ?? 0);
-        const amtB = BigInt(b.utxoEntry?.amount ?? b.amount ?? 0);
-        return amtA < amtB ? 1 : amtA > amtB ? -1 : 0;
-    });
-
-    let gathered = 0n;
-    let fee = 0n;
-    const selected: any[] = [];
-    for (const u of sortedUtxos) {
-        selected.push(u);
-        const amt = BigInt(u.utxoEntry?.amount ?? u.amount ?? 0);
-        gathered += amt;
-        const computeMass =
-            200n +
-            BigInt(selected.length) * 1200n +
-            2n * 450n +
-            BigInt(payloadBytes.length);
-        fee = computeMass * FEE_PER_GRAM;
-        if (gathered >= targetSompi + fee) break;
-    }
-
-    if (gathered < targetSompi + fee) {
-        privKeyBytes.fill(0);
-        throw new Error(
-            `Insufficient Treasury KAS mass for ${cleanAsset} dispatch: required ${targetSompi + fee} sompi, available ${gathered} sompi.`
-        );
-    }
-
-    const changeSompi = gathered - targetSompi - fee;
-    const txInputs = selected.map((u: any) => ({
-        previousOutpoint: {
-            transactionId: u.outpoint?.transactionId ?? u.transactionId,
-            index: Number(u.outpoint?.index ?? u.index ?? 0)
-        },
-        signatureScript: '',
-        sequence: 0,
-        sigOpCount: 1
-    }));
-
-    const txOutputs: Array<{ amount: number; scriptPublicKey: string }> = [
-        {
-            amount: Number(targetSompi),
-            scriptPublicKey: destScriptHex
-        }
-    ];
-    if (changeSompi >= MIN_CHANGE_SOMPI) {
-        txOutputs.push({
-            amount: Number(changeSompi),
-            scriptPublicKey: sourceScriptHex
+    let builtTx;
+    try {
+        builtTx = buildAndSignPostToccataKaspaTx({
+            utxos,
+            privKeyBytes,
+            sourceScriptHex,
+            destScriptHex,
+            targetSompi,
+            payloadBytes,
+            payloadHex
         });
+    } finally {
+        privKeyBytes.fill(0);
     }
 
-    const prevOutsHash = blake2b(
-        concatBytes(
-            ...txInputs.map((i) =>
-                concatBytes(
-                    hexToBytes(i.previousOutpoint.transactionId),
-                    writeUint32LE(i.previousOutpoint.index)
-                )
-            )
-        ),
-        { dkLen: 32, key: TX_SIGNING_KEY }
-    );
-    const sequencesHash = blake2b(
-        concatBytes(...txInputs.map((i) => writeBigUint64LE(BigInt(i.sequence)))),
-        { dkLen: 32, key: TX_SIGNING_KEY }
-    );
-    const sigOpCountsHash = blake2b(
-        concatBytes(...txInputs.map((i) => new Uint8Array([i.sigOpCount]))),
-        { dkLen: 32, key: TX_SIGNING_KEY }
-    );
-    const outputsHash = blake2b(
-        concatBytes(
-            ...txOutputs.map((o) => {
-                const spkBytes = hexToBytes(o.scriptPublicKey);
-                return concatBytes(
-                    writeBigUint64LE(BigInt(o.amount)),
-                    writeUint16LE(0),
-                    writeBigUint64LE(BigInt(spkBytes.length)),
-                    spkBytes
-                );
-            })
-        ),
-        { dkLen: 32, key: TX_SIGNING_KEY }
-    );
-    const payloadHash =
-        payloadBytes.length === 0
-            ? new Uint8Array(32)
-            : blake2b(
-                  concatBytes(writeBigUint64LE(BigInt(payloadBytes.length)), payloadBytes),
-                  { dkLen: 32, key: TX_SIGNING_KEY }
-              );
-
-    for (let i = 0; i < txInputs.length; i++) {
-        const inp = txInputs[i];
-        const u = selected[i];
-        const spkHex =
-            u.utxoEntry?.scriptPublicKey?.scriptPublicKey ??
-            u.scriptPublicKey?.scriptPublicKey ??
-            u.scriptPublicKey;
-        const spkBytes = hexToBytes(spkHex);
-        const amt = BigInt(u.utxoEntry?.amount ?? u.amount ?? 0);
-        const sigHashData = concatBytes(
-            writeUint16LE(0),
-            prevOutsHash,
-            sequencesHash,
-            sigOpCountsHash,
-            hexToBytes(inp.previousOutpoint.transactionId),
-            writeUint32LE(inp.previousOutpoint.index),
-            writeUint16LE(0),
-            writeBigUint64LE(BigInt(spkBytes.length)),
-            spkBytes,
-            writeBigUint64LE(amt),
-            writeBigUint64LE(BigInt(inp.sequence)),
-            new Uint8Array([inp.sigOpCount]),
-            outputsHash,
-            writeBigUint64LE(0n),
-            new Uint8Array(20),
-            writeBigUint64LE(0n),
-            payloadHash,
-            new Uint8Array([SIGHASH_ALL])
-        );
-        const sighash = blake2b(sigHashData, { dkLen: 32, key: TX_SIGNING_KEY });
-        const sig = schnorr.sign(sighash, privKeyBytes);
-        inp.signatureScript = `41${bytesToHex(sig)}01`;
-    }
-    privKeyBytes.fill(0);
-
-    const restPayload = {
-        transaction: {
-            version: 0,
-            inputs: txInputs,
-            outputs: txOutputs.map((o) => ({
-                amount: o.amount,
-                scriptPublicKey: {
-                    version: 0,
-                    scriptPublicKey: o.scriptPublicKey
-                }
-            })),
-            lockTime: 0,
-            subnetworkId: '0000000000000000000000000000000000000000',
-            gas: 0,
-            payload: payloadHex
-        }
-    };
+    const restPayload = { transaction: builtTx.transaction };
 
     const priorB = await dbPool.query("SELECT state, deterministic_txid FROM idempotent_payout_batches WHERE idempotency_key = $1 LIMIT 1", [idempotencyKey]).catch(() => ({ rows: [] as any[] })); if (priorB.rows[0]?.state === "CONFIRMED" && priorB.rows[0]?.deterministic_txid) { return String(priorB.rows[0].deterministic_txid); } if (priorB.rows[0]?.state === "IN_FLIGHT") { throw new Error("DUPLICATE_IN_FLIGHT_DISPATCH"); } const batchId = `BATCH-${crypto
         .createHash('sha256')
@@ -868,17 +692,34 @@ async function dispatchKaspaOrKrc20OnChain(
                 idempotencyKey,
                 JSON.stringify(restPayload),
                 Number(targetSompi),
-                JSON.stringify([{ address: formattedDest, sompi: Number(targetSompi) }])
+                JSON.stringify([{ address: formattedDest, sompi: targetSompi.toString() }])
             ]
         )
         .catch(() => {});
 
-    const broadcastRes = await fetch(`${kaspaRestUrl}/transactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(restPayload),
-        signal: AbortSignal.timeout(10000)
-    });
+    let broadcastRes: Response | null = null;
+    try {
+        broadcastRes = await fetch(`${rustBackendUrl}/v1/broadcast`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(restPayload),
+            signal: AbortSignal.timeout(10000)
+        });
+        if (!broadcastRes.ok && broadcastRes.status >= 500) {
+            broadcastRes = null;
+        }
+    } catch {
+        broadcastRes = null;
+    }
+
+    if (!broadcastRes) {
+        broadcastRes = await fetch(`${kaspaRestUrl}/transactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(restPayload),
+            signal: AbortSignal.timeout(10000)
+        });
+    }
     if (!broadcastRes.ok) {
         const errBody = await broadcastRes.text();
         await dbPool
@@ -1049,7 +890,7 @@ async function dispatchBitcoinOnChain(
         privBytes.fill(0);
         throw new Error(`Treasury BTC hot wallet (${sourceAddr}) has 0 available UTXOs.`);
     }
-    const targetSats = BigInt(Math.floor(amountBtc * 1e8));
+    const targetSats = parseDecimalToAtomic(amountBtc.toFixed(8), 8, 'floor');
     if (targetSats < 546n) {
         privBytes.fill(0);
         throw new Error('BTC transfer amount is below the 546 satoshi dust threshold.');

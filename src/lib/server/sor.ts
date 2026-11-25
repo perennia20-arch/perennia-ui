@@ -100,32 +100,6 @@ export class SorUpstreamError extends Error {
     }
 }
 
-/** @deprecated Batch 4/6 compatibility alias; prefer `SorExecuteRequestV1`. */
-export interface SwapPayload {
-    payAsset: string;
-    receiveAsset: string;
-    amount?: number;
-    amountAtomic?: U128Str;
-    targetNetwork?: string;
-    destinationAddress?: string;
-    refundKaspaAddress?: string;
-    slippageBps?: number;
-}
-
-/** @deprecated Legacy waterfall leg type kept only for compile compatibility. */
-export interface WaterfallLeg {
-    tier: number;
-    provider: string;
-    filledAmount: number;
-    executionRate: number;
-    marginCaptured: number;
-}
-
-/** @deprecated Batch 4/6 compatibility alias; prefer `SorExecuteResponseV1`. */
-export interface SorExecutionPlan extends SorExecuteResponseV1 {
-    transaction_uuid?: string;
-}
-
 const VALID_ROUTE_TYPES = new Set<SorRouteType>([
     'L1_COW_ATOMIC_PSKT',
     'CROSS_CHAIN_OPSHA256_HTLC',
@@ -346,48 +320,6 @@ export class SmartOrderRouter {
                     ? (data.htlcCovenant as Record<string, unknown>)
                     : null,
             formattedUtxos: Array.isArray(data.formattedUtxos) ? data.formattedUtxos : []
-        };
-    }
-
-    /** @deprecated Use `executeNonCustodialSwap` with `amountAtomic` (`U128Str`). */
-    public async calculateSplitFill(
-        req: SwapPayload,
-        wallet: string,
-        utxos?: unknown[]
-    ): Promise<SorExecutionPlan> {
-        const payDecimals = atomicDecimalsForSorAsset(req.payAsset);
-        const amountAtomic =
-            req.amountAtomic !== undefined
-                ? toU128Str(req.amountAtomic, 'amountAtomic')
-                : String(req.amount ?? '0');
-        const resolvedAtomic =
-            req.amountAtomic !== undefined
-                ? amountAtomic
-                : (() => {
-                      const raw = String(req.amount ?? '0').trim();
-                      const match = /^([0-9]+)(?:\.([0-9]+))?$/.exec(raw);
-                      if (!match) {
-                          throw new SorUpstreamError(400, 'INVALID_AMOUNT', 'Invalid swap amount.');
-                      }
-                      const scale = 10n ** BigInt(payDecimals);
-                      const frac = (match[2] ?? '').slice(0, payDecimals).padEnd(payDecimals, '0');
-                      return (BigInt(match[1]) * scale + BigInt(frac)).toString();
-                  })();
-
-        const plan = await this.executeNonCustodialSwap({
-            wallet,
-            payAsset: req.payAsset,
-            receiveAsset: req.receiveAsset,
-            targetNetwork: req.targetNetwork,
-            amountAtomic: resolvedAtomic,
-            slippageBps: req.slippageBps ?? 50,
-            destinationAddress: req.destinationAddress,
-            refundKaspaAddress: req.refundKaspaAddress,
-            utxos
-        });
-        return {
-            ...plan,
-            transaction_uuid: plan.transactionUuid
         };
     }
 }

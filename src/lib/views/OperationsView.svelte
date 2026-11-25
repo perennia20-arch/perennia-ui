@@ -5,6 +5,13 @@
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
+    import { getChainExplorerAddressUrl, getChainExplorerTxUrl } from '$lib/stores/transaction.svelte';
+    import type {
+        RegisterVaultLockPayload,
+        SettlementReceiptRecord,
+        VaultCancelPsktResponse,
+        VaultLockRecord
+    } from '$lib/crypto/atomicMath';
     import type {
         Sector,
         RouteMode,
@@ -17,13 +24,33 @@
         KASPA_DIFF_CONSTANT,
         POOL_FEE_RATE,
         INITIAL_MINEABLE_KRC20_VAULTS,
-        matchCatalogSpecForWorker,
-        toPlantTargetSpec,
-        normalizePlantTargets,
-        hydrateSectorTargetAssets,
+        THERMOSTAT_VALVE_META,
+        bpsToPctNumber,
         buildSvgPath,
-        type ViewSector,
-        type MineableKrc20VaultInfo
+        buildUpdateSectorAllocationPayload,
+        computeTotalAllocatedBps,
+        computeUnallocatedBps,
+        computeValveFillProgressBps,
+        fetchSovereignOperationsBundle,
+        formatBpsToPctDisplay,
+        formatSettledAssetAmount,
+        formatSettlementTierLabel,
+        formatSompiToKasDisplay,
+        formatSompiToUsdOrUnavailable,
+        formatUsdMicrosDisplay,
+        formatVaultKindLabel,
+        formatVaultStatusLabel,
+        hydrateSectorTargetAssets,
+        hydrateThermostatValveDrafts,
+        matchCatalogSpecForWorker,
+        normalizePlantTargets,
+        parsePctInputToBps,
+        readSectorAllocationBps,
+        requestVaultCancelPreview,
+        toPlantTargetSpec,
+        type MineableKrc20VaultInfo,
+        type ThermostatValveDraft,
+        type ViewSector
     } from '$lib/components/operations/operationsHelpers';
     import WorkerFleetPanel from '$lib/components/operations/WorkerFleetPanel.svelte';
     import SectorCard from '$lib/components/operations/SectorCard.svelte';
@@ -32,16 +59,23 @@
 
     type ChartTimeframe = '1H' | '24H' | '7D' | '30D';
 
-    let unassignedReserveKas = $state(0.0);
-    let unassignedReserveTargetKas = $state(DEFAULT_RESERVE_PAYOUT_KAS);
     let savedBankRailLast4 = $state<string | null>(null);
     let savedBankRailLabel = $state<string>('Primary Operating Account');
     let savedBankRailMethod = $state<string>('ACH');
-    let isPullingOutKey = $state<string | null>(null);
 
     let hashChartTimeframe = $state<ChartTimeframe>('1H');
     let priceChartTimeframe = $state<ChartTimeframe>('24H');
     let priceTimeframeDelta = $state<number | null>(null);
+
+    // Sovereign L1 Operations State
+    let settlementReceipts = $state<SettlementReceiptRecord[]>([]);
+    let isVaultModalOpen = $state(false);
+    let vaultModalPreset = $state<Partial<RegisterVaultLockPayload> | null>(null);
+    let cancelVaultTarget = $state<VaultLockRecord | null>(null);
+    let cancelVaultPreview = $state<VaultCancelPsktResponse | null>(null);
+    let cancelActionError = $state<string | null>(null);
+    let isThermostatModalOpen = $state(false);
+    let thermostatDrafts = $state<ThermostatValveDraft[]>([]);
 
     let mineableKrc20Vaults = $state<MineableKrc20VaultInfo[]>([
         ...INITIAL_MINEABLE_KRC20_VAULTS
@@ -54,6 +88,24 @@
         }
         return map;
     });
+
+    let livePricingUnavailable = $derived(
+        operations.livePricingUnavailable || treasury.livePricingUnavailable
+    );
+    let kasAsset = $derived(treasury.getAsset('KAS'));
+    let kasSpotVisible = $derived(!livePricingUnavailable && kasAsset.spotPrice > 0);
+
+    function resolveTargetWallet(): string | undefined {
+        return identity.isCorporateAdmin && ui.adminModeActive && ui.adminTargetWallet
+            ? ui.adminTargetWallet
+            : undefined;
+    }
+
+    async function syncSovereignOperationsState() {
+        if (!browser || !identity.isWalletConnected || !identity.activeAddress) return;
+        const bundle = await fetchSovereignOperationsBundle(resolveTargetWallet());
+        settlementReceipts = bundle.receipts;
+    }
 
     async function syncMineableKrc20Vaults() {
         if (!browser) return;
@@ -82,36 +134,19 @@
                         merged.set(v.tokenTicker.toUpperCase(), v);
                     }
                     for (const rv of remoteList) {
-                        const tick = String(rv.tokenTicker || '')
-                            .trim()
-                            .toUpperCase();
+                        const tick = String(rv.tokenTicker || '').trim().toUpperCase();
                         if (tick) {
                             merged.set(tick, {
                                 vaultId: String(rv.vaultId || `vault-${tick}`),
                                 tokenTicker: tick,
-                                vaultLabel: String(
-                                    rv.vaultLabel || `${tick} Mining Vault`
-                                ),
-                                totalFundedTokens: Number(
-                                    rv.totalFundedTokens || 0
-                                ),
-                                remainingVaultTokens: Number(
-                                    rv.remainingVaultTokens || 0
-                                ),
-                                dailyEmissionTokens: Number(
-                                    rv.dailyEmissionTokens || 0
-                                ),
-                                distributedTokens: Number(
-                                    rv.distributedTokens || 0
-                                ),
-                                minHashrateThs: Number(
-                                    rv.minHashrateThs || 0.1
-                                ),
-                                syndicateSectorEnabled:
-                                    rv.syndicateSectorEnabled !== false,
-                                activeMinersCount: Number(
-                                    rv.activeMinersCount || 1
-                                ),
+                                vaultLabel: String(rv.vaultLabel || `${tick} Mining Vault`),
+                                totalFundedTokens: Number(rv.totalFundedTokens || 0),
+                                remainingVaultTokens: Number(rv.remainingVaultTokens || 0),
+                                dailyEmissionTokens: Number(rv.dailyEmissionTokens || 0),
+                                distributedTokens: Number(rv.distributedTokens || 0),
+                                minHashrateThs: Number(rv.minHashrateThs || 0.1),
+                                syndicateSectorEnabled: rv.syndicateSectorEnabled !== false,
+                                activeMinersCount: Number(rv.activeMinersCount || 1),
                                 status: String(rv.status || 'ACTIVE')
                             });
                             treasury.updateAsset(tick, {
@@ -133,7 +168,7 @@
         operations.markMutation();
     }
 
-    async function safeDispatch(action: string, payload: any) {
+    async function safeDispatch(action: string, payload: unknown) {
         markMutation();
         await operations.dispatchStateAction(action, payload);
         markMutation();
@@ -151,97 +186,6 @@
         }, 700);
     }
 
-    async function claimPendingSectorKas(params: {
-        sectorId?: string;
-        targetAsset?: string;
-    }) {
-        if (!identity.isWalletConnected || !identity.activeAddress) {
-            ui.showWalletModal = true;
-            return;
-        }
-        const key = params.sectorId || params.targetAsset || 'claim';
-        isPullingOutKey = key;
-        markMutation();
-        let claimedSum = 0;
-        const cleanTarget = params.targetAsset
-            ? params.targetAsset.trim().toUpperCase()
-            : '';
-        operations.sectors = (operations.sectors || []).map((sec) => {
-            const pending = Math.max(0, Number(sec.pendingKaspa || 0));
-            if (pending <= 0) return sec;
-            let matches = false;
-            if (params.sectorId && sec.id === params.sectorId) {
-                matches = true;
-            } else if (cleanTarget) {
-                const primary = (
-                    sec.settlementConfig?.targetAsset?.ticker || ''
-                ).toUpperCase();
-                if (primary === cleanTarget) {
-                    matches = true;
-                } else if (sec.routeMode === 'auto-lp') {
-                    const targets = hydrateSectorTargetAssets(sec);
-                    if (
-                        targets.some(
-                            (t) => t.ticker.toUpperCase() === cleanTarget
-                        )
-                    ) {
-                        matches = true;
-                    }
-                }
-            }
-            if (matches) {
-                claimedSum += pending;
-                return { ...sec, pendingKaspa: 0 };
-            }
-            return sec;
-        });
-        try {
-            const targetWallet =
-                identity.isCorporateAdmin &&
-                ui.adminModeActive &&
-                ui.adminTargetWallet
-                    ? ui.adminTargetWallet
-                    : undefined;
-            const res = await fetch('/api/state/action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'CLAIM_PENDING_SECTOR_KAS',
-                    payload: {
-                        sectorId: params.sectorId,
-                        targetAsset: params.targetAsset
-                    },
-                    targetWallet
-                })
-            });
-            const data = await res.json().catch(() => ({}));
-            const finalClaimed = Number(data?.data?.claimedKas ?? claimedSum);
-            if (params.sectorId) {
-                triggerShimmer(`sector_${params.sectorId}`);
-                ui.triggerMicroBadge(
-                    `sector_${params.sectorId}`,
-                    `RECLAIMED ${finalClaimed.toFixed(2)} KAS ✓`,
-                    '#18C6A5'
-                );
-            } else if (cleanTarget) {
-                ui.triggerMicroBadge(
-                    `bucket_${cleanTarget}`,
-                    `RECLAIMED ${finalClaimed.toFixed(2)} KAS ✓`,
-                    '#18C6A5'
-                );
-            }
-            await Promise.all([
-                syncUnassignedReserveTelemetry(),
-                syncRecentSettlementEvents()
-            ]);
-        } catch (e) {
-            console.error('Failed to reclaim pending sector KAS:', e);
-        } finally {
-            isPullingOutKey = null;
-            markMutation();
-        }
-    }
-
     async function syncSavedBankRailStatus() {
         if (!browser || !identity.isWalletConnected) return;
         try {
@@ -250,76 +194,12 @@
                 const data = await res.json();
                 savedBankRailLast4 = data.savedBankRailLast4 || null;
                 if (data.savedBankRail) {
-                    savedBankRailLabel =
-                        data.savedBankRail.bankLabel ||
-                        'Primary Operating Account';
-                    savedBankRailMethod =
-                        data.savedBankRail.payoutMethod || 'ACH';
+                    savedBankRailLabel = data.savedBankRail.bankLabel || 'Primary Operating Account';
+                    savedBankRailMethod = data.savedBankRail.payoutMethod || 'ACH';
                 }
             }
         } catch {
             // Ignore bank status check error
-        }
-    }
-
-    async function syncRecentSettlementEvents() {
-        if (!browser || !identity.isWalletConnected) return;
-        try {
-            const res = await fetch('/api/user/tax-events');
-            if (res.ok) {
-                const events = await res.json();
-                if (Array.isArray(events)) {
-                    ui.taxEvents = events;
-                }
-            }
-        } catch {
-            // Ignore tax events fetch error
-        }
-    }
-
-    async function syncUnassignedReserveTelemetry() {
-        if (!browser || !identity.isWalletConnected || !identity.activeAddress)
-            return;
-        const targetWallet =
-            identity.isCorporateAdmin &&
-            ui.adminModeActive &&
-            ui.adminTargetWallet
-                ? ui.adminTargetWallet
-                : identity.activeAddress;
-        try {
-            const res = await fetch(
-                `/api/user/ledger?wallet=${encodeURIComponent(targetWallet)}`
-            );
-            if (res.ok) {
-                const data = await res.json();
-                if (typeof data.unassignedReserveKas === 'number') {
-                    unassignedReserveKas = Math.max(
-                        0,
-                        data.unassignedReserveKas
-                    );
-                }
-                if (
-                    typeof data.unassignedReserveTargetKas === 'number' &&
-                    data.unassignedReserveTargetKas > 0
-                ) {
-                    unassignedReserveTargetKas =
-                        data.unassignedReserveTargetKas;
-                }
-                if (!ui.adminModeActive) {
-                    for (const [ticker, val] of Object.entries(data)) {
-                        if (
-                            ticker !== 'unassignedReserveKas' &&
-                            ticker !== 'unassignedReserveTargetKas'
-                        ) {
-                            treasury.updateAsset(ticker.toUpperCase(), {
-                                synthetic: Number(val) || 0
-                            });
-                        }
-                    }
-                }
-            }
-        } catch {
-            // Ignore ledger sync error
         }
     }
 
@@ -328,20 +208,11 @@
         displayedWorkers.reduce((acc, w) => acc + (w.hashRate || 0), 0)
     );
     let totalShares = $derived(
-        displayedWorkers.reduce(
-            (acc, w) => acc + (w.sharesContributed || 0),
-            0
-        )
+        displayedWorkers.reduce((acc, w) => acc + (w.sharesContributed || 0), 0)
     );
-    let allocatedPercentage = $derived(
-        (operations.sectors || []).reduce(
-            (acc, s) => acc + (s.allocationPercentage || 0),
-            0
-        )
-    );
-    let unallocatedPercentage = $derived(
-        Math.max(0, parseFloat((100.0 - allocatedPercentage).toFixed(1)))
-    );
+    let allocatedBps = $derived(computeTotalAllocatedBps(operations.sectors || []));
+    let unallocatedBps = $derived(computeUnallocatedBps(operations.sectors || []));
+    let unallocatedPercentage = $derived(bpsToPctNumber(unallocatedBps));
     let siloSectors = $derived(
         (operations.sectors || []).filter((s) => s.routeMode !== 'auto-lp')
     );
@@ -350,22 +221,49 @@
     );
     let dragSectorId = $state<string | null>(null);
     let dropTargetSectorId = $state<string | null>(null);
-    let displayedBuckets = $derived<AssetBucketTelemetry[]>(
-        operations.displayedBuckets
-    );
+    let displayedBuckets = $derived<AssetBucketTelemetry[]>(operations.displayedBuckets);
+
+    let vaultByIdAndAsset = $derived.by(() => {
+        const byId = new Map<string, VaultLockRecord>();
+        const byAsset = new Map<string, VaultLockRecord>();
+        for (const v of operations.vaultLocks || []) {
+            byId.set(v.vaultId, v);
+            const assetKey = String(v.targetAsset || '').toUpperCase();
+            if (assetKey && !byAsset.has(assetKey)) byAsset.set(assetKey, v);
+        }
+        return { byId, byAsset };
+    });
+
+    let latestReceiptByAsset = $derived.by(() => {
+        const map = new Map<string, SettlementReceiptRecord>();
+        for (const r of settlementReceipts) {
+            const tick = String(r.targetAsset || '').toUpperCase();
+            if (tick && !map.has(tick)) map.set(tick, r);
+        }
+        return map;
+    });
+
+    function findVaultForSector(sector: ViewSector): VaultLockRecord | null {
+        if (sector.vaultId && vaultByIdAndAsset.byId.has(sector.vaultId)) {
+            return vaultByIdAndAsset.byId.get(sector.vaultId) || null;
+        }
+        const ticker = String(sector.settlementConfig?.targetAsset?.ticker || '').toUpperCase();
+        return vaultByIdAndAsset.byAsset.get(ticker) || null;
+    }
+
+    function findLatestReceiptForSector(sector: ViewSector): SettlementReceiptRecord | null {
+        const ticker = String(sector.settlementConfig?.targetAsset?.ticker || '').toUpperCase();
+        return latestReceiptByAsset.get(ticker) || null;
+    }
 
     let displayHashHistory = $state<number[]>([]);
     let kasHistory = $state<number[]>([]);
 
-    async function loadHashChartHistory(
-        tf: ChartTimeframe = hashChartTimeframe
-    ) {
+    async function loadHashChartHistory(tf: ChartTimeframe = hashChartTimeframe) {
         if (!browser || !identity.isWalletConnected) return;
         try {
             const targetParam =
-                identity.isCorporateAdmin &&
-                ui.adminModeActive &&
-                ui.adminTargetWallet
+                identity.isCorporateAdmin && ui.adminModeActive && ui.adminTargetWallet
                     ? `&target=${encodeURIComponent(ui.adminTargetWallet)}`
                     : '';
             const res = await fetch(
@@ -373,10 +271,7 @@
             );
             if (res.ok) {
                 const data = await res.json();
-                if (
-                    Array.isArray(data.hashrateHistoryThs) &&
-                    data.hashrateHistoryThs.length > 0
-                ) {
+                if (Array.isArray(data.hashrateHistoryThs) && data.hashrateHistoryThs.length > 0) {
                     displayHashHistory = data.hashrateHistoryThs.slice(-60);
                     return;
                 }
@@ -385,21 +280,19 @@
             // Fallback below
         }
         if (displayHashrate > 0 && displayHashHistory.length === 0) {
-            displayHashHistory = Array.from(
-                { length: 20 },
-                () => displayHashrate
-            );
+            displayHashHistory = Array.from({ length: 20 }, () => displayHashrate);
         }
     }
 
-    async function loadPriceChartHistory(
-        tf: ChartTimeframe = priceChartTimeframe
-    ) {
+    async function loadPriceChartHistory(tf: ChartTimeframe = priceChartTimeframe) {
         if (!browser) return;
         try {
-            const res = await fetch(
-                `/api/prices?history=KAS&timeframe=${encodeURIComponent(tf)}`
-            );
+            const res = await fetch(`/api/prices?history=KAS&timeframe=${encodeURIComponent(tf)}`);
+            if (res.status === 503) {
+                kasHistory = [];
+                treasury.markOracleUnavailable();
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.points) && data.points.length > 1) {
@@ -411,11 +304,13 @@
                 }
             }
         } catch {
-            // Fallback below
+            // Fail closed on oracle outage
         }
         const spot = treasury.getAsset('KAS').spotPrice;
-        if (spot > 0 && kasHistory.length === 0) {
+        if (!livePricingUnavailable && spot > 0 && kasHistory.length === 0) {
             kasHistory = Array.from({ length: 24 }, () => spot);
+        } else if (livePricingUnavailable || spot <= 0) {
+            kasHistory = [];
         }
     }
 
@@ -425,9 +320,8 @@
             identity.isWalletConnected &&
             (identity.activeAddress || ui.adminTargetWallet)
         ) {
-            syncUnassignedReserveTelemetry();
+            syncSovereignOperationsState();
             syncSavedBankRailStatus();
-            syncRecentSettlementEvents();
             syncMineableKrc20Vaults();
             loadHashChartHistory(hashChartTimeframe);
             loadPriceChartHistory(priceChartTimeframe);
@@ -437,12 +331,10 @@
     function computeLiveKasPerThPerDay(): number {
         if (operations.networkDifficulty > 0 && operations.blockRewardKas > 0) {
             const hashesPerThPerDay = 1e12 * 86400.0;
-            const expectedBlockHashes =
-                operations.networkDifficulty * 2.0 * KASPA_DIFF_CONSTANT;
+            const expectedBlockHashes = operations.networkDifficulty * 2.0 * KASPA_DIFF_CONSTANT;
             if (expectedBlockHashes > 0) {
                 const grossKasPerThDay =
-                    (hashesPerThPerDay * operations.blockRewardKas) /
-                    expectedBlockHashes;
+                    (hashesPerThPerDay * operations.blockRewardKas) / expectedBlockHashes;
                 return Math.max(0, grossKasPerThDay * (1.0 - POOL_FEE_RATE));
             }
         }
@@ -454,27 +346,18 @@
         );
         const kasPerSecondGlobal = 103.83 * Math.pow(0.5, monthsElapsed / 12);
         const dailyGlobalKas = kasPerSecondGlobal * 86400;
-        const baselineNetworkTh = Math.max(
-            1_150_000_000,
-            operations.globalNetworkHashrate || 0
-        );
-        return Math.max(
-            0.5,
-            (dailyGlobalKas / baselineNetworkTh) * (1.0 - POOL_FEE_RATE)
-        );
+        const baselineNetworkTh = Math.max(1_150_000_000, operations.globalNetworkHashrate || 0);
+        return Math.max(0.5, (dailyGlobalKas / baselineNetworkTh) * (1.0 - POOL_FEE_RATE));
     }
 
     function estimateSectorDailyKas(sector: ViewSector): number {
         const lpMultiplier = sector.routeMode === 'auto-lp' ? 1.18 : 1.0;
-        const consensusEstimate = operations.estimateSectorDailyKas(
-            sector,
-            displayHashrate
-        );
+        const consensusEstimate = operations.estimateSectorDailyKas(sector, displayHashrate);
         if (consensusEstimate > 0) {
             return consensusEstimate * lpMultiplier;
         }
-        const pctRatio =
-            Math.max(0, Number(sector.allocationPercentage || 0)) / 100.0;
+        const bps = readSectorAllocationBps(sector);
+        const pctRatio = bps / 10_000;
         const catalogFallbackTh = displayedWorkers.reduce((sum, w) => {
             const spec = matchCatalogSpecForWorker(w);
             return sum + (spec ? spec.hashrateTh : 0);
@@ -486,16 +369,14 @@
                   ? catalogFallbackTh * pctRatio
                   : 0;
         if (effectiveTh <= 0) return 0;
-        return Math.max(
-            0,
-            effectiveTh * computeLiveKasPerThPerDay() * lpMultiplier
-        );
+        return Math.max(0, effectiveTh * computeLiveKasPerThPerDay() * lpMultiplier);
     }
 
     function estimateSectorDailyUsd(sector: ViewSector): number {
-        const kasDay = estimateSectorDailyKas(sector);
-        const kasSpot = treasury.getAsset('KAS').spotPrice || 0;
-        return kasDay * kasSpot;
+        if (livePricingUnavailable) return 0;
+        const kasSpot = treasury.getAsset('KAS').spotPrice;
+        if (!Number.isFinite(kasSpot) || kasSpot <= 0) return 0;
+        return estimateSectorDailyKas(sector) * kasSpot;
     }
 
     function handleSectorDragStart(e: DragEvent, sector: Sector) {
@@ -550,27 +431,26 @@
 
     async function snapSectorMaxRemaining(id: string) {
         markMutation();
-        let updatedPct = 0;
+        let updatedBps = 0;
         operations.sectors = operations.sectors.map((s) => {
             if (s.id !== id) return s;
-            const otherAllocated = operations.sectors.reduce(
-                (acc, sec) =>
-                    sec.id === id ? acc : acc + (sec.allocationPercentage || 0),
+            const otherBps = operations.sectors.reduce(
+                (acc, sec) => (sec.id === id ? acc : acc + readSectorAllocationBps(sec)),
                 0
             );
-            const maxAvailable = Math.max(
-                0,
-                parseFloat((100.0 - otherAllocated).toFixed(1))
-            );
-            updatedPct = maxAvailable;
-            return { ...s, allocationPercentage: maxAvailable };
+            updatedBps = Math.max(0, 10_000 - otherBps);
+            return {
+                ...s,
+                allocationBps: updatedBps,
+                allocationPercentage: bpsToPctNumber(updatedBps)
+            } as ViewSector;
         });
         triggerShimmer(`sector_${id}`);
         ui.triggerMicroBadge(`sector_${id}`, 'ROUTED 100% ✓', '#18C6A5');
-        await safeDispatch('UPDATE_SECTOR_ALLOCATION', {
-            id,
-            allocationPercentage: updatedPct
-        });
+        await safeDispatch(
+            'UPDATE_SECTOR_ALLOCATION',
+            buildUpdateSectorAllocationPayload(id, updatedBps)
+        );
     }
 
     let isSectorModalOpen = $state(false);
@@ -599,14 +479,10 @@
         appointmentTime: '17:00'
     };
 
-    let draftSettlementConfig = $state<SettlementConfig>({
-        ...defaultSettlement
-    });
+    let draftSettlementConfig = $state<SettlementConfig>({ ...defaultSettlement });
     let settlementModalSilo = $state<Sector | null>(null);
     let editSectorName = $state('');
-    let editSettlementParams = $state<SettlementConfig>({
-        ...defaultSettlement
-    });
+    let editSettlementParams = $state<SettlementConfig>({ ...defaultSettlement });
     let isSigningSettlement = $state(false);
 
     function resolveChainAddressForTicker(ticker: string): string {
@@ -648,19 +524,9 @@
             case 'XRP':
                 return keys.xrp?.address || identity.activeAddress || '';
             case 'POL':
-                return (
-                    keys.polygon?.address ||
-                    keys.ethereum?.address ||
-                    identity.activeAddress ||
-                    ''
-                );
+                return keys.polygon?.address || keys.ethereum?.address || identity.activeAddress || '';
             case 'AVAX':
-                return (
-                    keys.avalanche?.address ||
-                    keys.ethereum?.address ||
-                    identity.activeAddress ||
-                    ''
-                );
+                return keys.avalanche?.address || keys.ethereum?.address || identity.activeAddress || '';
             case 'SUI':
                 return keys.sui?.address || identity.activeAddress || '';
             case 'TRX':
@@ -689,9 +555,7 @@
             cfg.plantWeights = weightsMap;
             cfg.plantPair = normalized.map((i) => i.ticker).join('/');
             cfg.mode = 'epoch';
-            cfg.payoutAddress = resolveChainAddressForTicker(
-                primarySecondary.ticker
-            );
+            cfg.payoutAddress = resolveChainAddressForTicker(primarySecondary.ticker);
         } else {
             const single = normalized[0];
             cfg.targetAsset = single;
@@ -705,27 +569,18 @@
         return { updatedList: normalized, isPlant };
     }
 
-    function setSingleTargetAsset(
-        targetMode: 'create' | 'edit',
-        asset: UnifiedAsset
-    ) {
+    function setSingleTargetAsset(targetMode: 'create' | 'edit', asset: UnifiedAsset) {
         const singleList = [toPlantTargetSpec(asset, 100.0)];
         const isMineable = mineableVaultMap.has(asset.ticker.toUpperCase());
         if (targetMode === 'create') {
-            const res = syncConfigFromAssetList(
-                singleList,
-                draftSettlementConfig
-            );
+            const res = syncConfigFromAssetList(singleList, draftSettlementConfig);
             draftSelectedAssets = res.updatedList;
             draftIsSyndicateSector = isMineable;
             if (isMineable && draftSectorName.startsWith('SILO-')) {
                 draftSectorName = `SYNDICATE-${asset.ticker.toUpperCase()}`;
             }
         } else {
-            const res = syncConfigFromAssetList(
-                singleList,
-                editSettlementParams
-            );
+            const res = syncConfigFromAssetList(singleList, editSettlementParams);
             editSelectedAssets = res.updatedList;
         }
     }
@@ -736,9 +591,7 @@
         actionMode: 'replace_primary' | 'add_secondary' = 'replace_primary'
     ) {
         const currentList =
-            targetMode === 'create'
-                ? [...draftSelectedAssets]
-                : [...editSelectedAssets];
+            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
         const cleanTicker = asset.ticker.toUpperCase();
         if (currentList.length === 1 && actionMode === 'replace_primary') {
             setSingleTargetAsset(targetMode, asset);
@@ -777,13 +630,9 @@
         if (cleanTicker !== 'KAS') {
             existingSecondaries.push(toPlantTargetSpec(asset, 0));
         } else if (existingSecondaries.length === 0) {
-            existingSecondaries.push(
-                toPlantTargetSpec(treasury.getAsset('USDC'), 50.0)
-            );
+            existingSecondaries.push(toPlantTargetSpec(treasury.getAsset('USDC'), 50.0));
         }
-        const equalShare = Number(
-            (50.0 / existingSecondaries.length).toFixed(2)
-        );
+        const equalShare = Number((50.0 / existingSecondaries.length).toFixed(2));
         const reweightedSecondaries = existingSecondaries.map((sec) => ({
             ...sec,
             weightPct: equalShare
@@ -809,19 +658,12 @@
         }
     }
 
-    function removeAssetFromSector(
-        targetMode: 'create' | 'edit',
-        ticker: string
-    ) {
+    function removeAssetFromSector(targetMode: 'create' | 'edit', ticker: string) {
         const clean = ticker.toUpperCase();
         const currentList =
-            targetMode === 'create'
-                ? [...draftSelectedAssets]
-                : [...editSelectedAssets];
+            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
         const remainingSecondaries = currentList.filter(
-            (i) =>
-                i.ticker.toUpperCase() !== clean &&
-                i.ticker.toUpperCase() !== 'KAS'
+            (i) => i.ticker.toUpperCase() !== clean && i.ticker.toUpperCase() !== 'KAS'
         );
         let nextList: PlantAssetTarget[];
         if (remainingSecondaries.length === 0) {
@@ -833,15 +675,10 @@
         ) {
             nextList = [{ ...remainingSecondaries[0], weightPct: 100.0 }];
         } else {
-            const equalW = Number(
-                (50.0 / remainingSecondaries.length).toFixed(2)
-            );
+            const equalW = Number((50.0 / remainingSecondaries.length).toFixed(2));
             nextList = [
                 toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
-                ...remainingSecondaries.map((s) => ({
-                    ...s,
-                    weightPct: equalW
-                }))
+                ...remainingSecondaries.map((s) => ({ ...s, weightPct: equalW }))
             ];
         }
         if (targetMode === 'create') {
@@ -859,13 +696,9 @@
 
     function equalizeSecondaryWeights(targetMode: 'create' | 'edit') {
         const currentList =
-            targetMode === 'create'
-                ? [...draftSelectedAssets]
-                : [...editSelectedAssets];
+            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
         if (currentList.length < 2) return;
-        const secondaries = currentList.filter(
-            (i) => i.ticker.toUpperCase() !== 'KAS'
-        );
+        const secondaries = currentList.filter((i) => i.ticker.toUpperCase() !== 'KAS');
         const eq = Number((50.0 / Math.max(1, secondaries.length)).toFixed(2));
         const reset = [
             toPlantTargetSpec(treasury.getAsset('KAS'), 50.0),
@@ -890,33 +723,23 @@
         rawNewPct: number
     ) {
         const currentList =
-            targetMode === 'create'
-                ? [...draftSelectedAssets]
-                : [...editSelectedAssets];
+            targetMode === 'create' ? [...draftSelectedAssets] : [...editSelectedAssets];
         if (currentList.length < 2) return;
-        const secondaries = currentList.filter(
-            (i) => i.ticker.toUpperCase() !== 'KAS'
-        );
-        if (secondaries.length <= 1) {
-            return;
-        }
+        const secondaries = currentList.filter((i) => i.ticker.toUpperCase() !== 'KAS');
+        if (secondaries.length <= 1) return;
         const clampedTarget = Math.max(1.0, Math.min(49.0, rawNewPct));
         const remainingForOthers = Math.max(0.5, 50.0 - clampedTarget);
         const others = secondaries.filter(
             (s) => s.ticker.toUpperCase() !== changedTicker.toUpperCase()
         );
-        const othersOldSum = others.reduce(
-            (sum, o) => sum + Math.max(0.1, o.weightPct),
-            0
-        );
+        const othersOldSum = others.reduce((sum, o) => sum + Math.max(0.1, o.weightPct), 0);
         const updatedSecondaries = secondaries.map((s) => {
             if (s.ticker.toUpperCase() === changedTicker.toUpperCase()) {
                 return { ...s, weightPct: Number(clampedTarget.toFixed(2)) };
             }
             const share =
                 othersOldSum > 0
-                    ? (Math.max(0.1, s.weightPct) / othersOldSum) *
-                      remainingForOthers
+                    ? (Math.max(0.1, s.weightPct) / othersOldSum) * remainingForOthers
                     : remainingForOthers / Math.max(1, others.length);
             return { ...s, weightPct: Number(share.toFixed(2)) };
         });
@@ -938,70 +761,79 @@
     }
 
     function updateDraftPct(valStr: string) {
-        let val = parseFloat(valStr);
-        if (isNaN(val)) val = 0;
-        if (val > draftSectorMax) val = draftSectorMax;
-        draftSectorPct = parseFloat(val.toFixed(1));
+        const bps = parsePctInputToBps(valStr, unallocatedBps);
+        draftSectorPct = bpsToPctNumber(bps);
     }
 
     function updateDraftHash(valStr: string) {
-        let val = parseFloat(valStr);
-        if (isNaN(val)) val = 0;
-        const maxHash = displayHashrate * (draftSectorMax / 100);
-        if (val > maxHash) val = maxHash;
-        draftSectorPct = parseFloat(
-            ((val / (displayHashrate || 1)) * 100).toFixed(1)
-        );
+        const hashVal = Math.max(0, Number(valStr) || 0);
+        const maxHash = (displayHashrate * unallocatedBps) / 10_000;
+        const clampedHash = Math.min(hashVal, maxHash);
+        const pctStr = displayHashrate > 0 ? ((clampedHash / displayHashrate) * 100).toFixed(2) : '0';
+        const bps = parsePctInputToBps(pctStr, unallocatedBps);
+        draftSectorPct = bpsToPctNumber(bps);
     }
 
     function handleSectorInputPct(id: string, valStr: string) {
         markMutation();
-        let val = parseFloat(valStr);
-        if (isNaN(val)) val = 0;
         operations.sectors = operations.sectors.map((s) => {
-            if (s.id === id) {
-                const max = s.allocationPercentage + unallocatedPercentage;
-                const cleanVal = parseFloat(Math.min(val, max).toFixed(1));
-                return { ...s, allocationPercentage: cleanVal };
-            }
-            return s;
+            if (s.id !== id) return s;
+            const otherBps = operations.sectors.reduce(
+                (acc, sec) => (sec.id === id ? acc : acc + readSectorAllocationBps(sec)),
+                0
+            );
+            const maxBps = Math.max(0, 10_000 - otherBps);
+            const nextBps = parsePctInputToBps(valStr, maxBps);
+            return {
+                ...s,
+                allocationBps: nextBps,
+                allocationPercentage: bpsToPctNumber(nextBps)
+            } as ViewSector;
         });
     }
 
     function handleSectorInputHash(id: string, hashStr: string) {
         markMutation();
-        let hashVal = parseFloat(hashStr);
-        if (isNaN(hashVal)) hashVal = 0;
+        const hashVal = Math.max(0, Number(hashStr) || 0);
         operations.sectors = operations.sectors.map((s) => {
-            if (s.id === id) {
-                const maxPct = s.allocationPercentage + unallocatedPercentage;
-                const maxHash = displayHashrate * (maxPct / 100);
-                const cleanHash = Math.min(hashVal, maxHash);
-                const pct = parseFloat(
-                    ((cleanHash / (displayHashrate || 1)) * 100).toFixed(1)
-                );
-                return { ...s, allocationPercentage: pct };
-            }
-            return s;
+            if (s.id !== id) return s;
+            const otherBps = operations.sectors.reduce(
+                (acc, sec) => (sec.id === id ? acc : acc + readSectorAllocationBps(sec)),
+                0
+            );
+            const maxBps = Math.max(0, 10_000 - otherBps);
+            const maxHash = (displayHashrate * maxBps) / 10_000;
+            const cleanHash = Math.min(hashVal, maxHash);
+            const pctStr = displayHashrate > 0 ? ((cleanHash / displayHashrate) * 100).toFixed(2) : '0';
+            const nextBps = parsePctInputToBps(pctStr, maxBps);
+            return {
+                ...s,
+                allocationBps: nextBps,
+                allocationPercentage: bpsToPctNumber(nextBps)
+            } as ViewSector;
         });
     }
 
     function handleSectorSliderInput(id: string, e: Event) {
         markMutation();
         const input = e.target as HTMLInputElement;
-        let val = parseFloat(input.value);
-        if (isNaN(val)) val = 0;
         operations.sectors = operations.sectors.map((s) => {
             if (s.id !== id) return s;
-            const otherAllocated = operations.sectors.reduce(
-                (acc, sec) =>
-                    sec.id === id ? acc : acc + sec.allocationPercentage,
+            const otherBps = operations.sectors.reduce(
+                (acc, sec) => (sec.id === id ? acc : acc + readSectorAllocationBps(sec)),
                 0
             );
-            const absoluteMax = parseFloat((100.0 - otherAllocated).toFixed(1));
-            const cleanVal = parseFloat(Math.min(val, absoluteMax).toFixed(1));
-            if (val > absoluteMax) input.value = cleanVal.toString();
-            return { ...s, allocationPercentage: cleanVal };
+            const maxBps = Math.max(0, 10_000 - otherBps);
+            const nextBps = parsePctInputToBps(input.value, maxBps);
+            const nextPct = bpsToPctNumber(nextBps);
+            if (parsePctInputToBps(input.value, 10_000) > maxBps) {
+                input.value = formatBpsToPctDisplay(nextBps, 1, true);
+            }
+            return {
+                ...s,
+                allocationBps: nextBps,
+                allocationPercentage: nextPct
+            } as ViewSector;
         });
     }
 
@@ -1012,45 +844,44 @@
     async function commitSectorUpdate(id: string) {
         const sector = operations.sectors.find((s) => s.id === id);
         if (sector) {
-            if (Math.abs(allocatedPercentage - 100.0) < 0.05) {
+            const bps = readSectorAllocationBps(sector);
+            if (allocatedBps >= 9995) {
                 ui.triggerMicroBadge(`sector_${id}`, 'ROUTED 100% ✓', '#18C6A5');
             }
-            await safeDispatch('UPDATE_SECTOR_ALLOCATION', {
-                id,
-                allocationPercentage: sector.allocationPercentage
-            });
+            await safeDispatch(
+                'UPDATE_SECTOR_ALLOCATION',
+                buildUpdateSectorAllocationPayload(id, bps)
+            );
         }
     }
 
     function openSectorModal() {
-        if (unallocatedPercentage <= 0) return;
+        if (unallocatedBps <= 0) return;
         syncSavedBankRailStatus();
         syncMineableKrc20Vaults();
         treasury.syncRwaOraclePrices();
-        draftSectorPct = parseFloat(unallocatedPercentage.toFixed(1));
-        draftSectorMax = parseFloat(unallocatedPercentage.toFixed(1));
-        const randomHex = Math.random()
-            .toString(36)
-            .substring(2, 6)
-            .toUpperCase();
-        draftSectorName = `SILO-${randomHex}`;
+        draftSectorPct = bpsToPctNumber(unallocatedBps);
+        draftSectorMax = bpsToPctNumber(unallocatedBps);
+        const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+        draftSectorName = `SPLIT-${randomHex}`;
         draftIsSyndicateSector = false;
-        const kasAsset = treasury.getAsset('KAS');
+        const kasAssetObj = treasury.getAsset('KAS');
         draftSettlementConfig = {
             ...defaultSettlement,
             threshold: DEFAULT_RESERVE_PAYOUT_KAS,
             payoutAddress: resolveChainAddressForTicker('KAS'),
-            targetAsset: kasAsset as any,
-            targetAssets: [toPlantTargetSpec(kasAsset, 100.0)],
+            targetAsset: kasAssetObj as unknown as SettlementConfig['targetAsset'],
+            targetAssets: [toPlantTargetSpec(kasAssetObj, 100.0)],
             plantWeights: { KAS: 100.0 },
             plantPair: 'KAS'
         };
-        draftSelectedAssets = [toPlantTargetSpec(kasAsset, 100.0)];
+        draftSelectedAssets = [toPlantTargetSpec(kasAssetObj, 100.0)];
         isSectorModalOpen = true;
     }
 
     async function createSector() {
-        if (draftSectorPct <= 0 || draftSectorPct > draftSectorMax) return;
+        const nextBps = parsePctInputToBps(draftSectorPct, unallocatedBps);
+        if (nextBps <= 0) return;
         const id = Math.random().toString(36).substring(2, 8).toUpperCase();
         const { updatedList, isPlant } = syncConfigFromAssetList(
             draftSelectedAssets,
@@ -1062,29 +893,24 @@
                   (draftSettlementConfig.targetAsset?.ticker || '').toUpperCase()
               ) || null
             : null;
-        const fallbackName = `${isPlant ? 'Plant' : draftIsSyndicateSector ? 'Syndicate' : 'Silo'}-${id.substring(0, 4)}`;
+        const fallbackName = `${isPlant ? 'Pool' : draftIsSyndicateSector ? 'Syndicate' : 'Split'}-${id.substring(0, 4)}`;
         const finalName = draftSectorName.trim() || fallbackName;
-        let routeMode: RouteMode = 'hold';
-        if (isPlant) {
-            routeMode = 'auto-lp';
-        } else {
-            routeMode =
-                draftSettlementConfig.targetAsset.ticker === 'KAS'
-                    ? 'hold'
-                    : 'swap';
-        }
-        const configCopy: any = JSON.parse(
-            JSON.stringify(draftSettlementConfig)
-        );
+        const routeMode: RouteMode = isPlant
+            ? 'auto-lp'
+            : draftSettlementConfig.targetAsset.ticker === 'KAS'
+              ? 'hold'
+              : 'swap';
+        const configCopy = JSON.parse(JSON.stringify(draftSettlementConfig));
         if (!isPlant && draftMineable) {
             configCopy.isMineableKrc20 = true;
             configCopy.syndicateVault = draftIsSyndicateSector;
             configCopy.dailyVaultEmission = draftMineable.dailyEmissionTokens;
         }
-        const newSector: Sector = {
+        const newSector: ViewSector = {
             id,
             name: finalName,
-            allocationPercentage: draftSectorPct,
+            allocationBps: nextBps,
+            allocationPercentage: bpsToPctNumber(nextBps),
             routeMode,
             settlementConfig: configCopy,
             pendingKaspa: 0,
@@ -1096,10 +922,10 @@
         ui.triggerMicroBadge(
             `sector_${id}`,
             routeMode === 'auto-lp'
-                ? '+LP PLANT ARMED ✓'
+                ? 'POOL SPLIT ARMED ✓'
                 : draftMineable
-                  ? 'POH KRC-20 SYNDICATE ARMED ✓'
-                  : 'SILO DEPLOYED ✓',
+                  ? 'SYNDICATE SPLIT ARMED ✓'
+                  : 'SPLIT DEPLOYED ✓',
             newSector.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5'
         );
         await safeDispatch('ADD_SECTOR', newSector);
@@ -1114,17 +940,14 @@
         const sectorIndex = operations.sectors.findIndex((s) => s.id === id);
         if (sectorIndex !== -1) {
             const currentName = operations.sectors[sectorIndex].name;
-            const newName = prompt('Enter new Sector name:', currentName);
+            const newName = prompt('Enter new Split name:', currentName);
             if (newName && newName.trim() !== '') {
                 operations.sectors = operations.sectors.map((s) =>
                     s.id === id ? { ...s, name: newName.trim() } : s
                 );
                 triggerShimmer(`sector_${id}`);
                 ui.triggerMicroBadge(`sector_${id}`, 'RENAMED ✓', '#18C6A5');
-                await safeDispatch('RENAME_SECTOR', {
-                    id,
-                    name: newName.trim()
-                });
+                await safeDispatch('RENAME_SECTOR', { id, name: newName.trim() });
             }
         }
     }
@@ -1141,10 +964,8 @@
         const nameChanged = trimmedName !== existing.name;
         const targetTickerUpper = (nextConfig.targetAsset?.ticker || '').toUpperCase();
         const mineable =
-            nextRouteMode !== 'auto-lp'
-                ? mineableVaultMap.get(targetTickerUpper) || null
-                : null;
-        const configCopy: any = JSON.parse(JSON.stringify(nextConfig));
+            nextRouteMode !== 'auto-lp' ? mineableVaultMap.get(targetTickerUpper) || null : null;
+        const configCopy = JSON.parse(JSON.stringify(nextConfig));
         if (mineable) {
             configCopy.isMineableKrc20 = true;
             configCopy.dailyVaultEmission = mineable.dailyEmissionTokens;
@@ -1181,8 +1002,9 @@
             ...defaultSettlement,
             payoutAddress: resolveChainAddressForTicker('KAS')
         };
-        if (!safeConfig.targetAsset)
-            safeConfig.targetAsset = treasury.getAsset('KAS') as any;
+        if (!safeConfig.targetAsset) {
+            safeConfig.targetAsset = treasury.getAsset('KAS') as unknown as SettlementConfig['targetAsset'];
+        }
         editSettlementParams = JSON.parse(JSON.stringify(safeConfig));
         editSelectedAssets = hydrateSectorTargetAssets(sector);
         syncConfigFromAssetList(editSelectedAssets, editSettlementParams);
@@ -1199,8 +1021,7 @@
                 editSelectedAssets = updatedList;
                 const trimmedName = editSectorName.trim();
                 const nameChanged =
-                    trimmedName !== '' &&
-                    trimmedName !== settlementModalSilo.name;
+                    trimmedName !== '' && trimmedName !== settlementModalSilo.name;
                 const activeSiloId = settlementModalSilo.id;
                 const newRouteMode: RouteMode = isPlant
                     ? 'auto-lp'
@@ -1212,9 +1033,7 @@
                         return {
                             ...s,
                             name: nameChanged ? trimmedName : s.name,
-                            settlementConfig: JSON.parse(
-                                JSON.stringify(editSettlementParams)
-                            ),
+                            settlementConfig: JSON.parse(JSON.stringify(editSettlementParams)),
                             routeMode: newRouteMode
                         };
                     }
@@ -1223,29 +1042,64 @@
                 triggerShimmer(`sector_${activeSiloId}`);
                 ui.triggerMicroBadge(
                     `sector_${activeSiloId}`,
-                    isPlant
-                        ? 'LIQUIDITY PLANT UPDATED ✓'
-                        : 'PROTOCOL UPDATED ✓',
+                    isPlant ? 'POOL UPDATED ✓' : 'SPLIT UPDATED ✓',
                     editSettlementParams.targetAsset?.theme?.hex || '#18C6A5'
                 );
-                if (nameChanged)
-                    await safeDispatch('RENAME_SECTOR', {
-                        id: activeSiloId,
-                        name: trimmedName
-                    });
+                if (nameChanged) {
+                    await safeDispatch('RENAME_SECTOR', { id: activeSiloId, name: trimmedName });
+                }
                 await safeDispatch('UPDATE_SETTLEMENT', {
                     id: activeSiloId,
                     config: editSettlementParams
                 });
-            } catch {
-                alert('Signature Request Rejected. Parameters not saved.');
-                return;
             } finally {
                 isSigningSettlement = false;
                 settlementModalSilo = null;
                 editSettlementParams = { ...defaultSettlement };
             }
         }
+    }
+
+    function openRegisterVaultModal(sector?: Sector) {
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
+        const ticker = sector?.settlementConfig?.targetAsset?.ticker || 'USDC';
+        vaultModalPreset = sector
+            ? {
+                  vaultKind: sector.routeMode === 'auto-lp' ? 'MAKER_PLANT' : 'MINER_SILO',
+                  targetAsset: ticker,
+                  destinationAddress:
+                      sector.settlementConfig?.payoutAddress || resolveChainAddressForTicker(ticker),
+                  refundKaspaAddress: identity.activeAddress
+              }
+            : {
+                  vaultKind: 'MINER_SILO',
+                  targetAsset: 'USDC',
+                  destinationAddress: resolveChainAddressForTicker('USDC'),
+                  refundKaspaAddress: identity.activeAddress
+              };
+        isVaultModalOpen = true;
+    }
+
+    async function initiateOwnerVaultCancel(vault: VaultLockRecord) {
+        cancelActionError = null;
+        const res = await requestVaultCancelPreview(vault.vaultId, resolveTargetWallet());
+        if (!res.ok || !res.preview) {
+            cancelActionError = res.error || 'Could not prepare vault return.';
+            return;
+        }
+        cancelVaultTarget = vault;
+        cancelVaultPreview = res.preview;
+    }
+
+    function openThermostatModal() {
+        thermostatDrafts = hydrateThermostatValveDrafts(
+            operations.thermostatValves || [],
+            identity.activeAddress || ''
+        );
+        isThermostatModalOpen = true;
     }
 
     let effortData = $derived.by(() => {
@@ -1259,10 +1113,10 @@
         const totalHash = displayHashrate;
         let currentOffset = 0;
         operations.sectors.forEach((sec) => {
-            if (sec.allocationPercentage > 0) {
-                const pct = sec.allocationPercentage;
-                const hex =
-                    sec.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5';
+            const bps = readSectorAllocationBps(sec);
+            if (bps > 0) {
+                const pct = bps / 100;
+                const hex = sec.settlementConfig?.targetAsset?.theme?.hex || '#18C6A5';
                 segments.push({
                     id: sec.id,
                     name: sec.name,
@@ -1280,40 +1134,29 @@
     let reservePollInterval: ReturnType<typeof setInterval>;
 
     function handleRealtimeYieldOrFiatEvent() {
-        syncUnassignedReserveTelemetry();
+        syncSovereignOperationsState();
         syncSavedBankRailStatus();
-        syncRecentSettlementEvents();
     }
 
     onMount(() => {
-        syncUnassignedReserveTelemetry();
+        syncSovereignOperationsState();
         syncSavedBankRailStatus();
-        syncRecentSettlementEvents();
         syncMineableKrc20Vaults();
         loadHashChartHistory(hashChartTimeframe);
         loadPriceChartHistory(priceChartTimeframe);
 
         if (browser) {
-            window.addEventListener(
-                'perennia:yield_update',
-                handleRealtimeYieldOrFiatEvent
-            );
-            window.addEventListener(
-                'perennia:fiat_event',
-                handleRealtimeYieldOrFiatEvent
-            );
+            window.addEventListener('perennia:yield_update', handleRealtimeYieldOrFiatEvent);
+            window.addEventListener('perennia:fiat_event', handleRealtimeYieldOrFiatEvent);
         }
 
         chartInterval = setInterval(() => {
             if (browser && identity.isWalletConnected) {
                 if (hashChartTimeframe === '1H') {
-                    displayHashHistory = [
-                        ...displayHashHistory,
-                        displayHashrate
-                    ].slice(-60);
+                    displayHashHistory = [...displayHashHistory, displayHashrate].slice(-60);
                 }
                 const spot = treasury.getAsset('KAS').spotPrice;
-                if (spot > 0 && kasHistory.length === 0) {
+                if (!livePricingUnavailable && spot > 0 && kasHistory.length === 0) {
                     kasHistory = [spot];
                 }
             }
@@ -1321,7 +1164,7 @@
 
         reservePollInterval = setInterval(() => {
             if (browser && identity.isWalletConnected) {
-                syncUnassignedReserveTelemetry();
+                syncSovereignOperationsState();
                 loadPriceChartHistory(priceChartTimeframe);
             }
         }, 12000);
@@ -1329,27 +1172,19 @@
 
     onDestroy(() => {
         if (browser) {
-            window.removeEventListener(
-                'perennia:yield_update',
-                handleRealtimeYieldOrFiatEvent
-            );
-            window.removeEventListener(
-                'perennia:fiat_event',
-                handleRealtimeYieldOrFiatEvent
-            );
+            window.removeEventListener('perennia:yield_update', handleRealtimeYieldOrFiatEvent);
+            window.removeEventListener('perennia:fiat_event', handleRealtimeYieldOrFiatEvent);
         }
         if (chartInterval) clearInterval(chartInterval);
         if (reservePollInterval) clearInterval(reservePollInterval);
     });
 
-    let hashratePath = $derived(
-        buildSvgPath(displayHashHistory, 200, 240, true)
+    let hashratePath = $derived(buildSvgPath(displayHashHistory, 200, 240, true));
+    let pricePath = $derived(
+        livePricingUnavailable ? '' : buildSvgPath(kasHistory, 200, 240, false)
     );
-    let pricePath = $derived(buildSvgPath(kasHistory.length > 1 ? kasHistory : (ui.isTutorialActive ? [0.158, 0.161, 0.159, 0.163, 0.162, 0.165] : kasHistory), 200, 240, false));
     let activePriceDeltaPct = $derived(
-        priceTimeframeDelta !== null
-            ? priceTimeframeDelta
-            : treasury.getAsset('KAS').delta || 0
+        priceTimeframeDelta !== null ? priceTimeframeDelta : kasAsset.delta || 0
     );
 </script>
 
@@ -1375,8 +1210,51 @@
 {/if}
 
 <div class="w-full h-full p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto bg-transparent" role="presentation">
-<div data-testid="mobile-kpi-ribbon" class="lg:hidden flex items-stretch gap-2.5 overflow-x-auto snap-x snap-mandatory hide-scrollbar -mx-1 px-1 pb-1 font-mono"><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>Hashrate</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{displayHashrate.toFixed(2)} <span class="text-[9px] text-[#18C6A5]">TH/s</span></span></div><div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">KAS / USD</span><div class="flex items-baseline gap-1.5 mt-0.5"><span class="text-sm font-black text-white tabular-nums">${treasury.getAsset('KAS').spotPrice.toFixed(4)}</span><span class="text-[8px] font-bold {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">{activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%</span></div></div><div class="snap-start shrink-0 min-w-[152px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">Blocks</span><span class="text-xs font-black text-blue-400 tabular-nums mt-0.5 truncate">{operations.virtualDaaScore > 0 ? operations.virtualDaaScore.toLocaleString() : operations.networkDifficulty > 0 ? operations.networkDifficulty.toExponential(2) : (operations.globalNodeStatus === 'connected' ? 'DAG ONLINE' : 'STANDBY')}</span></div><div class="snap-start shrink-0 min-w-[158px] bg-[#0a0d12] border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between"><span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">Next Payout</span><span class="text-sm font-black text-white tabular-nums mt-0.5">{operations.formatEpochCountdown()}</span></div></div>
-<div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
+    <!-- MOBILE KPI RIBBON -->
+    <div data-testid="mobile-kpi-ribbon" class="lg:hidden flex items-stretch gap-2.5 overflow-x-auto snap-x snap-mandatory hide-scrollbar -mx-1 px-1 pb-1 font-mono">
+        <div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
+            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>
+                Hashrate
+            </span>
+            <span class="text-sm font-black text-white tabular-nums mt-0.5">
+                {displayHashrate.toFixed(2)} <span class="text-[9px] text-[#18C6A5]">TH/s</span>
+            </span>
+        </div>
+        <div class="snap-start shrink-0 min-w-[156px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
+            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">KAS / USD</span>
+            {#if kasSpotVisible}
+                <div class="flex items-baseline gap-1.5 mt-0.5">
+                    <span class="text-sm font-black text-white tabular-nums">${kasAsset.spotPrice.toFixed(4)}</span>
+                    <span class="text-[8px] font-bold {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">
+                        {activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%
+                    </span>
+                </div>
+            {:else}
+                <span class="text-[9px] font-bold text-amber-400 mt-0.5">Live pricing unavailable</span>
+            {/if}
+        </div>
+        <div class="snap-start shrink-0 min-w-[152px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
+            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">Blocks</span>
+            <span class="text-xs font-black text-blue-400 tabular-nums mt-0.5 truncate">
+                {operations.virtualDaaScore > 0
+                    ? operations.virtualDaaScore.toLocaleString()
+                    : operations.networkDifficulty > 0
+                      ? operations.networkDifficulty.toExponential(2)
+                      : operations.globalNodeStatus === 'connected'
+                        ? 'Network Online'
+                        : 'Standby'}
+            </span>
+        </div>
+        <div class="snap-start shrink-0 min-w-[158px] bg-[#0a0d12] border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
+            <span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">Next Payout</span>
+            <span class="text-sm font-black text-white tabular-nums mt-0.5">
+                {operations.formatEpochCountdown()}
+            </span>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
         <WorkerFleetPanel
             {displayedWorkers}
             {displayHashrate}
@@ -1391,91 +1269,108 @@
             onOpenSectorModal={openSectorModal}
         />
 
-        <!-- CENTER WORKSPACE: TELEMETRY CHARTS + SETTLEMENT SILOS & LIQUIDITY PLANTS -->
+        <!-- CENTER WORKSPACE -->
         <div
             class="flex flex-col gap-4 lg:col-span-6 xl:col-span-8 relative z-10 min-w-0"
-            data-tour="sector-matrix" data-testid="ops-payout-splits-section"
+            data-tour="sector-matrix"
+            data-testid="ops-payout-splits-section"
         >
-            
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div
-                        class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
-                        style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 60%);"
-                    >
-                        <div class="flex justify-between items-start gap-2 relative z-10">
-                            <div class="flex flex-col pointer-events-none">
-                                <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
-                                    <div
-                                        class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"
-                                    ></div>
-                                    Hashrate
-                                </span>
-                                <span class="text-2xl font-mono font-light text-white tracking-tight mt-0.5 whitespace-nowrap tabular-nums">
-                                    {displayHashrate.toFixed(2)}
-                                    <span class="text-xs text-neutral-400 font-bold">TH/s</span>
-                                </span>
-                            </div>
-                            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
-                                {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
-                                    <button
-                                        type="button"
-                                        data-testid="hash-chart-tf-{tf}"
-                                        onclick={() => {
-                                            hashChartTimeframe = tf as ChartTimeframe;
-                                            loadHashChartHistory(tf as ChartTimeframe);
-                                        }}
-                                        class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {hashChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
-                                    >
-                                        {tf}
-                                    </button>
-                                {/each}
-                            </div>
+            {#if livePricingUnavailable}
+                <div
+                    data-testid="live-pricing-unavailable-banner"
+                    class="bg-[#0a0d12] border border-amber-500/40 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 font-mono"
+                    style="background-image: radial-gradient(ellipse at left, rgba(245, 158, 11, 0.10), transparent 70%);"
+                >
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                        <span class="text-xs font-bold text-amber-300">
+                            Live pricing unavailable
+                        </span>
+                    </div>
+                    <span class="text-[10px] text-neutral-400">
+                        USD estimates and cross-asset conversions are paused until live price feeds resume.
+                    </span>
+                </div>
+            {/if}
+
+            <!-- TELEMETRY CHARTS -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div
+                    class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
+                    style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 60%);"
+                >
+                    <div class="flex justify-between items-start gap-2 relative z-10">
+                        <div class="flex flex-col pointer-events-none">
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
+                                <div class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></div>
+                                Hashrate
+                            </span>
+                            <span class="text-2xl font-mono font-light text-white tracking-tight mt-0.5 whitespace-nowrap tabular-nums">
+                                {displayHashrate.toFixed(2)}
+                                <span class="text-xs text-neutral-400 font-bold">TH/s</span>
+                            </span>
                         </div>
-                        <div class="absolute inset-0 pointer-events-none p-4 z-0">
-                            <div class="w-full h-full border-l border-b border-white/5 relative">
-                                <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                    TH/s
-                                </span>
-                                <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                    {hashChartTimeframe} →
-                                </span>
-                            </div>
-                        </div>
-                        <div class="absolute bottom-0 left-0 w-full h-[175px] opacity-45 group-hover:opacity-80 transition-opacity duration-700 ml-4 mb-4">
-                            <svg class="w-[calc(100%-16px)] h-full" preserveAspectRatio="none" viewBox="0 0 200 240">
-                                <path d="{hashratePath} L 200,240 L 0,240 Z" fill="url(#hashGradient)" opacity="0.3" />
-                                <path
-                                    d={hashratePath}
-                                    fill="none"
-                                    stroke="#18C6A5"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    class="drop-shadow-[0_0_5px_rgba(24,198,165,0.5)]"
-                                />
-                                <defs>
-                                    <linearGradient id="hashGradient" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stop-color="#18C6A5" />
-                                        <stop offset="100%" stop-color="transparent" />
-                                    </linearGradient>
-                                </defs>
-                            </svg>
+                        <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
+                            {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
+                                <button
+                                    type="button"
+                                    data-testid="hash-chart-tf-{tf}"
+                                    onclick={() => {
+                                        hashChartTimeframe = tf as ChartTimeframe;
+                                        loadHashChartHistory(tf as ChartTimeframe);
+                                    }}
+                                    class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {hashChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                >
+                                    {tf}
+                                </button>
+                            {/each}
                         </div>
                     </div>
+                    <div class="absolute inset-0 pointer-events-none p-4 z-0">
+                        <div class="w-full h-full border-l border-b border-white/5 relative">
+                            <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[8px] tracking-widest uppercase font-mono text-neutral-500">
+                                TH/s
+                            </span>
+                            <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
+                                {hashChartTimeframe} →
+                            </span>
+                        </div>
+                    </div>
+                    <div class="absolute bottom-0 left-0 w-full h-[175px] opacity-45 group-hover:opacity-80 transition-opacity duration-700 ml-4 mb-4">
+                        <svg class="w-[calc(100%-16px)] h-full" preserveAspectRatio="none" viewBox="0 0 200 240">
+                            <path d="{hashratePath} L 200,240 L 0,240 Z" fill="url(#hashGradient)" opacity="0.3" />
+                            <path
+                                d={hashratePath}
+                                fill="none"
+                                stroke="#18C6A5"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                            <defs>
+                                <linearGradient id="hashGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="#18C6A5" />
+                                    <stop offset="100%" stop-color="transparent" />
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                </div>
 
-                    <div
-                        class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
-                        style="background-image: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.08), transparent 60%);"
-                    >
-                        <div class="flex justify-between items-start gap-2 relative z-10">
-                            <div class="flex flex-col pointer-events-none">
-                                <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
-                                    <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                                    KAS Price
-                                </span>
+                <div
+                    class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
+                    style="background-image: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.08), transparent 60%);"
+                >
+                    <div class="flex justify-between items-start gap-2 relative z-10">
+                        <div class="flex flex-col pointer-events-none">
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
+                                <div class="w-2 h-2 rounded-full {kasSpotVisible ? 'bg-blue-500 animate-pulse' : 'bg-amber-400'}"></div>
+                                KAS Price
+                            </span>
+                            {#if kasSpotVisible}
                                 <div class="flex items-baseline gap-2 mt-0.5">
                                     <span class="text-2xl font-mono font-light text-white tracking-tight tabular-nums">
-                                        ${treasury.getAsset('KAS').spotPrice.toFixed(4)}
+                                        ${kasAsset.spotPrice.toFixed(4)}
                                     </span>
                                     <span
                                         class="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-[#11161f] border {activePriceDeltaPct >= 0 ? 'text-[#10b981] border-emerald-900/30' : 'text-[#ef4444] border-red-900/30'}"
@@ -1483,33 +1378,39 @@
                                         {activePriceDeltaPct > 0 ? '+' : ''}{activePriceDeltaPct.toFixed(2)}%
                                     </span>
                                 </div>
-                            </div>
-                            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
-                                {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
-                                    <button
-                                        type="button"
-                                        data-testid="price-chart-tf-{tf}"
-                                        onclick={() => {
-                                            priceChartTimeframe = tf as ChartTimeframe;
-                                            loadPriceChartHistory(tf as ChartTimeframe);
-                                        }}
-                                        class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {priceChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
-                                    >
-                                        {tf}
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-                        <div class="absolute inset-0 pointer-events-none p-4 z-0">
-                            <div class="w-full h-full border-l border-b border-white/5 relative">
-                                <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                    USD
+                            {:else}
+                                <span class="text-sm font-mono font-bold text-amber-400 mt-1">
+                                    Live pricing unavailable
                                 </span>
-                                <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                    {priceChartTimeframe} →
-                                </span>
-                            </div>
+                            {/if}
                         </div>
+                        <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
+                            {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
+                                <button
+                                    type="button"
+                                    data-testid="price-chart-tf-{tf}"
+                                    onclick={() => {
+                                        priceChartTimeframe = tf as ChartTimeframe;
+                                        loadPriceChartHistory(tf as ChartTimeframe);
+                                    }}
+                                    class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {priceChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                >
+                                    {tf}
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+                    <div class="absolute inset-0 pointer-events-none p-4 z-0">
+                        <div class="w-full h-full border-l border-b border-white/5 relative">
+                            <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[8px] tracking-widest uppercase font-mono text-neutral-500">
+                                USD
+                            </span>
+                            <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
+                                {priceChartTimeframe} →
+                            </span>
+                        </div>
+                    </div>
+                    {#if pricePath}
                         <div class="absolute bottom-0 left-0 w-full h-[175px] opacity-45 group-hover:opacity-80 transition-opacity duration-700 ml-4 mb-4">
                             <svg class="w-[calc(100%-16px)] h-full" preserveAspectRatio="none" viewBox="0 0 200 240">
                                 <path d="{pricePath} L 200,240 L 0,240 Z" fill="url(#kasGradient)" opacity="0.3" />
@@ -1520,7 +1421,6 @@
                                     stroke-width="2"
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
-                                    class="drop-shadow-[0_0_5px_rgba(112,199,186,0.5)]"
                                 />
                                 <defs>
                                     <linearGradient id="kasGradient" x1="0" y1="0" x2="0" y2="1">
@@ -1533,18 +1433,18 @@
                                 </defs>
                             </svg>
                         </div>
-                    </div>
+                    {/if}
                 </div>
-            
+            </div>
 
+            <!-- PAYOUT SPLITS CANVAS -->
             <div
-                class="flex flex-col gap-5 flex-1 border border-white/10 rounded-[32px] bg-[#0a0d12] p-5 sm:p-6 min-h-[260px] lg:min-h-[420px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
+                class="flex flex-col gap-5 border border-white/10 rounded-[32px] bg-[#0a0d12] p-5 sm:p-6 min-h-[240px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
                 style="background-image: radial-gradient(ellipse at 50% 0%, rgba(24, 198, 165, 0.06), transparent 60%), linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px); background-size: 100% 100%, 30px 30px, 30px 30px;"
             >
                 {#if operations.sectors.length === 0}
                     <div class="relative z-10 flex flex-col items-center justify-center text-center py-10 px-4">
-                        <h2 class="text-3xl md:text-5xl font-light uppercase tracking-[0.1em] text-white/30 mb-8 drop-shadow-lg text-center">
-                            <br />
+                        <h2 class="text-3xl md:text-5xl font-light uppercase tracking-[0.1em] text-white/30 mb-8 text-center">
                             <span class="text-[#18C6A5]/50">Payout Splits</span>
                         </h2>
                         <div class="relative w-24 h-24 rounded-full bg-[#18C6A5]/5 border border-[#18C6A5]/20 flex items-center justify-center mb-6 shadow-inner">
@@ -1559,14 +1459,11 @@
                             </svg>
                         </div>
                         <p class="text-[11px] uppercase tracking-widest text-neutral-400 font-bold text-center leading-relaxed">
-                            100% KAS → Wallet (50 KAS min • 1% fee)<br />
-                            <span class="text-[10px] font-mono text-neutral-500 font-normal mt-2 block">
-                                
-                            </span>
+                            100% KAS → Wallet (50 KAS min • 1% fee)
                         </p>
                     </div>
                 {:else}
-                    <div class="flex flex-col gap-3 relative z-10 content-start pb-10">
+                    <div class="flex flex-col gap-3 relative z-10 content-start pb-2">
                         {#if siloSectors.length > 0}
                             <div class="flex flex-col gap-2" data-testid="settlement-silos-section">
                                 <div class="flex items-center justify-between border-b border-[#18C6A5]/25 pb-2">
@@ -1589,6 +1486,9 @@
                                             {mineableVaultMap}
                                             {savedBankRailLast4}
                                             {savedBankRailMethod}
+                                            vaultLock={findVaultForSector(sector)}
+                                            latestReceipt={findLatestReceiptForSector(sector)}
+                                            {livePricingUnavailable}
                                             {resolveChainAddressForTicker}
                                             {estimateSectorDailyKas}
                                             {estimateSectorDailyUsd}
@@ -1606,10 +1506,9 @@
                                             onSliderInput={handleSectorSliderInput}
                                             onSliderChange={handleSectorSliderChange}
                                             onCommitUpdate={commitSectorUpdate}
-                                            {isPullingOutKey}
                                             onSnapMaxRemaining={snapSectorMaxRemaining}
                                             onInlineSaveSector={handleInlineSaveSector}
-                                            onClaimPendingSectorKas={claimPendingSectorKas}
+                                            onOpenVaultLock={openRegisterVaultModal}
                                         />
                                     {/each}
                                 </div>
@@ -1638,6 +1537,9 @@
                                             {mineableVaultMap}
                                             {savedBankRailLast4}
                                             {savedBankRailMethod}
+                                            vaultLock={findVaultForSector(sector)}
+                                            latestReceipt={findLatestReceiptForSector(sector)}
+                                            {livePricingUnavailable}
                                             {resolveChainAddressForTicker}
                                             {estimateSectorDailyKas}
                                             {estimateSectorDailyUsd}
@@ -1655,15 +1557,264 @@
                                             onSliderInput={handleSectorSliderInput}
                                             onSliderChange={handleSectorSliderChange}
                                             onCommitUpdate={commitSectorUpdate}
-                                            {isPullingOutKey}
                                             onSnapMaxRemaining={snapSectorMaxRemaining}
                                             onInlineSaveSector={handleInlineSaveSector}
-                                            onClaimPendingSectorKas={claimPendingSectorKas}
+                                            onOpenVaultLock={openRegisterVaultModal}
                                         />
                                     {/each}
                                 </div>
                             </div>
                         {/if}
+                    </div>
+                {/if}
+            </div>
+
+            <!-- SELF-CUSTODY VAULT LOCKS -->
+            <div
+                data-testid="sovereign-vault-locks-section"
+                class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3 font-mono"
+                style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.06), transparent 65%);"
+            >
+                <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                    <div class="flex flex-col">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-white">
+                            Self-Custody Vault Locks
+                        </h3>
+                        <span class="text-[9px] text-neutral-400">
+                            Non-custodial on-chain vaults with 24/7 owner withdrawal back to your wallet
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        data-testid="open-register-vault-modal-btn"
+                        onclick={() => openRegisterVaultModal()}
+                        class="tactile-btn px-3 py-1.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] hover:text-white text-[10px] font-bold uppercase tracking-wider shrink-0"
+                    >
+                        + New Vault Lock
+                    </button>
+                </div>
+
+                {#if cancelActionError}
+                    <div class="p-2.5 rounded-xl bg-red-950/30 border border-red-500/40 text-red-300 text-[10px]">
+                        {cancelActionError}
+                    </div>
+                {/if}
+
+                {#if (operations.vaultLocks || []).length === 0}
+                    <div class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-4 text-[10px] text-neutral-400 text-center">
+                        No self-custody vaults configured yet. Create a vault lock to route rewards directly on-chain.
+                    </div>
+                {:else}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {#each operations.vaultLocks as vault (vault.vaultId)}
+                            {@const balanceSompi = vault.liveUtxoSompi || vault.confirmedUtxoSompi || '0'}
+                            <div
+                                data-testid="vault-lock-card-{vault.vaultId}"
+                                class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2"
+                            >
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="flex flex-col min-w-0">
+                                        <span class="text-[11px] font-black text-white truncate">
+                                            {formatVaultKindLabel(vault.vaultKind)}
+                                        </span>
+                                        <span class="text-[9px] text-neutral-400">
+                                            Target: {vault.targetAsset} ({vault.targetNetwork})
+                                        </span>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[8px] font-bold text-[#18C6A5] shrink-0">
+                                        {formatVaultStatusLabel(vault.status)}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-baseline justify-between gap-2 pt-1 border-t border-white/10">
+                                    <div class="flex flex-col">
+                                        <span class="text-[8px] uppercase text-neutral-400">Locked Balance</span>
+                                        <span class="text-sm font-black text-white tabular-nums">
+                                            {formatSompiToKasDisplay(balanceSompi, 4, true)} KAS
+                                        </span>
+                                    </div>
+                                    <span class="text-[9px] font-bold tabular-nums {livePricingUnavailable ? 'text-amber-400' : 'text-[#18C6A5]'}">
+                                        {formatSompiToUsdOrUnavailable(balanceSompi, operations.kasOracleUsdE8)}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between text-[9px] text-neutral-400">
+                                    <span>Payout Minimum</span>
+                                    <span class="text-neutral-200 font-bold tabular-nums">
+                                        {formatSompiToKasDisplay(vault.thresholdSompi, 2, true)} KAS
+                                    </span>
+                                </div>
+
+                                <div class="text-[8px] text-neutral-500 truncate">
+                                    Destination: {vault.destinationAddress}
+                                </div>
+
+                                <div class="flex items-center justify-between gap-2 pt-1">
+                                    <a
+                                        href={getChainExplorerAddressUrl('KAS', vault.covenantAddress)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="text-[9px] text-[#18C6A5] hover:underline font-bold"
+                                    >
+                                        Vault Explorer ↗
+                                    </a>
+                                    <button
+                                        type="button"
+                                        data-testid="cancel-vault-lock-btn-{vault.vaultId}"
+                                        onclick={() => initiateOwnerVaultCancel(vault)}
+                                        class="tactile-btn px-2.5 py-1 rounded-lg border-white/15 text-[9px] font-bold uppercase text-neutral-200 hover:text-white"
+                                    >
+                                        Return to Wallet
+                                    </button>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+
+            <!-- 4-PRIORITY PAYOUT THERMOSTAT -->
+            <div
+                data-testid="sovereign-thermostat-section"
+                class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3 font-mono"
+                style="background-image: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.06), transparent 65%);"
+            >
+                <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                    <div class="flex flex-col">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-white">
+                            Payout Priority Thermostat
+                        </h3>
+                        <span class="text-[9px] text-neutral-400">
+                            4-stage waterfall routes rewards in priority order up to each cycle cap
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        data-testid="open-thermostat-modal-btn"
+                        onclick={openThermostatModal}
+                        class="tactile-btn px-3 py-1.5 rounded-xl border-white/15 text-neutral-200 hover:text-white text-[10px] font-bold uppercase tracking-wider shrink-0"
+                    >
+                        Configure Priorities
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {#each ([1, 2, 3, 4] as const) as priority (priority)}
+                        {@const valve = (operations.thermostatValves || []).find(
+                            (v) => Number(v.priorityOrder) === priority
+                        )}
+                        {@const meta = THERMOSTAT_VALVE_META[priority]}
+                        {@const fillBps = valve ? computeValveFillProgressBps(valve) : 0}
+                        <div
+                            data-testid="thermostat-valve-card-{priority}"
+                            class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1.5"
+                        >
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[10px] font-black text-white truncate">
+                                    #{priority} {meta.title}
+                                </span>
+                                <span
+                                    class="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase {valve?.isEnabled ? 'bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[#0a0d12] border border-white/10 text-neutral-500'}"
+                                >
+                                    {valve?.isEnabled ? 'Active' : 'Paused'}
+                                </span>
+                            </div>
+                            <span class="text-[8px] text-neutral-400 truncate">
+                                {meta.subtitle}
+                            </span>
+                            {#if valve}
+                                <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10 mt-0.5">
+                                    <div
+                                        class="h-full bg-[#18C6A5] transition-all duration-500"
+                                        style="width: {Math.min(100, fillBps / 100)}%;"
+                                    ></div>
+                                </div>
+                                <div class="flex items-center justify-between text-[8px] text-neutral-300 tabular-nums">
+                                    <span>
+                                        {valve.targetAsset} ({valve.targetNetwork})
+                                    </span>
+                                    <span>
+                                        Cap: {formatSompiToKasDisplay(valve.targetCapSompi, 2, true)} KAS / ${formatUsdMicrosDisplay(valve.targetCapUsdMicros, 2, true)}
+                                    </span>
+                                </div>
+                            {:else}
+                                <span class="text-[8px] text-neutral-500">
+                                    Not configured yet
+                                </span>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            </div>
+
+            <!-- VERIFIED SETTLEMENT RECEIPTS -->
+            <div
+                data-testid="sovereign-receipts-section"
+                class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3 font-mono"
+            >
+                <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                    <div class="flex flex-col">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-white">
+                            Settlement Receipts
+                        </h3>
+                        <span class="text-[9px] text-neutral-400">
+                            Verified on-chain payouts and cross-network fills
+                        </span>
+                    </div>
+                    <span class="text-[9px] text-neutral-400">
+                        {settlementReceipts.length} Record{settlementReceipts.length === 1 ? '' : 's'}
+                    </span>
+                </div>
+
+                {#if settlementReceipts.length === 0}
+                    <div class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-4 text-[10px] text-neutral-400 text-center">
+                        Completed payout receipts will appear here after your next cycle settles.
+                    </div>
+                {:else}
+                    <div class="flex flex-col gap-2">
+                        {#each settlementReceipts.slice(0, 8) as receipt (receipt.receiptId)}
+                            <div
+                                data-testid="settlement-receipt-row-{receipt.receiptId}"
+                                class="bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px]"
+                            >
+                                <div class="flex flex-col min-w-0">
+                                    <span class="font-bold text-white truncate">
+                                        {formatSettledAssetAmount(receipt.settledAtomic, receipt.targetAsset, 6)} {receipt.targetAsset}
+                                        <span class="text-neutral-400 font-normal">
+                                            ({formatSettlementTierLabel(receipt.settlementTier)})
+                                        </span>
+                                    </span>
+                                    <span class="text-[8px] text-neutral-400 tabular-nums">
+                                        From {formatSompiToKasDisplay(receipt.sourceSompi, 4, true)} KAS • Cycle {receipt.epochId}
+                                    </span>
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold uppercase">
+                                        {receipt.status}
+                                    </span>
+                                    {#if receipt.kaspaL1Txid}
+                                        <a
+                                            href={getChainExplorerTxUrl('KAS', receipt.kaspaL1Txid)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="text-[9px] text-[#18C6A5] hover:underline font-bold"
+                                        >
+                                            Kaspa Tx ↗
+                                        </a>
+                                    {/if}
+                                    {#if receipt.destinationTxid}
+                                        <a
+                                            href={getChainExplorerTxUrl(receipt.targetAsset, receipt.destinationTxid)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="text-[9px] text-blue-400 hover:underline font-bold"
+                                        >
+                                            Dest Tx ↗
+                                        </a>
+                                    {/if}
+                                </div>
+                            </div>
+                        {/each}
                     </div>
                 {/if}
             </div>
@@ -1690,11 +1841,19 @@
     bind:editSettlementParams
     bind:editSelectedAssets
     bind:isSigningSettlement
+    bind:isVaultModalOpen
+    {vaultModalPreset}
+    bind:cancelVaultTarget
+    bind:cancelVaultPreview
+    bind:isThermostatModalOpen
+    bind:thermostatDrafts
+    {livePricingUnavailable}
     {displayHashrate}
     {mineableVaultMap}
     {savedBankRailLast4}
     {savedBankRailMethod}
-    {isPullingOutKey}
+    refundKaspaAddress={identity.activeAddress || ''}
+    {resolveChainAddressForTicker}
     onUpdateDraftPct={updateDraftPct}
     onUpdateDraftHash={updateDraftHash}
     onCreateSector={createSector}
@@ -1703,7 +1862,11 @@
     onAdjustSecondaryPlantWeight={adjustSecondaryPlantWeight}
     onRemoveAssetFromSector={removeAssetFromSector}
     onAddOrToggleAssetInSector={addOrToggleAssetInSector}
-    onClaimPendingSectorKas={claimPendingSectorKas}
+    onVaultRegistered={syncSovereignOperationsState}
+    onVaultCancelled={async () => {
+        await syncSovereignOperationsState();
+    }}
+    onThermostatSaved={syncSovereignOperationsState}
 />
 
 <style>

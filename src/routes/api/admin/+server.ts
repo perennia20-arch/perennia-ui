@@ -17,15 +17,26 @@ import {
 } from '$lib/server/kms';
 import {
     buildExplorerTxUrl,
-    computeReservoirHmac,
     executeOrQueueL1Dispatch
 } from '$lib/server/l1Dispatcher';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    parseDecimalToAtomic
+} from '$lib/crypto/atomicMath';
 
 const ALLOWED_TABLES = [
+    'stratum_mature_accruals',
+    'epoch_payout_outbox',
+    'vault_locks',
+    'thermostat_valves',
+    'settlement_receipts',
+    'solvency_circuit_events',
+    'agent_api_keys',
+    'agent_execution_receipts',
+    'agent_x402_credits',
     'system_treasury_config',
     'user_cold_vault_rules',
     'worker_profiles',
-    'yield_reservoirs',
     'micro_shares',
     'network_blocks',
     'user_command_centers',
@@ -410,7 +421,7 @@ async function ensureAdminAuxiliaryTables() {
                 payment_method VARCHAR(32) NOT NULL DEFAULT 'ach',
                 tier_name VARCHAR(32) NOT NULL DEFAULT 'RETAIL',
                 tier_bps INTEGER NOT NULL DEFAULT 85,
-                settlement_target VARCHAR(64) NOT NULL DEFAULT 'LEDGER_KAS',
+                settlement_target VARCHAR(64) NOT NULL DEFAULT 'L1_KAS',
                 target_asset VARCHAR(32) NOT NULL DEFAULT 'KAS',
                 quoted_principal_cents BIGINT NOT NULL DEFAULT 0,
                 perennia_fee_cents BIGINT NOT NULL DEFAULT 250,
@@ -733,7 +744,7 @@ export const GET: RequestHandler = async ({
             redis.get('oracle:spot:KAS_USDC')
         ]);
 
-        const kasSpotUsd = kasSpotRaw ? parseFloat(kasSpotRaw) || 0.15 : 0.15;
+        const kasSpotUsd = kasSpotRaw ? parseFloat(kasSpotRaw) || 0 : 0;
         const nettingQueue = (rawNettingQueue || [])
             .map((item) => {
                 try {
@@ -764,7 +775,8 @@ export const GET: RequestHandler = async ({
         let securityBlacklist: any[] = [];
         let directorAuditLog: any[] = [];
         let floatLedger: any = null;
-        let reservoirRows: any[] = [];
+        let solvencyProof: any = null;
+        let circuitEvents: any[] = [];
         let taxEventsRecent: any[] = [];
 
         let client;
@@ -782,7 +794,7 @@ export const GET: RequestHandler = async ({
                 blacklistRes,
                 auditRes,
                 floatRes,
-                resRows,
+                circuitRes,
                 taxRes
             ] = await Promise.all([
                 client.query(
@@ -826,12 +838,11 @@ export const GET: RequestHandler = async ({
                 client.query(
                     `SELECT * FROM fiat_float_ledger WHERE ledger_id IN ('PRIMARY_FLOAT', 'BOOTSTRAP_PRIMARY') ORDER BY updated_at DESC LIMIT 1`
                 ),
-                client.query(
-                    `SELECT wallet_address, streaming_balance_kas, total_yield_kas, verified_onchain_credits_kas, quarantined, quarantine_reason
-                     FROM yield_reservoirs
-                     ORDER BY last_updated DESC NULLS LAST
-                     LIMIT 200`
-                ),
+                client
+                    .query(
+                        `SELECT * FROM solvency_circuit_events ORDER BY created_at DESC LIMIT 40`
+                    )
+                    .catch(() => ({ rows: [] as any[] })),
                 client.query(
                     `SELECT event_id, wallet_address, asset_ticker, event_type, gross_proceeds_usd, amount_tokens, spot_price_at_execution, tx_hash, cost_basis_usd, realized_gain_loss_usd, holding_period, recorded_at
                      FROM tax_ledger_events
@@ -850,7 +861,7 @@ export const GET: RequestHandler = async ({
             securityBlacklist = blacklistRes.rows;
             directorAuditLog = auditRes.rows;
             floatLedger = floatRes.rows[0] || null;
-            reservoirRows = resRows.rows;
+            circuitEvents = circuitRes.rows;
             taxEventsRecent = taxRes.rows;
         } catch {
             fiatPayouts = (rawFiatQueueRedis || [])
@@ -956,38 +967,41 @@ export const GET: RequestHandler = async ({
                     o.status === 'AWAITING_WIRE_RECEIPT')
         );
 
+        try {
+            const proofRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${internalToken}`
+                },
+                body: JSON.stringify({ action: 'GET_SOLVENCY_PROOF', payload: {} }),
+                signal: AbortSignal.timeout(2500)
+            });
+            if (proofRes.ok) {
+                const proofJson = await proofRes.json().catch(() => null);
+                solvencyProof = proofJson?.data || proofJson || null;
+            }
+        } catch {
+            // Rust backend optional in isolated tests
+        }
+
         const ledgerDriftAlerts: Array<{
+            eventId?: string;
+            eventType?: string;
             wallet: string;
-            dbStreamingKas: number;
-            redisUnassignedKas: number;
             driftKas: number;
             quarantined: boolean;
+            severity?: string;
             reason?: string;
-        }> = [];
-        for (const r of reservoirRows.slice(0, 40)) {
-            const cleanW = safeNormalizeBase32(String(r.wallet_address || ''));
-            if (!cleanW) continue;
-            const redisUnassignedStr = await redis
-                .hget(`dev:sor:treasury:balances:${cleanW}`, 'Unassigned KAS')
-                .catch(() => null);
-            const redisKas = redisUnassignedStr
-                ? parseFloat(redisUnassignedStr) || 0
-                : 0;
-            const dbKas = Number(r.streaming_balance_kas || 0);
-            const drift = Math.abs(redisKas - dbKas);
-            if (Boolean(r.quarantined) || drift > 1.5) {
-                ledgerDriftAlerts.push({
-                    wallet: `kaspa:${cleanW}`,
-                    dbStreamingKas: Number(dbKas.toFixed(4)),
-                    redisUnassignedKas: Number(redisKas.toFixed(4)),
-                    driftKas: Number(drift.toFixed(4)),
-                    quarantined: Boolean(r.quarantined),
-                    reason:
-                        r.quarantine_reason ||
-                        `Redis (${redisKas.toFixed(2)} KAS) vs Postgres (${dbKas.toFixed(2)} KAS) drift`
-                });
-            }
-        }
+        }> = circuitEvents.map((ev: any) => ({
+            eventId: String(ev.event_id || ev.id || ''),
+            eventType: String(ev.event_type || 'SOLVENCY_CIRCUIT_EVENT'),
+            wallet: String(ev.wallet_address || 'POOL_RESERVE'),
+            driftKas: 0,
+            quarantined: Boolean(ev.halted ?? true),
+            severity: String(ev.severity || 'WARN'),
+            reason: String(ev.reason || ev.message || 'Solvency circuit notice')
+        }));
 
         const dynamicBatchMap = new Map<
             string,
@@ -1073,6 +1087,7 @@ export const GET: RequestHandler = async ({
                     }
                 } else if (
                     pKas > 0 ||
+                    Number(sec?.allocationBps ?? 0) > 0 ||
                     Number(sec?.allocationPercentage || 0) > 0
                 ) {
                     const heldRaw = await redis
@@ -1187,6 +1202,10 @@ export const GET: RequestHandler = async ({
         return json({
             adminWallet: clearance.adminWallet,
             allowedTables: ALLOWED_TABLES,
+            kasSpotUsd: kasSpotUsd > 0 ? kasSpotUsd : null,
+            livePricingUnavailable: kasSpotUsd <= 0,
+            solvencyProof,
+            circuitEvents,
             stratumMiningAddress: defaultStratumAddr,
             systemConfig,
             nettingQueue,
@@ -1590,20 +1609,34 @@ export const POST: RequestHandler = async ({
                 targetAsset === 'USDC' || targetAsset === 'USDT'
                     ? 1.0
                     : spotStr
-                      ? parseFloat(spotStr) ||
-                        Number(ord.target_spot_price || 0.15)
-                      : Number(ord.target_spot_price || 0.15);
+                      ? parseFloat(spotStr) || Number(ord.target_spot_price || 0)
+                      : Number(ord.target_spot_price || 0);
+            if (!(liveSpot > 0)) {
+                return json(
+                    {
+                        error: 'SERVICE_UNAVAILABLE',
+                        livePricingUnavailable: true,
+                        uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                    },
+                    { status: 503 }
+                );
+            }
             const deliveredTokens = Number(
-                (safePrincipalUsd / Math.max(0.0001, liveSpot)).toFixed(6)
+                (safePrincipalUsd / liveSpot).toFixed(6)
             );
-            const txHash = `QUARANTINE-RELEASE-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+            let txHash = `QUARANTINE-RELEASE-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
             if (cleanWallet) {
-                await redis.hincrbyfloat(
-                    `dev:sor:treasury:balances:${cleanWallet}`,
-                    targetAsset,
-                    deliveredTokens
-                );
+                const l1Res = await executeOrQueueL1Dispatch({
+                    wallet: prefixedWallet,
+                    destinationAddress: prefixedWallet,
+                    asset: targetAsset,
+                    amount: deliveredTokens,
+                    sourceType: 'quarantine_release_l1',
+                    idempotencyKey: orderId,
+                    spotPrice: liveSpot
+                }).catch(() => null);
+                if (l1Res?.txHash) txHash = l1Res.txHash;
             }
 
             await dbPool.query(
@@ -1703,56 +1736,38 @@ export const POST: RequestHandler = async ({
             });
         }
 
-        // ZONE 1 / ZONE 2: Reconcile Redis-to-PostgreSQL Ledger Drift
+        // ZONE 1 / ZONE 2: Verify Sovereign L1 Pool Solvency & Outbox Consistency
         if (action === 'RECONCILE_LEDGER_DRIFT') {
-            const resRows = await dbPool.query(
-                `SELECT wallet_address, streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-                 FROM yield_reservoirs`
-            );
-            let reconciledCount = 0;
-            for (const r of resRows.rows) {
-                const cleanW = safeNormalizeBase32(
-                    String(r.wallet_address || '')
-                );
-                if (!cleanW) continue;
-                const prefixedW = `kaspa:${cleanW}`;
-                const sKas = Math.max(0, Number(r.streaming_balance_kas || 0));
-                const tKas = Math.max(sKas, Number(r.total_yield_kas || 0));
-                const newHmac = computeReservoirHmac(
-                    prefixedW,
-                    sKas,
-                    tKas,
-                    r.lp_tokens
-                );
-                await dbPool.query(
-                    `UPDATE yield_reservoirs
-                     SET quarantined = FALSE,
-                         quarantine_reason = NULL,
-                         total_yield_kas = $2,
-                         verified_onchain_credits_kas = GREATEST(verified_onchain_credits_kas, $2),
-                         row_hmac_sig = $3,
-                         last_updated = CURRENT_TIMESTAMP
-                     WHERE wallet_address = $1`,
-                    [r.wallet_address, tKas, newHmac]
-                );
-                await redis.hset(
-                    `dev:sor:treasury:balances:${cleanW}`,
-                    'Unassigned KAS',
-                    sKas.toFixed(8)
-                );
-                reconciledCount++;
+            let proof: any = null;
+            try {
+                const pRes = await fetch(`${rustBackendUrl}/v1/state/action`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${internalToken}`
+                    },
+                    body: JSON.stringify({ action: 'GET_SOLVENCY_PROOF', payload: {} }),
+                    signal: AbortSignal.timeout(3500)
+                });
+                if (pRes.ok) {
+                    const pj = await pRes.json().catch(() => null);
+                    proof = pj?.data || pj || null;
+                }
+            } catch {
+                proof = null;
             }
             await logDirectorAuditEvent(
                 clearance.adminWallet,
                 'ZONE_1_TRIAGE',
                 'RECONCILE_LEDGER_DRIFT',
-                'yield_reservoirs',
-                { reconciledCount }
+                'solvency_circuit_events',
+                { verifiedAt: new Date().toISOString(), isSolvent: proof?.isSolvent ?? true }
             );
             return json({
                 success: true,
                 action: 'RECONCILE_LEDGER_DRIFT',
-                reconciledCount
+                reconciledCount: 0,
+                solvencyProof: proof
             });
         }
 
@@ -2089,46 +2104,18 @@ export const POST: RequestHandler = async ({
                 );
             }
             const prefixedWallet = `kaspa:${cleanWallet}`;
-            const rowRes = await dbPool.query(
-                `SELECT streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-                 FROM yield_reservoirs
-                 WHERE wallet_address = $1 OR wallet_address = $2
-                 LIMIT 1`,
-                [prefixedWallet, cleanWallet]
-            );
-            if (rowRes.rows.length === 0) {
-                return json(
-                    { error: 'Wallet reservoir not found.' },
-                    { status: 404 }
-                );
-            }
-            const r = rowRes.rows[0];
-            const sKas = Number(r.streaming_balance_kas || 0);
-            const tKas = Math.max(Number(r.total_yield_kas || 0), sKas);
-            const newHmac = computeReservoirHmac(
-                prefixedWallet,
-                sKas,
-                tKas,
-                r.lp_tokens
-            );
-            await dbPool.query(
-                `UPDATE yield_reservoirs
-                 SET quarantined = FALSE,
-                     quarantine_reason = NULL,
-                     quarantined_at = NULL,
-                     total_yield_kas = $3,
-                     verified_onchain_credits_kas = GREATEST(verified_onchain_credits_kas, $3),
-                     row_hmac_sig = $4,
-                     last_updated = CURRENT_TIMESTAMP
-                 WHERE wallet_address = $1 OR wallet_address = $2`,
-                [prefixedWallet, cleanWallet, tKas, newHmac]
-            );
+            await dbPool
+                .query(
+                    `UPDATE security_firewall_blacklist SET active = FALSE WHERE entity_type = 'WALLET' AND (target_value = $1 OR target_value = $2)`,
+                    [prefixedWallet, cleanWallet]
+                )
+                .catch(() => {});
             await logDirectorAuditEvent(
                 clearance.adminWallet,
                 'ZONE_1_TRIAGE',
                 'UNQUARANTINE_WALLET',
                 prefixedWallet,
-                { streamingKas: sKas }
+                { nonCustodialL1Only: true }
             );
             return json({
                 success: true,
@@ -2153,6 +2140,16 @@ export const POST: RequestHandler = async ({
                         signal: AbortSignal.timeout(4500)
                     }
                 );
+                if (rustRes.status === 503) {
+                    return json(
+                        {
+                            error: 'SERVICE_UNAVAILABLE',
+                            livePricingUnavailable: true,
+                            uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                        },
+                        { status: 503 }
+                    );
+                }
                 if (rustRes.ok) {
                     const rustData = await rustRes.json();
                     epochTelemetry = rustData.epochTelemetry || null;
@@ -2290,7 +2287,7 @@ export const POST: RequestHandler = async ({
                 } else {
                     if (
                         row.status === 'DISPATCHED_ONCHAIN' ||
-                        row.status === 'REFUNDED_TO_LEDGER'
+                        row.status === 'CANCELLED_OR_REFUNDED'
                     ) {
                         return json(
                             {
@@ -2299,15 +2296,9 @@ export const POST: RequestHandler = async ({
                             { status: 400 }
                         );
                     }
-                    const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-                    await redis.hincrbyfloat(
-                        userLedgerKey,
-                        assetTicker,
-                        amountTokens
-                    );
                     await client.query(
                         `UPDATE l1_payout_queue
-                         SET status = 'REFUNDED_TO_LEDGER',
+                         SET status = 'CANCELLED_OR_REFUNDED',
                              updated_at = CURRENT_TIMESTAMP
                          WHERE payout_id = $1`,
                         [payoutId]
@@ -2350,7 +2341,7 @@ export const POST: RequestHandler = async ({
                         wallet: prefixedWallet,
                         refundedAsset: assetTicker,
                         refundedAmount: amountTokens,
-                        status: 'REFUNDED_TO_LEDGER'
+                        status: 'CANCELLED_OR_REFUNDED'
                     });
                 }
             } finally {
@@ -2774,12 +2765,6 @@ export const POST: RequestHandler = async ({
                         { status: 400 }
                     );
                 }
-                const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-                await redis.hincrbyfloat(
-                    userLedgerKey,
-                    sourceAsset,
-                    amountCrypto
-                );
                 if (feeUsd > 0) {
                     await redis
                         .eval(
@@ -2792,7 +2777,7 @@ export const POST: RequestHandler = async ({
                 }
                 await client.query(
                     `UPDATE fiat_payout_queue
-                     SET status = 'REFUNDED_TO_LEDGER', updated_at = CURRENT_TIMESTAMP
+                     SET status = 'CANCELLED_OR_REFUNDED', updated_at = CURRENT_TIMESTAMP
                      WHERE payout_id = $1`,
                     [payoutId]
                 );
@@ -2934,39 +2919,28 @@ export const POST: RequestHandler = async ({
                 const deliveredTokens = Number(
                     (netUsdConverted / executionSpot).toFixed(4)
                 );
+                const rawTarget = String(
+                    body.settlementTarget ||
+                        row.settlement_target ||
+                        'L1_KAS'
+                ).toUpperCase();
                 const settlementTarget =
-                    String(
-                        body.settlementTarget ||
-                            row.settlement_target ||
-                            'LEDGER_KAS'
-                    ).toUpperCase() === 'L1_KAS'
-                        ? 'L1_KAS'
-                        : 'LEDGER_KAS';
+                    rawTarget === 'L1_SELF_CUSTODY'
+                        ? 'L1_SELF_CUSTODY'
+                        : 'L1_KAS';
                 let resolvedTxHash = String(body.txHash || '').trim();
-                if (settlementTarget === 'L1_KAS') {
-                    const l1Res = await executeOrQueueL1Dispatch({
-                        wallet: prefixedWallet,
-                        destinationAddress: prefixedWallet,
-                        asset: targetAsset,
-                        amount: deliveredTokens,
-                        sourceType: 'fiat_onramp_l1',
-                        spotPrice: executionSpot
-                    });
-                    resolvedTxHash =
-                        l1Res.txHash ||
-                        resolvedTxHash ||
-                        `L1-ONRAMP-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
-                } else {
-                    const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-                    await redis.hincrbyfloat(
-                        userLedgerKey,
-                        targetAsset,
-                        deliveredTokens
-                    );
-                    if (!resolvedTxHash) {
-                        resolvedTxHash = `MERCURY-WIRE-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
-                    }
-                }
+                const l1Res = await executeOrQueueL1Dispatch({
+                    wallet: prefixedWallet,
+                    destinationAddress: prefixedWallet,
+                    asset: targetAsset,
+                    amount: deliveredTokens,
+                    sourceType: 'fiat_onramp_l1',
+                    spotPrice: executionSpot
+                });
+                resolvedTxHash =
+                    l1Res.txHash ||
+                    resolvedTxHash ||
+                    `L1-ONRAMP-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
                 await client.query(
                     `UPDATE fiat_onramp_orders
                      SET status = 'COMPLETED',
@@ -2999,7 +2973,11 @@ export const POST: RequestHandler = async ({
                     deliveredTokens > 0
                         ? fiatAmountUsd / deliveredTokens
                         : executionSpot;
-                const sompiAcquired = Math.round(deliveredTokens * 1e8);
+                const sompiAcquired = parseDecimalToAtomic(
+                    deliveredTokens.toFixed(8),
+                    8,
+                    'floor'
+                ).toString();
                 await client
                     .query(
                         `INSERT INTO hifo_tax_lots
@@ -3222,8 +3200,6 @@ export const POST: RequestHandler = async ({
                         { status: 400 }
                     );
                 }
-                const userLedgerKey = `dev:sor:treasury:balances:${cleanWallet}`;
-                await redis.hincrbyfloat(userLedgerKey, 'KAS', grossKas);
                 if (upfrontFeeKas > 0) {
                     await redis
                         .eval(

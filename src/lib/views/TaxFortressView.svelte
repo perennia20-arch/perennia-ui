@@ -76,16 +76,16 @@
                 isLongTerm: false
             },
             {
-                lotId: 'LOT-LOW-0150',
+                lotId: 'LOT-LOW-0160',
                 assetTicker: 'KAS',
                 acquiredAt: '2026-10-24T22:00:00.000Z',
                 kasSompi: 100_000_000_000,
                 initialTokens: 1000.0,
                 remainingSompi: 100_000_000_000,
                 remainingTokens: 1000.0,
-                fmvUsdPerToken: 0.15,
-                totalCostBasisUsd: 150.0,
-                remainingCostBasisUsd: 150.0,
+                fmvUsdPerToken: 0.16,
+                totalCostBasisUsd: 160.0,
+                remainingCostBasisUsd: 160.0,
                 sourceEventType: 'YIELD',
                 sourceTxHash:
                     'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01',
@@ -863,9 +863,9 @@
                 );
             }
             if (withdrawnUsd > 0) {
-                const currentUsdc = treasury.getAsset('USDC').synthetic || 0;
+                const currentUsdc = treasury.getAsset('USDC').onChain || 0;
                 treasury.updateAsset('USDC', {
-                    synthetic: currentUsdc + withdrawnUsd
+                    onChain: currentUsdc + withdrawnUsd
                 });
             }
             ui.triggerMicroBadge(

@@ -224,7 +224,7 @@
                                 {ord.target_asset || 'KAS'}
                             </td>
                             <td class="py-2.5 px-3 text-blue-400">
-                                {ord.settlement_target || 'LEDGER_KAS'}
+                                {ord.settlement_target || 'L1_KAS'}
                             </td>
                             <td class="py-2.5 px-3">
                                 <span class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] uppercase text-amber-400">

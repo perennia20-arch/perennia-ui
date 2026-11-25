@@ -3,7 +3,7 @@
   import { pwa } from "$lib/stores/pwa.svelte";
 </script>
 {#if pwa.showInstallModal}
-<div data-testid="install-app-modal" class="fixed inset-0 z-[9995] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#070b0e]/88 backdrop-blur-md font-mono" transition:fade={{ duration: 150 }}>
+<div data-testid="install-app-modal" class="fixed inset-0 z-[9995] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono" transition:fade={{ duration: 150 }}>
   <button type="button" aria-label="Close Install Guide" onclick={() => (pwa.showInstallModal = false)} class="fixed inset-0 w-full h-full bg-transparent border-none cursor-default"></button>
   <div class="relative z-10 w-full sm:max-w-[460px] bg-[#0a0d12] border-t sm:border border-[#18C6A5]/45 rounded-t-[28px] sm:rounded-[28px] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 shadow-2xl flex flex-col gap-4 text-white" style="background-image: radial-gradient(ellipse at top left, rgba(24,198,165,0.16), transparent 65%);" transition:fly={{ y: 24, duration: 180 }}>
     <div class="flex items-center justify-between border-b border-white/10 pb-3.5">

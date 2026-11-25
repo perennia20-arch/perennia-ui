@@ -8,7 +8,12 @@ import {
     normalizeKaspaBase32Strict,
     resolveMasterTreasuryKasAddressOptional
 } from '$lib/server/kms';
-import { computeReservoirHmac } from '$lib/server/l1Dispatcher';
+import { executeOrQueueL1Dispatch } from '$lib/server/l1Dispatcher';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    parseDecimalToAtomic,
+    parseSompiU64
+} from '$lib/crypto/atomicMath';
 import crypto from 'node:crypto';
 
 const BATCH_FEE_RATE = 0.0025;
@@ -22,11 +27,6 @@ const SEED_BUCKETS = [
     { id: 'BUCKET-SOL', asset: 'SOL', label: 'Solana L1 Bucket', targetKas: 600 },
     { id: 'BUCKET-SILO', asset: 'SILO', label: 'SILO Ecosystem Bucket', targetKas: 250 }
 ] as const;
-
-const SANDBOX_SPOTS: Record<string, number> = {
-    KAS: 0.15, USDC: 1.0, USDT: 1.0, USD: 1.0,
-    BTC: 92500, ETH: 3150, SOL: 185, SILO: 0.0063, NVDA: 142.85, SPY: 598.2
-};
 
 let schemaReady = false;
 
@@ -55,10 +55,7 @@ export async function resolveBucketSpotUsd(ticker: string): Promise<number> {
         const kas = await resolveBucketSpotUsd('KAS');
         if (kas > 0) return Number((kas / 23.809524).toFixed(6));
     }
-    if (String(env.SANDBOX_MODE || '').toLowerCase() === 'true') {
-        return SANDBOX_SPOTS[clean] || 1.0;
-    }
-    return SANDBOX_SPOTS[clean] || 0;
+    return 0;
 }
 
 export async function ensureCommunityBucketsSchema(): Promise<void> {
@@ -249,19 +246,6 @@ export async function syncActiveMiningStreamsToOpenCycles(): Promise<void> {
                         [existing.rows[0].contribution_id, Number(amtKas.toFixed(6))]
                     );
                 } else {
-		if (String(params.txHash || '').trim().toUpperCase().startsWith('RESERVOIR:')) {
-			const rKey = `dev:sor:treasury:balances:${cleanWallet}`;
-			const rMap = await redis.hgetall(rKey).catch(() => ({} as Record<string, string>));
-			const rKas = Math.max(0, parseFloat(rMap['KAS'] || '0') || 0), rUn = Math.max(0, parseFloat(rMap['Unassigned KAS'] || '0') || 0);
-			const yRes = await client.query(`SELECT wallet_address,streaming_balance_kas,total_yield_kas,COALESCE(lp_tokens,'{}'::jsonb) AS lp_tokens FROM yield_reservoirs WHERE wallet_address=$1 OR wallet_address=$2 ORDER BY streaming_balance_kas DESC LIMIT 1 FOR UPDATE`, [prefixedWallet, cleanWallet]);
-			const yRow = yRes.rows[0], effUn = Math.max(rUn, Math.max(0, Number(yRow?.streaming_balance_kas || 0)));
-			if (rKas + effUn + 1e-6 < effectiveKas) throw new Error(`INSUFFICIENT_RESERVOIR_KAS: Available (${(rKas + effUn).toFixed(2)}) < ${effectiveKas.toFixed(2)} KAS.`);
-			const dPri = Math.min(rKas, effectiveKas), dUn = Math.max(0, effectiveKas - dPri);
-			const nPri = Math.max(0, Number((rKas - dPri).toFixed(8))), nUn = Math.max(0, Number((effUn - dUn).toFixed(8)));
-			await redis.hset(rKey, 'KAS', nPri.toFixed(8), 'Unassigned KAS', nUn.toFixed(8)).catch(() => {});
-			if (yRow) { const sig = computeReservoirHmac(prefixedWallet, nUn, Number(yRow.total_yield_kas || 0), yRow.lp_tokens || {}); await client.query(`UPDATE yield_reservoirs SET streaming_balance_kas=$2, row_hmac_sig=$3, last_updated=CURRENT_TIMESTAMP WHERE wallet_address=$1`, [yRow.wallet_address, nUn, sig]); }
-			params.txHash = `resv-${crypto.randomBytes(12).toString('hex')}`;
-		}
                     await client.query(
                         `INSERT INTO bucket_contributions (cycle_id, bucket_id, contributor_wallet, source_type, amount_kas, tx_hash, status)
                          VALUES ($1, $2, $3, 'mining', $4, $5, 'held')`,
@@ -282,7 +266,7 @@ export async function listCommunityBuckets(viewerWallet?: string | null) {
 
     const cleanViewer = viewerWallet ? normalizeKaspaBase32Strict(viewerWallet) : '';
     const prefViewer = cleanViewer ? `kaspa:${cleanViewer}` : '';
-    const kasSpotUsd = (await resolveBucketSpotUsd('KAS')) || 0.15;
+    const kasSpotUsd = await resolveBucketSpotUsd('KAS');
 
     const [bucketsRes, openCyclesRes, heldContribRes, recentDispersedRes] = await Promise.all([
         dbPool.query(`SELECT * FROM settlement_buckets ORDER BY completed_swaps DESC, bucket_id ASC`),
@@ -499,12 +483,13 @@ export async function verifyManualContributionTx(params: {
         const txData = await res.json();
         const outputs = Array.isArray(txData?.outputs) ? txData.outputs : [];
         const expectedEscrow = params.escrowAddress.trim().toLowerCase();
-        let paidSompi = 0;
+        let paidSompi = 0n;
         for (const o of outputs) {
             const addr = String(o?.script_public_key_address || o?.address || '').trim().toLowerCase();
-            if (addr === expectedEscrow) paidSompi += Number(o?.amount || 0);
+            if (addr === expectedEscrow) paidSompi += parseSompiU64(String(o?.amount ?? '0'));
         }
-        if (paidSompi < Math.floor(params.amountKas * 0.97 * 1e8)) {
+        const expectedSompi = parseDecimalToAtomic(params.amountKas.toFixed(8), 8, 'floor');
+        if (paidSompi < (expectedSompi * 9700n) / 10_000n) {
             return { ok: false, error: 'L1_OUTPUT_MISMATCH: Transaction output did not pay the bucket escrow address.' };
         }
         return { ok: true };
@@ -603,8 +588,11 @@ export async function recordManualBucketContribution(params: {
             );
 
             const targetAsset = String(bucket.target_asset || 'USDC').toUpperCase();
-            const kasSpot = (await resolveBucketSpotUsd('KAS')) || 0.15;
-            const targetSpot = (await resolveBucketSpotUsd(targetAsset)) || 1.0;
+            const kasSpot = await resolveBucketSpotUsd('KAS');
+            const targetSpot = await resolveBucketSpotUsd(targetAsset);
+            if (!(kasSpot > 0) || !(targetSpot > 0)) {
+                throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            }
             const grossUsd = totals.totalKas * kasSpot;
             const netUsd = grossUsd * (1 - BATCH_FEE_RATE);
             const totalTargetTokens = Number((netUsd / targetSpot).toFixed(8));
@@ -625,7 +613,20 @@ export async function recordManualBucketContribution(params: {
                 const cWalletClean = normalizeKaspaBase32Strict(cWalletPref);
                 const rowKas = Number(hr.amount_kas || 0);
                 const dispersedAmt = Number(((totalTargetTokens * rowKas) / totals.totalKas).toFixed(8));
-                const dispTx = `${swapTxHash}-${hr.contribution_id}`;
+                let dispTx = `${swapTxHash}-${hr.contribution_id}`;
+
+                if (cWalletClean && dispersedAmt > 0) {
+                    const l1Res = await executeOrQueueL1Dispatch({
+                        wallet: cWalletPref,
+                        destinationAddress: cWalletPref,
+                        asset: targetAsset,
+                        amount: dispersedAmt,
+                        sourceType: 'community_bucket_dispersal',
+                        idempotencyKey: dispTx,
+                        spotPrice: targetSpot
+                    }).catch(() => null);
+                    if (l1Res?.txHash) dispTx = l1Res.txHash;
+                }
 
                 await client.query(
                     `UPDATE bucket_contributions
@@ -636,37 +637,6 @@ export async function recordManualBucketContribution(params: {
                      WHERE contribution_id = $1`,
                     [hr.contribution_id, dispersedAmt, dispTx]
                 );
-
-                if (cWalletClean && dispersedAmt > 0) {
-                    await redis
-                        .hincrbyfloat(`dev:sor:treasury:balances:${cWalletClean}`, targetAsset, dispersedAmt)
-                        .catch(() => {});
-                    const resRow = await client
-                        .query(
-                            `SELECT wallet_address, streaming_balance_kas, total_yield_kas, COALESCE(lp_tokens, '{}'::jsonb) AS lp_tokens
-                             FROM yield_reservoirs WHERE wallet_address = $1 OR wallet_address = $2 LIMIT 1`,
-                            [cWalletPref, cWalletClean]
-                        )
-                        .catch(() => ({ rows: [] as any[] }));
-                    const ex = resRow.rows[0];
-                    const pk = ex?.wallet_address || cWalletPref;
-                    const sKas = Number(ex?.streaming_balance_kas || 0);
-                    const tKas = Number(ex?.total_yield_kas || 0);
-                    const lpTokens: Record<string, number> = { ...(ex?.lp_tokens || {}) };
-                    lpTokens[targetAsset] = Number(((Number(lpTokens[targetAsset] || 0)) + dispersedAmt).toFixed(8));
-                    const hmac = computeReservoirHmac(cWalletPref, sKas, tKas, lpTokens);
-                    await client
-                        .query(
-                            `INSERT INTO yield_reservoirs (wallet_address, streaming_balance_kas, total_yield_kas, lp_tokens, row_hmac_sig, last_updated)
-                             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-                             ON CONFLICT (wallet_address) DO UPDATE SET
-                                lp_tokens = EXCLUDED.lp_tokens,
-                                row_hmac_sig = EXCLUDED.row_hmac_sig,
-                                last_updated = CURRENT_TIMESTAMP`,
-                            [pk, sKas, tKas, JSON.stringify(lpTokens), hmac]
-                        )
-                        .catch(() => {});
-                }
                 if (cWalletClean && dispersedAmt > 0) { await recordBucketSettlementTaxAndHifo({ client, cleanWallet: cWalletClean, prefixedWallet: cWalletPref, disposedKas: rowKas, kasSpotUsd: kasSpot, targetAsset, acquiredTokens: dispersedAmt, targetSpotUsd: targetSpot, txHash: dispTx }); }
 				participantPayouts.push({
                     wallet: cWalletPref,

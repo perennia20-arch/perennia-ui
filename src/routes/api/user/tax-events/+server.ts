@@ -1,6 +1,7 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
+import { parseDecimalToAtomic } from '$lib/crypto/atomicMath';
 
 export interface HifoTaxLotRecord {
     lotId: string;
@@ -223,7 +224,7 @@ function computePassiveHifoFromEvents(
                 0,
                 Math.floor((nowMs - recordedMs) / (1000 * 86400))
             );
-            const sompi = Math.round(qty * 1e8);
+            const sompi = Number(parseDecimalToAtomic(qty, 8, 'floor'));
             simulatedLots.push({
                 lotId: `LOT-${evId.slice(0, 8).toUpperCase()}`,
                 assetTicker: ticker,
@@ -273,9 +274,9 @@ function computePassiveHifoFromEvents(
             for (const lot of candidateLots) {
                 if (remToDispose <= 1e-8) break;
                 const consumed = Math.min(remToDispose, lot.remainingTokens);
-                const consumedSompi = Math.round(consumed * 1e8);
+                const consumedSompi = Number(parseDecimalToAtomic(consumed, 8, 'floor'));
                 lot.remainingTokens = Math.max(0, lot.remainingTokens - consumed);
-                lot.remainingSompi = Math.round(lot.remainingTokens * 1e8);
+                lot.remainingSompi = Number(parseDecimalToAtomic(lot.remainingTokens, 8, 'floor'));
                 lot.remainingCostBasisUsd = lot.remainingTokens * lot.fmvUsdPerToken;
                 if (lot.remainingTokens <= 1e-8) {
                     lot.status = 'DEPLETED';
@@ -533,7 +534,7 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
                     color
                 },
                 amount: amountTokens,
-                kasSompi: Math.round(amountTokens * 1e8),
+                kasSompi: Number(parseDecimalToAtomic(amountTokens, 8, 'floor')),
                 usdValueAtTime: grossUsd,
                 costBasisUsd: resolvedCostBasisUsd,
                 realizedGainLossUsd: resolvedRealizedGainLossUsd,

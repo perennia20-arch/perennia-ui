@@ -6,6 +6,7 @@
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury, DEFAULT_ECOSYSTEM_TICKER } from '$lib/stores/treasury.svelte';
     import { ui } from '$lib/stores/ui.svelte';
+    import { formatAtomicToDecimal } from '$lib/crypto/atomicMath';
     import {
         txState,
         getChainExplorerTxUrl,
@@ -420,67 +421,7 @@
         }
 
         const targetInfo = activeSendAssetObj;
-        const ledgerBal = Number(targetInfo.synthetic || 0);
         const onChainBal = Number(targetInfo.onChain || 0);
-
-        if (ledgerBal >= amt) {
-            isSweepingColdNow = true;
-            try {
-                const res = await fetch('/api/state/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'SWEEP_TOKEN_TO_COLD_VAULT_NOW',
-                        payload: {
-                            assetTicker: targetInfo.ticker,
-                            network: targetInfo.network,
-                            coldDestinationAddress:
-                                coldAddressValidation.normalized,
-                            amount: amt
-                        }
-                    })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok || !data.success) {
-                    throw new Error(
-                        data.error ||
-                            `Failed to sweep ${targetInfo.ticker} to Cold Vault.`
-                    );
-                }
-                const txHash =
-                    data.transaction_id || data.data?.txHash || '';
-                const explorerUrl =
-                    data.data?.explorerUrl ||
-                    getChainExplorerTxUrl(targetInfo.ticker, txHash);
-                coldSweepNowAmount = '';
-                const currentSyn = Number(
-                    treasury.getAsset(targetInfo.ticker).synthetic || 0
-                );
-                treasury.updateAsset(targetInfo.ticker, {
-                    synthetic: Math.max(0, currentSyn - amt)
-                });
-                withdrawalFeedback = {
-                    type: 'success',
-                    message: `✓ Swept ${amt.toFixed(4)} ${targetInfo.ticker} to Cold Vault (${coldAddressValidation.normalized.slice(0, 18)}...)`,
-                    txHash,
-                    explorerUrl
-                };
-                ui.triggerMicroBadge(
-                    `asset_${asset.ticker}`,
-                    `SWEPT ${targetInfo.ticker} TO COLD ✓`,
-                    asset.hex || '#18C6A5'
-                );
-                await onRefreshColdVaultRules();
-            } catch (err: any) {
-                withdrawalFeedback = {
-                    type: 'error',
-                    message: err.message || 'Hot-to-Cold sweep failed.'
-                };
-            } finally {
-                isSweepingColdNow = false;
-            }
-            return;
-        }
 
         if (onChainBal >= amt) {
             txState.lastTxId = '';
@@ -662,7 +603,7 @@
                         const netSompi = creditedSompi - debitedSompi;
                         const direction: 'INBOUND' | 'OUTBOUND' =
                             netSompi >= 0 ? 'INBOUND' : 'OUTBOUND';
-                        const amountKas = Math.abs(netSompi) / 1e8;
+                        const amountKas = Number(formatAtomicToDecimal(BigInt(Math.round(Math.abs(netSompi))), 8));
                         const tsMs = Number(tx.block_time || Date.now());
                         return {
                             txId: String(tx.transaction_id || ''),
@@ -1148,7 +1089,7 @@
             </div>
             {#if isManagingNetworks}
                 <div class="pl-3 border-l border-white/10 flex items-center">
-                    <button type="button" aria-label="Toggle Network" onclick={(e) => { e.stopPropagation(); onNetworkToggle(); }} class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none" style="background-color: {isNetworkSelected ? `${asset.hex}20` : '#11161f'}; border-color: {isNetworkSelected ? `${asset.hex}50` : 'rgba(255,255,255,0.15)'};">
+                    <button type="button" aria-label="Toggle Network" onclick={(e) => { e.stopPropagation(); onNetworkToggle(); }} class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none" style="background-color: {isNetworkSelected ? `${asset.hex}20` : '#11161f'}; border-color: {isNetworkSelected ? `${asset.hex}50` : 'rgba(255,255,255,0.14)'};">
                         <div class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm" style="background-color: {isNetworkSelected ? asset.hex : '#737373'}; left: {isNetworkSelected ? '22px' : '1px'};"></div>
                     </button>
                 </div>

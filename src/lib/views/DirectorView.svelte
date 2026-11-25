@@ -128,9 +128,10 @@
     let firewallReasonInput = $state('Manual Director Security Firewall Block');
     let whitelistWalletInput = $state('');
     let whitelistLabelInput = $state('Sovereign Miner');
-    let selectedDbTable = $state('fiat_onramp_orders');
+    let selectedDbTable = $state('vault_locks');
     let dbTableRows = $state<any[]>([]);
     let isLoadingTable = $state(false);
+    let lastEpochBellTelemetry = $state<any>(null);
     let impersonateWalletInput = $state('');
 
     let refreshTimer: ReturnType<typeof setInterval>;
@@ -195,6 +196,9 @@
             }
             if (successMsg) {
                 showBanner(successMsg, 'emerald');
+            }
+            if (payload.action === 'FORCE_EPOCH_BELL' && data?.epochTelemetry) {
+                lastEpochBellTelemetry = data.epochTelemetry;
             }
             await loadDirectorDashboard();
             return data;
@@ -659,11 +663,11 @@
                 {/if}
             </div>
 
-            <!-- 3. Redis-to-PostgreSQL Ledger Drift & HMAC Quarantine Alerts -->
+            <!-- 3. Sovereign L1 Pool Solvency & Outbox Guard -->
             <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
                 <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
                     <span class="text-xs font-black uppercase text-[#18C6A5]">
-                        ⚖️ Ledger Drift &amp; HMAC Guard
+                        ⚖️ Sovereign L1 Pool Solvency Guard
                     </span>
                     <button
                         type="button"
@@ -672,48 +676,50 @@
                             dispatchDirectorAction(
                                 { action: 'RECONCILE_LEDGER_DRIFT' },
                                 'RECONCILE_DRIFT',
-                                'Redis & PostgreSQL Yield Reservoirs Reconciled + Re-Signed ✓'
+                                'Sovereign L1 Pool Solvency & Outbox Audit Completed ✓'
                             )}
                         disabled={actionBusyKey === 'RECONCILE_DRIFT'}
                         class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer"
                     >
                         {actionBusyKey === 'RECONCILE_DRIFT'
-                            ? 'Reconciling...'
-                            : '[Reconcile All Ledgers]'}
+                            ? 'Checking...'
+                            : '[Verify L1 Solvency]'}
                     </button>
                 </div>
+                {#if adminData.livePricingUnavailable}
+                    <div class="p-3 rounded-xl bg-[#11161f] border border-amber-500/45 text-amber-300 text-[10px] font-bold uppercase text-center">
+                        Live pricing unavailable
+                    </div>
+                {/if}
+                {#if adminData.solvencyProof}
+                    <div class="grid grid-cols-2 gap-2 text-[9px] font-mono">
+                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2">
+                            <span class="text-neutral-500 block">POOL UTXO RESERVE</span>
+                            <span class="text-white font-bold">{adminData.solvencyProof.poolUtxoKas ?? '0'} KAS</span>
+                        </div>
+                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2">
+                            <span class="text-neutral-500 block">SOLVENCY STATUS</span>
+                            <span class="{adminData.solvencyProof.isSolvent ? 'text-[#18C6A5]' : 'text-red-400'} font-bold">
+                                {adminData.solvencyProof.isSolvent ? 'SOLVENT (1:1 L1)' : 'HALTED / CHECK CIRCUIT'}
+                            </span>
+                        </div>
+                    </div>
+                {/if}
                 {#if !adminData.triageExceptions?.ledgerDriftAlerts?.length}
                     <div class="p-6 text-center text-[10px] text-neutral-500 border border-white/5 rounded-xl bg-[#11161f]/50">
-                        All `yield_reservoirs` HMAC-SHA256 signatures and Redis balances are in 1:1 consensus.
+                        Pool UTXO reserves cover 100% of mature accrued miner payouts and outbox dispatches.
                     </div>
                 {:else}
                     <div class="flex flex-col gap-2 max-h-[380px] overflow-y-auto">
-                        {#each adminData.triageExceptions.ledgerDriftAlerts as alert (alert.wallet)}
+                        {#each adminData.triageExceptions.ledgerDriftAlerts as alert (alert.wallet || alert.eventId)}
                             <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1.5 text-[10px]">
                                 <div class="flex items-center justify-between gap-2">
-                                    <span class="font-bold text-white truncate">{alert.wallet}</span>
+                                    <span class="font-bold text-white truncate">{alert.wallet || alert.eventType}</span>
                                     <span class="text-amber-400 font-bold shrink-0">
-                                        Δ {alert.driftKas} KAS
+                                        {alert.severity || `Δ ${alert.driftKas || 0} KAS`}
                                     </span>
                                 </div>
                                 <span class="text-[9px] text-neutral-400">{alert.reason}</span>
-                                {#if alert.quarantined}
-                                    <button
-                                        type="button"
-                                        onclick={() =>
-                                            dispatchDirectorAction(
-                                                {
-                                                    action: 'UNQUARANTINE_WALLET',
-                                                    wallet: alert.wallet
-                                                },
-                                                `UNQ_${alert.wallet}`,
-                                                `Wallet ${alert.wallet.slice(0, 16)}... Unquarantined ✓`
-                                            )}
-                                        class="mt-1 py-1 px-2.5 rounded bg-[#0a0d12] border border-[#18C6A5]/45 text-[#18C6A5] text-[8px] font-black uppercase cursor-pointer self-start"
-                                    >
-                                        [Re-Sign HMAC &amp; Unquarantine]
-                                    </button>
-                                {/if}
                             </div>
                         {/each}
                     </div>
@@ -1235,6 +1241,14 @@
                             </button>
                         </div>
                     </div>
+                    {#if lastEpochBellTelemetry}
+                        <div data-testid="director-epoch-bell-telemetry" class="bg-[#11161f] border border-[#18C6A5]/35 rounded-xl p-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[9px] font-mono">
+                            <div><span class="text-neutral-500 block">EPOCH ID</span><span class="text-white font-bold">{lastEpochBellTelemetry.epochId || 'LATEST'}</span></div>
+                            <div><span class="text-neutral-500 block">TIER 1 (L1 COW)</span><span class="text-[#18C6A5] font-bold">{lastEpochBellTelemetry.tier1CowCross?.matchedPairs ?? lastEpochBellTelemetry.tier1CowCross ?? 0}</span></div>
+                            <div><span class="text-neutral-500 block">TIER 2 (HTLC BATCH)</span><span class="text-white font-bold">{lastEpochBellTelemetry.tier2BotBatchHtlc?.batchesSettled ?? lastEpochBellTelemetry.tier2BotBatchHtlc ?? 0}</span></div>
+                            <div><span class="text-neutral-500 block">TIER 3 (CHANGENOW SPLIT)</span><span class="text-amber-300 font-bold">{lastEpochBellTelemetry.tier3ChangeNowSplit?.splitsCreated ?? lastEpochBellTelemetry.tier3ChangeNowSplit ?? 0}</span></div>
+                        </div>
+                    {/if}
                 </div>
 
                 <!-- Independent Subsystem Kill-Switches -->

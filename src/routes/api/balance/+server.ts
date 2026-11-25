@@ -2,6 +2,7 @@
 import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { redis } from '$lib/server/redis';
+import { formatAtomicToDecimal } from '$lib/crypto/atomicMath';
 
 const BALANCE_CACHE_TTL_SECS = 15;
 const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -314,7 +315,7 @@ async function fetchBitcoinBalanceAndFees(btcAddress: string): Promise<{
                 0,
                 funded - spent + (mempoolFunded - mempoolSpent)
             );
-            balanceBtc = netSats / 1e8;
+            balanceBtc = Number(formatAtomicToDecimal(BigInt(Math.trunc(netSats)), 8));
             const fundedCount = Number(
                 data?.chain_stats?.funded_txo_count || 0
             );
@@ -333,7 +334,7 @@ async function fetchBitcoinBalanceAndFees(btcAddress: string): Promise<{
                 const bsData = await bsRes.json();
                 const funded = Number(bsData?.chain_stats?.funded_txo_sum || 0);
                 const spent = Number(bsData?.chain_stats?.spent_txo_sum || 0);
-                balanceBtc = Math.max(0, funded - spent) / 1e8;
+                balanceBtc = Number(formatAtomicToDecimal(BigInt(Math.max(0, Math.trunc(funded - spent))), 8));
             }
         } catch {
             balanceBtc = 0;
@@ -676,7 +677,7 @@ async function fetchSecondaryL1Balance(
                     data?.data?.[clean]?.address?.balance || 0
                 );
                 if (Number.isFinite(sats) && sats > 0) {
-                    resolved = sats / 1e8;
+                    resolved = Number(formatAtomicToDecimal(BigInt(Math.trunc(sats)), 8));
                 }
             }
         }

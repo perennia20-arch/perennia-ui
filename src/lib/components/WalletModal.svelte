@@ -42,6 +42,8 @@
         executeSovereignKrc20DeployWithCapTableFanout,
         signClientP2pOffer,
         executeClientP2pFill,
+        signAndBroadcastSorPskt,
+        signAndBroadcastVaultCancelPskt,
         getChainExplorerTxUrl
     } from '$lib/stores/transaction.svelte';
 
@@ -880,13 +882,19 @@
 
     function resolveAuthorizeActionLabel(details: any): string {
         const actionType = String(details?.actionType || 'SWAP').toUpperCase();
+        if (actionType === 'SOR_PSKT') {
+            return 'Authorize Non-Custodial Swap';
+        }
+        if (actionType === 'VAULT_CANCEL') {
+            return 'Authorize Vault Return';
+        }
         if (actionType === 'CREATE_P2P') {
             return identity.isCorporateAdmin
-                ? 'Sign P2P Offer (Local 0x83)'
+                ? 'Authorize Peer-to-Peer Offer'
                 : 'Sign Direct P2P Offer (Local)';
         }
         if (actionType === 'FILL_P2P') {
-            return 'Execute P2P Fill (Local PSBT)';
+            return 'Authorize Peer-to-Peer Fill';
         }
         if (actionType === 'FIAT_OFFRAMP') {
             const asset = String(details.payAsset || 'KAS').toUpperCase();
@@ -909,9 +917,6 @@
         if (actionType === 'COMPOUND_KAS') {
             return 'Compound KAS UTXOs';
         }
-        if (actionType === 'WITHDRAW_SYNTHETIC') {
-            return `Dispatch ${details.payAsset} to L1`;
-        }
         if (actionType === 'KRC20_DEPLOY_FANOUT') {
             return `Deploy & Fan-Out Cap Table (${details.ticker || details.receiveAsset || 'KRC-20'})`;
         }
@@ -925,7 +930,7 @@
             return `Forge RWA KRC-20 (${details.ticker || details.receiveAsset || 'RWA'})`;
         }
         if (actionType === 'VPROG_ANCHOR') {
-            return `Anchor vProg & Covenant State (${details.resourceId || 'vprog-v1'})`;
+            return `Authorize State Commitment (${details.resourceId || 'state-v1'})`;
         }
         if (actionType === 'DEX_SWAP' || actionType === 'SWAP') {
             return `Swap ${details.payAsset || 'KAS'} → ${details.receiveAsset || 'USDC'} (Client-Side L1)`;
@@ -1091,7 +1096,7 @@
                     details.psbtData.psbt.inputs.length > 0
                 ) {
                     identity.walletMessage =
-                        'Signing Swap PSBT Locally in Browser...';
+                        'Signing Swap Locally in Browser...';
                     txState.decryptedPrivateKeyHex = privateKey;
                     privateKey = '0'.repeat(64);
                     const psbtData = details.psbtData;
@@ -1125,7 +1130,7 @@
 					payAsset: meta.ticker,
 					receiveAsset,
 					amount: payAmountNum,
-					deliveryMode: (details as any).deliveryMode || 'LEDGER',
+					deliveryMode: (details as any).deliveryMode || 'ONCHAIN_L1',
 					destinationAddress: (details as any).outboundAddress || ''
 				})
 			});
@@ -1170,7 +1175,7 @@
 					onchainTxId: txId,
 					changenowExchangeId: preparedChangenowId,
 					settlementAddress,
-					deliveryMode: (details as any).deliveryMode || 'LEDGER',
+					deliveryMode: (details as any).deliveryMode || 'ONCHAIN_L1',
 					destinationAddress: (details as any).outboundAddress || ''
 				})
                 });
@@ -1295,53 +1300,6 @@
                     );
                 }
 
-                const isLedgerSale =
-                    sourceMode === 'ledger_kas' ||
-                    sourceMode === 'ledger_usdc' ||
-                    sourceMode === 'platform_balance';
-
-                if (isLedgerSale) {
-                    privateKey = '0'.repeat(64);
-                    identity.walletMessage = `Debiting ${meta.ticker} Balance & Queuing Bank Payout...`;
-                    const offrampRes = await fetch('/api/fiat/offramp', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            wallet: identity.activeAddress,
-                            amountKas: payAmountNum,
-                            kasAmount: payAmountNum,
-                            amountAsset: payAmountNum,
-                            sourceMode,
-                            sourceAsset: meta.ticker,
-                            fiatAmount: details.fiatAmount,
-                            payoutMethod: details.payoutMethod,
-                            bankLabel: details.bankLabel,
-                            accountType: details.accountType,
-                            routingNumber: details.routingNumber,
-                            accountNumber: details.accountNumber,
-                            externalCostBasisUsd: details.externalCostBasisUsd,
-                            systemMode: ui.systemMode
-                        })
-                    });
-                    const offrampData = await offrampRes
-                        .json()
-                        .catch(() => ({}));
-                    if (!offrampRes.ok) {
-                        throw new Error(
-                            offrampData.error ||
-                                'Ledger Fiat Off-Ramp execution failed.'
-                        );
-                    }
-                    txState.lastTxId =
-                        offrampData.wireReferenceId ||
-                        offrampData.txId ||
-                        'LEDGER_FIAT_QUEUED';
-                    password = '';
-                    forcePasswordFallback = false;
-                    ui.showWalletModal = false;
-                    return;
-                }
-
                 const targetDepositAddress = String(
                     details.destinationAddress ||
                         preFlightData.depositAddress ||
@@ -1421,41 +1379,49 @@
                 forcePasswordFallback = false;
                 ui.showWalletModal = false;
                 return;
-            } else if (actionType === 'WITHDRAW_SYNTHETIC') {
-                const targetAsset = String(
-                    details.payAsset || 'KAS'
-                ).toUpperCase();
-                identity.walletMessage = `Dispatching ${targetAsset} Settlement to L1...`;
+            } else if (actionType === 'SOR_PSKT') {
+                identity.walletMessage = 'Signing Swap Locally in Browser...';
+                txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
-                const reqBody = {
-                    action: 'WITHDRAW_SYNTHETIC_ASSET',
-                    wallet: identity.activeAddress,
-                    payload: {
-                        asset: targetAsset,
-                        amount: parseFloat(details.payAmount),
-                        destination: details.destinationAddress
-                    }
-                };
-                const broadcastRes = await fetch('/api/state/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(reqBody)
+                const txId = await signAndBroadcastSorPskt({
+                    pskt: details.pskt,
+                    formattedUtxos: details.formattedUtxos || []
                 });
-                const data = await broadcastRes.json().catch(() => ({}));
-                if (!broadcastRes.ok || !data.success) {
-                    throw new Error(
-                        data.error ||
-                            `Failed to dispatch ${targetAsset} L1 withdrawal.`
-                    );
-                }
-                const txId =
-                    data.transaction_id ||
-                    data.data?.txHash ||
-                    `L1-${targetAsset}-${Date.now()}`;
                 txState.lastTxId = txId;
-                txState.lastExplorerUrl =
-                    data.data?.explorerUrl ||
-                    getChainExplorerTxUrl(targetAsset, txId);
+                txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+                window.dispatchEvent(
+                    new CustomEvent('perennia:sor_swap_signed', {
+                        detail: {
+                            txId,
+                            transactionUuid: details.transactionUuid,
+                            routeType: details.routeType
+                        }
+                    })
+                );
+                password = '';
+                forcePasswordFallback = false;
+                ui.showWalletModal = false;
+                return;
+            } else if (actionType === 'VAULT_CANCEL') {
+                identity.walletMessage = 'Signing Vault Return Locally in Browser...';
+                txState.decryptedPrivateKeyHex = privateKey;
+                privateKey = '0'.repeat(64);
+                const txId = await signAndBroadcastVaultCancelPskt({
+                    pskt: details.pskt,
+                    redeemScriptHex: details.redeemScriptHex,
+                    feeBreakdown:
+                        details.feeBreakdown ??
+                        (details.storageMass !== undefined
+                            ? { storageMass: details.storageMass }
+                            : undefined)
+                });
+                txState.lastTxId = txId;
+                txState.lastExplorerUrl = getChainExplorerTxUrl('KAS', txId);
+                window.dispatchEvent(
+                    new CustomEvent('perennia:vault_cancelled', {
+                        detail: { txId, vaultId: details.vaultId }
+                    })
+                );
                 password = '';
                 forcePasswordFallback = false;
                 ui.showWalletModal = false;
@@ -1486,7 +1452,7 @@
             } else {
                 identity.walletMessage =
                     actionType === 'VPROG_ANCHOR'
-                        ? 'Signing vProg & Covenant State Anchor Locally in Browser...'
+                        ? 'Signing State Commitment Locally in Browser...'
                         : 'Signing Inscription Envelope Locally in Browser...';
                 txState.decryptedPrivateKeyHex = privateKey;
                 privateKey = '0'.repeat(64);
@@ -1551,7 +1517,7 @@
 
 {#if ui.showWalletModal}
     <div
-        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#06080b]/95 backdrop-blur-md px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-16 font-mono"
+        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#06080b]/96 px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-16 font-mono"
         transition:fade={{ duration: 150 }}
         onclick={handleBackdropClick}
         onkeydown={(e) => e.key === 'Escape' && handleBackdropClick()}
@@ -2278,7 +2244,7 @@
                             {#if identity.pendingTransactionDetails.stateRootHex}
                                 <div class="flex flex-col gap-1 border-b border-white/5 pb-2">
                                     <span class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold">
-                                        vProg State Root Commitment
+                                        State Root Commitment
                                     </span>
                                     <span class="text-[9px] text-blue-400 break-all font-mono">
                                         {identity.pendingTransactionDetails.stateRootHex}

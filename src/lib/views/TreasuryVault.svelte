@@ -1426,27 +1426,7 @@
     });
 
     async function fetchSyntheticLedger() {
-        if (!identity.isWalletConnected || !identity.activeAddress) return;
-        try {
-            const res = await fetch(
-                `/api/user/ledger?wallet=${encodeURIComponent(identity.activeAddress)}`
-            );
-            if (res.ok) {
-                const ledgerBalances = await res.json();
-                for (const [ticker, amount] of Object.entries(ledgerBalances)) {
-                    if (
-                        ticker !== 'unassignedReserveKas' &&
-                        ticker !== 'unassignedReserveTargetKas'
-                    ) {
-                        treasury.updateAsset(ticker.toUpperCase(), {
-                            synthetic: Number(amount) || 0
-                        });
-                    }
-                }
-            }
-        } catch {
-            // Ignore ledger fetch error
-        }
+        // Retired custodial ledger; L1 balances sync directly from chain
     }
 
     async function fetchWalletActivity() {

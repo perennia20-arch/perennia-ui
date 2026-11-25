@@ -12,6 +12,7 @@ import { Client as XrplClient, Wallet as XrplWallet, xrpToDrops } from 'xrpl';
 import { Buffer } from 'buffer';
 import type { SovereignVaultKeys } from '$lib/crypto/honeycomb';
 import { hexToBytes, bytesToHex } from './kaspaAddress';
+import { parseDecimalToAtomic } from '$lib/crypto/atomicMath';
 
 const ERC20_TRANSFER_ABI = [
     'function transfer(address to, uint256 amount) returns (bool)',
@@ -249,7 +250,7 @@ export async function signAndBroadcastNonKaspaL1Transfer(params: {
         if (!Array.isArray(utxos) || utxos.length === 0) {
             throw new Error(`No spendable Bitcoin UTXOs found on ${sourceAddr}.`);
         }
-        const targetSats = BigInt(Math.floor(amount * 1e8));
+        const targetSats = parseDecimalToAtomic(amount, 8, 'floor');
         if (targetSats < 546n) {
             throw new Error('BTC transfer amount is below the 546 satoshi dust limit.');
         }

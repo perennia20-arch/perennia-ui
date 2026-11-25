@@ -81,7 +81,7 @@ function normalizeSectorAllocations(rawSectors: unknown[]): Array<Record<string,
         return {
             ...sector,
             allocationBps,
-            /** @deprecated Batch 3 UI shim; use `allocationBps` (`0..=10_000`). */
+            /* Integer percentage projection derived from allocationBps. */
             allocationPercentage: Math.round(allocationBps / 100)
         };
     });
@@ -398,7 +398,7 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             epochTelemetry,
             networkDifficulty: networkDifficulty > 0 ? networkDifficulty : undefined,
             blockRewardSompi,
-            /** @deprecated Batch 2/3 shim; prefer `blockRewardSompi` (`U128Str`). */
+            /* Display projection derived from blockRewardSompi. */
             blockRewardKas: blockRewardKasLegacy,
             virtualDaaScore: daaRaw ? parseInt(daaRaw, 10) || 0 : 0
         });

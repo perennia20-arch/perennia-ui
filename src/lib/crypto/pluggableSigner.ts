@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import { ethers } from 'ethers';
 import { schnorr } from '@noble/curves/secp256k1.js';
+import { parseDecimalToAtomic } from '$lib/crypto/atomicMath';
 import {
     validateKaspaBech32mAddress,
     encodeKaspaAddressFromPubkeyBytes
@@ -514,7 +515,7 @@ export function buildAirgappedFundingQrPayload(params: {
             'INVALID_SWEEP_AMOUNT: Sweep amount must be greater than 0 KAS.'
         );
     }
-    const sompi = BigInt(Math.round(safeKas * 1e8)).toString();
+    const sompi = parseDecimalToAtomic(safeKas, 8, 'floor').toString();
     return {
         version: 'perennia-airlock-v1',
         intent: params.intent,

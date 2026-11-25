@@ -85,7 +85,7 @@ async function resolveLiveKasSpotUsd(): Promise<number> {
     } catch {
         // Ignore DB lookup notice
     }
-    return 0.15;
+    return 0;
 }
 
 async function ensureCorporateTreasuryTables(): Promise<void> {
@@ -385,7 +385,8 @@ export const GET: RequestHandler = async ({
                     registeredAddress: DEFAULT_CORPORATE_ADDRESS,
                     supportEmail: 'perennia26@gmail.com'
                 },
-                kasSpotUsd,
+                kasSpotUsd: kasSpotUsd > 0 ? kasSpotUsd : null,
+                livePricingUnavailable: kasSpotUsd <= 0,
                 entityProfile,
                 vouchers,
                 taxLedgerEvents: taxEventsRes.rows,
@@ -693,9 +694,21 @@ export const POST: RequestHandler = async ({
                     `Perennia LLC Commercial Operating Draw (${drawId})`
             ).trim();
             const amountKas =
-                kasSpotUsd > 0
-                    ? Number((amountUsd / kasSpotUsd).toFixed(4))
-                    : 0;
+                Number(body.amountKas) > 0
+                    ? Number(body.amountKas)
+                    : kasSpotUsd > 0
+                      ? Number((amountUsd / kasSpotUsd).toFixed(4))
+                      : 0;
+            if (!(kasSpotUsd > 0)) {
+                return json(
+                    {
+                        error: 'SERVICE_UNAVAILABLE',
+                        livePricingUnavailable: true,
+                        uiMessage: 'Live pricing unavailable'
+                    },
+                    { status: 503 }
+                );
+            }
 
             let bankLast4 = String(body.bankLast4 || '').trim();
             if (!bankLast4) {

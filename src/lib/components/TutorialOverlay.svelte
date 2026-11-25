@@ -49,7 +49,7 @@
 <div data-testid="tutorial-spotlight-cutout" class="fixed z-[10015] pointer-events-none rounded-2xl transition-all duration-200" style="top:{rect.top}px;left:{rect.left}px;width:{rect.width}px;height:{rect.height}px;border:2px solid {cur.hex};box-shadow:0 0 0 9999px rgba(6,8,11,0.52),0 0 24px {cur.hex}40;"></div>
 {/if}
 <div data-testid="tutorial-floating-card" class="fixed z-[10025] font-mono pointer-events-auto {vw < 1024 ? 'bottom-[calc(0.6rem+env(safe-area-inset-bottom,0px))] inset-x-3' : 'bottom-6 right-6 w-[390px]'}">
-  <div class="bg-[#0a0d12]/96 backdrop-blur-xl border rounded-2xl p-4 shadow-2xl flex flex-col gap-2.5" style="border-color:{cur.hex}75;">
+  <div class="bg-[#0a0d12]/96 border rounded-2xl p-4 shadow-2xl flex flex-col gap-2.5" style="border-color:{cur.hex}75;">
     <div class="flex items-center justify-between gap-2">
       <span class="text-sm font-black uppercase tracking-wider text-white">{cur.title}</span>
       <button type="button" data-testid="tutorial-exit-btn" onclick={closeTour} class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-xs font-bold text-neutral-300 hover:text-white">&#x2715;</button>

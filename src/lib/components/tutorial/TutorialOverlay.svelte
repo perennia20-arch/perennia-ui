@@ -50,7 +50,7 @@
         ((currentStepIndex + 1) / TUTORIAL_STEPS.length) * 100
     );
 
-    let kasSpotUsd = $derived(treasury.getAsset('KAS').spotPrice || 0.15);
+    let kasSpotUsd = $derived(treasury.getAsset('KAS').spotPrice);
 
     let sampleUsdcBucket = $derived(
         (ops as any).epochTelemetry?.buckets?.['USDC'] ||
@@ -170,7 +170,7 @@
         <div
             role="presentation"
             onclick={() => handleCloseTutorial(true)}
-            class="fixed inset-0 bg-black/75 backdrop-blur-[2px] transition-opacity duration-300"
+            class="fixed inset-0 bg-[#06080b]/85 transition-opacity duration-300"
         ></div>
 
         <!-- DYNAMIC DOM SPOTLIGHT RING -->
