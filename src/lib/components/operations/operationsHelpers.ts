@@ -335,18 +335,18 @@ export function formatUsdMicrosDisplay(
 }
 
 /**
- * Converts atomic KAS (`sompi`) to USD display using live E8 oracle price, failing closed when offline.
+ * Converts atomic KAS (`sompi`) to USD display using live E8 oracle price, returning empty string when offline.
  */
 export function formatSompiToUsdOrUnavailable(
     sompi: U128Str | bigint | null | undefined,
     kasOracleUsdE8: U128Str | bigint | null | undefined
 ): string {
     if (kasOracleUsdE8 === null || kasOracleUsdE8 === undefined || kasOracleUsdE8 === '') {
-        return LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        return '';
     }
     try {
         const priceE8 = parseU128Str(kasOracleUsdE8, 'kasOracleUsdE8');
-        if (priceE8 <= 0n) return LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        if (priceE8 <= 0n) return '';
         const amountSompi =
             sompi === null || sompi === undefined || sompi === ''
                 ? 0n
@@ -354,8 +354,27 @@ export function formatSompiToUsdOrUnavailable(
         const usdMicros = atomicToUsdMicrosFloor(amountSompi, KAS_DECIMALS, priceE8);
         return `$${formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS, 2, false)}`;
     } catch {
-        return LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        return '';
     }
+}
+
+/**
+ * Formats daily split output cleanly: `~X KAS/d` plus live `$USD/d` when online, or `~X KAS/d` alone if offline.
+ */
+export function formatSectorDailyYieldLabel(
+    dailyKas: number,
+    dailyUsd: number,
+    livePricingUnavailable: boolean
+): { kasLabel: string; usdLabel: string | null } {
+    const safeKas = Number.isFinite(dailyKas) ? Math.max(0, dailyKas) : 0;
+    const kasLabel = `~${safeKas.toFixed(1)} KAS/d`;
+    if (livePricingUnavailable || !Number.isFinite(dailyUsd)) {
+        return { kasLabel, usdLabel: null };
+    }
+    return {
+        kasLabel,
+        usdLabel: `$${Math.max(0, dailyUsd).toFixed(2)}/d`
+    };
 }
 
 /**
@@ -634,8 +653,12 @@ export async function postSovereignStateAction<T = any>(
         });
         const body = (await res.json().catch(() => null)) as Record<string, any> | null;
         if (res.status === 503 || body?.livePricingUnavailable) {
-            operations.oracleOnline = false;
-            treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            const hasLiveSpot =
+                treasury.spotOracleOnline && treasury.getAsset('KAS').spotPriceE8 !== '0';
+            if (!hasLiveSpot) {
+                operations.oracleOnline = false;
+                treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            }
             return {
                 ok: false,
                 status: 503,
@@ -933,12 +956,15 @@ export async function fetchSovereignOperationsBundle(
     const receipts = Array.isArray(receiptsRes.data?.receipts) ? receiptsRes.data.receipts : [];
     const solvency = solvencyRes.data ?? null;
 
+    const hasLiveSpot =
+        treasury.spotOracleOnline && treasury.getAsset('KAS').spotPriceE8 !== '0';
+
     operations.hydrateSovereignState({
         ...(accrualRes.ok ? { matureAccrual: accrual, payoutOutbox: outbox } : {}),
         ...(vaultsRes.ok ? { vaultLocks: vaults } : {}),
         ...(valvesRes.ok ? { thermostatValves: valves } : {}),
         ...(solvencyRes.ok ? { solvencyProof: solvency } : {}),
-        ...(livePricingUnavailable ? { oracleOnline: false } : {})
+        ...(livePricingUnavailable && !hasLiveSpot ? { oracleOnline: false } : {})
     });
 
     return {

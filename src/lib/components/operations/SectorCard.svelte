@@ -680,11 +680,8 @@
                       : sector.settlementConfig?.mode || 'epoch'}
             </span>
             <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
-                ~{_num(dailyKas).toFixed(1)} KAS/d
-                {#if livePricingUnavailable}
-                    <span class="text-amber-400">(Live pricing unavailable)</span>
-                {:else}
-                    <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
+                ~{_num(dailyKas).toFixed(1)} KAS/d{#if !livePricingUnavailable}
+                    {' '}<span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)}/d)</span>
                 {/if}
             </span>
         </div>
@@ -998,11 +995,7 @@
                                         {asset.name}
                                     </span>
                                 </div>
-                                {#if livePricingUnavailable}
-                                    <span class="text-[8px] font-bold text-amber-400 shrink-0">
-                                        Live pricing unavailable
-                                    </span>
-                                {:else if asset.spotPrice > 0}
+                                {#if !livePricingUnavailable && asset.spotPrice > 0}
                                     <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">
                                         ${asset.spotPrice < 1 ? asset.spotPrice.toFixed(4) : asset.spotPrice.toFixed(2)}
                                     </span>

@@ -766,7 +766,45 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 operations.workers = parsed.workers || [];
                 operations.sectors = parsed.sectors || [];
                 operations.hydrateSovereignState(parsed);
-                if (parsed.oracleOnline === false || parsed.livePricingUnavailable === true) {
+                const validE8 =
+                    typeof parsed.kasOracleUsdE8 === 'string' &&
+                    /^[0-9]{1,39}$/.test(parsed.kasOracleUsdE8) &&
+                    BigInt(parsed.kasOracleUsdE8) > 0n;
+                const validSpotNum =
+                    typeof parsed.kasOracleUsd === 'number' &&
+                    Number.isFinite(parsed.kasOracleUsd) &&
+                    parsed.kasOracleUsd > 0;
+                if (parsed.oracleOnline === true && (validE8 || validSpotNum)) {
+                    treasury.updateAsset('KAS', {
+                        ...(validE8
+                            ? { spotPriceE8: parsed.kasOracleUsdE8 }
+                            : { spotPrice: parsed.kasOracleUsd }),
+                        ...(typeof parsed.kasChange24h === 'number' &&
+                        Number.isFinite(parsed.kasChange24h)
+                            ? { delta: parsed.kasChange24h }
+                            : {})
+                    });
+                    treasury.spotOracleOnline = true;
+                    treasury.spotOracleError = null;
+                    const kasSpotVal = treasury.getAsset('KAS').spotPrice;
+                    if (
+                        kasSpotVal > 0 &&
+                        treasury.getAsset(DEFAULT_ECOSYSTEM_TICKER).spotPrice <= 0
+                    ) {
+                        treasury.updateAsset(DEFAULT_ECOSYSTEM_TICKER, {
+                            spotPrice: Number((kasSpotVal / 23.809524).toFixed(6))
+                        });
+                    }
+                    if (treasury.getAsset('USDC').spotPrice <= 0) {
+                        treasury.updateAsset('USDC', { spotPrice: 1.0 });
+                    }
+                    if (treasury.getAsset('USDT').spotPrice <= 0) {
+                        treasury.updateAsset('USDT', { spotPrice: 1.0 });
+                    }
+                } else if (
+                    parsed.oracleOnline === false ||
+                    parsed.livePricingUnavailable === true
+                ) {
                     treasury.markOracleUnavailable();
                 }
                 if (parsed.systemMode) ui.systemMode = parsed.systemMode;
@@ -1143,6 +1181,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     solana: 'SOL',
                     dogecoin: 'DOGE',
                     ripple: 'XRP',
+                    'usd-coin': 'USDC',
+                    tether: 'USDT',
                     'polygon-ecosystem-token': 'POL',
                     'avalanche-2': 'AVAX',
                     sui: 'SUI',
@@ -1151,6 +1191,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     arbitrum: 'ARB'
                 };
                 const mappedKeys = new Set(Object.keys(map));
+                let kasSpotHydrated = false;
                 for (const [cgKey, ticker] of Object.entries(map)) {
                     if (data?.[cgKey]?.usd !== undefined) {
                         const spotVal = Number(data[cgKey].usd);
@@ -1158,6 +1199,9 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             spotPrice: spotVal,
                             delta: Number(data[cgKey].usd_24h_change || 0)
                         });
+                        if (ticker === 'KAS' && spotVal > 0) {
+                            kasSpotHydrated = true;
+                        }
                         if (
                             ticker === 'KAS' &&
                             spotVal > 0 &&
@@ -1170,6 +1214,16 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 )
                             });
                         }
+                    }
+                }
+                if (kasSpotHydrated) {
+                    treasury.spotOracleOnline = true;
+                    treasury.spotOracleError = null;
+                    if (treasury.getAsset('USDC').spotPrice <= 0) {
+                        treasury.updateAsset('USDC', { spotPrice: 1.0 });
+                    }
+                    if (treasury.getAsset('USDT').spotPrice <= 0) {
+                        treasury.updateAsset('USDT', { spotPrice: 1.0 });
                     }
                 }
                 for (const [rawKey, valObj] of Object.entries(data || {})) {
@@ -1193,6 +1247,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         }
                     }
                 }
+            } else if (res.status === 503 && !operations.oracleOnline) {
+                treasury.markOracleUnavailable();
             }
             if (identity.isWalletConnected && identity.activeAddress) {
                 hydrateHeaderTreasuryBalances(

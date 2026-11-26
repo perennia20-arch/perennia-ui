@@ -76,6 +76,30 @@
     let cancelActionError = $state<string | null>(null);
     let isThermostatModalOpen = $state(false);
     let thermostatDrafts = $state<ThermostatValveDraft[]>([]);
+    let mobileMineTab = $state<'SPLITS' | 'RIGS' | 'REWARDS'>('SPLITS');
+    let vaultDrawerManual = $state<boolean | null>(null);
+    let thermostatDrawerManual = $state<boolean | null>(null);
+    let receiptsDrawerManual = $state<boolean | null>(null);
+
+    let activeVaultCount = $derived(
+        (operations.vaultLocks || []).filter(
+            (v) => !['CANCELLED', 'CANCELED', 'SPENT', 'REFUNDED'].includes(String(v.status || '').toUpperCase())
+        ).length
+    );
+    let enabledValveCount = $derived(
+        (operations.thermostatValves || []).filter((v) => v.isEnabled).length
+    );
+    let isVaultDrawerOpen = $derived(
+        vaultDrawerManual !== null
+            ? vaultDrawerManual
+            : (operations.vaultLocks || []).length > 0 || Boolean(cancelActionError)
+    );
+    let isThermostatDrawerOpen = $derived(
+        thermostatDrawerManual !== null ? thermostatDrawerManual : enabledValveCount > 0
+    );
+    let isReceiptsDrawerOpen = $derived(
+        receiptsDrawerManual !== null ? receiptsDrawerManual : settlementReceipts.length > 0
+    );
 
     let mineableKrc20Vaults = $state<MineableKrc20VaultInfo[]>([
         ...INITIAL_MINEABLE_KRC20_VAULTS
@@ -1210,68 +1234,74 @@
 {/if}
 
 <div class="w-full h-full p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto bg-transparent" role="presentation">
-    <!-- MOBILE KPI RIBBON -->
-    <div data-testid="mobile-kpi-ribbon" class="lg:hidden flex items-stretch gap-2.5 overflow-x-auto snap-x snap-mandatory hide-scrollbar -mx-1 px-1 pb-1 font-mono">
-        <div class="snap-start shrink-0 min-w-[146px] bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
-            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-1.5">
+    <!-- MOBILE STATUS + 3-TAB COLUMN SWITCHER (< 1024px ONLY) -->
+    <div class="lg:hidden bg-[#0a0d12] border border-white/10 rounded-xl p-2 flex flex-col gap-2 font-mono">
+        <div data-testid="mobile-kpi-ribbon" class="flex items-center justify-between gap-2 px-1.5 py-0.5 text-[10px]">
+            <span class="font-bold text-white tabular-nums flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>
-                Hashrate
+                {displayHashrate.toFixed(2)} <span class="text-[#18C6A5]">TH/s</span>
             </span>
-            <span class="text-sm font-black text-white tabular-nums mt-0.5">
-                {displayHashrate.toFixed(2)} <span class="text-[9px] text-[#18C6A5]">TH/s</span>
-            </span>
-        </div>
-        <div class="snap-start shrink-0 min-w-[156px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
-            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">KAS / USD</span>
             {#if kasSpotVisible}
-                <div class="flex items-baseline gap-1.5 mt-0.5">
-                    <span class="text-sm font-black text-white tabular-nums">${kasAsset.spotPrice.toFixed(4)}</span>
-                    <span class="text-[8px] font-bold {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">
+                <span class="font-bold text-white tabular-nums flex items-center gap-1">
+                    ${kasAsset.spotPrice.toFixed(4)}
+                    <span class="text-[9px] {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">
                         {activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%
                     </span>
-                </div>
-            {:else}
-                <span class="text-[9px] font-bold text-amber-400 mt-0.5">Live pricing unavailable</span>
+                </span>
             {/if}
-        </div>
-        <div class="snap-start shrink-0 min-w-[152px] bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
-            <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">Blocks</span>
-            <span class="text-xs font-black text-blue-400 tabular-nums mt-0.5 truncate">
-                {operations.virtualDaaScore > 0
-                    ? operations.virtualDaaScore.toLocaleString()
-                    : operations.networkDifficulty > 0
-                      ? operations.networkDifficulty.toExponential(2)
-                      : operations.globalNodeStatus === 'connected'
-                        ? 'Network Online'
-                        : 'Standby'}
+            <span class="font-bold text-amber-400 tabular-nums">
+                Next {operations.formatEpochCountdown()}
             </span>
         </div>
-        <div class="snap-start shrink-0 min-w-[158px] bg-[#0a0d12] border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col justify-between">
-            <span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">Next Payout</span>
-            <span class="text-sm font-black text-white tabular-nums mt-0.5">
-                {operations.formatEpochCountdown()}
-            </span>
+
+        <div data-testid="mobile-column-switcher" class="grid grid-cols-3 gap-1 bg-[#06080b] border border-white/10 rounded-lg p-1">
+            <button
+                type="button"
+                data-testid="mobile-col-tab-SPLITS"
+                onclick={() => (mobileMineTab = 'SPLITS')}
+                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'SPLITS' ? 'bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
+            >
+                SPLITS ({operations.sectors.length})
+            </button>
+            <button
+                type="button"
+                data-testid="mobile-col-tab-RIGS"
+                onclick={() => (mobileMineTab = 'RIGS')}
+                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'RIGS' ? 'bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
+            >
+                RIGS ({displayedWorkers.length})
+            </button>
+            <button
+                type="button"
+                data-testid="mobile-col-tab-REWARDS"
+                onclick={() => (mobileMineTab = 'REWARDS')}
+                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'REWARDS' ? 'bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
+            >
+                REWARDS
+            </button>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
-        <WorkerFleetPanel
-            {displayedWorkers}
-            {displayHashrate}
-            {totalShares}
-            {unallocatedPercentage}
-            bind:activeWorkerMenu
-            bind:activeMinerTypePickerWorkerId
-            bind:minerTypeSearch
-            {shimmerTargetId}
-            onTriggerShimmer={triggerShimmer}
-            onSafeDispatch={safeDispatch}
-            onOpenSectorModal={openSectorModal}
-        />
+        <div class="{mobileMineTab === 'RIGS' ? 'contents' : 'hidden lg:contents'}">
+            <WorkerFleetPanel
+                {displayedWorkers}
+                {displayHashrate}
+                {totalShares}
+                {unallocatedPercentage}
+                bind:activeWorkerMenu
+                bind:activeMinerTypePickerWorkerId
+                bind:minerTypeSearch
+                {shimmerTargetId}
+                onTriggerShimmer={triggerShimmer}
+                onSafeDispatch={safeDispatch}
+                onOpenSectorModal={openSectorModal}
+            />
+        </div>
 
         <!-- CENTER WORKSPACE -->
         <div
-            class="flex flex-col gap-4 lg:col-span-6 xl:col-span-8 relative z-10 min-w-0"
+            class="{mobileMineTab === 'SPLITS' ? 'flex' : 'hidden lg:flex'} flex-col gap-3.5 lg:col-span-6 xl:col-span-8 relative z-10 min-w-0"
             data-tour="sector-matrix"
             data-testid="ops-payout-splits-section"
         >
@@ -1461,9 +1491,29 @@
                         <p class="text-[11px] uppercase tracking-widest text-neutral-400 font-bold text-center leading-relaxed">
                             100% KAS → Wallet (50 KAS min • 1% fee)
                         </p>
+                        {#if unallocatedBps > 0 && identity.isWalletConnected && !identity.isWatchOnly}
+                            <button
+                                type="button"
+                                onclick={openSectorModal}
+                                class="lg:hidden mt-4 px-4 py-2 rounded-xl bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-mono font-bold uppercase tracking-widest cursor-pointer"
+                            >
+                                + Split
+                            </button>
+                        {/if}
                     </div>
                 {:else}
                     <div class="flex flex-col gap-3 relative z-10 content-start pb-2">
+                        {#if unallocatedBps > 0 && identity.isWalletConnected && !identity.isWatchOnly}
+                            <div class="lg:hidden flex justify-end">
+                                <button
+                                    type="button"
+                                    onclick={openSectorModal}
+                                    class="px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-mono font-bold uppercase tracking-wider cursor-pointer"
+                                >
+                                    + Split
+                                </button>
+                            </div>
+                        {/if}
                         {#if siloSectors.length > 0}
                             <div class="flex flex-col gap-2" data-testid="settlement-silos-section">
                                 <div class="flex items-center justify-between border-b border-[#18C6A5]/25 pb-2">
@@ -1569,262 +1619,338 @@
                 {/if}
             </div>
 
-            <!-- SELF-CUSTODY VAULT LOCKS -->
-            <div
-                data-testid="sovereign-vault-locks-section"
-                class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3 font-mono"
-                style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.06), transparent 65%);"
-            >
-                <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
-                    <div class="flex flex-col">
-                        <h3 class="text-xs font-black uppercase tracking-widest text-white">
-                            Self-Custody Vault Locks
-                        </h3>
-                        <span class="text-[9px] text-neutral-400">
-                            Non-custodial on-chain vaults with 24/7 owner withdrawal back to your wallet
-                        </span>
-                    </div>
-                    <button
-                        type="button"
-                        data-testid="open-register-vault-modal-btn"
-                        onclick={() => openRegisterVaultModal()}
-                        class="tactile-btn px-3 py-1.5 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] hover:text-white text-[10px] font-bold uppercase tracking-wider shrink-0"
-                    >
-                        + New Vault Lock
-                    </button>
-                </div>
-
-                {#if cancelActionError}
-                    <div class="p-2.5 rounded-xl bg-red-950/30 border border-red-500/40 text-red-300 text-[10px]">
-                        {cancelActionError}
-                    </div>
-                {/if}
-
-                {#if (operations.vaultLocks || []).length === 0}
-                    <div class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-4 text-[10px] text-neutral-400 text-center">
-                        No self-custody vaults configured yet. Create a vault lock to route rewards directly on-chain.
-                    </div>
-                {:else}
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {#each operations.vaultLocks as vault (vault.vaultId)}
-                            {@const balanceSompi = vault.liveUtxoSompi || vault.confirmedUtxoSompi || '0'}
-                            <div
-                                data-testid="vault-lock-card-{vault.vaultId}"
-                                class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2"
-                            >
-                                <div class="flex items-center justify-between gap-2">
-                                    <div class="flex flex-col min-w-0">
-                                        <span class="text-[11px] font-black text-white truncate">
-                                            {formatVaultKindLabel(vault.vaultKind)}
-                                        </span>
-                                        <span class="text-[9px] text-neutral-400">
-                                            Target: {vault.targetAsset} ({vault.targetNetwork})
-                                        </span>
-                                    </div>
-                                    <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[8px] font-bold text-[#18C6A5] shrink-0">
-                                        {formatVaultStatusLabel(vault.status)}
-                                    </span>
-                                </div>
-
-                                <div class="flex items-baseline justify-between gap-2 pt-1 border-t border-white/10">
-                                    <div class="flex flex-col">
-                                        <span class="text-[8px] uppercase text-neutral-400">Locked Balance</span>
-                                        <span class="text-sm font-black text-white tabular-nums">
-                                            {formatSompiToKasDisplay(balanceSompi, 4, true)} KAS
-                                        </span>
-                                    </div>
-                                    <span class="text-[9px] font-bold tabular-nums {livePricingUnavailable ? 'text-amber-400' : 'text-[#18C6A5]'}">
-                                        {formatSompiToUsdOrUnavailable(balanceSompi, operations.kasOracleUsdE8)}
-                                    </span>
-                                </div>
-
-                                <div class="flex items-center justify-between text-[9px] text-neutral-400">
-                                    <span>Payout Minimum</span>
-                                    <span class="text-neutral-200 font-bold tabular-nums">
-                                        {formatSompiToKasDisplay(vault.thresholdSompi, 2, true)} KAS
-                                    </span>
-                                </div>
-
-                                <div class="text-[8px] text-neutral-500 truncate">
-                                    Destination: {vault.destinationAddress}
-                                </div>
-
-                                <div class="flex items-center justify-between gap-2 pt-1">
-                                    <a
-                                        href={getChainExplorerAddressUrl('KAS', vault.covenantAddress)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        class="text-[9px] text-[#18C6A5] hover:underline font-bold"
-                                    >
-                                        Vault Explorer ↗
-                                    </a>
-                                    <button
-                                        type="button"
-                                        data-testid="cancel-vault-lock-btn-{vault.vaultId}"
-                                        onclick={() => initiateOwnerVaultCancel(vault)}
-                                        class="tactile-btn px-2.5 py-1 rounded-lg border-white/15 text-[9px] font-bold uppercase text-neutral-200 hover:text-white"
-                                    >
-                                        Return to Wallet
-                                    </button>
-                                </div>
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
-            </div>
-
-            <!-- 4-PRIORITY PAYOUT THERMOSTAT -->
-            <div
-                data-testid="sovereign-thermostat-section"
-                class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3 font-mono"
-                style="background-image: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.06), transparent 65%);"
-            >
-                <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
-                    <div class="flex flex-col">
-                        <h3 class="text-xs font-black uppercase tracking-widest text-white">
-                            Payout Priority Thermostat
-                        </h3>
-                        <span class="text-[9px] text-neutral-400">
-                            4-stage waterfall routes rewards in priority order up to each cycle cap
-                        </span>
-                    </div>
-                    <button
-                        type="button"
-                        data-testid="open-thermostat-modal-btn"
-                        onclick={openThermostatModal}
-                        class="tactile-btn px-3 py-1.5 rounded-xl border-white/15 text-neutral-200 hover:text-white text-[10px] font-bold uppercase tracking-wider shrink-0"
-                    >
-                        Configure Priorities
-                    </button>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {#each ([1, 2, 3, 4] as const) as priority (priority)}
-                        {@const valve = (operations.thermostatValves || []).find(
-                            (v) => Number(v.priorityOrder) === priority
-                        )}
-                        {@const meta = THERMOSTAT_VALVE_META[priority]}
-                        {@const fillBps = valve ? computeValveFillProgressBps(valve) : 0}
-                        <div
-                            data-testid="thermostat-valve-card-{priority}"
-                            class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1.5"
+            <!-- COMPACT BOTTOM ACCORDION ROWS -->
+            <div class="flex flex-col gap-2">
+                <!-- SELF-CUSTODY VAULT LOCKS -->
+                <div
+                    data-testid="sovereign-vault-locks-section"
+                    class="bg-[#0a0d12] border border-white/10 rounded-xl font-mono overflow-hidden"
+                >
+                    <div class="px-3.5 py-2.5 flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            data-testid="toggle-vault-locks-drawer"
+                            aria-expanded={isVaultDrawerOpen}
+                            onclick={() => (vaultDrawerManual = !isVaultDrawerOpen)}
+                            class="flex items-center gap-2 min-w-0 text-left cursor-pointer group flex-1"
                         >
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="text-[10px] font-black text-white truncate">
-                                    #{priority} {meta.title}
-                                </span>
-                                <span
-                                    class="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase {valve?.isEnabled ? 'bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[#0a0d12] border border-white/10 text-neutral-500'}"
-                                >
-                                    {valve?.isEnabled ? 'Active' : 'Paused'}
-                                </span>
-                            </div>
-                            <span class="text-[8px] text-neutral-400 truncate">
-                                {meta.subtitle}
+                            <span class="text-[11px] font-black uppercase tracking-widest text-white group-hover:text-[#18C6A5] transition-colors truncate">
+                                Self-Custody Vault Locks
                             </span>
-                            {#if valve}
-                                <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10 mt-0.5">
-                                    <div
-                                        class="h-full bg-[#18C6A5] transition-all duration-500"
-                                        style="width: {Math.min(100, fillBps / 100)}%;"
-                                    ></div>
+                            <span
+                                data-testid="vault-locks-status-pill"
+                                class="px-2 py-0.5 rounded border text-[9px] font-bold uppercase shrink-0 tabular-nums {activeVaultCount > 0 ? 'bg-[#11161f] border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[#06080b] border-white/10 text-neutral-400'}"
+                            >
+                                {activeVaultCount} Active
+                            </span>
+                        </button>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button
+                                type="button"
+                                data-testid="open-register-vault-modal-btn"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    openRegisterVaultModal();
+                                }}
+                                class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] hover:text-white text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                            >
+                                + New Vault Lock
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="Toggle Self-Custody Vault Locks"
+                                onclick={() => (vaultDrawerManual = !isVaultDrawerOpen)}
+                                class="w-6 h-6 rounded-lg bg-[#11161f] border border-white/10 text-neutral-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
+                            >
+                                {isVaultDrawerOpen ? '▴' : '▾'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {#if isVaultDrawerOpen}
+                        <div class="border-t border-white/10 p-3.5 flex flex-col gap-3">
+                            {#if cancelActionError}
+                                <div class="p-2.5 rounded-xl bg-red-950/30 border border-red-500/40 text-red-300 text-[10px]">
+                                    {cancelActionError}
                                 </div>
-                                <div class="flex items-center justify-between text-[8px] text-neutral-300 tabular-nums">
-                                    <span>
-                                        {valve.targetAsset} ({valve.targetNetwork})
-                                    </span>
-                                    <span>
-                                        Cap: {formatSompiToKasDisplay(valve.targetCapSompi, 2, true)} KAS / ${formatUsdMicrosDisplay(valve.targetCapUsdMicros, 2, true)}
-                                    </span>
+                            {/if}
+
+                            {#if (operations.vaultLocks || []).length === 0}
+                                <div class="bg-[#06080b] border border-dashed border-white/10 rounded-xl p-3 text-[10px] text-neutral-400 text-center">
+                                    No self-custody vaults configured yet. Create a vault lock to route rewards directly on-chain.
                                 </div>
                             {:else}
-                                <span class="text-[8px] text-neutral-500">
-                                    Not configured yet
-                                </span>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {#each operations.vaultLocks as vault (vault.vaultId)}
+                                        {@const balanceSompi = vault.liveUtxoSompi || vault.confirmedUtxoSompi || '0'}
+                                        {@const vaultUsd = formatSompiToUsdOrUnavailable(balanceSompi, operations.kasOracleUsdE8)}
+                                        <div
+                                            data-testid="vault-lock-card-{vault.vaultId}"
+                                            class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2"
+                                        >
+                                            <div class="flex items-center justify-between gap-2">
+                                                <div class="flex flex-col min-w-0">
+                                                    <span class="text-[11px] font-black text-white truncate">
+                                                        {formatVaultKindLabel(vault.vaultKind)}
+                                                    </span>
+                                                    <span class="text-[9px] text-neutral-400">
+                                                        Target: {vault.targetAsset} ({vault.targetNetwork})
+                                                    </span>
+                                                </div>
+                                                <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[8px] font-bold text-[#18C6A5] shrink-0">
+                                                    {formatVaultStatusLabel(vault.status)}
+                                                </span>
+                                            </div>
+
+                                            <div class="flex items-baseline justify-between gap-2 pt-1 border-t border-white/10">
+                                                <div class="flex flex-col">
+                                                    <span class="text-[8px] uppercase text-neutral-400">Locked Balance</span>
+                                                    <span class="text-sm font-black text-white tabular-nums">
+                                                        {formatSompiToKasDisplay(balanceSompi, 4, true)} KAS
+                                                    </span>
+                                                </div>
+                                                {#if vaultUsd}
+                                                    <span class="text-[9px] font-bold tabular-nums text-[#18C6A5]">
+                                                        {vaultUsd}
+                                                    </span>
+                                                {/if}
+                                            </div>
+
+                                            <div class="flex items-center justify-between text-[9px] text-neutral-400">
+                                                <span>Payout Minimum</span>
+                                                <span class="text-neutral-200 font-bold tabular-nums">
+                                                    {formatSompiToKasDisplay(vault.thresholdSompi, 2, true)} KAS
+                                                </span>
+                                            </div>
+
+                                            <div class="text-[8px] text-neutral-500 truncate">
+                                                Destination: {vault.destinationAddress}
+                                            </div>
+
+                                            <div class="flex items-center justify-between gap-2 pt-1">
+                                                <a
+                                                    href={getChainExplorerAddressUrl('KAS', vault.covenantAddress)}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="text-[9px] text-[#18C6A5] hover:underline font-bold"
+                                                >
+                                                    Vault Explorer ↗
+                                                </a>
+                                                <button
+                                                    type="button"
+                                                    data-testid="cancel-vault-lock-btn-{vault.vaultId}"
+                                                    onclick={() => initiateOwnerVaultCancel(vault)}
+                                                    class="tactile-btn px-2.5 py-1 rounded-lg border-white/15 text-[9px] font-bold uppercase text-neutral-200 hover:text-white"
+                                                >
+                                                    Return to Wallet
+                                                </button>
+                                            </div>
+                                        </div>
+                                    {/each}
+                                </div>
                             {/if}
                         </div>
-                    {/each}
-                </div>
-            </div>
-
-            <!-- VERIFIED SETTLEMENT RECEIPTS -->
-            <div
-                data-testid="sovereign-receipts-section"
-                class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3 font-mono"
-            >
-                <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
-                    <div class="flex flex-col">
-                        <h3 class="text-xs font-black uppercase tracking-widest text-white">
-                            Settlement Receipts
-                        </h3>
-                        <span class="text-[9px] text-neutral-400">
-                            Verified on-chain payouts and cross-network fills
-                        </span>
-                    </div>
-                    <span class="text-[9px] text-neutral-400">
-                        {settlementReceipts.length} Record{settlementReceipts.length === 1 ? '' : 's'}
-                    </span>
+                    {/if}
                 </div>
 
-                {#if settlementReceipts.length === 0}
-                    <div class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-4 text-[10px] text-neutral-400 text-center">
-                        Completed payout receipts will appear here after your next cycle settles.
-                    </div>
-                {:else}
-                    <div class="flex flex-col gap-2">
-                        {#each settlementReceipts.slice(0, 8) as receipt (receipt.receiptId)}
-                            <div
-                                data-testid="settlement-receipt-row-{receipt.receiptId}"
-                                class="bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px]"
+                <!-- 4-PRIORITY PAYOUT THERMOSTAT -->
+                <div
+                    data-testid="sovereign-thermostat-section"
+                    class="bg-[#0a0d12] border border-white/10 rounded-xl font-mono overflow-hidden"
+                >
+                    <div class="px-3.5 py-2.5 flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            data-testid="toggle-thermostat-drawer"
+                            aria-expanded={isThermostatDrawerOpen}
+                            onclick={() => (thermostatDrawerManual = !isThermostatDrawerOpen)}
+                            class="flex items-center gap-2 min-w-0 text-left cursor-pointer group flex-1"
+                        >
+                            <span class="text-[11px] font-black uppercase tracking-widest text-white group-hover:text-[#18C6A5] transition-colors truncate">
+                                Payout Priority Thermostat
+                            </span>
+                            <span
+                                data-testid="thermostat-status-pill"
+                                class="px-2 py-0.5 rounded border text-[9px] font-bold uppercase shrink-0 tabular-nums {enabledValveCount > 0 ? 'bg-[#11161f] border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[#06080b] border-white/10 text-neutral-400'}"
                             >
-                                <div class="flex flex-col min-w-0">
-                                    <span class="font-bold text-white truncate">
-                                        {formatSettledAssetAmount(receipt.settledAtomic, receipt.targetAsset, 6)} {receipt.targetAsset}
-                                        <span class="text-neutral-400 font-normal">
-                                            ({formatSettlementTierLabel(receipt.settlementTier)})
-                                        </span>
-                                    </span>
-                                    <span class="text-[8px] text-neutral-400 tabular-nums">
-                                        From {formatSompiToKasDisplay(receipt.sourceSompi, 4, true)} KAS • Cycle {receipt.epochId}
-                                    </span>
-                                </div>
-                                <div class="flex items-center gap-2 shrink-0">
-                                    <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold uppercase">
-                                        {receipt.status}
-                                    </span>
-                                    {#if receipt.kaspaL1Txid}
-                                        <a
-                                            href={getChainExplorerTxUrl('KAS', receipt.kaspaL1Txid)}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            class="text-[9px] text-[#18C6A5] hover:underline font-bold"
-                                        >
-                                            Kaspa Tx ↗
-                                        </a>
-                                    {/if}
-                                    {#if receipt.destinationTxid}
-                                        <a
-                                            href={getChainExplorerTxUrl(receipt.targetAsset, receipt.destinationTxid)}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            class="text-[9px] text-blue-400 hover:underline font-bold"
-                                        >
-                                            Dest Tx ↗
-                                        </a>
-                                    {/if}
-                                </div>
-                            </div>
-                        {/each}
+                                {enabledValveCount > 0 ? `${enabledValveCount} Active` : 'Paused'}
+                            </span>
+                        </button>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button
+                                type="button"
+                                data-testid="open-thermostat-modal-btn"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    openThermostatModal();
+                                }}
+                                class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/15 text-neutral-200 hover:text-white text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                            >
+                                Configure Priorities
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="Toggle Payout Priority Thermostat"
+                                onclick={() => (thermostatDrawerManual = !isThermostatDrawerOpen)}
+                                class="w-6 h-6 rounded-lg bg-[#11161f] border border-white/10 text-neutral-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
+                            >
+                                {isThermostatDrawerOpen ? '▴' : '▾'}
+                            </button>
+                        </div>
                     </div>
-                {/if}
+
+                    {#if isThermostatDrawerOpen}
+                        <div class="border-t border-white/10 p-3.5">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                {#each ([1, 2, 3, 4] as const) as priority (priority)}
+                                    {@const valve = (operations.thermostatValves || []).find(
+                                        (v) => Number(v.priorityOrder) === priority
+                                    )}
+                                    {@const meta = THERMOSTAT_VALVE_META[priority]}
+                                    {@const fillBps = valve ? computeValveFillProgressBps(valve) : 0}
+                                    <div
+                                        data-testid="thermostat-valve-card-{priority}"
+                                        class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1.5"
+                                    >
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-[10px] font-black text-white truncate">
+                                                #{priority} {meta.title}
+                                            </span>
+                                            <span
+                                                class="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase {valve?.isEnabled ? 'bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[#0a0d12] border border-white/10 text-neutral-500'}"
+                                            >
+                                                {valve?.isEnabled ? 'Active' : 'Paused'}
+                                            </span>
+                                        </div>
+                                        <span class="text-[8px] text-neutral-400 truncate">
+                                            {meta.subtitle}
+                                        </span>
+                                        {#if valve}
+                                            <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10 mt-0.5">
+                                                <div
+                                                    class="h-full bg-[#18C6A5] transition-all duration-500"
+                                                    style="width: {Math.min(100, fillBps / 100)}%;"
+                                                ></div>
+                                            </div>
+                                            <div class="flex items-center justify-between text-[8px] text-neutral-300 tabular-nums">
+                                                <span>
+                                                    {valve.targetAsset} ({valve.targetNetwork})
+                                                </span>
+                                                <span>
+                                                    Cap: {formatSompiToKasDisplay(valve.targetCapSompi, 2, true)} KAS / ${formatUsdMicrosDisplay(valve.targetCapUsdMicros, 2, true)}
+                                                </span>
+                                            </div>
+                                        {:else}
+                                            <span class="text-[8px] text-neutral-500">
+                                                Not configured yet
+                                            </span>
+                                        {/if}
+                                    </div>
+                                {/each}
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+
+                <!-- VERIFIED SETTLEMENT RECEIPTS -->
+                <div
+                    data-testid="sovereign-receipts-section"
+                    class="bg-[#0a0d12] border border-white/10 rounded-xl font-mono overflow-hidden"
+                >
+                    <div class="px-3.5 py-2.5 flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            data-testid="toggle-receipts-drawer"
+                            aria-expanded={isReceiptsDrawerOpen}
+                            onclick={() => (receiptsDrawerManual = !isReceiptsDrawerOpen)}
+                            class="flex items-center gap-2 min-w-0 text-left cursor-pointer group flex-1"
+                        >
+                            <span class="text-[11px] font-black uppercase tracking-widest text-white group-hover:text-[#18C6A5] transition-colors truncate">
+                                Settlement Receipts
+                            </span>
+                            <span
+                                data-testid="receipts-status-pill"
+                                class="px-2 py-0.5 rounded border text-[9px] font-bold uppercase shrink-0 tabular-nums {settlementReceipts.length > 0 ? 'bg-[#11161f] border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[#06080b] border-white/10 text-neutral-400'}"
+                            >
+                                {settlementReceipts.length} Record{settlementReceipts.length === 1 ? '' : 's'}
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            aria-label="Toggle Settlement Receipts"
+                            onclick={() => (receiptsDrawerManual = !isReceiptsDrawerOpen)}
+                            class="w-6 h-6 rounded-lg bg-[#11161f] border border-white/10 text-neutral-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer shrink-0"
+                        >
+                            {isReceiptsDrawerOpen ? '▴' : '▾'}
+                        </button>
+                    </div>
+
+                    {#if isReceiptsDrawerOpen}
+                        <div class="border-t border-white/10 p-3.5">
+                            {#if settlementReceipts.length === 0}
+                                <div class="bg-[#06080b] border border-dashed border-white/10 rounded-xl p-3 text-[10px] text-neutral-400 text-center">
+                                    Completed payout receipts will appear here after your next cycle settles.
+                                </div>
+                            {:else}
+                                <div class="flex flex-col gap-2">
+                                    {#each settlementReceipts.slice(0, 8) as receipt (receipt.receiptId)}
+                                        <div
+                                            data-testid="settlement-receipt-row-{receipt.receiptId}"
+                                            class="bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px]"
+                                        >
+                                            <div class="flex flex-col min-w-0">
+                                                <span class="font-bold text-white truncate">
+                                                    {formatSettledAssetAmount(receipt.settledAtomic, receipt.targetAsset, 6)} {receipt.targetAsset}
+                                                    <span class="text-neutral-400 font-normal">
+                                                        ({formatSettlementTierLabel(receipt.settlementTier)})
+                                                    </span>
+                                                </span>
+                                                <span class="text-[8px] text-neutral-400 tabular-nums">
+                                                    From {formatSompiToKasDisplay(receipt.sourceSompi, 4, true)} KAS • Cycle {receipt.epochId}
+                                                </span>
+                                            </div>
+                                            <div class="flex items-center gap-2 shrink-0">
+                                                <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold uppercase">
+                                                    {receipt.status}
+                                                </span>
+                                                {#if receipt.kaspaL1Txid}
+                                                    <a
+                                                        href={getChainExplorerTxUrl('KAS', receipt.kaspaL1Txid)}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        class="text-[9px] text-[#18C6A5] hover:underline font-bold"
+                                                    >
+                                                        Kaspa Tx ↗
+                                                    </a>
+                                                {/if}
+                                                {#if receipt.destinationTxid}
+                                                    <a
+                                                        href={getChainExplorerTxUrl(receipt.targetAsset, receipt.destinationTxid)}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        class="text-[9px] text-blue-400 hover:underline font-bold"
+                                                    >
+                                                        Dest Tx ↗
+                                                    </a>
+                                                {/if}
+                                            </div>
+                                        </div>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
 
-        <PoolDistributionSidebar
-            {displayHashrate}
-            {effortData}
-            {displayedBuckets}
-        />
+        <div class="{mobileMineTab === 'REWARDS' ? 'contents' : 'hidden lg:contents'}">
+            <PoolDistributionSidebar
+                {displayHashrate}
+                {effortData}
+                {displayedBuckets}
+            />
+        </div>
     </div>
 </div>
 

@@ -204,6 +204,168 @@ async function bundleAndEval(relEntry: string, opts: Batch3LoadOpts = {}) {
     return { exports: mod.exports, sandbox };
 }
 
+async function bundleOpsViewWithStore(opts: Batch3LoadOpts = {}) {
+    const repoSrc = path.resolve(process.cwd(), 'src');
+    const svelteRuntime = await import('svelte');
+    const svelteInternalServer = await import('svelte/internal/server');
+
+    const result = await esbuild.build({
+        stdin: {
+            contents: `
+                export { default as OperationsView } from './src/lib/views/OperationsView.svelte';
+                export { operations } from './src/lib/stores/operations.svelte';
+            `,
+            resolveDir: process.cwd(),
+            loader: 'ts'
+        },
+        bundle: true,
+        write: false,
+        platform: 'node',
+        format: 'cjs',
+        external: ['svelte', 'svelte/internal/*'],
+        plugins: [createSvelteShimPlugin(repoSrc, opts)]
+    });
+
+    const mod = { exports: {} as Record<string, any> };
+    const sandbox: Record<string, any> = {};
+    for (const key of Object.getOwnPropertyNames(globalThis)) {
+        if (key === 'global' || key === 'globalThis') continue;
+        try {
+            sandbox[key] = (globalThis as Record<string, any>)[key];
+        } catch {
+            // Skip restricted globals
+        }
+    }
+    const sharedRequire = (id: string) => {
+        if (id === 'svelte') return svelteRuntime;
+        if (id === 'svelte/internal/server') return svelteInternalServer;
+        return nodeRequire(id);
+    };
+    Object.assign(sandbox, {
+        fetch: opts.fetchImpl ?? globalThis.fetch,
+        module: mod,
+        exports: mod.exports,
+        require: sharedRequire
+    });
+    sandbox.global = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(result.outputFiles[0].text, sandbox, {
+        filename: path.resolve(process.cwd(), 'OperationsView.bundle.ts')
+    });
+    return { exports: mod.exports, sandbox };
+}
+
+async function loadStateRouteWithMocks(opts: {
+    redisMap?: Map<string, string>;
+    fetchImpl?: typeof globalThis.fetch;
+}) {
+    const absEntry = path.resolve(process.cwd(), 'src/routes/api/state/+server.ts');
+    const repoSrc = path.resolve(process.cwd(), 'src');
+    const stubPlugin: esbuild.Plugin = {
+        name: 'batch3-state-route-stubs',
+        setup(build) {
+            build.onResolve(
+                {
+                    filter: /^(\$env\/dynamic\/private|@sveltejs\/kit|\$lib\/server\/(redis|db|kms))$/
+                },
+                (args) => ({ path: args.path, namespace: 'stub' })
+            );
+            build.onResolve({ filter: /^\$lib\// }, (args) => {
+                const sub = args.path.slice('$lib/'.length);
+                const candidates = [
+                    path.join(repoSrc, 'lib', `${sub}.ts`),
+                    path.join(repoSrc, 'lib', sub, 'index.ts')
+                ];
+                for (const c of candidates) {
+                    if (fs.existsSync(c)) return { path: c };
+                }
+                return { path: path.join(repoSrc, 'lib', sub) };
+            });
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => {
+                switch (args.path) {
+                    case '$env/dynamic/private':
+                        return {
+                            contents: `export const env = { RUST_BACKEND_URL: 'http://127.0.0.1:8002' };`,
+                            loader: 'js'
+                        };
+                    case '@sveltejs/kit':
+                        return {
+                            contents: `
+                                export function json(body, init = {}) {
+                                    return new Response(JSON.stringify(body), {
+                                        status: init.status ?? 200,
+                                        headers: { 'content-type': 'application/json', ...(init.headers || {}) }
+                                    });
+                                }
+                            `,
+                            loader: 'js'
+                        };
+                    case '$lib/server/redis':
+                        return {
+                            contents: `
+                                export const redis = {
+                                    async get(k) { return globalThis.__STATE_REDIS__?.get(k) ?? null; },
+                                    async set(k, v) { globalThis.__STATE_REDIS__?.set(k, String(v)); return 'OK'; },
+                                    async publish() { return 0; }
+                                };
+                            `,
+                            loader: 'js'
+                        };
+                    case '$lib/server/db':
+                        return {
+                            contents: `export const dbPool = { async query() { return { rows: [] }; } };`,
+                            loader: 'js'
+                        };
+                    case '$lib/server/kms':
+                        return {
+                            contents: `
+                                export function isWalletMasterAdmin() { return false; }
+                                export function normalizeKaspaBase32Strict(w) { return String(w || '').replace(/^kaspa:/, ''); }
+                                export function normalizeKaspaAddressStrict(w) {
+                                    const clean = normalizeKaspaBase32Strict(w);
+                                    return clean ? 'kaspa:' + clean : '';
+                                }
+                            `,
+                            loader: 'js'
+                        };
+                    default:
+                        return { contents: `export default {};`, loader: 'js' };
+                }
+            });
+        }
+    };
+
+    const result = await esbuild.build({
+        entryPoints: [absEntry],
+        bundle: true,
+        write: false,
+        platform: 'node',
+        format: 'cjs',
+        plugins: [stubPlugin]
+    });
+    const mod = { exports: {} as Record<string, any> };
+    const sandbox: Record<string, any> = {};
+    for (const key of Object.getOwnPropertyNames(globalThis)) {
+        if (key === 'global' || key === 'globalThis') continue;
+        try {
+            sandbox[key] = (globalThis as Record<string, any>)[key];
+        } catch {
+            // Skip restricted globals
+        }
+    }
+    Object.assign(sandbox, {
+        fetch: opts.fetchImpl ?? globalThis.fetch,
+        __STATE_REDIS__: opts.redisMap ?? new Map<string, string>(),
+        module: mod,
+        exports: mod.exports,
+        require: nodeRequire
+    });
+    sandbox.global = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(result.outputFiles[0].text, sandbox, { filename: absEntry });
+    return mod.exports;
+}
+
 test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', () => {
     test('operationsHelpers enforces integer allocationBps, whale U128Str formatting, fail-closed USD, and retail copy hygiene', async () => {
         const { exports: helpers } = await bundleAndEval(
@@ -232,10 +394,18 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
         expect(helpers.formatSettledAssetAmount('2500000', 'USDC', 6)).toBe('2.5');
         expect(helpers.computeFlushProgressBps('1250000000', '2500000000')).toBe(5000);
 
-        // Fail-closed USD formatting when oracle is offline
-        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', null)).toBe('Live pricing unavailable');
-        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', '0')).toBe('Live pricing unavailable');
+        // Clean USD formatting: empty string when oracle is offline (no card spam), $X.XX when online
+        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', null)).toBe('');
+        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', '0')).toBe('');
         expect(helpers.formatSompiToUsdOrUnavailable('2500000000', '12000000')).toBe('$3.00');
+        expect(helpers.formatSectorDailyYieldLabel(25, 0, true)).toEqual({
+            kasLabel: '~25.0 KAS/d',
+            usdLabel: null
+        });
+        expect(helpers.formatSectorDailyYieldLabel(25, 3, false)).toEqual({
+            kasLabel: '~25.0 KAS/d',
+            usdLabel: '$3.00/d'
+        });
 
         // Protocol jargon sanitizer
         expect(helpers.sanitizeRetailCopy('ORACLE_HALT: feed offline', 503)).toBe(
@@ -635,18 +805,144 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
                 onSliderInput: () => {},
                 onSliderChange: () => {},
                 onCommitUpdate: () => {},
-                onSnapMaxRemaining: () => {}
+                onSnapMaxRemaining: () => {},
+                onOpenVaultLock: () => {}
             }
         }).body;
         expect(sectorCardHtml).toContain('value="33.33"');
-        expect(sectorCardHtml).toContain('Live pricing unavailable');
+        expect(sectorCardHtml).toContain('~25.0 KAS/d');
+        expect(sectorCardHtml).toContain('Lock Vault');
+        expect(sectorCardHtml).not.toContain('Live pricing unavailable');
         expect(sectorCardHtml).not.toContain('CLAIM_PENDING_SECTOR_KAS');
 
+        const sectorCardHtmlOnline = render(sectorCardMod.default, {
+            props: {
+                sector: {
+                    id: 'sec-1',
+                    name: 'USDC-SPLIT',
+                    allocationBps: 3333,
+                    allocationPercentage: 33.33,
+                    routeMode: 'swap',
+                    pendingKaspa: 0,
+                    width: 6,
+                    settlementConfig: {
+                        targetAsset: {
+                            ticker: 'USDC',
+                            name: 'USD Coin',
+                            assetClass: 'Stablecoin',
+                            spotPrice: 1,
+                            theme: { hex: '#3B82F6', pastel: '#bfdbfe' }
+                        },
+                        payoutAddress: '0x1111111111111111111111111111111111111111',
+                        autoPayout: true,
+                        mode: 'epoch',
+                        threshold: 50,
+                        appointmentDate: '',
+                        appointmentTime: '17:00'
+                    }
+                },
+                displayHashrate: 10,
+                unallocatedPercentage: 66.67,
+                dragSectorId: null,
+                dropTargetSectorId: null,
+                shimmerTargetId: null,
+                mineableVaultMap: new Map(),
+                savedBankRailLast4: null,
+                savedBankRailMethod: 'ACH',
+                livePricingUnavailable: false,
+                resolveChainAddressForTicker: () => '0x1111111111111111111111111111111111111111',
+                estimateSectorDailyKas: () => 25,
+                estimateSectorDailyUsd: () => 3.25,
+                onDragStart: () => {},
+                onDragEnd: () => {},
+                onDragOver: () => {},
+                onDragLeave: () => {},
+                onDrop: () => {},
+                onToggleWidth: () => {},
+                onDeleteSector: () => {},
+                onInputPct: () => {},
+                onInputHash: () => {},
+                onSliderInput: () => {},
+                onSliderChange: () => {},
+                onCommitUpdate: () => {},
+                onSnapMaxRemaining: () => {},
+                onOpenVaultLock: () => {}
+            }
+        }).body;
+        expect(sectorCardHtmlOnline).toContain('~25.0 KAS/d');
+        expect(sectorCardHtmlOnline).toContain('$3.25/d');
+
+        // Default collapsed drawers & mobile 3-tab column switcher
         const opsHtml = render(opsViewMod.default, { props: {} }).body;
         expect(opsHtml).toContain('sovereign-vault-locks-section');
         expect(opsHtml).toContain('sovereign-thermostat-section');
         expect(opsHtml).toContain('sovereign-receipts-section');
+        expect(opsHtml).toContain('0 Active');
+        expect(opsHtml).toContain('Paused');
+        expect(opsHtml).toContain('0 Records');
+        expect(opsHtml).toContain('open-register-vault-modal-btn');
+        expect(opsHtml).toContain('open-thermostat-modal-btn');
+        expect(opsHtml).toContain('mobile-column-switcher');
+        expect(opsHtml).toContain('mobile-col-tab-SPLITS');
+        expect(opsHtml).toContain('mobile-col-tab-RIGS');
+        expect(opsHtml).toContain('mobile-col-tab-REWARDS');
+        expect(opsHtml).toContain('aria-expanded="false"');
+        expect(opsHtml).not.toContain('No self-custody vaults configured yet.');
+        expect(opsHtml).not.toContain('thermostat-valve-card-1');
         expect(opsHtml).toContain('live-pricing-unavailable-banner');
+
+        // Auto-expanded drawers when active vault locks & enabled thermostat valves exist
+        const { exports: opsBundle } = await bundleOpsViewWithStore();
+        opsBundle.operations.vaultLocks = [
+            {
+                vaultId: 'vault-1',
+                walletAddress: 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e',
+                vaultKind: 'MINER_SILO',
+                kip20CovenantId: 'a'.repeat(64),
+                kip21SubnetworkId: '0'.repeat(40),
+                covenantAddress: 'kaspa:pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq6y9v2h',
+                covenantSpkHex: 'a9' + '0'.repeat(64) + '87',
+                redeemScriptHex: '00',
+                ownerPubkeyHex: '0'.repeat(64),
+                chronosTriggerPubkeyHex: '0'.repeat(64),
+                targetAsset: 'USDC',
+                targetNetwork: 'BASE',
+                destinationAddress: '0x1111111111111111111111111111111111111111',
+                refundKaspaAddress: 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e',
+                thresholdSompi: '2500000000',
+                feeBps: 50,
+                makerSpreadBps: 0,
+                confirmedUtxoSompi: '500000000',
+                liveUtxoSompi: '500000000',
+                liveUtxoCount: 1,
+                confirmedDaaScore: '100',
+                status: 'ACTIVE',
+                updatedAt: '2026-11-25T15:00:00Z'
+            }
+        ];
+        opsBundle.operations.thermostatValves = [
+            {
+                valveId: 'v-1',
+                priorityOrder: 1,
+                valveType: 'VALVE_1_ELECTRIC_BILL',
+                targetAsset: 'USDC',
+                targetNetwork: 'BASE',
+                destinationAddress: '0x1111111111111111111111111111111111111111',
+                targetCapSompi: '5000000000',
+                targetCapUsdMicros: '150000000',
+                filledEpochSompi: '2500000000',
+                filledEpochUsdMicros: '75000000',
+                isEnabled: true,
+                updatedAt: '2026-11-25T15:00:00Z'
+            }
+        ];
+        const opsExpandedHtml = render(opsBundle.OperationsView, { props: {} }).body;
+        expect(opsExpandedHtml).toContain('aria-expanded="true"');
+        expect(opsExpandedHtml).toContain('1 Active');
+        expect(opsExpandedHtml).toContain('vault-lock-card-vault-1');
+        expect(opsExpandedHtml).toContain('thermostat-valve-card-1');
+        opsBundle.operations.vaultLocks = [];
+        opsBundle.operations.thermostatValves = [];
 
         const modalHtml = render(modalsMod.default, {
             props: {
@@ -716,6 +1012,54 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
                 /\b(PSKT|KIP-20|KIP-21|OpZkPrecompile|0x20|sompi|ORACLE_HALT|DAA)\b/
             );
         }
+    });
+
+    test('GET /api/state returns live kasOracleUsd & oracleOnline: true from Redis spot price even when :8002 returns 503', async () => {
+        const wallet = 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
+        const liveRedis = new Map<string, string>([
+            ['session:sess-live', wallet],
+            ['oracle:spot:KAS_USDC', '0.026625000000000003'],
+            ['oracle:change24h:KAS_USDC', '2.918']
+        ]);
+        const stateRoute = await loadStateRouteWithMocks({
+            redisMap: liveRedis,
+            fetchImpl: (async () =>
+                new Response(JSON.stringify({ error: 'service unavailable' }), { status: 503 })) as typeof fetch
+        });
+
+        const liveRes = await stateRoute.GET({
+            cookies: { get: (name: string) => (name === 'perennia_session' ? 'sess-live' : undefined) },
+            url: new URL('http://localhost/api/state')
+        });
+        expect(liveRes.status).toBe(200);
+        const liveBody = await liveRes.json();
+        expect(liveBody.oracleOnline).toBe(true);
+        expect(liveBody.livePricingUnavailable).toBe(false);
+        expect(liveBody.kasOracleUsd).toBeCloseTo(0.026625, 8);
+        expect(liveBody.kasOracleUsdE8).toBe('2662500');
+        expect(liveBody.kasChange24h).toBeCloseTo(2.918, 3);
+
+        // Missing Redis spot price must fail closed with null (zero 0.15 fallback)
+        const offlineRedis = new Map<string, string>([['session:sess-offline', wallet]]);
+        const offlineStateRoute = await loadStateRouteWithMocks({
+            redisMap: offlineRedis,
+            fetchImpl: (async () =>
+                new Response(JSON.stringify({ error: 'service unavailable' }), { status: 503 })) as typeof fetch
+        });
+        const offlineRes = await offlineStateRoute.GET({
+            cookies: { get: (name: string) => (name === 'perennia_session' ? 'sess-offline' : undefined) },
+            url: new URL('http://localhost/api/state')
+        });
+        expect(offlineRes.status).toBe(200);
+        const offlineBody = await offlineStateRoute.GET({
+            cookies: { get: (name: string) => (name === 'perennia_session' ? 'sess-offline' : undefined) },
+            url: new URL('http://localhost/api/state')
+        }).then((r: Response) => r.json());
+        expect(offlineRes.status).toBe(200);
+        expect(offlineBody.oracleOnline).toBe(false);
+        expect(offlineBody.livePricingUnavailable).toBe(true);
+        expect(offlineBody.kasOracleUsd).toBeNull();
+        expect(offlineBody.kasOracleUsdE8).toBeNull();
     });
 
     test('all 5 Batch 3 src/ files and spec preserve LF line endings and obey hard UI & non-custodial invariants', () => {
