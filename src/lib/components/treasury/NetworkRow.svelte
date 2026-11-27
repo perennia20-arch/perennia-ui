@@ -39,7 +39,10 @@
         autoOpenToken = null,
         ledgerEvents = [],
         coldVaultRulesMap = {},
-        onRefreshColdVaultRules = async () => {}
+        onRefreshColdVaultRules = async () => {},
+        canRemoveChain = false,
+        onAddChain = () => {},
+        onRemoveChain = () => {}
     }: {
         asset: any;
         subAssets?: any[];
@@ -62,7 +65,12 @@
         ledgerEvents?: any[];
         coldVaultRulesMap?: Record<string, any>;
         onRefreshColdVaultRules?: () => Promise<void>;
+        canRemoveChain?: boolean;
+        onAddChain?: () => void;
+        onRemoveChain?: () => void;
     } = $props();
+
+    let confirmHideChain = $state(false);
 
     let isMainOpen = $state(false);
     $effect(() => {
@@ -1087,19 +1095,56 @@
                     </span>
                 {/if}
             </div>
-            {#if isManagingNetworks}
-                <div class="pl-3 border-l border-white/10 flex items-center">
-                    <button type="button" aria-label="Toggle Network" onclick={(e) => { e.stopPropagation(); onNetworkToggle(); }} class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none" style="background-color: {isNetworkSelected ? `${asset.hex}20` : '#11161f'}; border-color: {isNetworkSelected ? `${asset.hex}50` : 'rgba(255,255,255,0.14)'};">
-                        <div class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm" style="background-color: {isNetworkSelected ? asset.hex : '#737373'}; left: {isNetworkSelected ? '22px' : '1px'};"></div>
-                    </button>
-                </div>
-            {:else if !isOrganizing}
+            {#if !isNetworkSelected}
+                <button
+                    type="button"
+                    data-testid="add-chain-btn-{asset.ticker || asset.symbol}"
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        confirmHideChain = false;
+                        onAddChain();
+                    }}
+                    class="tactile-btn px-2.5 py-1.5 rounded-lg text-[9px] font-mono font-black uppercase tracking-wider text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer shrink-0"
+                >
+                    + Add Chain
+                </button>
+            {:else if canRemoveChain}
+                <button
+                    type="button"
+                    data-testid="remove-chain-btn-{asset.ticker || asset.symbol}"
+                    aria-label="Remove {asset.name}"
+                    title="Hide {asset.name} from Wallet"
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        const chainHasBalance =
+                            (asset.onChain || 0) > 0 ||
+                            (asset.synthetic || 0) > 0 ||
+                            (asset.stakedBalance || 0) > 0 ||
+                            (subAssets || []).some(
+                                (s: any) =>
+                                    (s.onChain || s.balance || 0) > 0 ||
+                                    (s.synthetic || 0) > 0 ||
+                                    (s.stakedBalance || 0) > 0
+                            );
+                        if (chainHasBalance) {
+                            confirmHideChain = !confirmHideChain;
+                        } else {
+                            confirmHideChain = false;
+                            onRemoveChain();
+                        }
+                    }}
+                    class="w-7 h-7 flex items-center justify-center rounded-lg bg-[#11161f] border border-white/10 hover:border-red-500/40 text-neutral-400 hover:text-red-400 text-[10px] font-bold cursor-pointer shrink-0"
+                >
+                    ✕
+                </button>
+            {/if}
+            {#if !isOrganizing}
                 <span class="lg:hidden text-neutral-500 text-xs pl-0.5">{isMainOpen ? '▴' : '▾'}</span>
             {/if}
         </div>
 
                 <!-- Single-DOM Action Strip -->
-        {#if !isManagingNetworks && !isOrganizing}
+        {#if isNetworkSelected && !isOrganizing}
             <div
                 class="{isMainOpen ? 'grid grid-cols-3 sm:flex sm:flex-wrap lg:flex-nowrap' : 'hidden lg:flex'} col-span-2 lg:col-span-1 lg:order-2 items-center gap-1.5 pt-2.5 lg:pt-0 border-t border-white/5 lg:border-none w-full lg:w-auto"
                 onclick={(e) => e.stopPropagation()}
@@ -1117,7 +1162,7 @@
                     class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-1.5 sm:px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-black uppercase tracking-normal sm:tracking-wider cursor-pointer text-[#18C6A5] border-[#18C6A5]/45 whitespace-nowrap"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                 >
-                    Buy Crypto
+                    BUY
                 </button>
                 <button
                     type="button"
@@ -1140,7 +1185,7 @@
                     onclick={(e) => openQuickAction(e, 'cold_vault')}
                     class="tactile-btn w-full sm:w-auto lg:flex-none justify-center px-2.5 py-2 lg:py-1 rounded-lg text-[9px] lg:text-[8px] font-mono font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap {activeRoutingTab === 'cold_vault' ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-300 hover:text-white'}"
                 >
-                    Cold
+                    SWEEP
                 </button>
                 <button
                     type="button"
@@ -1174,6 +1219,39 @@
             </div>
         {/if}
     </div>
+    {#if confirmHideChain}
+        <div
+            data-testid="chain-hide-confirm-banner-{asset.ticker || asset.symbol}"
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+            role="alert"
+            class="mx-4 mb-3 bg-[#11161f] border border-amber-500/45 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono"
+        >
+            <span class="text-amber-300 font-bold">
+                Balance detected on {asset.symbol || asset.ticker}. Hide anyway?
+            </span>
+            <div class="flex items-center gap-2 ml-auto">
+                <button
+                    type="button"
+                    onclick={() => (confirmHideChain = false)}
+                    class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-white/10 text-neutral-300 hover:text-white uppercase font-bold cursor-pointer"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    data-testid="confirm-hide-chain-btn-{asset.ticker || asset.symbol}"
+                    onclick={() => {
+                        confirmHideChain = false;
+                        onRemoveChain();
+                    }}
+                    class="px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-500/50 text-red-300 hover:text-white uppercase font-bold cursor-pointer"
+                >
+                    Hide Chain
+                </button>
+            </div>
+        </div>
+    {/if}
 {#if isMainOpen && !isManagingNetworks && !isOrganizing && (activeRoutingTab !== 'none' || filteredSubAssets.length > 0 || withdrawalFeedback)}
         <div
             transition:slide
@@ -1268,12 +1346,7 @@
                     {#if activeRoutingTab === 'deposit'}
                         <div class="flex flex-col md:flex-row items-center justify-between gap-6">
                             <div class="flex flex-col justify-center w-full md:w-2/3">
-                                <span class="text-[10px] uppercase tracking-widest font-bold text-neutral-400 mb-2">
-                                    Inbound Sovereign L1 Route ({asset.symbol ||
-                                        asset.ticker})
-                                </span>
-                                <span
-                                    class="text-xs md:text-sm font-mono break-all leading-relaxed mb-5 select-all bg-[#0a0d12] p-3.5 rounded-xl border border-white/10"
+                                <span class="text-xs md:text-sm font-mono break-all leading-relaxed mb-5 select-all bg-[#0a0d12] p-3.5 rounded-xl border border-white/10"
                                     style="color: {asset.hex}"
                                 >
                                     {asset.address}
@@ -1738,9 +1811,6 @@
                                             <span class="text-[10px] font-bold uppercase text-white">
                                                 Auto-Sweep Above {coldOverflowCeilingInput} {activeSendAssetObj.ticker}
                                             </span>
-                                            <span class="text-[8px] font-mono text-neutral-400">
-                                                Auto-sweeps {activeSendAssetObj.ticker} above your ceiling to Cold Storage
-                                            </span>
                                         </div>
                                         <button
                                             type="button"
@@ -1774,15 +1844,8 @@
 
                                 <div class="lg:col-span-5 bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
                                     <span class="text-[10px] font-black uppercase tracking-widest text-white border-b border-white/10 pb-2.5">
-                                        1-Click Immediate Cold Sweep ({activeSendAssetObj.ticker})
+                                        Immediate Cold Sweep ({activeSendAssetObj.ticker})
                                     </span>
-                                    <p class="text-[9px] text-neutral-400 leading-relaxed">
-                                        Immediately dispatch {activeSendAssetObj.ticker} from your Batch Settlement Queue ({activeSendAssetObj.synthetic.toFixed(
-                                            4
-                                        )} {activeSendAssetObj.ticker}) or On-Chain L1 balance ({activeSendAssetObj.onChain.toFixed(
-                                            4
-                                        )} {activeSendAssetObj.ticker}) directly to your saved Cold Wallet address.
-                                    </p>
                                     <div class="flex items-center justify-between text-[9px] font-mono">
                                         <span class="text-neutral-400 uppercase font-bold">
                                             Amount to Sweep
@@ -2035,16 +2098,17 @@
                                     </div>
                                 </div>
                                 <div class="col-span-2 sm:col-span-1 order-3 sm:order-2 w-full sm:w-auto flex items-center gap-1.5 pt-2 sm:pt-0 border-t border-white/5 sm:border-none" onclick={(e) => e.stopPropagation()}>
-                                    <button type="button" data-testid="buy-with-usd-btn-{token.symbol}" onclick={(e) => { e.stopPropagation(); const subTick = String(token.symbol || "SILO").toUpperCase(); ui.openFiatModal(subTick, subTick === DEFAULT_ECOSYSTEM_TICKER, ""); }} class="tactile-btn flex-1 sm:flex-none justify-center px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-black uppercase tracking-normal text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap">Buy Crypto</button>
+                                    <button type="button" data-testid="buy-with-usd-btn-{token.symbol}" onclick={(e) => { e.stopPropagation(); const subTick = String(token.symbol || "SILO").toUpperCase(); ui.openFiatModal(subTick, subTick === DEFAULT_ECOSYSTEM_TICKER, ""); }} class="tactile-btn flex-1 sm:flex-none justify-center px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-black uppercase tracking-normal text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer whitespace-nowrap">BUY</button>
                                     <button type="button" onclick={(e) => openQuickAction(e, "withdraw", token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-white border-white/15 cursor-pointer whitespace-nowrap">Send</button>
-                                    <button type="button" data-testid="cold-vault-btn-{token.symbol}" onclick={(e) => openQuickAction(e, "cold_vault", token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap">Cold</button>
-                                    <button type="button" aria-label="Delete Token" onclick={(e) => { e.stopPropagation(); onDeleteToken(token.symbol); }} class="text-neutral-500 hover:text-red-400 transition-colors cursor-pointer px-1.5 ml-auto sm:ml-1 text-xs" title="Remove token from vault">&times;</button>
+                                    <button type="button" data-testid="cold-vault-btn-{token.symbol}" onclick={(e) => openQuickAction(e, "cold_vault", token.symbol)} class="tactile-btn flex-1 sm:flex-none justify-center px-2.5 py-1.5 sm:py-1 rounded-lg text-[9px] sm:text-[8px] font-mono font-bold uppercase text-[#18C6A5] border-[#18C6A5]/35 cursor-pointer whitespace-nowrap">SWEEP</button>
+                                    <button type="button" aria-label="Delete Token" onclick={(e) => { e.stopPropagation(); onDeleteToken(token.symbol); }} class="text-neutral-500 hover:text-red-400 transition-colors cursor-pointer px-1.5 ml-auto sm:ml-1 text-xs">&times;</button>
                                 </div>
                                 <div class="order-2 sm:order-3 flex flex-col items-end shrink-0 whitespace-nowrap ml-auto sm:ml-0">
                                     <span class="text-xs font-mono font-bold text-white tabular-nums">
                                         {subBal.toLocaleString(undefined, { minimumFractionDigits: Math.min(tokenDecimals, 2), maximumFractionDigits: Math.min(tokenDecimals, 4) })} {token.symbol} <span class="text-[9px] text-neutral-400">L1</span>
                                     </span>
                                     <span class="text-[9px] font-mono text-neutral-400 tabular-nums flex items-center gap-1.5">
+                                        {#if (token.stakedBalance || 0) > 0}<span class="text-blue-400">+{Number(token.stakedBalance).toFixed(2)} POOL</span>{/if}
                                         {#if subSyn > 0}<span class="text-amber-400">(+{subSyn.toFixed(4)} pending)</span>{/if}
                                         <span>&approx; ${subUsd.toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}</span>
                                     </span>

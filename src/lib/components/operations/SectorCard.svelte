@@ -8,9 +8,10 @@
         getChainExplorerAddressUrl,
         getChainExplorerTxUrl
     } from '$lib/stores/transaction.svelte';
-    import type {
-        SettlementReceiptRecord,
-        VaultLockRecord
+    import {
+        LIVE_PRICING_UNAVAILABLE_MESSAGE,
+        type SettlementReceiptRecord,
+        type VaultLockRecord
     } from '$lib/crypto/atomicMath';
     import type {
         Sector,
@@ -21,6 +22,8 @@
     import {
         DEFAULT_RESERVE_PAYOUT_KAS,
         formatBpsToPctDisplay,
+        formatPairReserveDisplay,
+        formatSectorDisplayTitle,
         formatSettlementTierLabel,
         formatSettledAssetAmount,
         formatSompiToKasDisplay,
@@ -68,7 +71,8 @@
         onCommitUpdate,
         onSnapMaxRemaining,
         onInlineSaveSector,
-        onOpenVaultLock
+        onFundPair,
+        onCancelOrWithdrawPair
     }: {
         sector: ViewSector;
         displayHashrate: number;
@@ -107,6 +111,11 @@
             nextConfig: SettlementConfig
         ) => Promise<void>;
         onOpenVaultLock?: (s: Sector) => void;
+        onFundPair?: (s: Sector) => void;
+        onCancelOrWithdrawPair?: (
+            s: Sector,
+            action: 'cancel' | 'withdraw'
+        ) => Promise<void> | void;
     } = $props();
 
     let isEditing = $state(false);
@@ -219,6 +228,31 @@
         isLp && plantTargets.length >= 2
             ? plantTargets.map((t) => t.ticker).join(' / ')
             : `KAS / ${targetTicker}`
+    );
+    let displayTitle = $derived(formatSectorDisplayTitle(sector));
+    let pairReserve = $derived.by(() => {
+        if (!isLp) return null;
+        if (sector.settlementConfig?.pairReserve) {
+            return sector.settlementConfig.pairReserve;
+        }
+        const t0 = plantTargets[0]?.ticker || 'KAS';
+        const t1 = plantTargets[1]?.ticker || targetTicker || 'SILO';
+        return {
+            status: 'QUEUED' as const,
+            baseTicker: t0,
+            partnerTicker: t1,
+            baseBalanceAtomic: '0',
+            partnerBalanceAtomic: '0',
+            heldBaseAtomic: '0',
+            queuedBaseAtomic: '0',
+            targetPartnerAtomic: '0',
+            accruedFeesUsdMicros: '0',
+            feeRateBps: 100 as const,
+            updatedAt: Date.now()
+        };
+    });
+    let pairReserveDisplay = $derived(
+        pairReserve ? formatPairReserveDisplay(pairReserve) : null
     );
     let vaultBalanceKas = $derived(
         vaultLock
@@ -515,6 +549,126 @@
         </div>
     {/if}
 
+    {#if isLp && pairReserve && pairReserveDisplay}
+        <div
+            data-testid="pair-reserve-card-{sector.id}"
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+            role="group"
+            class="flex flex-col gap-2 font-mono"
+        >
+            {#if pairReserve.status === 'QUEUED'}
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="text-xs font-black uppercase text-white tracking-wider truncate">
+                            {pairReserve.baseTicker} / {pairReserve.partnerTicker}
+                        </span>
+                        <span
+                            data-testid="pair-status-queued-{sector.id}"
+                            class="px-1.5 py-0.5 rounded bg-[#11161f] border border-amber-500/40 text-[9px] font-bold uppercase text-amber-300"
+                        >
+                            QUEUED
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        data-testid="pair-cancel-btn-{sector.id}"
+                        onclick={() =>
+                            onCancelOrWithdrawPair
+                                ? onCancelOrWithdrawPair(sector, 'cancel')
+                                : onDeleteSector(sector.id)}
+                        class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/15 hover:border-red-400/50 text-[9px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer shrink-0"
+                    >
+                        CANCEL
+                    </button>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-neutral-300 tabular-nums pt-1 border-t border-white/[0.05]">
+                    <span>{pairReserveDisplay.heldBaseFormatted} {pairReserve.baseTicker}</span>
+                    <span>
+                        {pairReserveDisplay.queuedBaseFormatted} {pairReserve.baseTicker} → {pairReserve.partnerTicker}
+                    </span>
+                </div>
+            {:else}
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-black uppercase text-white tracking-wider truncate">
+                        {pairReserve.baseTicker} / {pairReserve.partnerTicker}
+                    </span>
+                    <div class="flex items-center gap-2 tabular-nums shrink-0 text-[11px]">
+                        <span class="font-bold text-white">
+                            {pairReserveDisplay.livePricingUnavailable
+                                ? LIVE_PRICING_UNAVAILABLE_MESSAGE
+                                : pairReserveDisplay.totalUsdFormatted}
+                        </span>
+                        <span class="font-bold text-[#18C6A5]">
+                            {pairReserveDisplay.accruedFeesUsdFormatted}
+                        </span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-neutral-300 tabular-nums pt-1 border-t border-white/[0.05]">
+                    <span>{pairReserveDisplay.baseFormatted} {pairReserve.baseTicker}</span>
+                    <span>{pairReserveDisplay.partnerFormatted} {pairReserve.partnerTicker}</span>
+                </div>
+                <div
+                    class="flex items-center gap-1.5 pt-1 border-t border-white/[0.05] min-w-0 w-full font-mono font-bold"
+                    role="group"
+                >
+                    <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+                        <input
+                            type="number"
+                            value={allocationPctDisplay}
+                            oninput={(e) => onInputPct(sector.id, e.currentTarget.value)}
+                            onchange={() => onCommitUpdate(sector.id)}
+                            class="sector-slim-num w-8 bg-transparent text-white text-[10px] outline-none text-right tabular-nums"
+                        />
+                        <span class="text-neutral-500 text-[9px] ml-0.5">%</span>
+                    </div>
+                    <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={allocationPctNumeric}
+                        oninput={(e) => onSliderInput(sector.id, e)}
+                        onchange={() => onSliderChange(sector.id)}
+                        class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
+                        style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) 100%);"
+                    />
+                    <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+                        <input
+                            type="number"
+                            value={_num(mappedHash).toFixed(2)}
+                            oninput={(e) => onInputHash(sector.id, e.currentTarget.value)}
+                            onchange={() => onCommitUpdate(sector.id)}
+                            class="sector-slim-num w-9 bg-transparent text-neutral-200 text-[10px] outline-none text-right focus:text-white tabular-nums"
+                        />
+                        <span class="text-neutral-500 text-[8px] whitespace-nowrap">TH/s</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 pt-1">
+                    <button
+                        type="button"
+                        data-testid="pair-fund-btn-{sector.id}"
+                        onclick={() => onFundPair?.(sector)}
+                        class="flex-1 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase cursor-pointer"
+                    >
+                        FUND
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="pair-withdraw-btn-{sector.id}"
+                        onclick={() =>
+                            onCancelOrWithdrawPair
+                                ? onCancelOrWithdrawPair(sector, 'withdraw')
+                                : onDeleteSector(sector.id)}
+                        class="flex-1 py-1.5 rounded-lg bg-[#11161f] border border-white/15 text-neutral-300 hover:text-white text-[10px] font-black uppercase cursor-pointer"
+                    >
+                        WITHDRAW
+                    </button>
+                </div>
+            {/if}
+        </div>
+    {:else}
     <!-- HEADER ROW -->
     <div
         role="button"
@@ -530,31 +684,10 @@
     >
         <div class="flex items-center gap-1.5 min-w-0 text-xs font-bold uppercase text-white tracking-wider truncate hover:text-[#18C6A5] transition-colors">
             <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{hex};"></span>
-            <span class="truncate">{sector.name}</span>
+            <span class="truncate">{displayTitle}</span>
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
-            {#if vaultLock}
-                <span
-                    data-testid="sector-vault-badge-{sector.id}"
-                    class="text-[9px] font-mono text-[#18C6A5] bg-[#11161f] border border-[#18C6A5]/35 rounded px-1.5 py-0.5 font-bold whitespace-nowrap tabular-nums"
-                    title={formatVaultStatusLabel(vaultLock.status)}
-                >
-                    Vault {vaultBalanceKas} KAS
-                </span>
-            {:else if onOpenVaultLock}
-                <button
-                    type="button"
-                    onmousedown={(e) => e.stopPropagation()}
-                    onclick={(e) => {
-                        e.stopPropagation();
-                        onOpenVaultLock(sector);
-                    }}
-                    class="text-[8px] font-mono font-bold uppercase text-neutral-300 hover:text-[#18C6A5] bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/40 rounded px-1.5 py-0.5 cursor-pointer"
-                >
-                    Lock Vault
-                </button>
-            {/if}
             {#if !isEditing}
                 <button
                     type="button"
@@ -563,7 +696,6 @@
                         e.stopPropagation();
                         onToggleWidth(sector.id);
                     }}
-                    title="Toggle Width"
                     class="text-neutral-500 hover:text-white cursor-pointer w-5 h-5 hidden lg:flex items-center justify-center bg-white/[0.03] border border-white/10 rounded text-[7px] font-bold"
                 >
                     [ ]
@@ -577,7 +709,6 @@
                     e.stopPropagation();
                     isEditing ? cancelInlineEditor() : openInlineEditor('closed');
                 }}
-                title={isEditing ? 'Collapse' : 'Adjust Split Inline'}
                 class="cursor-pointer w-5 h-5 flex items-center justify-center border rounded-md text-[10px] transition-colors {isEditing ? 'bg-[#161d29] border-[#18C6A5]/60 text-[#18C6A5]' : 'bg-white/[0.03] border-white/10 text-neutral-400 hover:text-white'}"
             >
                 {isEditing ? '▴' : '⚙'}
@@ -589,7 +720,6 @@
                     e.stopPropagation();
                     onDeleteSector(sector.id);
                 }}
-                title="Remove"
                 class="text-neutral-500 hover:text-red-400 cursor-pointer w-5 h-5 flex items-center justify-center bg-white/[0.03] border border-white/10 rounded-md text-[10px]"
             >
                 ✕
@@ -680,11 +810,8 @@
                       : sector.settlementConfig?.mode || 'epoch'}
             </span>
             <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
-                ~{_num(dailyKas).toFixed(1)} KAS/d
-                {#if livePricingUnavailable}
-                    <span class="text-amber-400">(Live pricing unavailable)</span>
-                {:else}
-                    <span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)})</span>
+                ~{_num(dailyKas).toFixed(1)} KAS/d{#if !livePricingUnavailable}
+                    {' '}<span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)}/d)</span>
                 {/if}
             </span>
         </div>
@@ -821,87 +948,10 @@
                             {draftPrimaryAsset.assetClass} ▾
                         </span>
                     </button>
-
-                    <button
-                        type="button"
-                        onclick={() =>
-                            (pickerMode =
-                                pickerMode === 'add_secondary' ? 'closed' : 'add_secondary')}
-                        class="tactile-btn px-3 py-2 rounded-lg border-blue-500/40 text-blue-400 text-[9px] font-black uppercase tracking-widest cursor-pointer shrink-0"
-                    >
-                        + Pair Token (50% KAS Pool)
-                    </button>
                 </div>
             {:else}
-                <div class="bg-[#11161f] border border-blue-500/35 rounded-xl p-2.5 flex flex-col gap-2">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[8px] font-black uppercase tracking-widest text-blue-400">
-                            50% KAS Pool Split ({draftAssets.map((a) => a.ticker).join(' / ')})
-                        </span>
-                        <div class="flex items-center gap-2">
-                            {#if draftAssets.length > 2}
-                                <button
-                                    type="button"
-                                    onclick={equalizeDraftWeights}
-                                    class="text-[8px] font-black uppercase text-[#18C6A5] hover:underline cursor-pointer"
-                                >
-                                    50/50
-                                </button>
-                            {/if}
-                            {#if draftAssets.length < 5}
-                                <button
-                                    type="button"
-                                    onclick={() =>
-                                        (pickerMode =
-                                            pickerMode === 'add_secondary'
-                                                ? 'closed'
-                                                : 'add_secondary')}
-                                    class="px-2 py-0.5 rounded bg-[#06080b] border border-blue-500/40 text-blue-400 text-[8px] font-black uppercase cursor-pointer"
-                                >
-                                    + Add Token
-                                </button>
-                            {/if}
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {#each draftAssets as item (item.ticker)}
-                            <div class="bg-[#06080b] border border-white/10 rounded-lg px-2.5 py-1.5 flex flex-col gap-1">
-                                <div class="flex items-center justify-between text-[10px]">
-                                    <span class="font-bold text-white">{item.ticker}</span>
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-black tabular-nums {item.ticker === 'KAS' ? 'text-[#18C6A5]' : 'text-blue-400'}">
-                                            {item.weightPct.toFixed(1)}%
-                                        </span>
-                                        {#if item.ticker !== 'KAS'}
-                                            <button
-                                                type="button"
-                                                onclick={() => removeSecondaryAsset(item.ticker)}
-                                                class="text-neutral-500 hover:text-red-400 text-[10px] cursor-pointer"
-                                            >
-                                                ✕
-                                            </button>
-                                        {/if}
-                                    </div>
-                                </div>
-                                {#if item.ticker !== 'KAS' && draftAssets.length > 2}
-                                    <input
-                                        type="range"
-                                        min="1"
-                                        max="49"
-                                        step="0.5"
-                                        value={item.weightPct}
-                                        oninput={(e) =>
-                                            adjustDraftWeight(
-                                                item.ticker,
-                                                parseFloat((e.currentTarget as HTMLInputElement).value) || 25
-                                            )}
-                                        class="sector-slim-range w-full cursor-pointer"
-                                    />
-                                {/if}
-                            </div>
-                        {/each}
-                    </div>
+                <div class="flex items-center justify-between text-[10px] text-neutral-400">
+                    <span>{draftAssets.map((a) => a.ticker).join(' / ')}</span>
                 </div>
             {/if}
 
@@ -998,11 +1048,7 @@
                                         {asset.name}
                                     </span>
                                 </div>
-                                {#if livePricingUnavailable}
-                                    <span class="text-[8px] font-bold text-amber-400 shrink-0">
-                                        Live pricing unavailable
-                                    </span>
-                                {:else if asset.spotPrice > 0}
+                                {#if !livePricingUnavailable && asset.spotPrice > 0}
                                     <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">
                                         ${asset.spotPrice < 1 ? asset.spotPrice.toFixed(4) : asset.spotPrice.toFixed(2)}
                                     </span>
@@ -1034,16 +1080,6 @@
                             </button>
                         </div>
                     {/if}
-
-                    {#if onOpenVaultLock}
-                        <button
-                            type="button"
-                            onclick={() => onOpenVaultLock(sector)}
-                            class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-white/15 hover:border-[#18C6A5]/50 text-[9px] font-black uppercase tracking-wider text-neutral-200 hover:text-white cursor-pointer"
-                        >
-                            {vaultLock ? 'Manage Vault Lock' : 'Create Self-Custody Vault'}
-                        </button>
-                    {/if}
                 </div>
 
                 <div class="flex items-center gap-2 ml-auto">
@@ -1067,6 +1103,7 @@
                 </div>
             </div>
         </div>
+    {/if}
     {/if}
 </div>
 

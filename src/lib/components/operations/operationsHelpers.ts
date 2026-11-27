@@ -17,9 +17,12 @@ import {
     KAS_DECIMALS,
     LIVE_PRICING_UNAVAILABLE_MESSAGE,
     MAX_BPS,
+    ORACLE_E8_DECIMALS,
     USD_MICROS_DECIMALS,
     atomicToUsdMicrosFloor,
     formatAtomicToDecimal,
+    mulBpsCeil,
+    mulBpsFloor,
     normalizeAllocationBps,
     parseDecimalToAtomic,
     parseKasDecimalToSompi,
@@ -38,7 +41,14 @@ import {
     type VaultKind,
     type VaultLockRecord
 } from '$lib/crypto/atomicMath';
-import type { Worker, Sector, PlantAssetTarget } from '$lib/stores/type';
+import type {
+    Worker,
+    Sector,
+    PlantAssetTarget,
+    PairFeeRateBps,
+    PairReserveState,
+    PairTermOption
+} from '$lib/stores/type';
 
 export type ViewSector = Sector & {
     width?: number;
@@ -104,6 +114,24 @@ export const DEFAULT_RESERVE_PAYOUT_KAS = 50.0;
 export const DEFAULT_VAULT_THRESHOLD_KAS = '25';
 export const KASPA_DIFF_CONSTANT = 4_294_967_296.0;
 export const POOL_FEE_RATE = 0.01;
+
+export const DEFAULT_PAIR_FEE_RATE_BPS: PairFeeRateBps = 100;
+export const PAIR_FEE_RATE_PRESETS: ReadonlyArray<{ bps: PairFeeRateBps; label: string }> = [
+    { bps: 30, label: '0.3%' },
+    { bps: 100, label: '1.0%' },
+    { bps: 250, label: '2.5%' }
+];
+export const DEFAULT_PAIR_TERM: PairTermOption = 'OPEN';
+export const PAIR_TERM_PRESETS: ReadonlyArray<{
+    id: PairTermOption;
+    label: string;
+    days: number | null;
+}> = [
+    { id: 'OPEN', label: 'OPEN', days: null },
+    { id: '7D', label: '7D', days: 7 },
+    { id: '30D', label: '30D', days: 30 },
+    { id: '90D', label: '90D', days: 90 }
+];
 
 export const THERMOSTAT_VALVE_META: Record<
     1 | 2 | 3 | 4,
@@ -335,18 +363,18 @@ export function formatUsdMicrosDisplay(
 }
 
 /**
- * Converts atomic KAS (`sompi`) to USD display using live E8 oracle price, failing closed when offline.
+ * Converts atomic KAS (`sompi`) to USD display using live E8 oracle price, returning empty string when offline.
  */
 export function formatSompiToUsdOrUnavailable(
     sompi: U128Str | bigint | null | undefined,
     kasOracleUsdE8: U128Str | bigint | null | undefined
 ): string {
     if (kasOracleUsdE8 === null || kasOracleUsdE8 === undefined || kasOracleUsdE8 === '') {
-        return LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        return '';
     }
     try {
         const priceE8 = parseU128Str(kasOracleUsdE8, 'kasOracleUsdE8');
-        if (priceE8 <= 0n) return LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        if (priceE8 <= 0n) return '';
         const amountSompi =
             sompi === null || sompi === undefined || sompi === ''
                 ? 0n
@@ -354,8 +382,27 @@ export function formatSompiToUsdOrUnavailable(
         const usdMicros = atomicToUsdMicrosFloor(amountSompi, KAS_DECIMALS, priceE8);
         return `$${formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS, 2, false)}`;
     } catch {
-        return LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        return '';
     }
+}
+
+/**
+ * Formats daily split output cleanly: `~X KAS/d` plus live `$USD/d` when online, or `~X KAS/d` alone if offline.
+ */
+export function formatSectorDailyYieldLabel(
+    dailyKas: number,
+    dailyUsd: number,
+    livePricingUnavailable: boolean
+): { kasLabel: string; usdLabel: string | null } {
+    const safeKas = Number.isFinite(dailyKas) ? Math.max(0, dailyKas) : 0;
+    const kasLabel = `~${safeKas.toFixed(1)} KAS/d`;
+    if (livePricingUnavailable || !Number.isFinite(dailyUsd)) {
+        return { kasLabel, usdLabel: null };
+    }
+    return {
+        kasLabel,
+        usdLabel: `$${Math.max(0, dailyUsd).toFixed(2)}/d`
+    };
 }
 
 /**
@@ -634,8 +681,12 @@ export async function postSovereignStateAction<T = any>(
         });
         const body = (await res.json().catch(() => null)) as Record<string, any> | null;
         if (res.status === 503 || body?.livePricingUnavailable) {
-            operations.oracleOnline = false;
-            treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            const hasLiveSpot =
+                treasury.spotOracleOnline && treasury.getAsset('KAS').spotPriceE8 !== '0';
+            if (!hasLiveSpot) {
+                operations.oracleOnline = false;
+                treasury.markOracleUnavailable(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+            }
             return {
                 ok: false,
                 status: 503,
@@ -933,12 +984,15 @@ export async function fetchSovereignOperationsBundle(
     const receipts = Array.isArray(receiptsRes.data?.receipts) ? receiptsRes.data.receipts : [];
     const solvency = solvencyRes.data ?? null;
 
+    const hasLiveSpot =
+        treasury.spotOracleOnline && treasury.getAsset('KAS').spotPriceE8 !== '0';
+
     operations.hydrateSovereignState({
         ...(accrualRes.ok ? { matureAccrual: accrual, payoutOutbox: outbox } : {}),
         ...(vaultsRes.ok ? { vaultLocks: vaults } : {}),
         ...(valvesRes.ok ? { thermostatValves: valves } : {}),
         ...(solvencyRes.ok ? { solvencyProof: solvency } : {}),
-        ...(livePricingUnavailable ? { oracleOnline: false } : {})
+        ...(livePricingUnavailable && !hasLiveSpot ? { oracleOnline: false } : {})
     });
 
     return {
@@ -1088,6 +1142,41 @@ export function toPlantTargetSpec(
     };
 }
 
+/**
+ * Computes a wallet quick-fill decimal string (25%, 50%, 75%, 100%) strictly from atomic `U128Str` via `BigInt`.
+ */
+export function computeWalletQuickFillDecimal(
+    onChainAtomic: U128Str | bigint | null | undefined,
+    decimals: number,
+    pct: 25 | 50 | 75 | 100
+): string {
+    if (onChainAtomic === null || onChainAtomic === undefined || onChainAtomic === '') {
+        return '0';
+    }
+    try {
+        const bal = parseU128Str(onChainAtomic, 'onChainAtomic');
+        if (bal <= 0n) return '0';
+        const sliceAtomic = (bal * BigInt(pct * 100)) / 10_000n;
+        if (sliceAtomic <= 0n) return '0';
+        const shownDecimals = Math.min(Math.max(0, Math.trunc(decimals)), 8);
+        return formatAtomicToDecimal(sliceAtomic, decimals, shownDecimals, true);
+    } catch {
+        return '0';
+    }
+}
+
+/**
+ * Computes a hashrate quick-fill percentage (25%, 50%, 75%, 100% of `maxPct`) using integer basis points.
+ */
+export function computeHashrateQuickFillPct(
+    maxPct: number | string,
+    pct: 25 | 50 | 75 | 100
+): number {
+    const maxBps = parsePctInputToBps(maxPct, MAX_BPS);
+    const sliceBps = Math.floor((maxBps * pct) / 100);
+    return bpsToPctNumber(sliceBps);
+}
+
 export function normalizePlantTargets(
     rawList: PlantAssetTarget[]
 ): PlantAssetTarget[] {
@@ -1096,8 +1185,55 @@ export function normalizePlantTargets(
             rawList[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0);
         return [{ ...first, weightPct: 100.0 }];
     }
+
+    const deduped: PlantAssetTarget[] = [];
+    const seen = new Set<string>();
+    for (const item of rawList) {
+        const tick = String(item?.ticker || '').trim().toUpperCase();
+        if (!tick || seen.has(tick)) continue;
+        seen.add(tick);
+        deduped.push(item);
+    }
+
+    if (deduped.length <= 1) {
+        const slot0 = deduped[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 50.0);
+        const fallbackTicker = slot0.ticker.toUpperCase() === 'KAS' ? 'USDC' : 'KAS';
+        const slot1 = toPlantTargetSpec(treasury.getAsset(fallbackTicker), 50.0);
+        return [
+            { ...slot0, weightPct: 50.0 },
+            { ...slot1, weightPct: 50.0 }
+        ];
+    }
+
+    if (deduped.length === 2) {
+        return [
+            { ...deduped[0], weightPct: 50.0 },
+            { ...deduped[1], weightPct: 50.0 }
+        ];
+    }
+
     const kasAsset = treasury.getAsset('KAS');
-    const secondary = rawList
+    const hasKas = deduped.some((a) => a.ticker.toUpperCase() === 'KAS');
+    if (!hasKas) {
+        const capped = deduped.slice(0, 4);
+        const n = capped.length;
+        const rawSum = capped.reduce((s, a) => s + Math.max(0, Number(a.weightPct || 0)), 0);
+        let allocated = 0;
+        return capped.map((item, idx) => {
+            let pct: number;
+            if (idx === n - 1) {
+                pct = Number(Math.max(0.01, 100.0 - allocated).toFixed(2));
+            } else if (rawSum > 0) {
+                pct = Number(((Math.max(0.1, item.weightPct) / rawSum) * 100.0).toFixed(2));
+            } else {
+                pct = Number((100.0 / n).toFixed(2));
+            }
+            allocated += pct;
+            return { ...item, weightPct: pct };
+        });
+    }
+
+    const secondary = deduped
         .filter((a) => a.ticker.toUpperCase() !== 'KAS')
         .slice(0, 4);
     if (secondary.length === 0) {
@@ -1161,6 +1297,20 @@ export function hydrateSectorTargetAssets(sector: Sector): PlantAssetTarget[] {
     return [toPlantTargetSpec(treasury.getAsset(singleTicker), 100.0)];
 }
 
+export function formatSectorDisplayTitle(sector: Sector): string {
+    const rawName = String(sector?.name || '').trim();
+    const stripped = rawName.replace(/^PLANT[-\s_]*/i, '').trim();
+    if (sector?.routeMode === 'auto-lp') {
+        const targets = hydrateSectorTargetAssets(sector);
+        const tickerTitle = targets.map((t) => t.ticker).join(' / ');
+        if (!stripped || /^[A-F0-9]{4,6}$/i.test(stripped)) {
+            return tickerTitle;
+        }
+        return stripped;
+    }
+    return stripped || sector?.settlementConfig?.targetAsset?.ticker || 'SPLIT';
+}
+
 export function buildSvgPath(
     data: number[],
     width: number,
@@ -1184,4 +1334,439 @@ export function buildSvgPath(
             return `${i === 0 ? 'M' : 'L'} ${x},${y}`;
         })
         .join(' ');
+}
+
+export const KASPA_NATIVE_PAIR_ASSETS = [
+    'KAS',
+    'SILO',
+    'NACHO',
+    'KANGO',
+    'KONAN',
+    'BURT',
+    'KASPY',
+    'ZEAL',
+    'GHOAD',
+    'CHIMP'
+] as const;
+
+const LP_MAKER_FEE_SPLIT_BPS = 8000;
+const TREASURY_PAIR_FEE_SPLIT_BPS = 2000;
+
+export function isKaspaNativePairAsset(ticker: string): boolean {
+    const clean = String(ticker || '').trim().toUpperCase();
+    if (!clean) return false;
+    if ((KASPA_NATIVE_PAIR_ASSETS as readonly string[]).includes(clean)) return true;
+    const asset = treasury.getAsset(clean);
+    if (!asset) return false;
+    const net = String(asset.network || '').toUpperCase();
+    return (
+        asset.assetClass === 'Native L1' ||
+        asset.assetClass === 'Ecosystem' ||
+        net.includes('KAS') ||
+        net.includes('KRC')
+    );
+}
+
+export function resolveKaspaAssetOracleE8(ticker: string): bigint {
+    const asset = treasury.getAsset(ticker);
+    if (!asset) return 0n;
+    try {
+        return parseU128Str(asset.spotPriceE8 || '0', 'spotPriceE8');
+    } catch {
+        return 0n;
+    }
+}
+
+export function convertAtomicByOracleFloor(
+    amountAtomic: bigint,
+    fromDecimals: number,
+    fromOracleE8: bigint,
+    toDecimals: number,
+    toOracleE8: bigint
+): bigint {
+    if (amountAtomic <= 0n || fromOracleE8 <= 0n || toOracleE8 <= 0n) return 0n;
+    const fromScale = 10n ** BigInt(Math.max(0, Math.trunc(fromDecimals)));
+    const toScale = 10n ** BigInt(Math.max(0, Math.trunc(toDecimals)));
+    return (amountAtomic * fromOracleE8 * toScale) / (toOracleE8 * fromScale);
+}
+
+export function computeLpMakerFeeUsdMicros(grossFeeUsdMicros: U128Str | bigint): U128Str {
+    const gross =
+        typeof grossFeeUsdMicros === 'bigint'
+            ? grossFeeUsdMicros
+            : parseU128Str(grossFeeUsdMicros || '0', 'grossFeeUsdMicros');
+    return mulBpsFloor(gross, LP_MAKER_FEE_SPLIT_BPS).toString();
+}
+
+export function computeTreasuryPairFeeUsdMicros(grossFeeUsdMicros: U128Str | bigint): U128Str {
+    const gross =
+        typeof grossFeeUsdMicros === 'bigint'
+            ? grossFeeUsdMicros
+            : parseU128Str(grossFeeUsdMicros || '0', 'grossFeeUsdMicros');
+    return mulBpsCeil(gross, TREASURY_PAIR_FEE_SPLIT_BPS).toString();
+}
+
+export interface WalletPairPlanResult {
+    reserve: PairReserveState;
+    needsQueueSplit: boolean;
+    totalBaseAtomic: U128Str;
+    requiredPartnerAtomic: U128Str;
+}
+
+export function planWalletFirstPairExecution(params: {
+    baseTicker: string;
+    partnerTicker: string;
+    baseAmountInput: string;
+    feeRateBps: PairFeeRateBps;
+    nowMs?: number;
+}): WalletPairPlanResult {
+    const baseTicker = String(params.baseTicker || 'KAS').trim().toUpperCase();
+    const partnerTicker = String(params.partnerTicker || 'SILO').trim().toUpperCase();
+    if (!baseTicker || !partnerTicker || baseTicker === partnerTicker) {
+        throw new Error('Select two distinct assets.');
+    }
+    if (!isKaspaNativePairAsset(baseTicker) || !isKaspaNativePairAsset(partnerTicker)) {
+        throw new Error('Select Kaspa L1 assets.');
+    }
+    if (treasury.livePricingUnavailable) {
+        throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+    }
+
+    const baseAsset = treasury.getAsset(baseTicker);
+    const partnerAsset = treasury.getAsset(partnerTicker);
+    const baseE8 = resolveKaspaAssetOracleE8(baseTicker);
+    const partnerE8 = resolveKaspaAssetOracleE8(partnerTicker);
+    if (baseE8 <= 0n || partnerE8 <= 0n) {
+        throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+    }
+
+    const baseDec = atomicDecimalsForAsset(baseTicker);
+    const partnerDec = atomicDecimalsForAsset(partnerTicker);
+    const totalBaseAtomic = parseDecimalToAtomic(
+        String(params.baseAmountInput || '').trim() || '0',
+        baseDec,
+        'floor'
+    );
+    if (totalBaseAtomic <= 0n) {
+        throw new Error('Enter amount.');
+    }
+
+    const baseWalletAtomic = parseU128Str(baseAsset?.onChainAtomic || '0', 'baseWalletAtomic');
+    if (totalBaseAtomic > baseWalletAtomic) {
+        throw new Error('Insufficient balance.');
+    }
+
+    const halfBaseAtomic = totalBaseAtomic / 2n;
+    const queuedOrMatchedBaseAtomic = totalBaseAtomic - halfBaseAtomic;
+    if (halfBaseAtomic <= 0n || queuedOrMatchedBaseAtomic <= 0n) {
+        throw new Error('Amount too small.');
+    }
+
+    const requiredPartnerAtomic = convertAtomicByOracleFloor(
+        queuedOrMatchedBaseAtomic,
+        baseDec,
+        baseE8,
+        partnerDec,
+        partnerE8
+    );
+    if (requiredPartnerAtomic <= 0n) {
+        throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+    }
+
+    const partnerWalletAtomic = parseU128Str(
+        partnerAsset?.onChainAtomic || '0',
+        'partnerWalletAtomic'
+    );
+    const hasPartnerBalance = partnerWalletAtomic >= requiredPartnerAtomic;
+    const nowMs = params.nowMs ?? Date.now();
+
+    if (hasPartnerBalance) {
+        return {
+            needsQueueSplit: false,
+            totalBaseAtomic: halfBaseAtomic.toString(),
+            requiredPartnerAtomic: requiredPartnerAtomic.toString(),
+            reserve: {
+                status: 'ACTIVE',
+                baseTicker,
+                partnerTicker,
+                baseBalanceAtomic: halfBaseAtomic.toString(),
+                partnerBalanceAtomic: requiredPartnerAtomic.toString(),
+                heldBaseAtomic: halfBaseAtomic.toString(),
+                queuedBaseAtomic: '0',
+                targetPartnerAtomic: requiredPartnerAtomic.toString(),
+                accruedFeesUsdMicros: '0',
+                feeRateBps: params.feeRateBps,
+                updatedAt: nowMs
+            }
+        };
+    }
+
+    return {
+        needsQueueSplit: true,
+        totalBaseAtomic: totalBaseAtomic.toString(),
+        requiredPartnerAtomic: requiredPartnerAtomic.toString(),
+        reserve: {
+            status: 'QUEUED',
+            baseTicker,
+            partnerTicker,
+            baseBalanceAtomic: halfBaseAtomic.toString(),
+            partnerBalanceAtomic: '0',
+            heldBaseAtomic: halfBaseAtomic.toString(),
+            queuedBaseAtomic: queuedOrMatchedBaseAtomic.toString(),
+            targetPartnerAtomic: requiredPartnerAtomic.toString(),
+            accruedFeesUsdMicros: '0',
+            feeRateBps: params.feeRateBps,
+            updatedAt: nowMs
+        }
+    };
+}
+
+export interface FormattedPairReserveDisplay {
+    baseFormatted: string;
+    partnerFormatted: string;
+    heldBaseFormatted: string;
+    queuedBaseFormatted: string;
+    totalUsdFormatted: string;
+    accruedFeesUsdFormatted: string;
+    livePricingUnavailable: boolean;
+}
+
+export function formatPairReserveDisplay(reserve: PairReserveState): FormattedPairReserveDisplay {
+    const baseDec = atomicDecimalsForAsset(reserve.baseTicker);
+    const partnerDec = atomicDecimalsForAsset(reserve.partnerTicker);
+    const baseBalanceAtomic = parseU128Str(reserve.baseBalanceAtomic || '0', 'baseBalanceAtomic');
+    const partnerBalanceAtomic = parseU128Str(
+        reserve.partnerBalanceAtomic || '0',
+        'partnerBalanceAtomic'
+    );
+    const heldBaseAtomic = parseU128Str(reserve.heldBaseAtomic || '0', 'heldBaseAtomic');
+    const queuedBaseAtomic = parseU128Str(reserve.queuedBaseAtomic || '0', 'queuedBaseAtomic');
+    const accruedFeesMicros = parseU128Str(
+        reserve.accruedFeesUsdMicros || '0',
+        'accruedFeesUsdMicros'
+    );
+
+    const baseE8 = resolveKaspaAssetOracleE8(reserve.baseTicker);
+    const partnerE8 = resolveKaspaAssetOracleE8(reserve.partnerTicker);
+    const pricingUnavailable = treasury.livePricingUnavailable || baseE8 <= 0n;
+
+    let totalUsdMicros = 0n;
+    if (!pricingUnavailable) {
+        totalUsdMicros += atomicToUsdMicrosFloor(baseBalanceAtomic, baseDec, baseE8);
+        if (partnerE8 > 0n) {
+            totalUsdMicros += atomicToUsdMicrosFloor(partnerBalanceAtomic, partnerDec, partnerE8);
+        }
+        totalUsdMicros += accruedFeesMicros;
+    }
+
+    return {
+        baseFormatted: formatAtomicToDecimal(baseBalanceAtomic, baseDec, 4, true),
+        partnerFormatted: formatAtomicToDecimal(partnerBalanceAtomic, partnerDec, 4, true),
+        heldBaseFormatted: formatAtomicToDecimal(heldBaseAtomic, baseDec, 4, true),
+        queuedBaseFormatted: formatAtomicToDecimal(queuedBaseAtomic, baseDec, 4, true),
+        totalUsdFormatted: `$${formatAtomicToDecimal(totalUsdMicros, USD_MICROS_DECIMALS, 2, false)}`,
+        accruedFeesUsdFormatted: `+$${formatAtomicToDecimal(accruedFeesMicros, USD_MICROS_DECIMALS, 2, false)}`,
+        livePricingUnavailable: pricingUnavailable
+    };
+}
+
+export async function recordPairSettlementActivity(
+    params: {
+        sectorId: string;
+        eventType: 'LP_PAIR_ACTIVE' | 'LP_PAIR_FILLED' | 'LP_PAIR_WITHDRAWN';
+        ticker: string;
+        partnerTicker: string;
+        amountAtomic: U128Str;
+        oracleUsdE8?: U128Str;
+        feeUsdMicros?: U128Str;
+        txHash?: string;
+    },
+    fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+    try {
+        const res = await fetchFn('/api/user/tax-events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...params,
+                lpFeeShareMicros: params.feeUsdMicros
+                    ? computeLpMakerFeeUsdMicros(params.feeUsdMicros)
+                    : '0',
+                treasuryFeeShareMicros: params.feeUsdMicros
+                    ? computeTreasuryPairFeeUsdMicros(params.feeUsdMicros)
+                    : '0'
+            })
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+export async function executeSharedWalletPair(params: {
+    baseTicker: string;
+    partnerTicker: string;
+    baseAmountInput: string;
+    feeRateBps: PairFeeRateBps;
+    allocationPct?: number;
+    refundKaspaAddress?: string;
+    targetWallet?: string;
+    fetchFn?: typeof fetch;
+}): Promise<{
+    reserve: PairReserveState;
+    vaultId: string | null;
+    allocationBps: number;
+    targetAssets: PlantAssetTarget[];
+}> {
+    const plan = planWalletFirstPairExecution({
+        baseTicker: params.baseTicker,
+        partnerTicker: params.partnerTicker,
+        baseAmountInput: params.baseAmountInput,
+        feeRateBps: params.feeRateBps
+    });
+    const fetchFn = params.fetchFn ?? fetch;
+    const refundAddr = String(
+        params.refundKaspaAddress || params.targetWallet || identity.walletAddress || ''
+    ).trim();
+
+    let vaultId: string | null = null;
+    if (refundAddr.toLowerCase().startsWith('kaspa:')) {
+        const baseDec = atomicDecimalsForAsset(plan.reserve.baseTicker);
+        const thresholdInput = formatAtomicToDecimal(
+            parseU128Str(plan.reserve.heldBaseAtomic, 'heldBaseAtomic'),
+            baseDec,
+            8,
+            true
+        );
+        const lockPayload = buildRegisterVaultLockPayload({
+            vaultKind: 'MAKER_PLANT',
+            targetAsset: plan.reserve.partnerTicker,
+            targetNetwork: 'KASPA',
+            destinationAddress: refundAddr,
+            refundKaspaAddress: refundAddr,
+            thresholdKasInput: thresholdInput === '0' ? DEFAULT_VAULT_THRESHOLD_KAS : thresholdInput,
+            feeBps: params.feeRateBps,
+            makerSpreadBps: params.feeRateBps,
+            kcc20TokenTicker:
+                plan.reserve.partnerTicker !== 'KAS' ? plan.reserve.partnerTicker : undefined
+        });
+        const lockRes = await postSovereignStateAction<VaultLockRecord>(
+            'REGISTER_VAULT_LOCK',
+            lockPayload as unknown as Record<string, unknown>,
+            params.targetWallet || refundAddr,
+            fetchFn
+        );
+        if (lockRes.livePricingUnavailable) {
+            throw new Error(LIVE_PRICING_UNAVAILABLE_MESSAGE);
+        }
+        vaultId = lockRes.data?.vaultId ?? null;
+    }
+
+    const baseAsset = treasury.getAsset(plan.reserve.baseTicker);
+    const partnerAsset = treasury.getAsset(plan.reserve.partnerTicker);
+    const targetAssets = normalizePlantTargets([
+        toPlantTargetSpec(baseAsset, 50),
+        toPlantTargetSpec(partnerAsset, 50)
+    ]);
+
+    const allocationBps = normalizeAllocationBps({
+        allocationPercentage: Number(params.allocationPct || 0)
+    });
+
+    if (plan.reserve.status === 'ACTIVE') {
+        const prevBase = parseU128Str(baseAsset?.onChainAtomic || '0', 'prevBase');
+        const usedBase = parseU128Str(plan.reserve.baseBalanceAtomic, 'usedBase');
+        const nextBase = prevBase >= usedBase ? prevBase - usedBase : 0n;
+        treasury.updateAsset(plan.reserve.baseTicker, {
+            onChainAtomic: nextBase.toString()
+        });
+
+        const prevPartner = parseU128Str(partnerAsset?.onChainAtomic || '0', 'prevPartner');
+        const usedPartner = parseU128Str(plan.reserve.partnerBalanceAtomic, 'usedPartner');
+        const nextPartner = prevPartner >= usedPartner ? prevPartner - usedPartner : 0n;
+        treasury.updateAsset(plan.reserve.partnerTicker, {
+            onChainAtomic: nextPartner.toString()
+        });
+    } else {
+        const prevBase = parseU128Str(baseAsset?.onChainAtomic || '0', 'prevBase');
+        const lockedTotal = parseU128Str(plan.totalBaseAtomic, 'lockedTotal');
+        const nextBase = prevBase >= lockedTotal ? prevBase - lockedTotal : 0n;
+        treasury.updateAsset(plan.reserve.baseTicker, {
+            onChainAtomic: nextBase.toString()
+        });
+    }
+
+    const reserve: PairReserveState = {
+        ...plan.reserve,
+        vaultId: vaultId ?? undefined
+    };
+
+    return { reserve, vaultId, allocationBps, targetAssets };
+}
+
+export async function cancelOrWithdrawPairSector(params: {
+    sector: Sector;
+    mode: 'cancel' | 'withdraw';
+    targetWallet?: string;
+    vaultPassword?: string;
+    fetchFn?: typeof fetch;
+}): Promise<{ txId: string | null }> {
+    const reserve = params.sector.settlementConfig?.pairReserve;
+    const fetchFn = params.fetchFn ?? fetch;
+    let txId: string | null = null;
+
+    if (reserve?.vaultId) {
+        const previewRes = await requestVaultCancelPreview(
+            reserve.vaultId,
+            params.targetWallet || identity.walletAddress,
+            fetchFn
+        );
+        if (previewRes.ok && previewRes.preview && (params.vaultPassword || txState.decryptedPrivateKeyHex)) {
+            const broadcastRes = await executeOwnerVaultCancelBroadcast({
+                cancelPreview: previewRes.preview,
+                vaultPassword: params.vaultPassword
+            });
+            txId = broadcastRes.txId;
+        }
+    }
+
+    if (reserve) {
+        const baseAsset = treasury.getAsset(reserve.baseTicker);
+        const returnBase =
+            reserve.status === 'QUEUED'
+                ? parseU128Str(reserve.heldBaseAtomic || '0', 'heldBaseAtomic') +
+                  parseU128Str(reserve.queuedBaseAtomic || '0', 'queuedBaseAtomic')
+                : parseU128Str(reserve.baseBalanceAtomic || '0', 'baseBalanceAtomic');
+        const curBase = parseU128Str(baseAsset?.onChainAtomic || '0', 'curBase');
+        treasury.updateAsset(reserve.baseTicker, {
+            onChainAtomic: (curBase + returnBase).toString()
+        });
+
+        const returnPartner = parseU128Str(reserve.partnerBalanceAtomic || '0', 'partnerBalanceAtomic');
+        if (returnPartner > 0n) {
+            const partnerAsset = treasury.getAsset(reserve.partnerTicker);
+            const curPartner = parseU128Str(partnerAsset?.onChainAtomic || '0', 'curPartner');
+            treasury.updateAsset(reserve.partnerTicker, {
+                onChainAtomic: (curPartner + returnPartner).toString()
+            });
+        }
+
+        if (params.mode === 'withdraw') {
+            await recordPairSettlementActivity(
+                {
+                    sectorId: params.sector.id,
+                    eventType: 'LP_PAIR_WITHDRAWN',
+                    ticker: reserve.baseTicker,
+                    partnerTicker: reserve.partnerTicker,
+                    amountAtomic: returnBase.toString(),
+                    oracleUsdE8: resolveKaspaAssetOracleE8(reserve.baseTicker).toString(),
+                    feeUsdMicros: reserve.accruedFeesUsdMicros || '0',
+                    txHash: txId ?? undefined
+                },
+                fetchFn
+            );
+        }
+    }
+
+    return { txId };
 }

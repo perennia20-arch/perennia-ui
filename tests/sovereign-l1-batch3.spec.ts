@@ -204,6 +204,168 @@ async function bundleAndEval(relEntry: string, opts: Batch3LoadOpts = {}) {
     return { exports: mod.exports, sandbox };
 }
 
+async function bundleOpsViewWithStore(opts: Batch3LoadOpts = {}) {
+    const repoSrc = path.resolve(process.cwd(), 'src');
+    const svelteRuntime = await import('svelte');
+    const svelteInternalServer = await import('svelte/internal/server');
+
+    const result = await esbuild.build({
+        stdin: {
+            contents: `
+                export { default as OperationsView } from './src/lib/views/OperationsView.svelte';
+                export { operations } from './src/lib/stores/operations.svelte';
+            `,
+            resolveDir: process.cwd(),
+            loader: 'ts'
+        },
+        bundle: true,
+        write: false,
+        platform: 'node',
+        format: 'cjs',
+        external: ['svelte', 'svelte/internal/*'],
+        plugins: [createSvelteShimPlugin(repoSrc, opts)]
+    });
+
+    const mod = { exports: {} as Record<string, any> };
+    const sandbox: Record<string, any> = {};
+    for (const key of Object.getOwnPropertyNames(globalThis)) {
+        if (key === 'global' || key === 'globalThis') continue;
+        try {
+            sandbox[key] = (globalThis as Record<string, any>)[key];
+        } catch {
+            // Skip restricted globals
+        }
+    }
+    const sharedRequire = (id: string) => {
+        if (id === 'svelte') return svelteRuntime;
+        if (id === 'svelte/internal/server') return svelteInternalServer;
+        return nodeRequire(id);
+    };
+    Object.assign(sandbox, {
+        fetch: opts.fetchImpl ?? globalThis.fetch,
+        module: mod,
+        exports: mod.exports,
+        require: sharedRequire
+    });
+    sandbox.global = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(result.outputFiles[0].text, sandbox, {
+        filename: path.resolve(process.cwd(), 'OperationsView.bundle.ts')
+    });
+    return { exports: mod.exports, sandbox };
+}
+
+async function loadStateRouteWithMocks(opts: {
+    redisMap?: Map<string, string>;
+    fetchImpl?: typeof globalThis.fetch;
+}) {
+    const absEntry = path.resolve(process.cwd(), 'src/routes/api/state/+server.ts');
+    const repoSrc = path.resolve(process.cwd(), 'src');
+    const stubPlugin: esbuild.Plugin = {
+        name: 'batch3-state-route-stubs',
+        setup(build) {
+            build.onResolve(
+                {
+                    filter: /^(\$env\/dynamic\/private|@sveltejs\/kit|\$lib\/server\/(redis|db|kms))$/
+                },
+                (args) => ({ path: args.path, namespace: 'stub' })
+            );
+            build.onResolve({ filter: /^\$lib\// }, (args) => {
+                const sub = args.path.slice('$lib/'.length);
+                const candidates = [
+                    path.join(repoSrc, 'lib', `${sub}.ts`),
+                    path.join(repoSrc, 'lib', sub, 'index.ts')
+                ];
+                for (const c of candidates) {
+                    if (fs.existsSync(c)) return { path: c };
+                }
+                return { path: path.join(repoSrc, 'lib', sub) };
+            });
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => {
+                switch (args.path) {
+                    case '$env/dynamic/private':
+                        return {
+                            contents: `export const env = { RUST_BACKEND_URL: 'http://127.0.0.1:8002' };`,
+                            loader: 'js'
+                        };
+                    case '@sveltejs/kit':
+                        return {
+                            contents: `
+                                export function json(body, init = {}) {
+                                    return new Response(JSON.stringify(body), {
+                                        status: init.status ?? 200,
+                                        headers: { 'content-type': 'application/json', ...(init.headers || {}) }
+                                    });
+                                }
+                            `,
+                            loader: 'js'
+                        };
+                    case '$lib/server/redis':
+                        return {
+                            contents: `
+                                export const redis = {
+                                    async get(k) { return globalThis.__STATE_REDIS__?.get(k) ?? null; },
+                                    async set(k, v) { globalThis.__STATE_REDIS__?.set(k, String(v)); return 'OK'; },
+                                    async publish() { return 0; }
+                                };
+                            `,
+                            loader: 'js'
+                        };
+                    case '$lib/server/db':
+                        return {
+                            contents: `export const dbPool = { async query() { return { rows: [] }; } };`,
+                            loader: 'js'
+                        };
+                    case '$lib/server/kms':
+                        return {
+                            contents: `
+                                export function isWalletMasterAdmin() { return false; }
+                                export function normalizeKaspaBase32Strict(w) { return String(w || '').replace(/^kaspa:/, ''); }
+                                export function normalizeKaspaAddressStrict(w) {
+                                    const clean = normalizeKaspaBase32Strict(w);
+                                    return clean ? 'kaspa:' + clean : '';
+                                }
+                            `,
+                            loader: 'js'
+                        };
+                    default:
+                        return { contents: `export default {};`, loader: 'js' };
+                }
+            });
+        }
+    };
+
+    const result = await esbuild.build({
+        entryPoints: [absEntry],
+        bundle: true,
+        write: false,
+        platform: 'node',
+        format: 'cjs',
+        plugins: [stubPlugin]
+    });
+    const mod = { exports: {} as Record<string, any> };
+    const sandbox: Record<string, any> = {};
+    for (const key of Object.getOwnPropertyNames(globalThis)) {
+        if (key === 'global' || key === 'globalThis') continue;
+        try {
+            sandbox[key] = (globalThis as Record<string, any>)[key];
+        } catch {
+            // Skip restricted globals
+        }
+    }
+    Object.assign(sandbox, {
+        fetch: opts.fetchImpl ?? globalThis.fetch,
+        __STATE_REDIS__: opts.redisMap ?? new Map<string, string>(),
+        module: mod,
+        exports: mod.exports,
+        require: nodeRequire
+    });
+    sandbox.global = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(result.outputFiles[0].text, sandbox, { filename: absEntry });
+    return mod.exports;
+}
+
 test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', () => {
     test('operationsHelpers enforces integer allocationBps, whale U128Str formatting, fail-closed USD, and retail copy hygiene', async () => {
         const { exports: helpers } = await bundleAndEval(
@@ -232,10 +394,18 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
         expect(helpers.formatSettledAssetAmount('2500000', 'USDC', 6)).toBe('2.5');
         expect(helpers.computeFlushProgressBps('1250000000', '2500000000')).toBe(5000);
 
-        // Fail-closed USD formatting when oracle is offline
-        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', null)).toBe('Live pricing unavailable');
-        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', '0')).toBe('Live pricing unavailable');
+        // Clean USD formatting: empty string when oracle is offline (no card spam), $X.XX when online
+        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', null)).toBe('');
+        expect(helpers.formatSompiToUsdOrUnavailable('2500000000', '0')).toBe('');
         expect(helpers.formatSompiToUsdOrUnavailable('2500000000', '12000000')).toBe('$3.00');
+        expect(helpers.formatSectorDailyYieldLabel(25, 0, true)).toEqual({
+            kasLabel: '~25.0 KAS/d',
+            usdLabel: null
+        });
+        expect(helpers.formatSectorDailyYieldLabel(25, 3, false)).toEqual({
+            kasLabel: '~25.0 KAS/d',
+            usdLabel: '$3.00/d'
+        });
 
         // Protocol jargon sanitizer
         expect(helpers.sanitizeRetailCopy('ORACLE_HALT: feed offline', 503)).toBe(
@@ -249,6 +419,25 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
         expect(helpers.formatSettlementTierLabel('CROSS_CHAIN_OPSHA256_HTLC')).toBe(
             'Cross-Chain Atomic Fill'
         );
+
+        // Wallet & Hashrate quick-fill helpers + 50/50 pair normalization
+        expect(helpers.computeWalletQuickFillDecimal('10000000000000000', 8, 25)).toBe('25000000');
+        expect(helpers.computeWalletQuickFillDecimal('10000000000000000', 8, 50)).toBe('50000000');
+        expect(helpers.computeWalletQuickFillDecimal('10000000000000000', 8, 75)).toBe('75000000');
+        expect(helpers.computeWalletQuickFillDecimal('10000000000000000', 8, 100)).toBe('100000000');
+        expect(helpers.computeWalletQuickFillDecimal('0', 8, 50)).toBe('0');
+        expect(helpers.computeWalletQuickFillDecimal(null, 6, 100)).toBe('0');
+
+        expect(helpers.computeHashrateQuickFillPct(80, 25)).toBe(20);
+        expect(helpers.computeHashrateQuickFillPct(80, 50)).toBe(40);
+        expect(helpers.computeHashrateQuickFillPct(80, 75)).toBe(60);
+        expect(helpers.computeHashrateQuickFillPct(80, 100)).toBe(80);
+
+        const nonKasPair = helpers.normalizePlantTargets([
+            { ticker: 'BTC', name: 'Bitcoin', assetClass: 'Crypto', spotPrice: 0, weightPct: 50, theme: { hex: '#f7931a', pastel: '#fde68a' } },
+            { ticker: 'USDC', name: 'USD Coin', assetClass: 'Stablecoin', spotPrice: 1, weightPct: 50, theme: { hex: '#3B82F6', pastel: '#bfdbfe' } }
+        ]);
+        expect(nonKasPair.map((a: any) => `${a.ticker}:${a.weightPct}`)).toEqual(['BTC:50', 'USDC:50']);
     });
 
     test('Vault Lock registration, Path A BUILD_VAULT_CANCEL_PSKT local Schnorr signing, Thermostat upsert, and 503 bundle sync', async () => {
@@ -537,6 +726,13 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
             })) as typeof fetch;
         const offlineBundle = await helpers.fetchSovereignOperationsBundle(undefined, offlineFetch);
         expect(offlineBundle.livePricingUnavailable).toBe(true);
+
+        // Verify invisible 80/20 fee math and shared wallet-first pair planner
+        expect(helpers.computeLpMakerFeeUsdMicros('1000000')).toBe('800000');
+        expect(helpers.computeTreasuryPairFeeUsdMicros('1000000')).toBe('200000');
+        expect(helpers.isKaspaNativePairAsset('KAS')).toBe(true);
+        expect(helpers.isKaspaNativePairAsset('SILO')).toBe(true);
+        expect(helpers.isKaspaNativePairAsset('USDC')).toBe(false);
     });
 
     test('SSR renders Sovereign L1 Operations UI with live state and fail-closed 503 pricing unavailable state without protocol jargon', async () => {
@@ -551,6 +747,9 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
         );
         const { exports: modalsMod } = await bundleAndEval(
             'src/lib/components/operations/SectorConfigModals.svelte'
+        );
+        const { exports: pairPanelMod } = await bundleAndEval(
+            'src/lib/components/dex/LiquidityAndSiloPanel.svelte'
         );
 
         // Live Sovereign state SSR check on Sidebar + SectorCard + Modals + OperationsView
@@ -581,8 +780,10 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
                 ]
             }
         }).body;
-        expect(sidebarHtmlOffline).toContain('Live pricing unavailable');
+        expect(sidebarHtmlOffline).toContain('Pending Splits');
         expect(sidebarHtmlOffline).toContain('sidebar-mature-accrual-card');
+        expect(sidebarHtmlOffline).not.toContain('sidebar-solvency-badge');
+        expect(sidebarHtmlOffline).not.toContain('100% Reserve Verified');
         expect(sidebarHtmlOffline).not.toContain('47.4');
 
         const sectorCardHtml = render(sectorCardMod.default, {
@@ -600,7 +801,7 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
                             ticker: 'USDC',
                             name: 'USD Coin',
                             assetClass: 'Stablecoin',
-                            spotPrice: 1,
+                            spotPrice: 0,
                             theme: { hex: '#3B82F6', pastel: '#bfdbfe' }
                         },
                         payoutAddress: '0x1111111111111111111111111111111111111111',
@@ -639,76 +840,372 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
             }
         }).body;
         expect(sectorCardHtml).toContain('value="33.33"');
-        expect(sectorCardHtml).toContain('Live pricing unavailable');
+        expect(sectorCardHtml).toContain('~25.0 KAS/d');
+        expect(sectorCardHtml).not.toContain('Lock Vault');
+        expect(sectorCardHtml).not.toContain('sector-pair-swap-btn-sec-1');
+        expect(sectorCardHtml).not.toContain('Live pricing unavailable');
         expect(sectorCardHtml).not.toContain('CLAIM_PENDING_SECTOR_KAS');
 
-        const opsHtml = render(opsViewMod.default, { props: {} }).body;
-        expect(opsHtml).toContain('sovereign-vault-locks-section');
-        expect(opsHtml).toContain('sovereign-thermostat-section');
-        expect(opsHtml).toContain('sovereign-receipts-section');
-        expect(opsHtml).toContain('live-pricing-unavailable-banner');
-
-        const modalHtml = render(modalsMod.default, {
+        const queuedPairHtml = render(sectorCardMod.default, {
             props: {
-                isSectorModalOpen: false,
-                draftSectorName: '',
-                draftSectorPct: 0,
-                draftSectorMax: 100,
-                draftSelectedAssets: [],
-                draftIsSyndicateSector: false,
-                draftSettlementConfig: {
-                    targetAsset: {
-                        ticker: 'KAS',
-                        name: 'Kaspa',
-                        assetClass: 'Native L1',
-                        spotPrice: 0,
-                        theme: { hex: '#18C6A5', pastel: '#99f6e4' }
-                    },
-                    payoutAddress: '',
-                    autoPayout: true,
-                    mode: 'epoch',
-                    threshold: 50,
-                    appointmentDate: '',
-                    appointmentTime: '17:00'
+                sector: {
+                    id: 'pair-q',
+                    name: 'KAS / SILO',
+                    allocationBps: 0,
+                    allocationPercentage: 0,
+                    routeMode: 'auto-lp',
+                    pendingKaspa: 0,
+                    width: 6,
+                    settlementConfig: {
+                        targetAsset: {
+                            ticker: 'SILO',
+                            name: 'Silo',
+                            assetClass: 'DeFi',
+                            spotPrice: 0.004,
+                            theme: { hex: '#18C6A5', pastel: '#99f6e4' }
+                        },
+                        pairReserve: {
+                            status: 'QUEUED',
+                            baseTicker: 'KAS',
+                            partnerTicker: 'SILO',
+                            baseBalanceAtomic: '5000000000',
+                            partnerBalanceAtomic: '0',
+                            heldBaseAtomic: '5000000000',
+                            queuedBaseAtomic: '5000000000',
+                            targetPartnerAtomic: '100000000000',
+                            accruedFeesUsdMicros: '0',
+                            feeRateBps: 100,
+                            updatedAt: 1700000000000
+                        },
+                        payoutAddress: 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e',
+                        autoPayout: true,
+                        mode: 'epoch',
+                        threshold: 50,
+                        appointmentDate: '',
+                        appointmentTime: '17:00'
+                    }
                 },
-                settlementModalSilo: null,
-                editSectorName: '',
-                editSettlementParams: {
-                    targetAsset: {
-                        ticker: 'KAS',
-                        name: 'Kaspa',
-                        assetClass: 'Native L1',
-                        spotPrice: 0,
-                        theme: { hex: '#18C6A5', pastel: '#99f6e4' }
-                    },
-                    payoutAddress: '',
-                    autoPayout: true,
-                    mode: 'epoch',
-                    threshold: 50,
-                    appointmentDate: '',
-                    appointmentTime: '17:00'
-                },
-                editSelectedAssets: [],
-                isSigningSettlement: false,
-                isVaultModalOpen: true,
                 displayHashrate: 10,
+                unallocatedPercentage: 50,
+                dragSectorId: null,
+                dropTargetSectorId: null,
+                shimmerTargetId: null,
                 mineableVaultMap: new Map(),
                 savedBankRailLast4: null,
                 savedBankRailMethod: 'ACH',
-                onUpdateDraftPct: () => {},
-                onUpdateDraftHash: () => {},
-                onCreateSector: async () => {},
-                onSaveSettlementParams: async () => {},
-                onEqualizeSecondaryWeights: () => {},
-                onAdjustSecondaryPlantWeight: () => {},
-                onRemoveAssetFromSector: () => {},
-                onAddOrToggleAssetInSector: () => {}
+                livePricingUnavailable: false,
+                resolveChainAddressForTicker: () => 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e',
+                estimateSectorDailyKas: () => 50,
+                estimateSectorDailyUsd: () => 6.5,
+                onDragStart: () => {},
+                onDragEnd: () => {},
+                onDragOver: () => {},
+                onDragLeave: () => {},
+                onDrop: () => {},
+                onToggleWidth: () => {},
+                onDeleteSector: () => {},
+                onInputPct: () => {},
+                onInputHash: () => {},
+                onSliderInput: () => {},
+                onSliderChange: () => {},
+                onCommitUpdate: () => {},
+                onSnapMaxRemaining: () => {},
+                onFundPair: () => {},
+                onCancelOrWithdrawPair: async () => {}
             }
         }).body;
-        expect(modalHtml).toContain('register-vault-lock-modal');
+        const queuedText = queuedPairHtml.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
+        expect(queuedText).toContain('KAS / SILO');
+        expect(queuedPairHtml).toContain('pair-status-queued-pair-q');
+        expect(queuedPairHtml).toContain('pair-cancel-btn-pair-q');
+        expect(queuedText).toContain('CANCEL');
+        expect(queuedText).not.toContain('50% KAS Pool Split');
+        expect(queuedPairHtml).not.toContain('sector-pair-swap-btn-pair-q');
+
+        const activePairHtml = render(sectorCardMod.default, {
+            props: {
+                sector: {
+                    id: 'pair-a',
+                    name: 'KAS / SILO',
+                    allocationBps: 5000,
+                    allocationPercentage: 50,
+                    routeMode: 'auto-lp',
+                    pendingKaspa: 0,
+                    width: 6,
+                    settlementConfig: {
+                        targetAsset: {
+                            ticker: 'SILO',
+                            name: 'Silo',
+                            assetClass: 'DeFi',
+                            spotPrice: 0.004,
+                            theme: { hex: '#18C6A5', pastel: '#99f6e4' }
+                        },
+                        pairReserve: {
+                            status: 'ACTIVE',
+                            baseTicker: 'KAS',
+                            partnerTicker: 'SILO',
+                            baseBalanceAtomic: '5000000000',
+                            partnerBalanceAtomic: '100000000000',
+                            heldBaseAtomic: '5000000000',
+                            queuedBaseAtomic: '0',
+                            targetPartnerAtomic: '100000000000',
+                            accruedFeesUsdMicros: '1250000',
+                            feeRateBps: 100,
+                            updatedAt: 1700000000000
+                        },
+                        payoutAddress: 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e',
+                        autoPayout: true,
+                        mode: 'epoch',
+                        threshold: 50,
+                        appointmentDate: '',
+                        appointmentTime: '17:00'
+                    }
+                },
+                displayHashrate: 10,
+                unallocatedPercentage: 50,
+                dragSectorId: null,
+                dropTargetSectorId: null,
+                shimmerTargetId: null,
+                mineableVaultMap: new Map(),
+                savedBankRailLast4: null,
+                savedBankRailMethod: 'ACH',
+                livePricingUnavailable: false,
+                resolveChainAddressForTicker: () => 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e',
+                estimateSectorDailyKas: () => 50,
+                estimateSectorDailyUsd: () => 6.5,
+                onDragStart: () => {},
+                onDragEnd: () => {},
+                onDragOver: () => {},
+                onDragLeave: () => {},
+                onDrop: () => {},
+                onToggleWidth: () => {},
+                onDeleteSector: () => {},
+                onInputPct: () => {},
+                onInputHash: () => {},
+                onSliderInput: () => {},
+                onSliderChange: () => {},
+                onCommitUpdate: () => {},
+                onSnapMaxRemaining: () => {},
+                onFundPair: () => {},
+                onCancelOrWithdrawPair: async () => {}
+            }
+        }).body;
+        const activeText = activePairHtml.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
+        expect(activeText).toContain('KAS / SILO');
+        expect(activeText).toContain('+$1.25');
+        expect(activePairHtml).toContain('pair-fund-btn-pair-a');
+        expect(activePairHtml).toContain('pair-withdraw-btn-pair-a');
+        expect(activePairHtml).toContain('TH/s');
+        expect(activeText).not.toContain('APY');
+        const pairCardHtml = activePairHtml;
+
+        const sectorCardHtmlOnline = render(sectorCardMod.default, {
+            props: {
+                sector: {
+                    id: 'sec-1',
+                    name: 'USDC-SPLIT',
+                    allocationBps: 3333,
+                    allocationPercentage: 33.33,
+                    routeMode: 'swap',
+                    pendingKaspa: 0,
+                    width: 6,
+                    settlementConfig: {
+                        targetAsset: {
+                            ticker: 'USDC',
+                            name: 'USD Coin',
+                            assetClass: 'Stablecoin',
+                            spotPrice: 1,
+                            theme: { hex: '#3B82F6', pastel: '#bfdbfe' }
+                        },
+                        payoutAddress: '0x1111111111111111111111111111111111111111',
+                        autoPayout: true,
+                        mode: 'epoch',
+                        threshold: 50,
+                        appointmentDate: '',
+                        appointmentTime: '17:00'
+                    }
+                },
+                displayHashrate: 10,
+                unallocatedPercentage: 66.67,
+                dragSectorId: null,
+                dropTargetSectorId: null,
+                shimmerTargetId: null,
+                mineableVaultMap: new Map(),
+                savedBankRailLast4: null,
+                savedBankRailMethod: 'ACH',
+                livePricingUnavailable: false,
+                resolveChainAddressForTicker: () => '0x1111111111111111111111111111111111111111',
+                estimateSectorDailyKas: () => 25,
+                estimateSectorDailyUsd: () => 3.25,
+                onDragStart: () => {},
+                onDragEnd: () => {},
+                onDragOver: () => {},
+                onDragLeave: () => {},
+                onDrop: () => {},
+                onToggleWidth: () => {},
+                onDeleteSector: () => {},
+                onInputPct: () => {},
+                onInputHash: () => {},
+                onSliderInput: () => {},
+                onSliderChange: () => {},
+                onCommitUpdate: () => {},
+                onSnapMaxRemaining: () => {},
+                onOpenVaultLock: () => {}
+            }
+        }).body;
+        expect(sectorCardHtmlOnline).toContain('~25.0 KAS/d');
+        expect(sectorCardHtmlOnline).toContain('$3.25/d');
+
+        // Clean MINE layout: +Split/+Pair action bar, mobile switcher, zero drawers or Lock Vault clutter
+        const opsHtml = render(opsViewMod.default, { props: {} }).body;
+        expect(opsHtml).toContain('ops-splits-action-bar');
+        expect(opsHtml).toContain('ops-add-split-btn');
+        expect(opsHtml).toContain('ops-add-pair-btn');
+        expect(opsHtml).toContain('+ Split');
+        expect(opsHtml).toContain('+ Pair');
+        expect(opsHtml).not.toContain('sovereign-vault-locks-section');
+        expect(opsHtml).not.toContain('sovereign-thermostat-section');
+        expect(opsHtml).not.toContain('sovereign-receipts-section');
+        expect(opsHtml).not.toContain('sidebar-solvency-badge');
+        expect(opsHtml).not.toContain('100% Reserve Verified');
+        expect(opsHtml).toContain('mobile-column-switcher');
+        expect(opsHtml).toContain('mobile-col-tab-SPLITS');
+        expect(opsHtml).toContain('mobile-col-tab-RIGS');
+        expect(opsHtml).toContain('mobile-col-tab-REWARDS');
+        expect(opsHtml).toContain('live-pricing-unavailable-banner');
+
+        const baseModalProps = {
+            isSectorModalOpen: true,
+            draftSectorName: 'KAS / USDC',
+            draftSectorPct: 50,
+            draftSectorMax: 100,
+            draftSelectedAssets: [
+                { ticker: 'KAS', name: 'Kaspa', assetClass: 'Native L1', weightPct: 50, theme: { hex: '#18C6A5', pastel: '#99f6e4' } },
+                { ticker: 'USDC', name: 'USD Coin', assetClass: 'Stablecoin', weightPct: 50, theme: { hex: '#3B82F6', pastel: '#bfdbfe' } }
+            ],
+            draftIsSyndicateSector: false,
+            draftSettlementConfig: {
+                targetAsset: {
+                    ticker: 'USDC',
+                    name: 'USD Coin',
+                    assetClass: 'Stablecoin',
+                    spotPrice: 0,
+                    theme: { hex: '#3B82F6', pastel: '#bfdbfe' }
+                },
+                payoutAddress: '0x1111111111111111111111111111111111111111',
+                autoPayout: true,
+                mode: 'epoch',
+                threshold: 50,
+                appointmentDate: '',
+                appointmentTime: '17:00'
+            },
+            settlementModalSilo: null,
+            editSectorName: '',
+            editSettlementParams: {
+                targetAsset: {
+                    ticker: 'KAS',
+                    name: 'Kaspa',
+                    assetClass: 'Native L1',
+                    spotPrice: 0,
+                    theme: { hex: '#18C6A5', pastel: '#99f6e4' }
+                },
+                payoutAddress: '',
+                autoPayout: true,
+                mode: 'epoch',
+                threshold: 50,
+                appointmentDate: '',
+                appointmentTime: '17:00'
+            },
+            editSelectedAssets: [],
+            isSigningSettlement: false,
+            isVaultModalOpen: false,
+            displayHashrate: 10,
+            mineableVaultMap: new Map(),
+            savedBankRailLast4: null,
+            savedBankRailMethod: 'ACH',
+            onUpdateDraftPct: () => {},
+            onUpdateDraftHash: () => {},
+            onCreateSector: async () => {},
+            onSaveSettlementParams: async () => {},
+            onEqualizeSecondaryWeights: () => {},
+            onAdjustSecondaryPlantWeight: () => {},
+            onRemoveAssetFromSector: () => {},
+            onAddOrToggleAssetInSector: () => {}
+        };
+
+        const modalPairWalletHtml = render(modalsMod.default, {
+            props: {
+                ...baseModalProps,
+                sectorModalMode: 'pair',
+                pairFundMode: 'WALLET'
+            }
+        }).body;
+        expect(modalPairWalletHtml).toContain('>PAIR<');
+        expect(modalPairWalletHtml).toContain('pair-flow-panel');
+        expect(modalPairWalletHtml).toContain('pair-base-select');
+        expect(modalPairWalletHtml).toContain('pair-partner-select');
+        expect(modalPairWalletHtml).not.toContain('(Optional)');
+        expect(modalPairWalletHtml).not.toContain('80/20');
+        expect(modalPairWalletHtml).not.toContain('pair-swap-modal');
+        expect(modalPairWalletHtml).not.toMatch(/\bAPY\b/);
+        expect(modalPairWalletHtml).toContain('pair-fee-rate-row');
+        expect(modalPairWalletHtml).toContain('0.3%');
+        expect(modalPairWalletHtml).toContain('1.0%');
+        expect(modalPairWalletHtml).toContain('2.5%');
+        expect(modalPairWalletHtml).toContain('pair-wallet-qf-25');
+        expect(modalPairWalletHtml).toContain('pair-wallet-qf-100');
+        expect(modalPairWalletHtml).toContain('pair-hashrate-slider-row');
+        expect(modalPairWalletHtml).toContain('TH/s');
+        expect(modalPairWalletHtml).toContain('>PAIR<');
+
+        const swapPairHtml = render(pairPanelMod.default, {
+            props: {
+                mode: 'swap',
+                baseTicker: 'KAS',
+                partnerTicker: 'SILO',
+                baseAmount: '',
+                feeRateBps: 100
+            }
+        }).body;
+        expect(swapPairHtml).toContain('pair-flow-panel');
+        expect(swapPairHtml).toContain('dex-supply-lp-btn');
+        expect(swapPairHtml).not.toContain('pair-hashrate-slider-row');
+        expect(swapPairHtml).not.toMatch(/\bAPY\b/);
+
+        const modalSplitHtml = render(modalsMod.default, {
+            props: {
+                ...baseModalProps,
+                sectorModalMode: 'split',
+                splitWalletBoostOpen: true,
+                draftSelectedAssets: [
+                    { ticker: 'USDC', name: 'USD Coin', assetClass: 'Stablecoin', weightPct: 100, theme: { hex: '#3B82F6', pastel: '#bfdbfe' } }
+                ]
+            }
+        }).body;
+        expect(modalSplitHtml).toContain('>SPLIT<');
+        expect(modalSplitHtml).toContain('split-auto-title-badge');
+        expect(modalSplitHtml).not.toContain('(Optional)');
+        expect(modalSplitHtml).toContain('open-target-asset-picker-btn');
+        expect(modalSplitHtml).toContain('Hashrate %');
+        expect(modalSplitHtml).toContain('split-hashrate-qf-25');
+        expect(modalSplitHtml).toContain('split-hashrate-qf-100');
+        expect(modalSplitHtml).toContain('split-wallet-boost-toggle');
+        expect(modalSplitHtml).toContain('split-wallet-boost-panel');
+        expect(modalSplitHtml.indexOf('open-target-asset-picker-btn')).toBeLessThan(
+            modalSplitHtml.indexOf('Hashrate %')
+        );
 
         // Ensure zero protocol jargon leaks into rendered retail copy
-        for (const rendered of [sidebarHtmlOffline, sectorCardHtml, opsHtml, modalHtml]) {
+        for (const rendered of [
+            sidebarHtmlOffline,
+            sectorCardHtml,
+            pairCardHtml,
+            queuedPairHtml,
+            opsHtml,
+            modalPairWalletHtml,
+            swapPairHtml,
+            modalSplitHtml
+        ]) {
             const visibleText = rendered
                 .replace(/<style[\s\S]*?<\/style>/gi, ' ')
                 .replace(/<[^>]+>/g, ' ');
@@ -716,6 +1213,54 @@ test.describe('Batch 3 — Operations, Vault Locks, Thermostat & Receipts UI', (
                 /\b(PSKT|KIP-20|KIP-21|OpZkPrecompile|0x20|sompi|ORACLE_HALT|DAA)\b/
             );
         }
+    });
+
+    test('GET /api/state returns live kasOracleUsd & oracleOnline: true from Redis spot price even when :8002 returns 503', async () => {
+        const wallet = 'kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e';
+        const liveRedis = new Map<string, string>([
+            ['session:sess-live', wallet],
+            ['oracle:spot:KAS_USDC', '0.026625000000000003'],
+            ['oracle:change24h:KAS_USDC', '2.918']
+        ]);
+        const stateRoute = await loadStateRouteWithMocks({
+            redisMap: liveRedis,
+            fetchImpl: (async () =>
+                new Response(JSON.stringify({ error: 'service unavailable' }), { status: 503 })) as typeof fetch
+        });
+
+        const liveRes = await stateRoute.GET({
+            cookies: { get: (name: string) => (name === 'perennia_session' ? 'sess-live' : undefined) },
+            url: new URL('http://localhost/api/state')
+        });
+        expect(liveRes.status).toBe(200);
+        const liveBody = await liveRes.json();
+        expect(liveBody.oracleOnline).toBe(true);
+        expect(liveBody.livePricingUnavailable).toBe(false);
+        expect(liveBody.kasOracleUsd).toBeCloseTo(0.026625, 8);
+        expect(liveBody.kasOracleUsdE8).toBe('2662500');
+        expect(liveBody.kasChange24h).toBeCloseTo(2.918, 3);
+
+        // Missing Redis spot price must fail closed with null (zero 0.15 fallback)
+        const offlineRedis = new Map<string, string>([['session:sess-offline', wallet]]);
+        const offlineStateRoute = await loadStateRouteWithMocks({
+            redisMap: offlineRedis,
+            fetchImpl: (async () =>
+                new Response(JSON.stringify({ error: 'service unavailable' }), { status: 503 })) as typeof fetch
+        });
+        const offlineRes = await offlineStateRoute.GET({
+            cookies: { get: (name: string) => (name === 'perennia_session' ? 'sess-offline' : undefined) },
+            url: new URL('http://localhost/api/state')
+        });
+        expect(offlineRes.status).toBe(200);
+        const offlineBody = await offlineStateRoute.GET({
+            cookies: { get: (name: string) => (name === 'perennia_session' ? 'sess-offline' : undefined) },
+            url: new URL('http://localhost/api/state')
+        }).then((r: Response) => r.json());
+        expect(offlineRes.status).toBe(200);
+        expect(offlineBody.oracleOnline).toBe(false);
+        expect(offlineBody.livePricingUnavailable).toBe(true);
+        expect(offlineBody.kasOracleUsd).toBeNull();
+        expect(offlineBody.kasOracleUsdE8).toBeNull();
     });
 
     test('all 5 Batch 3 src/ files and spec preserve LF line endings and obey hard UI & non-custodial invariants', () => {

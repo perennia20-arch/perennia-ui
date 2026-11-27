@@ -11,6 +11,10 @@
     import { settingsStore } from '$lib/stores/settings.svelte';
     import { MASTER_ADMIN_ADDRESS } from '$lib/stores/kaspaStore.svelte';
     import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
+    import {
+        hydrateSectorTargetAssets,
+        resolveTargetNetworkForAsset
+    } from '$lib/components/operations/operationsHelpers';
     import NetworkRow from '$lib/components/treasury/NetworkRow.svelte';
 
     let activeHoverSegment = $state<string | null>(null);
@@ -27,6 +31,9 @@
     let targetAutoOpenNetwork = $state<string | null>(null);
     let targetAutoOpenToken = $state<string | null>(null);
     let activeNetworks = $state<string[]>(['BTC', 'ETH', 'SOL']);
+    let hiddenNetworks = $state<string[]>([]);
+    let timeframeHistoryMap = $state<Record<string, number[]>>({});
+    let timeframeFetchSeq = 0;
     let isDirectorConsoleOpen = $state(true);
     let activeDirectorTab = $state<
         | 'reconciliation'
@@ -197,31 +204,177 @@
             0
         )
     );
-    let totalBatchQueueUsd = $derived(
-        treasury.visibleAssets.reduce(
-            (sum, a) => sum + (a.synthetic || 0) * (a.spotPrice || 0),
-            0
-        )
-    );
-    let totalStakedLpUsd = $derived(
-        treasury.visibleAssets.reduce(
-            (sum, a) => sum + (a.lpStaked || 0) * (a.spotPrice || 0),
-            0
+    let totalBatchQueueUsd = $derived(treasury.totalPendingUsd);
+    let totalStakedLpUsd = $derived(treasury.totalPooledUsd);
+
+    $effect(() => {
+        treasury.syncPoolAndPendingFromSectors(operations.sectors || []);
+    });
+
+    let mineSectorAssets = $derived.by(() => {
+        const list: Array<{ ticker: string; name: string; network: string; assetClass?: string }> = [];
+        const seen = new Set<string>();
+        for (const sec of operations.sectors || []) {
+            const items =
+                sec.routeMode === 'auto-lp'
+                    ? hydrateSectorTargetAssets(sec)
+                    : sec.settlementConfig?.targetAssets?.length
+                      ? sec.settlementConfig.targetAssets
+                      : sec.settlementConfig?.targetAsset
+                        ? [sec.settlementConfig.targetAsset]
+                        : [];
+            for (const item of items) {
+                const ticker = String(item?.ticker || '').trim().toUpperCase();
+                if (!ticker || ticker === 'USD' || seen.has(ticker)) continue;
+                seen.add(ticker);
+                const reg = treasury.getAsset(ticker);
+                const net = String(
+                    item?.network || reg?.network || resolveTargetNetworkForAsset(ticker) || ticker
+                )
+                    .trim()
+                    .toUpperCase();
+                list.push({
+                    ticker,
+                    name: item?.name || reg?.name || ticker,
+                    network: net === 'USD' ? 'KAS' : net,
+                    assetClass: item?.assetClass || reg?.assetClass || 'DeFi'
+                });
+            }
+        }
+        return list;
+    });
+
+    let mineSectorNetworks = $derived(
+        Array.from(
+            new Set(
+                mineSectorAssets
+                    .map((a) => a.network)
+                    .filter((n) => n && n !== 'KAS' && n !== 'USD')
+            )
         )
     );
 
     let autoActiveNetworks = $derived.by(() => {
-        const nets = new Set<string>(activeNetworks);
-        treasury.visibleAssets.forEach((asset) => {
-            if (
-                asset.network &&
-                asset.network !== 'KAS' &&
-                asset.network !== 'USD'
-            ) {
-                nets.add(asset.network);
+        const hiddenSet = new Set(hiddenNetworks.map((h) => h.toUpperCase()));
+        const mineSet = new Set(mineSectorNetworks.map((m) => m.toUpperCase()));
+        const nets = new Set<string>();
+        for (const n of activeNetworks) {
+            const clean = String(n || '').toUpperCase();
+            if (clean && clean !== 'KAS' && clean !== 'USD' && (!hiddenSet.has(clean) || mineSet.has(clean))) {
+                nets.add(clean);
             }
-        });
+        }
+        for (const asset of treasury.visibleAssets) {
+            const net = String(asset.network || '').toUpperCase();
+            if (net && net !== 'KAS' && net !== 'USD' && (!hiddenSet.has(net) || mineSet.has(net))) {
+                nets.add(net);
+            }
+        }
+        for (const mNet of mineSet) {
+            nets.add(mNet);
+        }
         return Array.from(nets);
+    });
+
+    let vaultTimeframeDelta = $derived.by(() => {
+        let startUsd = 0;
+        let currentUsd = 0;
+        let snapshotAssetCount = 0;
+        for (const asset of treasury.visibleAssets) {
+            const totalBal =
+                (asset.onChain || 0) + (asset.synthetic || 0) + (asset.lpStaked || 0);
+            if (totalBal <= 0) continue;
+            const pts = timeframeHistoryMap[asset.ticker];
+            if (!Array.isArray(pts) || pts.length < 2) continue;
+            const firstPx = Number(pts[0] || 0);
+            const endPx = Number(asset.spotPrice || pts[pts.length - 1] || 0);
+            if (firstPx <= 0 || endPx <= 0) continue;
+            startUsd += totalBal * firstPx;
+            currentUsd += totalBal * endPx;
+            snapshotAssetCount += 1;
+        }
+        if (snapshotAssetCount === 0 || startUsd <= 0) {
+            return {
+                label: '$0.00 (0.00%)',
+                isPositive: true
+            };
+        }
+        const deltaUsd = currentUsd - startUsd;
+        const deltaPct = ((currentUsd - startUsd) / startUsd) * 100;
+        const sign = deltaUsd >= 0 ? '+' : '-';
+        const pctStr = `${sign}${Math.abs(deltaPct).toFixed(2)}%`;
+        if (displayUnit === 'token') {
+            const kasSpot = treasury.getAsset('KAS')?.spotPrice || 0;
+            if (kasSpot > 0) {
+                const deltaKas = deltaUsd / kasSpot;
+                const kasStr = Math.abs(deltaKas).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 4
+                });
+                return {
+                    label: `${sign}${kasStr} KAS (${pctStr})`,
+                    isPositive: deltaUsd >= 0
+                };
+            }
+        }
+        const usdStr = Math.abs(deltaUsd).toLocaleString('en-US', {
+            minimumFractionDigits: settingsStore.fiatDecimals,
+            maximumFractionDigits: settingsStore.fiatDecimals
+        });
+        return {
+            label: `${sign}$${usdStr} (${pctStr})`,
+            isPositive: deltaUsd >= 0
+        };
+    });
+
+    async function loadVaultTimeframeSnapshots(tf: string) {
+        if (!browser || !identity.isWalletConnected) {
+            timeframeHistoryMap = {};
+            return;
+        }
+        const heldTickers = Array.from(
+            new Set([
+                'KAS',
+                ...treasury.visibleAssets
+                    .filter((a) => (a.onChain || 0) + (a.synthetic || 0) + (a.lpStaked || 0) > 0)
+                    .map((a) => a.ticker)
+            ])
+        ).slice(0, 8);
+        const seq = ++timeframeFetchSeq;
+        const nextMap: Record<string, number[]> = {};
+        await Promise.all(
+            heldTickers.map(async (tick) => {
+                try {
+                    const res = await fetch(
+                        `/api/prices?history=${encodeURIComponent(tick)}&timeframe=${encodeURIComponent(tf)}`
+                    );
+                    if (!res.ok) return;
+                    const data = await res.json().catch(() => null);
+                    if (Array.isArray(data?.points) && data.points.length >= 2) {
+                        nextMap[tick] = data.points
+                            .map((n: unknown) => Number(n))
+                            .filter((n: number) => Number.isFinite(n) && n > 0);
+                    }
+                } catch {
+                    // Ignore missing timeframe snapshot
+                }
+            })
+        );
+        if (seq === timeframeFetchSeq) {
+            timeframeHistoryMap = nextMap;
+        }
+    }
+
+    $effect(() => {
+        const tf = timeframe;
+        const connected = identity.isWalletConnected;
+        const assetSig = treasury.visibleAssets
+            .filter((a) => (a.onChain || 0) > 0)
+            .map((a) => a.ticker)
+            .join(',');
+        if (browser && connected && assetSig !== undefined) {
+            untrack(() => loadVaultTimeframeSnapshots(tf));
+        }
     });
 
     let targetedSubAssetsMap = $derived.by(() => {
@@ -649,6 +802,8 @@
                 onChain: reg.onChain || t.onChain || t.balance || 0,
                 synthetic: reg.synthetic || t.synthetic || 0,
                 balance: reg.onChain || t.onChain || t.balance || 0,
+                stakedBalance: reg.stakedBalance || t.stakedBalance || 0,
+                pendingBalance: reg.pendingBalance || t.pendingBalance || 0,
                 price: reg.spotPrice || t.price || 0
             });
         });
@@ -662,11 +817,31 @@
                 synthetic: t.synthetic,
                 balance: t.onChain,
                 stakedBalance: t.stakedBalance,
+                pendingBalance: t.pendingBalance,
                 price: t.spotPrice,
                 contract: t.contract,
                 badge: t.assetClass
             });
         });
+        for (const ms of mineSectorAssets) {
+            if (ms.network === networkTicker && ms.ticker !== networkTicker && !map.has(ms.ticker)) {
+                const reg = treasury.getAsset(ms.ticker);
+                map.set(ms.ticker, {
+                    symbol: ms.ticker,
+                    name: ms.name || reg.name || ms.ticker,
+                    hex: reg?.theme?.hex || '#18C6A5',
+                    imgUrl: reg?.imgUrl || '',
+                    onChain: reg?.onChain || 0,
+                    synthetic: reg?.synthetic || 0,
+                    balance: reg?.onChain || 0,
+                    stakedBalance: reg?.stakedBalance || 0,
+                    pendingBalance: reg?.pendingBalance || 0,
+                    price: reg?.spotPrice || 0,
+                    contract: reg?.contract || ms.ticker,
+                    badge: ms.assetClass || reg?.assetClass || 'DeFi'
+                });
+            }
+        }
         return Array.from(map.values());
     }
 
@@ -677,7 +852,10 @@
                 (a) => a.network === networkTicker && a.ticker !== networkTicker
             )
             .map((a) => a.ticker);
-        return Array.from(new Set([...manual, ...autoTokens]));
+        const mineTokens = mineSectorAssets
+            .filter((m) => m.network === networkTicker && m.ticker !== networkTicker)
+            .map((m) => m.ticker);
+        return Array.from(new Set([...manual, ...autoTokens, ...mineTokens]));
     }
 
     let visibleSecondaryNetworks = $derived.by(() => {
@@ -687,7 +865,7 @@
             const net = secondaryNetworks.find((n) => n.ticker === ticker);
             if (net) visible.push(net);
         });
-        if (isManagingNetworks || networkSearchQuery) {
+        if (networkSearchQuery.trim().length > 0) {
             secondaryNetworks.forEach((net) => {
                 if (
                     net.ticker !== 'KAS' &&
@@ -715,6 +893,34 @@
             );
         });
     });
+
+    function addChainCard(ticker: string) {
+        const clean = ticker.toUpperCase();
+        if (clean === 'KAS' || clean === 'USD') return;
+        hiddenNetworks = hiddenNetworks.filter((h) => h !== clean);
+        const derivedAddr = resolveSovereignAddressForChain(
+            clean,
+            identity.sovereignKeys,
+            identity.activeAddress
+        );
+        treasury.updateAsset(clean, { address: derivedAddr });
+        if (!activeNetworks.includes(clean)) {
+            activeNetworks = [...activeNetworks, clean];
+        }
+        if (!secondaryNetworks.some((n) => n.ticker === clean)) {
+            customNetworks = [...customNetworks, { ticker: clean, standard: 'Native L1' }];
+        }
+        ui.triggerMicroBadge(`asset_${clean}`, `+${clean} CHAIN ADDED ✓`, '#18C6A5');
+    }
+
+    function removeChainCard(ticker: string) {
+        const clean = ticker.toUpperCase();
+        if (clean === 'KAS' || clean === 'USD') return;
+        activeNetworks = activeNetworks.filter((t) => t !== clean);
+        if (!hiddenNetworks.includes(clean)) {
+            hiddenNetworks = [...hiddenNetworks, clean];
+        }
+    }
 
     function handleDragStart(event: DragEvent, ticker: string) {
         draggedNetwork = ticker;
@@ -852,6 +1058,7 @@
             if (sym !== 'KAS' && !activeNetworks.includes(sym)) {
                 activeNetworks = [...activeNetworks, sym];
             }
+            hiddenNetworks = hiddenNetworks.filter((h) => h !== sym);
             targetAutoOpenNetwork = sym;
             targetAutoOpenToken = null;
         } else {
@@ -1058,6 +1265,29 @@
                 });
             }
         });
+        for (const secNet of secondaryNetworks) {
+            const chainAsset = treasury.getAsset(secNet.ticker);
+            if (
+                secNet.ticker.toUpperCase().includes(query) ||
+                secNet.standard.toUpperCase().includes(query) ||
+                chainAsset.name.toUpperCase().includes(query)
+            ) {
+                const chainKey = `${secNet.ticker}:${secNet.ticker}`;
+                if (!resultsMap.has(chainKey)) {
+                    resultsMap.set(chainKey, {
+                        symbol: secNet.ticker,
+                        name: chainAsset.name || secNet.ticker,
+                        hex: chainAsset.theme?.hex || '#18C6A5',
+                        imgUrl: chainAsset.imgUrl || '',
+                        price: chainAsset.spotPrice || 0,
+                        contract: secNet.ticker,
+                        network: secNet.ticker,
+                        badge: secNet.standard,
+                        isNativeChain: true
+                    });
+                }
+            }
+        }
         if (
             query.length >= 2 &&
             query.length <= 8 &&
@@ -1282,6 +1512,7 @@
         if (browser && identity.activeAddress && hasLoadedLocalState) {
             const stateToSave = {
                 activeNetworks,
+                hiddenNetworks,
                 userCustomTokens,
                 selectedTokensMap,
                 customNetworks
@@ -1322,6 +1553,8 @@
                         new Set(data.activeNetworks)
                     ).filter((t: any) => t !== 'KAS') as string[];
                 }
+                if (Array.isArray(data.hiddenNetworks))
+                    hiddenNetworks = data.hiddenNetworks.map((t: any) => String(t).toUpperCase());
                 if (data.userCustomTokens)
                     userCustomTokens = data.userCustomTokens;
                 if (data.selectedTokensMap)
@@ -1347,6 +1580,8 @@
                             new Set(remoteData.activeNetworks)
                         ).filter((t: any) => t !== 'KAS') as string[];
                     }
+                    if (Array.isArray(remoteData.hiddenNetworks))
+                        hiddenNetworks = remoteData.hiddenNetworks.map((t: any) => String(t).toUpperCase());
                     if (remoteData.userCustomTokens)
                         userCustomTokens = remoteData.userCustomTokens;
                     if (remoteData.selectedTokensMap)
@@ -1805,9 +2040,6 @@
                                     ADMIN
                                 </span>
                             </div>
-                            <span class="text-[9px] font-mono text-neutral-400 mt-0.5">
-                                Earned Fee Revenue vs. Custodial Miner Block Rewards (22:00 UTC Settlement Sweep)
-                            </span>
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -2280,9 +2512,6 @@
                                             <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
                                                 Phase 2 Direct Sovereign ACH Reserve ($250,000 USDC Target)
                                             </span>
-                                            <span class="text-[8px] text-neutral-400">
-                                                Accumulates earned USDC fee revenue toward unlocking direct 0.05% native ACH clearing.
-                                            </span>
                                         </div>
                                         <span class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-[#18C6A5]/45 text-[10px] font-black text-[#18C6A5]">
                                             ${Number(
@@ -2329,9 +2558,6 @@
                                         <div class="flex flex-col gap-0.5 border-b border-white/10 pb-2">
                                             <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">
                                                 Strict Corporate Solvency Gate
-                                            </span>
-                                            <span class="text-[8px] text-neutral-400">
-                                                Custodial miner block rewards and user LP reservoirs are cryptographically excluded from corporate sweeps.
                                             </span>
                                         </div>
                                         <div class="flex flex-col gap-2 text-[10px]">
@@ -2567,6 +2793,12 @@
                                 maximumFractionDigits: settingsStore.fiatDecimals
                             })}
                         </span>
+                        <span
+                            data-testid="vault-value-timeframe-delta"
+                            class="text-xs sm:text-sm font-mono font-bold tabular-nums mt-1 {vaultTimeframeDelta.isPositive ? 'text-[#18C6A5]' : 'text-red-400'}"
+                        >
+                            {vaultTimeframeDelta.label}
+                        </span>
                         {#if identity.isCorporateAdmin}
                             <div class="flex flex-wrap items-center gap-2 mt-2 text-[9px] font-mono">
                                 <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
@@ -2582,12 +2814,12 @@
                     <div class="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto relative z-20">
                         <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 overflow-x-auto hide-scrollbar">
                             {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
-                                <button type="button" onclick={() => (timeframe = tf as any)} class="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {timeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">{tf}</button>
+                                <button type="button" data-testid="vault-tf-{tf}" onclick={() => (timeframe = tf as any)} class="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {timeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">{tf}</button>
                             {/each}
                         </div>
                         <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0">
-                            <button type="button" onclick={() => (displayUnit = 'token')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">Token</button>
-                            <button type="button" onclick={() => (displayUnit = 'usd')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">USD</button>
+                            <button type="button" data-testid="vault-unit-token" onclick={() => (displayUnit = 'token')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">Token</button>
+                            <button type="button" data-testid="vault-unit-usd" onclick={() => (displayUnit = 'usd')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">USD</button>
                         </div>
                     </div>
                 </div>
@@ -2618,70 +2850,53 @@
             </div>
         </div>
 
-        <!-- FULL-WIDTH MOBILE SEARCH BAR -->
+        <!-- FULL-WIDTH SEARCH BAR -->
         <div class="flex flex-col gap-3 sm:gap-4 w-full relative">
-            <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-3.5 sm:p-4 lg:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                <div class="flex items-center justify-between gap-2 w-full lg:w-auto">
-                    <button type="button" onclick={() => (isAllNetworksDrawerOpen = !isAllNetworksDrawerOpen)} class="flex items-center gap-3 text-left bg-transparent border-none cursor-pointer min-w-0">
-                        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center text-[#18C6A5] shrink-0">
-                            <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                        </div>
-                        <span class="text-xs sm:text-sm font-bold uppercase tracking-widest text-white truncate">Wallet</span>
-                    </button>
-                    <div class="flex lg:hidden items-center gap-2 shrink-0">
-                        <button type="button" onclick={() => (isOrganizing = !isOrganizing)} class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-bold uppercase tracking-wider text-neutral-300 hover:text-white cursor-pointer">{isOrganizing ? 'Done' : 'Organize'}</button>
-                        <button type="button" onclick={() => { isManagingNetworks = !isManagingNetworks; if (isManagingNetworks) isAllNetworksDrawerOpen = true; }} class="tactile-btn px-3 py-2 rounded-xl text-[9px] font-bold uppercase tracking-wider cursor-pointer {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}">{isManagingNetworks ? 'Done' : 'Chains'}</button>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-2.5 w-full lg:w-auto min-w-0">
-                    <div class="relative w-full lg:w-[360px] min-w-0">
-                        {#if ui.microBadges['treasury_search']}
-                            <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">{ui.microBadges['treasury_search'].label}</div>
-                        {/if}
-                        <input
-                            type="text"
-                            data-testid="treasury-token-search-input"
-                            bind:value={networkSearchQuery}
-                            oninput={() => { if (networkSearchQuery.trim().length > 0) isAllNetworksDrawerOpen = true; handleLiveSearch(); }}
-                            placeholder="Search or add token..."
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-4 text-xs font-mono text-white placeholder-neutral-500 outline-none transition-colors"
-                        />
-                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                        {#if searchResults.length > 0}
-                            <div transition:slide={{ duration: 200 }} class="absolute top-[112%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col">
-                                {#each searchResults as result}
-                                    <div class="flex flex-col gap-2 p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 text-left">
-                                        <div class="flex items-center justify-between gap-2">
-                                            <div class="flex items-center gap-3 min-w-0">
-                                                <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
-                                                    {#if result.imgUrl}
-                                                        <img src={result.imgUrl} class="w-5 h-5 object-contain" alt={result.symbol} onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
-                                                    {:else}
-                                                        <span class="text-xs font-black" style="color: {result.hex}">{result.symbol[0]}</span>
-                                                    {/if}
-                                                </div>
-                                                <div class="flex flex-col min-w-0">
-                                                    <span class="text-xs font-bold text-white flex items-center gap-2">{result.symbol}<span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{result.network}</span></span>
-                                                    <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[160px]">{result.name}</span>
-                                                </div>
+            <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-3.5 sm:p-4 lg:p-5 flex items-center">
+                <div class="relative w-full min-w-0">
+                    {#if ui.microBadges['treasury_search']}
+                        <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">{ui.microBadges['treasury_search'].label}</div>
+                    {/if}
+                    <input
+                        type="text"
+                        data-testid="treasury-token-search-input"
+                        bind:value={networkSearchQuery}
+                        oninput={() => { if (networkSearchQuery.trim().length > 0) isAllNetworksDrawerOpen = true; handleLiveSearch(); }}
+                        placeholder="Search or add token..."
+                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-4 text-xs font-mono text-white placeholder-neutral-500 outline-none transition-colors"
+                    />
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    {#if searchResults.length > 0}
+                        <div transition:slide={{ duration: 200 }} class="absolute top-[112%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col">
+                            {#each searchResults as result}
+                                <div class="flex flex-col gap-2 p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 text-left">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="flex items-center gap-3 min-w-0">
+                                            <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                                                {#if result.imgUrl}
+                                                    <img src={result.imgUrl} class="w-5 h-5 object-contain" alt={result.symbol} onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+                                                {:else}
+                                                    <span class="text-xs font-black" style="color: {result.hex}">{result.symbol[0]}</span>
+                                                {/if}
                                             </div>
-                                            {#if result.price > 0}
-                                                <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums shrink-0">${result.price < 0.01 ? result.price.toFixed(8) : result.price.toFixed(4)}</span>
-                                            {/if}
+                                            <div class="flex flex-col min-w-0">
+                                                <span class="text-xs font-bold text-white flex items-center gap-2">{result.symbol}<span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{result.network}</span></span>
+                                                <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[200px]">{result.name}</span>
+                                            </div>
                                         </div>
-                                        <div class="grid grid-cols-3 gap-1.5 pt-1">
-                                            <button type="button" onclick={() => selectSearchResult(result, 'pay')} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white cursor-pointer">PAY</button>
-                                            <button type="button" onclick={() => selectSearchResult(result, 'receive')} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer">GET</button>
-                                            <button type="button" onclick={() => selectSearchResult(result)} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer">+ ADD</button>
-                                        </div>
+                                        {#if result.price > 0}
+                                            <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums shrink-0">${result.price < 0.01 ? result.price.toFixed(8) : result.price.toFixed(4)}</span>
+                                        {/if}
                                     </div>
-                                {/each}
-                            </div>
-                        {/if}
-                    </div>
-                    <button type="button" onclick={() => (isOrganizing = !isOrganizing)} class="hidden lg:inline-flex tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest text-neutral-300 hover:text-white cursor-pointer shrink-0">{isOrganizing ? 'Done' : 'Organize'}</button>
-                    <button type="button" onclick={() => { isManagingNetworks = !isManagingNetworks; if (isManagingNetworks) isAllNetworksDrawerOpen = true; }} class="hidden lg:inline-flex tactile-btn px-3.5 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-widest cursor-pointer shrink-0 {isManagingNetworks ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-300'}">{isManagingNetworks ? 'Done' : 'Chains'}</button>
+                                    <div class="grid grid-cols-3 gap-1.5 pt-1">
+                                        <button type="button" onclick={() => selectSearchResult(result, 'pay')} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-neutral-200 hover:text-white cursor-pointer">PAY</button>
+                                        <button type="button" onclick={() => selectSearchResult(result, 'receive')} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer">GET</button>
+                                        <button type="button" onclick={() => selectSearchResult(result)} class="tactile-btn py-1.5 px-2 rounded-lg text-[8px] font-mono font-black uppercase text-blue-400 border-blue-500/40 cursor-pointer">+ ADD</button>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
             </div>
 
@@ -2763,6 +2978,9 @@
                                 ledgerEvents={walletActivityEvents}
                                 {coldVaultRulesMap}
                                 onRefreshColdVaultRules={fetchColdVaultRulesAndSysConfig}
+                                canRemoveChain={true}
+                                onAddChain={() => addChainCard(net.ticker)}
+                                onRemoveChain={() => removeChainCard(net.ticker)}
                             />
                         </div>
                     {/each}

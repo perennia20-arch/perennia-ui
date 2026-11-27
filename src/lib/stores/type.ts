@@ -12,6 +12,26 @@ export type AssetClass =
 
 export type RouteMode = 'hold' | 'swap' | 'auto-lp';
 
+export type PairFeeRateBps = 30 | 100 | 250;
+export type PairTermOption = 'OPEN' | '7D' | '30D' | '90D';
+export type PairFundMode = 'WALLET' | 'HASHRATE' | 'BOTH';
+export type PairReserveStatus = 'QUEUED' | 'ACTIVE';
+
+export interface PairReserveState {
+    status: PairReserveStatus;
+    baseTicker: string;
+    partnerTicker: string;
+    baseBalanceAtomic: string;
+    partnerBalanceAtomic: string;
+    heldBaseAtomic: string;
+    queuedBaseAtomic: string;
+    targetPartnerAtomic: string;
+    accruedFeesUsdMicros: string;
+    feeRateBps: PairFeeRateBps;
+    vaultId?: string;
+    updatedAt: number;
+}
+
 export interface ThemeColors {
     hex: string;
     pastel: string;
@@ -41,6 +61,13 @@ export interface SettlementConfig {
     threshold: number;
     appointmentDate: string;
     appointmentTime: string;
+    feeRateBps?: number;
+    swapSpreadBps?: number;
+    rebalanceThresholdBps?: number;
+    term?: PairTermOption;
+    targetDurationDays?: number | null;
+    ownerExit24x7?: boolean;
+    pairReserve?: PairReserveState;
 }
 
 export interface Sector {

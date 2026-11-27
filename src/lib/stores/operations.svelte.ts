@@ -391,6 +391,21 @@ class OperationsStore {
                 bps = 0;
             }
             const secPendingKas = Math.max(0, Number(sec.pendingKaspa || 0));
+            const reserve = sec.settlementConfig?.pairReserve;
+            if (reserve?.status === 'QUEUED') {
+                const partnerTick = String(reserve.partnerTicker || '').trim().toUpperCase();
+                if (partnerTick && partnerTick !== 'KAS') {
+                    const queuedAtomic = parseU128Str(reserve.queuedBaseAtomic || '0');
+                    const queuedBaseFloat =
+                        reserve.baseTicker === 'KAS'
+                            ? Number(formatAtomicToDecimal(queuedAtomic, KAS_DECIMALS, 6, true))
+                            : Number(formatAtomicToDecimal(queuedAtomic, KAS_DECIMALS, 6, true));
+                    userPendingByAsset.set(
+                        partnerTick,
+                        (userPendingByAsset.get(partnerTick) || 0) + queuedBaseFloat
+                    );
+                }
+            }
             if (bps <= 0 && secPendingKas <= 0) continue;
             if (
                 Array.isArray(sec.settlementConfig?.targetAssets) &&
@@ -581,6 +596,40 @@ class OperationsStore {
         };
         this.actionQueue = this.actionQueue.then(execute).catch(execute);
         return this.actionQueue;
+    }
+
+    reconcileQueuedPairFills(getAssetOnChainAtomic: (ticker: string) => U128Str): Sector[] {
+        const activated: Sector[] = [];
+        let changed = false;
+        this.sectors = this.sectors.map((sec) => {
+            const reserve = sec.settlementConfig?.pairReserve;
+            if (!reserve || reserve.status !== 'QUEUED') return sec;
+            const targetAtomic = parseU128Str(reserve.targetPartnerAtomic || '0');
+            if (targetAtomic <= 0n) return sec;
+            const walletAtomic = parseU128Str(getAssetOnChainAtomic(reserve.partnerTicker) || '0');
+            const globalBucket = this.allGlobalPoolBuckets.find(
+                (b) => b.asset.toUpperCase() === reserve.partnerTicker.toUpperCase()
+            );
+            const isFilled = walletAtomic >= targetAtomic || globalBucket?.status === 'READY_FOR_BELL';
+            if (!isFilled) return sec;
+            changed = true;
+            const nextSec: Sector = {
+                ...sec,
+                settlementConfig: {
+                    ...sec.settlementConfig,
+                    pairReserve: {
+                        ...reserve,
+                        status: 'ACTIVE',
+                        partnerBalanceAtomic: targetAtomic.toString(),
+                        queuedBaseAtomic: '0',
+                        updatedAt: Date.now()
+                    }
+                }
+            };
+            activated.push(nextSec);
+            return nextSec;
+        });
+        return changed ? activated : [];
     }
 
     purge() {

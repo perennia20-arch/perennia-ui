@@ -11,6 +11,7 @@ import {
     KAS_DECIMALS,
     LIVE_PRICING_UNAVAILABLE_MESSAGE,
     ORACLE_E8_DECIMALS,
+    formatAtomicToDecimal,
     normalizeAllocationBps,
     parseDecimalToAtomic,
     type EpochPayoutOutboxItem,
@@ -20,6 +21,35 @@ import {
     type U128Str,
     type VaultLockRecord
 } from '$lib/crypto/atomicMath';
+
+function parseLiveSpotStringToE8(raw: unknown): bigint | null {
+    if (typeof raw === 'number') {
+        if (!Number.isFinite(raw) || raw <= 0) return null;
+        try {
+            const e8 = parseDecimalToAtomic(raw, ORACLE_E8_DECIMALS, 'floor');
+            return e8 > 0n ? e8 : null;
+        } catch {
+            return null;
+        }
+    }
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+        if (/^[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) {
+            const e8 = parseDecimalToAtomic(trimmed, ORACLE_E8_DECIMALS, 'floor');
+            return e8 > 0n ? e8 : null;
+        }
+        const numeric = Number(trimmed);
+        if (Number.isFinite(numeric) && numeric > 0) {
+            const e8 = parseDecimalToAtomic(numeric, ORACLE_E8_DECIMALS, 'floor');
+            return e8 > 0n ? e8 : null;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
 
 async function isForgePubliclyUnlocked(): Promise<boolean> {
     const envFlag = String(env.FEATURE_FORGE_PUBLIC || '')
@@ -166,6 +196,8 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             rewardRaw,
             daaRaw,
             kasSpotRaw,
+            pricesJsonRaw,
+            kasChangeRaw,
             forgeUnlocked,
             accrualRes,
             vaultLocksRes,
@@ -192,6 +224,8 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             redis.get('oracle:block_reward').catch(() => null),
             redis.get('pool:virtual_daa_score').catch(() => null),
             redis.get('oracle:spot:KAS_USDC').catch(() => null),
+            redis.get('oracle:spot:prices_json').catch(() => null),
+            redis.get('oracle:change24h:KAS_USDC').catch(() => null),
             isForgePubliclyUnlocked(),
             callUpstreamStateAction(
                 rustBackendUrl,
@@ -331,15 +365,43 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             }
         }
 
-        let kasOracleUsdE8: U128Str | null = null;
-        if (kasSpotRaw) {
+        let parsedPricesJson: Record<
+            string,
+            { usd?: unknown; usd_24h_change?: unknown }
+        > | null = null;
+        if (pricesJsonRaw) {
             try {
-                const parsedE8 = parseDecimalToAtomic(kasSpotRaw.trim(), ORACLE_E8_DECIMALS, 'floor');
-                if (parsedE8 > 0n) {
-                    kasOracleUsdE8 = parsedE8.toString();
-                }
+                parsedPricesJson = JSON.parse(pricesJsonRaw);
             } catch {
-                kasOracleUsdE8 = null;
+                parsedPricesJson = null;
+            }
+        }
+
+        let parsedKasE8 = parseLiveSpotStringToE8(kasSpotRaw);
+        if (!parsedKasE8 && parsedPricesJson) {
+            parsedKasE8 = parseLiveSpotStringToE8(
+                parsedPricesJson?.kaspa?.usd ?? parsedPricesJson?.KAS?.usd
+            );
+        }
+        const kasOracleUsdE8: U128Str | null = parsedKasE8
+            ? parsedKasE8.toString()
+            : null;
+        const kasOracleUsd: number | null = parsedKasE8
+            ? Number(formatAtomicToDecimal(parsedKasE8, ORACLE_E8_DECIMALS))
+            : null;
+        let kasChange24h: number | undefined;
+        const rawChangeCandidate =
+            kasChangeRaw ??
+            parsedPricesJson?.kaspa?.usd_24h_change ??
+            parsedPricesJson?.KAS?.usd_24h_change;
+        if (
+            rawChangeCandidate !== null &&
+            rawChangeCandidate !== undefined &&
+            rawChangeCandidate !== ''
+        ) {
+            const parsedChange = Number(rawChangeCandidate);
+            if (Number.isFinite(parsedChange)) {
+                kasChange24h = parsedChange;
             }
         }
 
@@ -362,8 +424,9 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             accrualRes.ok || vaultLocksRes.ok || valvesRes.ok || solvencyRes.ok;
         const oracleOnline =
             kasOracleUsdE8 !== null &&
-            accrualRes.status !== 503 &&
-            solvencyRes.status !== 503;
+            kasOracleUsd !== null &&
+            Number.isFinite(kasOracleUsd) &&
+            kasOracleUsd > 0;
 
         const matureAccrual = (accrualRes.data?.accrual ?? null) as MatureAccrualSnapshot | null;
         const payoutOutbox = Array.isArray(accrualRes.data?.outbox)
@@ -390,7 +453,9 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             vaultLocks,
             thermostatValves,
             solvencyProof,
+            kasOracleUsd,
             kasOracleUsdE8,
+            ...(kasChange24h !== undefined ? { kasChange24h } : {}),
             engineOnline,
             oracleOnline,
             livePricingUnavailable: !oracleOnline,
