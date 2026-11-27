@@ -2,8 +2,20 @@
 import { json, type RequestHandler, type RequestEvent } from '@sveltejs/kit';
 import { redis } from '$lib/server/redis';
 import { env } from '$env/dynamic/private';
+import {
+    LIVE_PRICING_UNAVAILABLE_MESSAGE,
+    ORACLE_E8_DECIMALS,
+    ceilDivBigInt,
+    parseDecimalToAtomic
+} from '$lib/crypto/atomicMath';
 
+const CANONICAL_SCOPES = ['READ', 'SPLIT', 'SWAP', 'PAIR', 'BOOST'] as const;
+type AgentScope = (typeof CANONICAL_SCOPES)[number];
+
+const CANONICAL_SCOPE_SET = new Set<string>(CANONICAL_SCOPES);
 const MAX_U128 = (1n << 128n) - 1n;
+const MIN_SPEND_USD_MICROS = 1_000_000n;
+const MIN_SOMPI_CAP = 1_000_000_000n; // 10 KAS
 const KASPA_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 
 const FORBIDDEN_AIRLOCK_KEYS = new Set([
@@ -37,6 +49,16 @@ const NO_STORE_HEADERS: Record<string, string> = {
     Pragma: 'no-cache',
     'X-Content-Type-Options': 'nosniff'
 };
+
+interface StoredMandateMeta {
+    keyId: string;
+    cleanWallet: string;
+    prefixedWallet: string;
+    scopes: AgentScope[];
+    effectiveCap24hUsdMicros: string;
+    maxSlippageBps: number;
+    whitelistedAssets: string[];
+}
 
 function kaspaPolymod(values: number[]): bigint {
     let c = 1n;
@@ -74,7 +96,7 @@ function validateAndNormalizeKaspaWallet(raw: string): {
         payload5.push(idx);
     }
 
-    const prefixValues = [11, 1, 19, 16, 1, 0]; // "kaspa" & 31 + [0]
+    const prefixValues = [11, 1, 19, 16, 1, 0];
     const modInput = [...prefixValues, ...payload5, 0, 0, 0, 0, 0, 0, 0, 0];
     const poly = kaspaPolymod(modInput);
 
@@ -122,6 +144,139 @@ function validateU128PositiveString(raw: unknown, fieldName: string): string {
     return parsed.toString();
 }
 
+function parseOptionalPositiveU128(raw: unknown): bigint | null {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const str = typeof raw === 'bigint' ? raw.toString() : String(raw).trim();
+    if (!/^[0-9]{1,39}$/.test(str)) return null;
+    const parsed = BigInt(str);
+    if (parsed <= 1n || parsed > MAX_U128) return null;
+    return parsed;
+}
+
+function parseKasUsdE8FromRaw(raw: unknown): bigint | null {
+    if (typeof raw === 'bigint') return raw > 0n ? raw : null;
+    if (typeof raw === 'number') {
+        if (!Number.isFinite(raw) || raw <= 0) return null;
+        try {
+            const parsed = parseDecimalToAtomic(raw, ORACLE_E8_DECIMALS, 'floor');
+            return parsed > 0n ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+        const parsed = parseDecimalToAtomic(trimmed, ORACLE_E8_DECIMALS, 'floor');
+        return parsed > 0n ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+async function resolveLiveKasUsdE8(): Promise<bigint | null> {
+    try {
+        const [spotRaw, pricesJsonRaw, pulseRaw] = await Promise.all([
+            redis.get('oracle:spot:KAS_USDC').catch(() => null),
+            redis.get('oracle:spot:prices_json').catch(() => null),
+            redis.get('perennia:agent:latest_market_pulse').catch(() => null)
+        ]);
+
+        const direct = parseKasUsdE8FromRaw(spotRaw);
+        if (direct) return direct;
+
+        if (pricesJsonRaw) {
+            try {
+                const parsed = JSON.parse(pricesJsonRaw) as Record<string, unknown>;
+                const kasVal = parsed?.KAS ?? parsed?.kas;
+                const fromJson = parseKasUsdE8FromRaw(kasVal);
+                if (fromJson) return fromJson;
+            } catch {
+                // Ignore malformed prices_json
+            }
+        }
+
+        if (pulseRaw) {
+            try {
+                const pulse = JSON.parse(pulseRaw) as Record<string, unknown>;
+                const assets = Array.isArray(pulse?.assets) ? pulse.assets : [];
+                const kasAsset = assets.find(
+                    (a: unknown) =>
+                        a &&
+                        typeof a === 'object' &&
+                        String((a as Record<string, unknown>).ticker || '').toUpperCase() === 'KAS'
+                ) as Record<string, unknown> | undefined;
+                if (kasAsset?.usdE8 && /^[0-9]{1,39}$/.test(String(kasAsset.usdE8))) {
+                    const e8 = BigInt(String(kasAsset.usdE8));
+                    if (e8 > 0n) return e8;
+                }
+            } catch {
+                // Ignore malformed pulse snapshot
+            }
+        }
+    } catch {
+        // Fail closed below
+    }
+    return null;
+}
+
+function normalizeScopeList(rawScopes: unknown): {
+    ok: true;
+    scopes: AgentScope[];
+} | {
+    ok: false;
+    status: number;
+    error: string;
+    message: string;
+} {
+    if (!Array.isArray(rawScopes)) {
+        return {
+            ok: false,
+            status: 400,
+            error: 'NO_CAPABILITIES_SELECTED',
+            message: 'Select at least one capability scope.'
+        };
+    }
+
+    const picked = new Set<AgentScope>();
+    for (const entry of rawScopes) {
+        const norm = String(entry ?? '').trim().toUpperCase();
+        if (norm === 'SWEEP' || norm.includes('COLD') || norm.includes('VAULT') || norm.includes('WITHDRAW')) {
+            return {
+                ok: false,
+                status: 403,
+                error: 'SECURITY_AIRLOCK_BLOCK',
+                message: 'Cold vault and sweep actions are strictly locked.'
+            };
+        }
+        if (CANONICAL_SCOPE_SET.has(norm)) {
+            picked.add(norm as AgentScope);
+        }
+    }
+
+    const ordered = CANONICAL_SCOPES.filter((s) => picked.has(s));
+    if (ordered.length === 0) {
+        return {
+            ok: false,
+            status: 400,
+            error: 'NO_CAPABILITIES_SELECTED',
+            message: 'Select at least one capability scope.'
+        };
+    }
+
+    return { ok: true, scopes: ordered };
+}
+
+function deriveLegacyScopes(m: Record<string, unknown>): AgentScope[] {
+    const out: AgentScope[] = ['READ'];
+    if (Boolean(m.allowBucketUpdates)) out.push('SPLIT');
+    if (Boolean(m.allowSwaps) && String(m.cap24hUsdMicros ?? '0') !== '1') {
+        out.push('SWAP');
+    }
+    return out;
+}
+
 function resolveRustGatewayConfig(): { rustBaseUrl: string; internalBearer: string } {
     const rawUrl = (env.RUST_BACKEND_URL || '').trim().replace(/\/+$/, '');
     if (!rawUrl) {
@@ -153,7 +308,7 @@ async function resolveVerifiedSessionWallet(
             ok: false,
             status: 401,
             error: 'UNAUTHORIZED_SOVEREIGN_SESSION',
-            message: 'Unlock and authenticate your Sovereign Wallet session to manage Agent Mandates.'
+            message: 'Unlock your wallet to manage agent keys.'
         };
     }
 
@@ -165,7 +320,7 @@ async function resolveVerifiedSessionWallet(
             ok: false,
             status: 503,
             error: 'REDIS_UNAVAILABLE',
-            message: 'Deterministic fail-closed halt: session Redis cluster unreachable.'
+            message: 'Session store unreachable.'
         };
     }
 
@@ -174,7 +329,7 @@ async function resolveVerifiedSessionWallet(
             ok: false,
             status: 401,
             error: 'SESSION_EXPIRED',
-            message: 'Sovereign Wallet session expired. Re-unlock your vault to continue.'
+            message: 'Wallet session expired. Re-unlock to continue.'
         };
     }
 
@@ -189,7 +344,7 @@ async function resolveVerifiedSessionWallet(
             ok: false,
             status: 401,
             error: 'INVALID_SESSION_WALLET',
-            message: 'Authenticated session wallet failed Bech32m integrity check.'
+            message: 'Authenticated session wallet failed integrity check.'
         };
     }
 
@@ -203,7 +358,7 @@ async function resolveVerifiedSessionWallet(
                 ok: false,
                 status: 403,
                 error: 'FIREWALL_BLACKLISTED_WALLET',
-                message: 'Wallet is blocked by the Perennia Security Firewall.'
+                message: 'Wallet is blocked by the security firewall.'
             };
         }
     } catch {
@@ -211,7 +366,7 @@ async function resolveVerifiedSessionWallet(
             ok: false,
             status: 503,
             error: 'REDIS_UNAVAILABLE',
-            message: 'Deterministic fail-closed halt: unable to verify firewall state in Redis.'
+            message: 'Unable to verify firewall state.'
         };
     }
 
@@ -239,19 +394,24 @@ export const GET: RequestHandler = async ({ cookies }) => {
     }
 
     try {
-        const upstream = await fetch(
-            `${rustCfg.rustBaseUrl}/v1/internal/agent/mandates?wallet=${encodeURIComponent(
-                authRes.prefixedWallet
-            )}`,
-            {
-                method: 'GET',
-                headers: {
-                    Accept: 'application/json',
-                    Authorization: rustCfg.internalBearer
-                },
-                signal: AbortSignal.timeout(6000)
-            }
-        );
+        const [upstream, metaMap] = await Promise.all([
+            fetch(
+                `${rustCfg.rustBaseUrl}/v1/internal/agent/mandates?wallet=${encodeURIComponent(
+                    authRes.prefixedWallet
+                )}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        Accept: 'application/json',
+                        Authorization: rustCfg.internalBearer
+                    },
+                    signal: AbortSignal.timeout(6000)
+                }
+            ),
+            redis
+                .hgetall(`perennia:agent:wallet_mandates_meta:${authRes.cleanWallet}`)
+                .catch(() => ({} as Record<string, string>))
+        ]);
 
         const payload = await upstream.json().catch(() => null);
         if (!upstream.ok || !payload) {
@@ -261,10 +421,39 @@ export const GET: RequestHandler = async ({ cookies }) => {
                     error: payload?.error || 'UPSTREAM_AGENT_GATEWAY_FAULT',
                     message:
                         payload?.message ||
-                        `Rust Agent Gateway returned HTTP ${upstream.status}.`
+                        `Agent gateway returned HTTP ${upstream.status}.`
                 },
                 { status: upstream.status || 503, headers: NO_STORE_HEADERS }
             );
+        }
+
+        if (Array.isArray(payload.mandates)) {
+            payload.mandates = payload.mandates.map((rawItem: Record<string, unknown>) => {
+                const keyId = String(rawItem?.keyId ?? '');
+                let storedMeta: StoredMandateMeta | null = null;
+                if (keyId && metaMap && typeof metaMap[keyId] === 'string') {
+                    try {
+                        storedMeta = JSON.parse(metaMap[keyId]) as StoredMandateMeta;
+                    } catch {
+                        storedMeta = null;
+                    }
+                }
+                const scopes =
+                    storedMeta && Array.isArray(storedMeta.scopes) && storedMeta.scopes.length > 0
+                        ? CANONICAL_SCOPES.filter((s) => storedMeta!.scopes.includes(s))
+                        : deriveLegacyScopes(rawItem);
+                const cap24hUsdMicros =
+                    storedMeta?.effectiveCap24hUsdMicros ??
+                    (String(rawItem.cap24hUsdMicros ?? '0') === '1'
+                        ? '0'
+                        : String(rawItem.cap24hUsdMicros ?? '0'));
+
+                return {
+                    ...rawItem,
+                    scopes,
+                    cap24hUsdMicros
+                };
+            });
         }
 
         return json(payload, { status: 200, headers: NO_STORE_HEADERS });
@@ -274,7 +463,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
             {
                 ok: false,
                 error: 'AGENT_GATEWAY_UNREACHABLE',
-                message: `Deterministic fail-closed halt: Rust Agent Gateway unreachable (${msg}).`
+                message: `Agent gateway unreachable (${msg}).`
             },
             { status: 503, headers: NO_STORE_HEADERS }
         );
@@ -302,7 +491,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             {
                 ok: false,
                 error: 'INVALID_JSON_PAYLOAD',
-                message: 'Malformed JSON body in Mandate creation request.'
+                message: 'Malformed JSON body.'
             },
             { status: 400, headers: NO_STORE_HEADERS }
         );
@@ -313,11 +502,38 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             {
                 ok: false,
                 error: 'SECURITY_AIRLOCK_BLOCK',
-                message:
-                    'Cold-vault rules and external withdrawal addresses are strictly off-limits to Agent Mandates.'
+                message: 'Cold vault and sweep actions are strictly locked.'
             },
             { status: 403, headers: NO_STORE_HEADERS }
         );
+    }
+
+    let scopes: AgentScope[];
+    if (rawBody.scopes !== undefined) {
+        const scopeRes = normalizeScopeList(rawBody.scopes);
+        if (!scopeRes.ok) {
+            return json(
+                { ok: false, error: scopeRes.error, message: scopeRes.message },
+                { status: scopeRes.status, headers: NO_STORE_HEADERS }
+            );
+        }
+        scopes = scopeRes.scopes;
+    } else {
+        const legacyAllowSwaps = Boolean(rawBody.allowSwaps);
+        const legacyAllowBuckets = Boolean(rawBody.allowBucketUpdates);
+        if (!legacyAllowSwaps && !legacyAllowBuckets) {
+            return json(
+                {
+                    ok: false,
+                    error: 'NO_CAPABILITIES_SELECTED',
+                    message: 'Select at least one capability scope.'
+                },
+                { status: 400, headers: NO_STORE_HEADERS }
+            );
+        }
+        scopes = ['READ'];
+        if (legacyAllowBuckets) scopes.push('SPLIT');
+        if (legacyAllowSwaps) scopes.push('SWAP');
     }
 
     let rustCfg: { rustBaseUrl: string; internalBearer: string };
@@ -332,10 +548,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
     }
 
     try {
-        const rawLabel = String(rawBody.label ?? 'Personal Mandate').trim();
+        const rawLabel = String(rawBody.label ?? 'Bot 1').trim();
         const label =
-            rawLabel.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 64).trim() ||
-            'Personal Mandate';
+            rawLabel.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 64).trim() || 'Bot 1';
 
         const rawAssets = Array.isArray(rawBody.whitelistedAssets)
             ? rawBody.whitelistedAssets
@@ -345,7 +560,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
                 {
                     ok: false,
                     error: 'INVALID_ASSET_WHITELIST',
-                    message: 'Select between 1 and 24 whitelisted asset tickers.'
+                    message: 'Select between 1 and 24 asset tickers.'
                 },
                 { status: 400, headers: NO_STORE_HEADERS }
             );
@@ -353,15 +568,13 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
         const whitelistedAssets: string[] = [];
         for (const item of rawAssets) {
-            const tick = String(item ?? '')
-                .trim()
-                .toUpperCase();
+            const tick = String(item ?? '').trim().toUpperCase();
             if (!/^[A-Z0-9]{2,10}$/.test(tick)) {
                 return json(
                     {
                         ok: false,
                         error: 'INVALID_ASSET_TICKER',
-                        message: `Ticker "${tick}" must match sterile pattern ^[A-Z0-9]{2,10}$.`
+                        message: `Invalid ticker "${tick}".`
                     },
                     { status: 400, headers: NO_STORE_HEADERS }
                 );
@@ -371,37 +584,87 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             }
         }
 
-        const allowSwaps = Boolean(rawBody.allowSwaps);
-        const allowBucketUpdates = Boolean(rawBody.allowBucketUpdates);
-        if (!allowSwaps && !allowBucketUpdates) {
-            return json(
-                {
-                    ok: false,
-                    error: 'NO_CAPABILITIES_SELECTED',
-                    message:
-                        'Enable at least one capability (Swaps or 22:00 UTC Director Buckets).'
-                },
-                { status: 400, headers: NO_STORE_HEADERS }
-            );
-        }
-
         const maxSlippageBps = Number.parseInt(String(rawBody.maxSlippageBps ?? ''), 10);
         if (!Number.isInteger(maxSlippageBps) || maxSlippageBps < 1 || maxSlippageBps > 500) {
             return json(
                 {
                     ok: false,
                     error: 'INVALID_SLIPPAGE_BPS',
-                    message: 'maxSlippageBps must be an integer between 1 and 500 bps.'
+                    message: 'Slippage must be between 1 and 500 bps.'
                 },
                 { status: 400, headers: NO_STORE_HEADERS }
             );
         }
 
-        const cap24hSompi = validateU128PositiveString(rawBody.cap24hSompi, 'cap24hSompi');
-        const cap24hUsdMicros = validateU128PositiveString(
-            rawBody.cap24hUsdMicros,
-            'cap24hUsdMicros'
-        );
+        const hasSpendScope =
+            scopes.includes('SWAP') ||
+            scopes.includes('PAIR') ||
+            scopes.includes('BOOST');
+
+        let effectiveCap24hUsdMicros: string;
+        let upstreamCap24hUsdMicros: string;
+        let upstreamCap24hSompi: string;
+        let upstreamAllowSwaps: boolean;
+        let upstreamAllowBucketUpdates: boolean;
+
+        if (hasSpendScope) {
+            effectiveCap24hUsdMicros = validateU128PositiveString(
+                rawBody.cap24hUsdMicros,
+                'cap24hUsdMicros'
+            );
+            const usdMicrosBig = BigInt(effectiveCap24hUsdMicros);
+            if (usdMicrosBig < MIN_SPEND_USD_MICROS) {
+                return json(
+                    {
+                        ok: false,
+                        error: 'INVALID_MANDATE_CAP',
+                        message: 'Minimum daily limit is $1.'
+                    },
+                    { status: 400, headers: NO_STORE_HEADERS }
+                );
+            }
+
+            const providedSompi = parseOptionalPositiveU128(rawBody.cap24hSompi);
+            if (providedSompi !== null) {
+                upstreamCap24hSompi = (
+                    providedSompi < MIN_SOMPI_CAP ? MIN_SOMPI_CAP : providedSompi
+                ).toString();
+            } else {
+                const kasUsdE8 = await resolveLiveKasUsdE8();
+                if (!kasUsdE8 || kasUsdE8 <= 0n) {
+                    return json(
+                        {
+                            ok: false,
+                            error: 'ORACLE_UNAVAILABLE',
+                            message: LIVE_PRICING_UNAVAILABLE_MESSAGE
+                        },
+                        { status: 503, headers: NO_STORE_HEADERS }
+                    );
+                }
+                const computedSompi = ceilDivBigInt(
+                    usdMicrosBig * 50_000_000_000n,
+                    kasUsdE8 * 4n
+                );
+                upstreamCap24hSompi = (
+                    computedSompi < MIN_SOMPI_CAP ? MIN_SOMPI_CAP : computedSompi
+                ).toString();
+            }
+
+            upstreamCap24hUsdMicros = effectiveCap24hUsdMicros;
+            upstreamAllowSwaps = true;
+            upstreamAllowBucketUpdates = scopes.includes('SPLIT');
+        } else {
+            effectiveCap24hUsdMicros = '0';
+            upstreamCap24hUsdMicros = '1';
+            upstreamCap24hSompi = '1';
+            if (scopes.includes('SPLIT')) {
+                upstreamAllowSwaps = false;
+                upstreamAllowBucketUpdates = true;
+            } else {
+                upstreamAllowSwaps = true;
+                upstreamAllowBucketUpdates = false;
+            }
+        }
 
         let pubkeyHex: string | undefined;
         if (typeof rawBody.pubkeyHex === 'string' && rawBody.pubkeyHex.trim().length > 0) {
@@ -411,7 +674,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
                     {
                         ok: false,
                         error: 'INVALID_PUBKEY_HEX',
-                        message: 'pubkeyHex must be a 64-character hex x-only Schnorr public key.'
+                        message: 'Invalid pubkeyHex format.'
                     },
                     { status: 400, headers: NO_STORE_HEADERS }
                 );
@@ -420,14 +683,18 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         }
 
         let expiresInHours: number | undefined;
-        if (rawBody.expiresInHours !== undefined && rawBody.expiresInHours !== null && rawBody.expiresInHours !== '') {
+        if (
+            rawBody.expiresInHours !== undefined &&
+            rawBody.expiresInHours !== null &&
+            rawBody.expiresInHours !== ''
+        ) {
             const parsedHours = Number.parseInt(String(rawBody.expiresInHours), 10);
             if (!Number.isInteger(parsedHours) || parsedHours < 0 || parsedHours > 8760) {
                 return json(
                     {
                         ok: false,
                         error: 'INVALID_EXPIRATION_HOURS',
-                        message: 'expiresInHours must be between 0 (no expiry) and 8760 hours.'
+                        message: 'expiresInHours must be between 0 and 8760.'
                     },
                     { status: 400, headers: NO_STORE_HEADERS }
                 );
@@ -442,11 +709,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             pubkeyHex,
             label,
             whitelistedAssets,
-            allowSwaps,
-            allowBucketUpdates,
+            allowSwaps: upstreamAllowSwaps,
+            allowBucketUpdates: upstreamAllowBucketUpdates,
             maxSlippageBps,
-            cap24hSompi,
-            cap24hUsdMicros,
+            cap24hSompi: upstreamCap24hSompi,
+            cap24hUsdMicros: upstreamCap24hUsdMicros,
             expiresInHours
         };
 
@@ -469,10 +736,44 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
                     error: payload?.error || 'MANDATE_CREATION_REJECTED',
                     message:
                         payload?.message ||
-                        `Rust Agent Gateway rejected Mandate creation (${upstream.status}).`
+                        `Agent gateway rejected creation (${upstream.status}).`
                 },
                 { status: upstream.status || 503, headers: NO_STORE_HEADERS }
             );
+        }
+
+        const createdKeyId = String(payload?.mandate?.keyId ?? '').trim();
+        if (createdKeyId) {
+            const meta: StoredMandateMeta = {
+                keyId: createdKeyId,
+                cleanWallet: authRes.cleanWallet,
+                prefixedWallet: authRes.prefixedWallet,
+                scopes,
+                effectiveCap24hUsdMicros,
+                maxSlippageBps,
+                whitelistedAssets
+            };
+            const serializedMeta = JSON.stringify(meta);
+            await Promise.all([
+                redis
+                    .set(`perennia:agent:mandate_meta:${createdKeyId}`, serializedMeta)
+                    .catch(() => null),
+                redis
+                    .hset(
+                        `perennia:agent:wallet_mandates_meta:${authRes.cleanWallet}`,
+                        createdKeyId,
+                        serializedMeta
+                    )
+                    .catch(() => null)
+            ]);
+        }
+
+        if (payload.mandate && typeof payload.mandate === 'object') {
+            payload.mandate = {
+                ...payload.mandate,
+                scopes,
+                cap24hUsdMicros: effectiveCap24hUsdMicros
+            };
         }
 
         return json(payload, { status: 201, headers: NO_STORE_HEADERS });
@@ -510,7 +811,7 @@ export const DELETE: RequestHandler = async ({ request, cookies }) => {
             {
                 ok: false,
                 error: 'INVALID_JSON_PAYLOAD',
-                message: 'Malformed JSON body in Kill Switch revocation request.'
+                message: 'Malformed JSON body.'
             },
             { status: 400, headers: NO_STORE_HEADERS }
         );
@@ -524,7 +825,7 @@ export const DELETE: RequestHandler = async ({ request, cookies }) => {
             {
                 ok: false,
                 error: 'INVALID_KEY_ID',
-                message: 'Provide a valid Mandate keyId or set revokeAllForWallet: true.'
+                message: 'Provide a valid keyId or set revokeAllForWallet: true.'
             },
             { status: 400, headers: NO_STORE_HEADERS }
         );
@@ -565,11 +866,34 @@ export const DELETE: RequestHandler = async ({ request, cookies }) => {
                     error: payload?.error || 'KILL_SWITCH_REJECTED',
                     message:
                         payload?.message ||
-                        `Kill Switch revocation failed with HTTP ${upstream.status}.`
+                        `Revocation failed with HTTP ${upstream.status}.`
                 },
                 { status: upstream.status || 503, headers: NO_STORE_HEADERS }
             );
         }
+
+        const revokedIds: string[] = Array.isArray(payload.revokedKeyIds)
+            ? payload.revokedKeyIds.map((x: unknown) => String(x))
+            : revokeAllForWallet
+              ? []
+              : [keyId];
+
+        const cleanupTasks: Promise<unknown>[] = revokedIds.map((rid) =>
+            Promise.all([
+                redis.del(`perennia:agent:mandate_meta:${rid}`).catch(() => null),
+                redis
+                    .hdel(`perennia:agent:wallet_mandates_meta:${authRes.cleanWallet}`, rid)
+                    .catch(() => null)
+            ])
+        );
+        if (revokeAllForWallet) {
+            cleanupTasks.push(
+                redis
+                    .del(`perennia:agent:wallet_mandates_meta:${authRes.cleanWallet}`)
+                    .catch(() => null)
+            );
+        }
+        await Promise.all(cleanupTasks);
 
         return json(payload, { status: 200, headers: NO_STORE_HEADERS });
     } catch (e: unknown) {
@@ -578,7 +902,7 @@ export const DELETE: RequestHandler = async ({ request, cookies }) => {
             {
                 ok: false,
                 error: 'AGENT_GATEWAY_UNREACHABLE',
-                message: `Deterministic fail-closed halt: Kill Switch could not reach Rust Agent Gateway (${msg}).`
+                message: `Revocation unreachable (${msg}).`
             },
             { status: 503, headers: NO_STORE_HEADERS }
         );
