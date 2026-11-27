@@ -8,9 +8,7 @@ import {
 } from '$lib/server/kms';
 import {
     atomicDecimalsForSorAsset,
-    resolveDefaultTargetNetworkForAsset,
-    sorEngine,
-    SorUpstreamError
+    resolveDefaultTargetNetworkForAsset
 } from '$lib/server/sor';
 import {
     isSyntheticRwaAsset,
@@ -24,7 +22,6 @@ import {
     LIVE_PRICING_UNAVAILABLE_MESSAGE,
     ORACLE_E8_DECIMALS,
     ORACLE_USD_E8_SCALE,
-    SOMPI_PER_KAS,
     USD_MICROS_DECIMALS,
     USD_MICROS_SCALE,
     atomicToUsdMicrosCeil,
@@ -34,8 +31,140 @@ import {
     mulBpsCeil,
     parseDecimalToAtomic,
     parseU128Str,
+    toU128Str,
+    type PsktPayload,
+    type SorExecuteResponseV1,
+    type SorRouteType,
     type U128Str
 } from '$lib/crypto/atomicMath';
+
+const ALLOWED_LP_FEE_TIERS_BPS = new Set<bigint>([30n, 100n, 250n]);
+const VALID_ROUTE_TYPES = new Set<SorRouteType>([
+    'L1_COW_ATOMIC_PSKT',
+    'CROSS_CHAIN_OPSHA256_HTLC',
+    'TIER3_CHANGENOW_SPLIT_PSKT',
+    'CROSS_CHAIN_DEPOSIT_INTENT'
+]);
+
+interface LpPairAtomicSplit {
+    amountInAtomic: bigint;
+    feeTierBps: bigint;
+    totalFeeAtomic: bigint;
+    lpFeeAtomic: bigint;
+    treasuryFeeAtomic: bigint;
+    netOutAtomic: bigint;
+}
+
+interface ProtocolAtomicSplit {
+    amountInAtomic: bigint;
+    feeBps: bigint;
+    treasuryFeeAtomic: bigint;
+    netOutAtomic: bigint;
+}
+
+function computeLpPairAtomicSplit(
+    amountInAtomic: bigint,
+    feeTierBps: bigint
+): LpPairAtomicSplit {
+    if (!ALLOWED_LP_FEE_TIERS_BPS.has(feeTierBps)) {
+        throw new Error(`INVALID_LP_FEE_TIER: Expected 30, 100, or 250 bps; got ${feeTierBps}.`);
+    }
+    if (amountInAtomic <= 0n) {
+        throw new Error('ZERO_LOSS_INVARIANT_VIOLATION: amountInAtomic must be > 0.');
+    }
+    const totalFeeAtomic = ceilDivBigInt(amountInAtomic * feeTierBps, BPS_SCALE);
+    const netOutAtomic = amountInAtomic - totalFeeAtomic;
+    if (netOutAtomic <= 0n) {
+        throw new Error('ZERO_LOSS_INVARIANT_VIOLATION: netOutAtomic after fee is <= 0.');
+    }
+    const lpFeeAtomic = (totalFeeAtomic * 80n) / 100n;
+    const treasuryFeeAtomic = totalFeeAtomic - lpFeeAtomic;
+    if (netOutAtomic + lpFeeAtomic + treasuryFeeAtomic !== amountInAtomic) {
+        throw new Error('ZERO_LOSS_INVARIANT_VIOLATION: LP pair atomic split conservation failed.');
+    }
+    return {
+        amountInAtomic,
+        feeTierBps,
+        totalFeeAtomic,
+        lpFeeAtomic,
+        treasuryFeeAtomic,
+        netOutAtomic
+    };
+}
+
+function computeProtocolAtomicSplit(
+    amountInAtomic: bigint,
+    feeBps: bigint
+): ProtocolAtomicSplit {
+    if (amountInAtomic <= 0n) {
+        throw new Error('ZERO_LOSS_INVARIANT_VIOLATION: amountInAtomic must be > 0.');
+    }
+    const treasuryFeeAtomic = ceilDivBigInt(amountInAtomic * feeBps, BPS_SCALE);
+    const netOutAtomic = amountInAtomic - treasuryFeeAtomic;
+    if (netOutAtomic <= 0n) {
+        throw new Error('ZERO_LOSS_INVARIANT_VIOLATION: netOutAtomic after fee is <= 0.');
+    }
+    if (netOutAtomic + treasuryFeeAtomic !== amountInAtomic) {
+        throw new Error('ZERO_LOSS_INVARIANT_VIOLATION: Protocol atomic split conservation failed.');
+    }
+    return {
+        amountInAtomic,
+        feeBps,
+        treasuryFeeAtomic,
+        netOutAtomic
+    };
+}
+
+function resolveValidatedMasterTreasuryAddress():
+    | { ok: true; address: string }
+    | { ok: false; error: string } {
+    const raw = String(
+        env.MASTER_TREASURY_ADDRESS ||
+            env.PERENNIA_MASTER_TREASURY_KAS ||
+            env.MASTER_ADMIN_ADDRESS ||
+            ''
+    )
+        .trim()
+        .toLowerCase();
+    if (!raw) {
+        if (String(env.REQUIRE_MASTER_TREASURY_ADDRESS || '').toLowerCase() === 'true') {
+            return {
+                ok: false,
+                error: 'CONFIG_HALT: MASTER_TREASURY_ADDRESS is not configured for sovereign revenue routing (503).'
+            };
+        }
+        return { ok: true, address: '' };
+    }
+    const prefixed = raw.startsWith('kaspa:') ? raw : `kaspa:${raw}`;
+    if (prefixed.length < 61) {
+        return {
+            ok: false,
+            error: 'CONFIG_HALT: MASTER_TREASURY_ADDRESS is invalid for sovereign revenue routing (503).'
+        };
+    }
+    const hot = String(env.PERENNIA_HOT_KAS_ADDRESS || '').trim().toLowerCase();
+    if (hot && prefixed === (hot.startsWith('kaspa:') ? hot : `kaspa:${hot}`)) {
+        return {
+            ok: false,
+            error: 'TREASURY_ISOLATION_HALT: MASTER_TREASURY_ADDRESS collides with Stratum hot payout wallet.'
+        };
+    }
+    return { ok: true, address: prefixed };
+}
+
+function resolveSorBackendBaseUrl(): string {
+    const explicit = String(env.RUST_BACKEND_URL || '').trim();
+    if (explicit) return explicit.replace(/\/+$/, '');
+    const nodeIp = String(env.UBUNTU_NODE_IP || '').trim();
+    if (nodeIp) return `http://${nodeIp}:8002`;
+    return '';
+}
+
+function resolveSorInternalBearerToken(): string {
+    return String(env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || '')
+        .trim()
+        .replace(/^['"]|['"]$/g, '');
+}
 
 const HARD_PROFIT_FLOOR_BPS = 10;
 const BUY_KAS_INBOUND_FEE_BPS = 20;
@@ -403,6 +532,28 @@ async function resolveStrictSpotPriceE8(ticker: string): Promise<bigint> {
     if (!clean) return 0n;
     if (clean === 'USD') return ORACLE_USD_E8_SCALE;
 
+    if (clean === 'KAS') {
+        const cachedKas = await redis.get('oracle:spot:KAS_USDC').catch(() => null);
+        const hasPttl =
+            typeof (redis as unknown as Record<string, unknown>).pttl === 'function';
+        const kasPttl = hasPttl
+            ? await (redis as unknown as { pttl: (k: string) => Promise<number> })
+                  .pttl('oracle:spot:KAS_USDC')
+                  .catch(() => -2)
+            : cachedKas
+              ? 1
+              : -2;
+        if (cachedKas && Number(kasPttl) > 0) {
+            try {
+                const e8 = parseDecimalToAtomic(cachedKas.trim(), ORACLE_E8_DECIMALS, 'floor');
+                if (e8 > 0n) return e8;
+            } catch {
+                return 0n;
+            }
+        }
+        return 0n;
+    }
+
     const cached = await redis.get(`oracle:spot:${clean}_USDC`).catch(() => null);
     if (cached) {
         try {
@@ -717,7 +868,7 @@ async function computeDynamicHurdleWaterfallMicros(params: {
     const remainingMicros =
         totalFee > hardFloorPerenniaMicros ? totalFee - hardFloorPerenniaMicros : 0n;
 
-    let pairTvlMicros = 25_000_000_000n;
+    let pairTvlMicros = 0n;
     let rolling24hLpFeesMicros = 0n;
     try {
         const [lpRes, distRes] = await Promise.all([
@@ -1104,11 +1255,12 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
             return json(prep.payload, { status: prep.status });
         }
 
-        const [paySpotE8, receiveSpotE8] = await Promise.all([
+        const [paySpotE8, receiveSpotE8, kasSpotE8] = await Promise.all([
             resolveStrictSpotPriceE8(payAsset),
-            resolveStrictSpotPriceE8(receiveAsset)
+            resolveStrictSpotPriceE8(receiveAsset),
+            resolveStrictSpotPriceE8('KAS')
         ]);
-        if (paySpotE8 <= 0n || receiveSpotE8 <= 0n) {
+        if (paySpotE8 <= 0n || receiveSpotE8 <= 0n || kasSpotE8 <= 0n) {
             return livePricingUnavailableResponse(503);
         }
         const grossUsdMicros = atomicToUsdMicrosFloor(amountAtomic, payDecimals, paySpotE8);
@@ -1121,33 +1273,311 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
             );
         }
 
+        const treasuryCheck = resolveValidatedMasterTreasuryAddress();
+        if (!treasuryCheck.ok) {
+            return json(
+                {
+                    success: false,
+                    livePricingUnavailable: true,
+                    uiMessage: LIVE_PRICING_UNAVAILABLE_MESSAGE,
+                    error: treasuryCheck.error
+                },
+                { status: 503 }
+            );
+        }
+
+        const rawRouteMode = body.routeMode ?? body.route_mode;
+        const rawLpFeeTier = body.lpFeeTierBps ?? body.lp_fee_tier_bps;
+        const isLpPairRoute =
+            String(rawRouteMode ?? '').trim().toUpperCase() === 'LP_PAIR' ||
+            (rawLpFeeTier !== undefined && rawLpFeeTier !== null && rawLpFeeTier !== '');
+
+        let lpSplit: LpPairAtomicSplit | null = null;
+        let protoSplit: ProtocolAtomicSplit | null = null;
+        let fallbackFeeBps = 50;
+
+        if (isLpPairRoute) {
+            const rawTierNum = Number(rawLpFeeTier ?? 30);
+            if (!Number.isFinite(rawTierNum) || !Number.isInteger(rawTierNum)) {
+                return json(
+                    {
+                        success: false,
+                        error: 'INVALID_LP_FEE_TIER: Expected 30, 100, or 250 bps.'
+                    },
+                    { status: 400 }
+                );
+            }
+            try {
+                lpSplit = computeLpPairAtomicSplit(amountAtomic, BigInt(rawTierNum));
+                fallbackFeeBps = Number(lpSplit.feeTierBps);
+            } catch (lpErr: unknown) {
+                return json(
+                    {
+                        success: false,
+                        error: lpErr instanceof Error ? lpErr.message : 'INVALID_LP_FEE_TIER'
+                    },
+                    { status: 400 }
+                );
+            }
+        } else {
+            const feeTier = await resolveUserSwapFeeTierBps(
+                cleanWallet,
+                prefixedWallet,
+                grossUsdMicros,
+                payAsset,
+                receiveAsset
+            );
+            fallbackFeeBps = feeTier.feeBps;
+            try {
+                protoSplit = computeProtocolAtomicSplit(amountAtomic, BigInt(feeTier.feeBps));
+            } catch (protoErr: unknown) {
+                return json(
+                    {
+                        success: false,
+                        error:
+                            protoErr instanceof Error
+                                ? protoErr.message
+                                : 'ZERO_LOSS_INVARIANT_VIOLATION'
+                    },
+                    { status: 400 }
+                );
+            }
+        }
+
         const minOutputAtomic =
             body.minOutputAtomic !== undefined && body.minOutputAtomic !== null
                 ? parseU128Str(body.minOutputAtomic, 'minOutputAtomic').toString()
                 : undefined;
 
-        const sorResult = await sorEngine.executeNonCustodialSwap({
+        const rustBase = resolveSorBackendBaseUrl();
+        if (!rustBase) {
+            return livePricingUnavailableResponse(503);
+        }
+        const internalToken = resolveSorInternalBearerToken();
+        const enforceAuth =
+            String(env.ENFORCE_INTERNAL_AUTH || 'true').trim().toLowerCase() !== 'false';
+        if (enforceAuth && !internalToken) {
+            return livePricingUnavailableResponse(503);
+        }
+
+        const destinationAddress =
+            requestedDestinationAddress ||
+            (isSyntheticRwaAsset(receiveAsset) ? prefixedWallet : undefined);
+
+        const upstreamBody: Record<string, unknown> = {
             wallet: prefixedWallet,
             payAsset,
             receiveAsset,
             targetNetwork,
             amountAtomic: amountAtomic.toString(),
-            minOutputAtomic,
             slippageBps,
-            destinationAddress:
-                requestedDestinationAddress ||
-                (isSyntheticRwaAsset(receiveAsset) ? prefixedWallet : undefined),
-            refundKaspaAddress,
-            utxos: Array.isArray(body.utxos) ? body.utxos : undefined,
-            htlcSha256HashlockHex:
-                typeof body.htlcSha256HashlockHex === 'string'
-                    ? body.htlcSha256HashlockHex
-                    : undefined,
-            counterpartyPubkeyHex:
-                typeof body.counterpartyPubkeyHex === 'string'
-                    ? body.counterpartyPubkeyHex
-                    : undefined
-        });
+            refundKaspaAddress
+        };
+        if (minOutputAtomic !== undefined) upstreamBody.minOutputAtomic = minOutputAtomic;
+        if (destinationAddress) upstreamBody.destinationAddress = destinationAddress;
+        if (Array.isArray(body.utxos) && body.utxos.length > 0) upstreamBody.utxos = body.utxos;
+        if (typeof body.htlcSha256HashlockHex === 'string' && body.htlcSha256HashlockHex.trim()) {
+            upstreamBody.htlcSha256HashlockHex = body.htlcSha256HashlockHex.trim();
+        }
+        if (typeof body.counterpartyPubkeyHex === 'string' && body.counterpartyPubkeyHex.trim()) {
+            upstreamBody.counterpartyPubkeyHex = body.counterpartyPubkeyHex.trim();
+        }
+        if (isLpPairRoute) {
+            upstreamBody.routeMode = 'LP_PAIR';
+            upstreamBody.lpFeeTierBps = Number(lpSplit!.feeTierBps);
+        } else if (typeof rawRouteMode === 'string' && rawRouteMode.trim()) {
+            upstreamBody.routeMode = rawRouteMode.trim();
+        }
+
+        const upstreamHeaders: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+        };
+        if (internalToken) {
+            upstreamHeaders.Authorization = `Bearer ${internalToken}`;
+        }
+
+        let upstreamRes: Response;
+        try {
+            upstreamRes = await fetch(`${rustBase}/v1/sor/execute`, {
+                method: 'POST',
+                headers: upstreamHeaders,
+                body: JSON.stringify(upstreamBody),
+                signal: AbortSignal.timeout(9000)
+            });
+        } catch {
+            return livePricingUnavailableResponse(503);
+        }
+
+        const upstreamData = (await upstreamRes.json().catch(() => null)) as Record<
+            string,
+            unknown
+        > | null;
+        if (!upstreamRes.ok || !upstreamData || upstreamData.success !== true) {
+            const rawErr = String(upstreamData?.error || upstreamData?.message || '');
+            const status =
+                upstreamRes.status === 503 ||
+                upstreamRes.status >= 500 ||
+                /ORACLE_HALT|SERVICE_UNAVAILABLE|oracle/i.test(rawErr)
+                    ? 503
+                    : upstreamRes.status;
+            if (status === 503) {
+                return livePricingUnavailableResponse(503);
+            }
+            return json(
+                {
+                    success: false,
+                    error: rawErr.trim() || 'Smart Order Router rejected request.'
+                },
+                { status }
+            );
+        }
+
+        const routeTypeRaw = String(upstreamData.routeType || 'CROSS_CHAIN_DEPOSIT_INTENT');
+        const routeType: SorRouteType = VALID_ROUTE_TYPES.has(routeTypeRaw as SorRouteType)
+            ? (routeTypeRaw as SorRouteType)
+            : 'CROSS_CHAIN_DEPOSIT_INTENT';
+        const tokenSteeringRaw =
+            upstreamData.tokenSteering && typeof upstreamData.tokenSteering === 'object'
+                ? (upstreamData.tokenSteering as Record<string, unknown>)
+                : {};
+
+        const sorResult: SorExecuteResponseV1 = {
+            success: true,
+            transactionUuid: String(upstreamData.transactionUuid || ''),
+            routeType,
+            payAsset: String(upstreamData.payAsset || payAsset).toUpperCase(),
+            receiveAsset: String(upstreamData.receiveAsset || receiveAsset).toUpperCase(),
+            targetNetwork: String(upstreamData.targetNetwork || targetNetwork).toUpperCase(),
+            amountInAtomic: toU128Str(upstreamData.amountInAtomic ?? amountAtomic, 'amountInAtomic'),
+            protocolFeeAtomic: toU128Str(
+                upstreamData.protocolFeeAtomic ??
+                    (lpSplit ? lpSplit.totalFeeAtomic : protoSplit!.treasuryFeeAtomic),
+                'protocolFeeAtomic'
+            ),
+            networkFeeSompi: toU128Str(upstreamData.networkFeeSompi ?? '0', 'networkFeeSompi'),
+            estimatedOutputAtomic: toU128Str(
+                upstreamData.estimatedOutputAtomic ?? '0',
+                'estimatedOutputAtomic'
+            ),
+            minOutputAtomic: toU128Str(upstreamData.minOutputAtomic ?? '0', 'minOutputAtomic'),
+            feeBps: Number(upstreamData.feeBps ?? fallbackFeeBps),
+            feeTierLabel: String(upstreamData.feeTierLabel || ''),
+            grossUsdMicros: toU128Str(
+                upstreamData.grossUsdMicros ?? grossUsdMicros,
+                'grossUsdMicros'
+            ),
+            netUsdMicros: toU128Str(upstreamData.netUsdMicros ?? '0', 'netUsdMicros'),
+            payOracleUsdE8: toU128Str(upstreamData.payOracleUsdE8 ?? paySpotE8, 'payOracleUsdE8'),
+            receiveOracleUsdE8: toU128Str(
+                upstreamData.receiveOracleUsdE8 ?? receiveSpotE8,
+                'receiveOracleUsdE8'
+            ),
+            kasOracleUsdE8: toU128Str(upstreamData.kasOracleUsdE8 ?? kasSpotE8, 'kasOracleUsdE8'),
+            refundKaspaAddress: String(upstreamData.refundKaspaAddress || refundKaspaAddress),
+            tokenSteering: {
+                allowed: Boolean(tokenSteeringRaw.allowed ?? true),
+                rejectReason:
+                    tokenSteeringRaw.rejectReason !== undefined &&
+                    tokenSteeringRaw.rejectReason !== null
+                        ? String(tokenSteeringRaw.rejectReason)
+                        : null,
+                payState: String(tokenSteeringRaw.payState || steering.payState),
+                receiveState: String(tokenSteeringRaw.receiveState || steering.receiveState),
+                allowDarkPoolInternalClearing: Boolean(
+                    tokenSteeringRaw.allowDarkPoolInternalClearing ??
+                        steering.allowDarkPoolInternalClearing
+                ),
+                feeLegs: Array.isArray(tokenSteeringRaw.feeLegs)
+                    ? (tokenSteeringRaw.feeLegs as Array<{ asset: string; shareRatio: number }>)
+                    : steering.feeLegs,
+                explanation: String(
+                    tokenSteeringRaw.explanation || steering.steeringExplanation
+                )
+            },
+            pskt: (upstreamData.pskt ?? null) as PsktPayload | null,
+            htlcCovenant:
+                upstreamData.htlcCovenant && typeof upstreamData.htlcCovenant === 'object'
+                    ? (upstreamData.htlcCovenant as Record<string, unknown>)
+                    : null,
+            formattedUtxos: Array.isArray(upstreamData.formattedUtxos)
+                ? upstreamData.formattedUtxos
+                : []
+        };
+
+        const resolvedLpFeeAtomic: U128Str = toU128Str(
+            upstreamData.lpFeeAtomic ?? (lpSplit ? lpSplit.lpFeeAtomic : 0n),
+            'lpFeeAtomic'
+        );
+        const resolvedTreasuryFeeAtomic: U128Str = toU128Str(
+            upstreamData.treasuryFeeAtomic ??
+                (lpSplit ? lpSplit.treasuryFeeAtomic : protoSplit!.treasuryFeeAtomic),
+            'treasuryFeeAtomic'
+        );
+        const resolvedMasterTreasury =
+            typeof upstreamData.masterTreasuryAddress === 'string' &&
+            upstreamData.masterTreasuryAddress.trim()
+                ? upstreamData.masterTreasuryAddress.trim().toLowerCase()
+                : treasuryCheck.address;
+        const resolvedNetOutAtomic: U128Str = (
+            lpSplit ? lpSplit.netOutAtomic : protoSplit!.netOutAtomic
+        ).toString();
+
+        const resolvedGrossUsdMicros = parseU128Str(sorResult.grossUsdMicros, 'grossUsdMicros');
+        const resolvedProtocolFeeUsdMicros = mulBpsCeil(
+            resolvedGrossUsdMicros,
+            sorResult.feeBps > 0 ? sorResult.feeBps : fallbackFeeBps
+        );
+        const pairLabel =
+            payAsset === 'KAS'
+                ? `KAS/${receiveAsset}`
+                : receiveAsset === 'KAS'
+                  ? `KAS/${payAsset}`
+                  : `${payAsset}/${receiveAsset}`;
+
+        let waterfall: Record<string, unknown>;
+        if (lpSplit) {
+            const lpAllocMicros = (resolvedProtocolFeeUsdMicros * 8000n) / BPS_SCALE;
+            const treasuryCutMicros =
+                resolvedProtocolFeeUsdMicros > lpAllocMicros
+                    ? resolvedProtocolFeeUsdMicros - lpAllocMicros
+                    : 0n;
+            const compound60Micros = (treasuryCutMicros * 6000n) / BPS_SCALE;
+            const reserve40Micros =
+                treasuryCutMicros > compound60Micros ? treasuryCutMicros - compound60Micros : 0n;
+            waterfall = {
+                hardFloorPerenniaUsdMicros: treasuryCutMicros.toString(),
+                lpAllocatedFeeUsdMicros: lpAllocMicros.toString(),
+                perenniaTotalCutUsdMicros: treasuryCutMicros.toString(),
+                perenniaLpCompound60UsdMicros: compound60Micros.toString(),
+                perenniaLiquidReserve40UsdMicros: reserve40Micros.toString(),
+                hardFloorPerenniaUsd: Number(
+                    formatAtomicToDecimal(treasuryCutMicros, USD_MICROS_DECIMALS)
+                ),
+                lpAllocatedFeeUsd: Number(
+                    formatAtomicToDecimal(lpAllocMicros, USD_MICROS_DECIMALS)
+                ),
+                perenniaTotalCutUsd: Number(
+                    formatAtomicToDecimal(treasuryCutMicros, USD_MICROS_DECIMALS)
+                ),
+                perenniaLpCompound60Usd: Number(
+                    formatAtomicToDecimal(compound60Micros, USD_MICROS_DECIMALS)
+                ),
+                perenniaLiquidReserve40Usd: Number(
+                    formatAtomicToDecimal(reserve40Micros, USD_MICROS_DECIMALS)
+                ),
+                projectedBaseLpAprPct: 14.4,
+                projectedMaxMultiplierAprPct: 36.0,
+                surplusVolumeSweepActive: false
+            };
+        } else {
+            waterfall = await computeDynamicHurdleWaterfallMicros({
+                poolPair: pairLabel,
+                grossUsdMicros: resolvedGrossUsdMicros,
+                totalProtocolFeeUsdMicros: resolvedProtocolFeeUsdMicros,
+                kasSpotE8: parseU128Str(sorResult.kasOracleUsdE8, 'kasOracleUsdE8')
+            });
+        }
 
         const receiveDecimals = atomicDecimalsForSorAsset(sorResult.receiveAsset);
         const estimatedOutputDisplay = Number(
@@ -1160,7 +1590,24 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
 
         return json({
             ...sorResult,
+            lpFeeAtomic: resolvedLpFeeAtomic,
+            treasuryFeeAtomic: resolvedTreasuryFeeAtomic,
+            masterTreasuryAddress: resolvedMasterTreasury,
+            zeroLossInvariantVerified: Boolean(upstreamData.zeroLossInvariantVerified ?? true),
             deliveryMode: 'ONCHAIN_L1',
+            dynamicHurdleWaterfall: {
+                ...waterfall,
+                competitorAmmAprPct: COMPETITOR_STANDARD_AMM_APR_PCT
+            },
+            sompiAccounting: {
+                routeMode: isLpPairRoute ? 'LP_PAIR' : 'DIRECT_SWAP',
+                amountInSompi: sorResult.amountInAtomic,
+                netOutSompi: resolvedNetOutAtomic,
+                lpFeeSompi: resolvedLpFeeAtomic,
+                treasuryFeeSompi: resolvedTreasuryFeeAtomic,
+                masterTreasuryAddress: resolvedMasterTreasury,
+                zeroLossInvariantVerified: Boolean(upstreamData.zeroLossInvariantVerified ?? true)
+            },
             /* Render-boundary numeric projections derived from SorExecuteResponseV1 fields above. */
             transaction_uuid: sorResult.transactionUuid,
             estimatedOutput: estimatedOutputDisplay,
@@ -1171,18 +1618,6 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
                 Number(formatAtomicToDecimal(sorResult.netUsdMicros, USD_MICROS_DECIMALS, 2))
         });
     } catch (err: unknown) {
-        if (err instanceof SorUpstreamError) {
-            if (err.status === 503 || err.livePricingUnavailable) {
-                return livePricingUnavailableResponse(503);
-            }
-            return json(
-                {
-                    success: false,
-                    error: err.message
-                },
-                { status: err.status }
-            );
-        }
         console.error('🚨 [SOR SWAP ROUTE ERROR]:', err);
         return json(
             {
