@@ -1551,6 +1551,25 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         <div
                             class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 p-1 rounded-2xl min-w-max shadow-inner"
                         >
+                            <div class="relative">
+                                {#if ui.microBadges['global_fiat_btn']}
+                                    <div
+                                        class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-xl"
+                                    >
+                                        {ui.microBadges['global_fiat_btn'].label}
+                                    </div>
+                                {/if}
+                                <button
+                                    type="button"
+                                    data-testid="header-buy-fiat-btn"
+                                    onclick={() =>
+                                        ui.openFiatModal('KAS', false, '')}
+                                    class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.showFiatModal ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-[#18C6A5] hover:text-white border border-transparent hover:border-[#18C6A5]/35'}"
+                                    title="Buy Crypto with USD"
+                                >
+                                    <span>{i18n.t('header.buy_crypto')}</span>
+                                </button>
+                            </div>
                             <button
                                 type="button"
                                 data-testid="header-nav-OPERATIONS"
@@ -1566,56 +1585,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'DEX' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
                                 <span>{i18n.t('nav.exchange')}</span>
-                                
-                            </button>
-                            <button
-                                type="button"
-                                data-testid="header-treasury-btn"
-                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'TREASURY'; }}
-                                class="px-3 md:px-3.5 py-1.5 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 {ui.activeTab === 'TREASURY' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-300 hover:text-white border border-transparent'}"
-                                title={identity.isCorporateAdmin &&
-                                !ui.adminModeActive &&
-                                adminTreasuryAccounting
-                                    ? `Earned Fee Revenue: ${i18n.formatFiat(adminTreasuryAccounting.totalEarnedRevenueUsd, { decimals: settingsStore.fiatDecimals })} | Custodial Miner Rewards (22:00 UTC): ${i18n.formatFiat(adminTreasuryAccounting.custodialMinerLiabilityUsd, { decimals: settingsStore.fiatDecimals })}`
-                                    : 'Open Multi-Chain Treasury'}
-                            >
-                                <span>{i18n.t('nav.treasury')}</span>
-                                {#if identity.isCorporateAdmin && !ui.adminModeActive && adminTreasuryAccounting}
-                                    <span
-                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
-                                    >
-                                        Fee: {i18n.formatFiat(
-                                            adminTreasuryAccounting.totalEarnedRevenueUsd,
-                                            {
-                                                decimals:
-                                                    settingsStore.fiatDecimals
-                                            }
-                                        )}
-                                    </span>
-                                    <span
-                                        class="hidden 2xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-amber-500/35 text-amber-400 font-mono font-bold text-[9px] tabular-nums"
-                                    >
-                                        Pool: {i18n.formatFiat(
-                                            adminTreasuryAccounting.custodialMinerLiabilityUsd,
-                                            {
-                                                decimals:
-                                                    settingsStore.fiatDecimals
-                                            }
-                                        )}
-                                    </span>
-                                {:else}
-                                    <span
-                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
-                                    >
-                                        {i18n.formatFiat(
-                                            treasury.totalVaultValue,
-                                            {
-                                                decimals:
-                                                    settingsStore.fiatDecimals
-                                            }
-                                        )}
-                                    </span>
-                                {/if}
                             </button>
                             <button
                                 type="button"
@@ -1624,6 +1593,23 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'TAX FORTRESS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
                             >
                                 {i18n.t('nav.tax_fortress')}
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="header-agents-btn"
+                                onclick={() => {
+                                    ui.showFiatModal = false;
+                                    ui.showWalletModal = false;
+                                    settingsStore.showSettingsModal = false;
+                                    ui.showAgentModal = true;
+                                }}
+                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap {ui.showAgentModal ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
+                                title="Agents"
+                            >
+                                {#if ui.activeAgentCount > 0}
+                                    <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5]"></span>
+                                {/if}
+                                <span>Agents</span>
                             </button>
                             {#if identity.canAccessForge}
                                 <button
@@ -1676,107 +1662,124 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             </div>
                         {/if}
                         {#if !pwa.isStandalone}<button type="button" data-testid="header-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target px-2.5 sm:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-wider text-white border-white/15 hover:border-[#18C6A5]/50 flex items-center gap-1.5 whitespace-nowrap" title="Install Perennia Standalone App"><svg class="w-3.5 h-3.5 text-[#18C6A5] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" /></svg><span class="hidden sm:inline">Install App</span><span class="sm:hidden">App</span></button>{/if}
-<div class="relative">
-                            {#if ui.microBadges['global_fiat_btn']}
-                                <div
-                                    class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-xl"
-                                >
-                                    {ui.microBadges['global_fiat_btn'].label}
-                                </div>
-                            {/if}
+                        <div class="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto md:ml-0">
                             <button
                                 type="button"
-                                data-testid="header-buy-fiat-btn"
-                                onclick={() =>
-                                    ui.openFiatModal('KAS', false, '')}
-                                class="tactile-btn px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest cursor-pointer flex items-center gap-1.5 text-[#18C6A5] border-[#18C6A5]/50 whitespace-nowrap"
-                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
-                                title="Buy Crypto with USD"
+                                data-testid="header-treasury-btn"
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'TREASURY'; }}
+                                class="tactile-btn mobile-touch-target px-2.5 sm:px-3 py-1.5 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'TREASURY' ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45 shadow-sm' : 'text-neutral-300 hover:text-white border-white/15'}"
+                                title={identity.isCorporateAdmin &&
+                                !ui.adminModeActive &&
+                                adminTreasuryAccounting
+                                    ? `Earned Fee Revenue: ${i18n.formatFiat(adminTreasuryAccounting.totalEarnedRevenueUsd, { decimals: settingsStore.fiatDecimals })} | Custodial Miner Rewards (22:00 UTC): ${i18n.formatFiat(adminTreasuryAccounting.custodialMinerLiabilityUsd, { decimals: settingsStore.fiatDecimals })}`
+                                    : 'Open Multi-Chain Wallet'}
                             >
-                                <span>{i18n.t('header.buy_crypto')}</span>
-                            </button>
-                        </div>
-                        
-                        {#if !identity.isWalletConnected}
-                            <button
-                                type="button"
-                                data-testid="header-unlock-vault-btn" onclick={() => (ui.showWalletModal = true)} class="tactile-btn px-2.5 sm:px-4 md:px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
-                                style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
-                            >
-                                {i18n.t('header.unlock_vault')}
-                                <span class="sr-only">Log In</span>
-                            </button>
-                        {:else}
-                            <div
-                                class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-xl p-1 pr-1.5 relative"
-                            >
-                                {#if ui.microBadges['header_wallet_pill']}
-                                    <div
-                                        class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-lg"
-                                    >
-                                        {ui.microBadges['header_wallet_pill']
-                                            .label}
-                                    </div>
-                                {/if}
-                                <button
-                                    type="button"
-                                    onclick={copyHeaderWalletAddress}
-                                    class="tactile-btn {headerPillShimmer ? 'shimmer-flash' : ''} rounded-lg px-2.5 md:px-3 py-1.5 flex items-center gap-1.5 cursor-pointer group"
-                                    title="Click to copy Kaspa Address"
-                                >
-                                    <div
-                                        class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'} shrink-0"
-                                    ></div>
+                                <span>{i18n.t('nav.treasury')}</span>
+                                {#if identity.isCorporateAdmin && !ui.adminModeActive && adminTreasuryAccounting}
                                     <span
-                                        class="{operations.globalNodeStatus === 'connected' ? 'text-[#18C6A5]' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'text-neutral-400'} font-mono text-[10px] font-bold truncate max-w-[90px] md:max-w-none group-hover:text-white transition-colors"
+                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
                                     >
-                                        {identity.activeAddress?.substring(
-                                            0,
-                                            10
-                                        )}...{identity.activeAddress?.substring(
-                                            identity.activeAddress.length - 4
+                                        Fee: {i18n.formatFiat(
+                                            adminTreasuryAccounting.totalEarnedRevenueUsd,
+                                            {
+                                                decimals:
+                                                    settingsStore.fiatDecimals
+                                            }
                                         )}
                                     </span>
-                                    {#if identity.isWatchOnly}<span class="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[8px] font-black uppercase">WATCH</span>{/if}<span class="sr-only">UNLOCKED</span>
-                                </button>
+                                    <span
+                                        class="hidden 2xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-amber-500/35 text-amber-400 font-mono font-bold text-[9px] tabular-nums"
+                                    >
+                                        Pool: {i18n.formatFiat(
+                                            adminTreasuryAccounting.custodialMinerLiabilityUsd,
+                                            {
+                                                decimals:
+                                                    settingsStore.fiatDecimals
+                                            }
+                                        )}
+                                    </span>
+                                {:else}
+                                    <span
+                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
+                                    >
+                                        {i18n.formatFiat(
+                                            treasury.totalVaultValue,
+                                            {
+                                                decimals:
+                                                    settingsStore.fiatDecimals
+                                            }
+                                        )}
+                                    </span>
+                                {/if}
+                            </button>
+                            {#if !identity.isWalletConnected}
                                 <button
                                     type="button"
-                                    aria-label="Disconnect"
-                                    onclick={() => identity.disconnect()}
-                                    class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer rounded-lg shrink-0"
-                                    title="Disconnect"
+                                    data-testid="header-unlock-vault-btn" onclick={() => (ui.showWalletModal = true)} class="tactile-btn px-2.5 sm:px-4 md:px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
                                 >
-                                    <svg
-                                        class="w-3.5 h-3.5"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                                        />
-                                    </svg>
+                                    {i18n.t('header.unlock_vault')}
+                                    <span class="sr-only">Log In</span>
                                 </button>
-                            </div>
-                        {/if}
-                        </div><div class="order-2 md:order-3 lg:order-4 ml-auto md:ml-0 flex items-center gap-1.5 sm:gap-2 shrink-0"><button type="button" data-testid="header-agents-btn"
-                            onclick={() => {
-                                ui.showFiatModal = false;
-                                ui.showWalletModal = false;
-                                settingsStore.showSettingsModal = false;
-                                ui.showAgentModal = true;
-                            }}
-                            class="tactile-btn mobile-touch-target px-2.5 sm:px-3 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest cursor-pointer flex items-center gap-1.5 whitespace-nowrap {ui.showAgentModal ? 'text-[#18C6A5] border-[#18C6A5]/50' : 'text-neutral-300 hover:text-white border-white/15 hover:border-[#18C6A5]/45'}"
-                            title="Agents"
-                        >
-                            {#if ui.activeAgentCount > 0}
-                                <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5]"></span>
+                            {:else}
+                                <div
+                                    class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-xl p-1 pr-1.5 relative"
+                                >
+                                    {#if ui.microBadges['header_wallet_pill']}
+                                        <div
+                                            class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-lg"
+                                        >
+                                            {ui.microBadges['header_wallet_pill']
+                                                .label}
+                                        </div>
+                                    {/if}
+                                    <button
+                                        type="button"
+                                        onclick={copyHeaderWalletAddress}
+                                        class="tactile-btn {headerPillShimmer ? 'shimmer-flash' : ''} rounded-lg px-2.5 md:px-3 py-1.5 flex items-center gap-1.5 cursor-pointer group"
+                                        title="Click to copy Kaspa Address"
+                                    >
+                                        <div
+                                            class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'} shrink-0"
+                                        ></div>
+                                        <span
+                                            class="{operations.globalNodeStatus === 'connected' ? 'text-[#18C6A5]' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'text-neutral-400'} font-mono text-[10px] font-bold truncate max-w-[90px] md:max-w-none group-hover:text-white transition-colors"
+                                        >
+                                            {identity.activeAddress?.substring(
+                                                0,
+                                                10
+                                            )}...{identity.activeAddress?.substring(
+                                                identity.activeAddress.length - 4
+                                            )}
+                                        </span>
+                                        {#if identity.isWatchOnly}<span class="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[8px] font-black uppercase">WATCH</span>{/if}<span class="sr-only">UNLOCKED</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-label="Disconnect"
+                                        onclick={() => identity.disconnect()}
+                                        class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer rounded-lg shrink-0"
+                                        title="Disconnect"
+                                    >
+                                        <svg
+                                            class="w-3.5 h-3.5"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                                            />
+                                        </svg>
+                                    </button>
+                                </div>
                             {/if}
-                            <span>Agents</span>
-                        </button>
+                        </div>
+                    </div>
+                    <div class="order-2 md:order-3 lg:order-4 ml-auto md:ml-0 flex items-center gap-1.5 sm:gap-2 shrink-0">
 					<button
                             type="button"
                             aria-label="Settings"

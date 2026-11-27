@@ -1,10 +1,12 @@
 import { browser } from '$app/environment';
-import type { AssetClass, ThemeColors } from './type';
+import type { AssetClass, Sector, ThemeColors } from './type';
 import { operations } from './operations.svelte';
 import {
     KAS_DECIMALS,
     LIVE_PRICING_UNAVAILABLE_MESSAGE,
     ORACLE_E8_DECIMALS,
+    USD_MICROS_DECIMALS,
+    atomicToUsdMicrosFloor,
     formatAtomicToDecimal,
     parseDecimalToAtomic,
     parseU128Str,
@@ -107,7 +109,9 @@ export class UnifiedAsset {
     address = $state('Awaiting Decryption');
     onChain = $state(0);
     onChainAtomic = $state<U128Str>('0');
-    // Non-custodial L1 only: synthetic and custodial LP balances remain 0.
+    pendingAtomic = $state<U128Str>('0');
+    lpStakedAtomic = $state<U128Str>('0');
+    // Non-custodial L1 only: synthetic custodial ledgers remain 0.
     synthetic = $state(0);
     lpStaked = $state(0);
     spotPrice = $state(0);
@@ -170,14 +174,18 @@ export class UnifiedAsset {
     get availableBalance() {
         return this.onChain;
     }
+    get pendingBalance() {
+        const p = parseU128Str(this.pendingAtomic || '0');
+        return Number(formatAtomicToDecimal(p, this.decimals, 6, true));
+    }
     get ledgerBalance() {
         return 0;
     }
     get stakedBalance() {
-        return 0;
+        return this.lpStaked;
     }
     get totalBalance() {
-        return this.onChain;
+        return this.onChain + this.lpStaked;
     }
 }
 
@@ -235,6 +243,80 @@ class TreasuryStore {
             (sum, a) => sum + a.totalBalance * a.spotPrice,
             0
         );
+    }
+
+    get totalPendingUsd(): number {
+        if (this.livePricingUnavailable) return 0;
+        let usdMicros = 0n;
+        for (const asset of this.registry) {
+            const atomic = parseU128Str(asset.pendingAtomic || '0');
+            if (atomic <= 0n) continue;
+            const e8 = parseU128Str(asset.spotPriceE8 || '0');
+            if (e8 <= 0n) continue;
+            usdMicros += atomicToUsdMicrosFloor(atomic, asset.decimals, e8);
+        }
+        return Number(formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS, 2, false));
+    }
+
+    get totalPooledUsd(): number {
+        if (this.livePricingUnavailable) return 0;
+        let usdMicros = 0n;
+        for (const asset of this.registry) {
+            const atomic = parseU128Str(asset.lpStakedAtomic || '0');
+            if (atomic <= 0n) continue;
+            const e8 = parseU128Str(asset.spotPriceE8 || '0');
+            if (e8 <= 0n) continue;
+            usdMicros += atomicToUsdMicrosFloor(atomic, asset.decimals, e8);
+        }
+        return Number(formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS, 2, false));
+    }
+
+    syncPoolAndPendingFromSectors(sectors: Sector[]) {
+        const pendingMap = new Map<string, bigint>();
+        const pooledMap = new Map<string, bigint>();
+
+        for (const sec of sectors || []) {
+            const reserve = sec.settlementConfig?.pairReserve;
+            if (reserve) {
+                const baseTick = String(reserve.baseTicker || '').trim().toUpperCase();
+                const partnerTick = String(reserve.partnerTicker || '').trim().toUpperCase();
+                if (reserve.status === 'QUEUED') {
+                    const held = parseU128Str(reserve.heldBaseAtomic || '0');
+                    const queued = parseU128Str(reserve.queuedBaseAtomic || '0');
+                    const sumBase = held + queued;
+                    if (baseTick && sumBase > 0n) {
+                        pendingMap.set(baseTick, (pendingMap.get(baseTick) || 0n) + sumBase);
+                    }
+                } else if (reserve.status === 'ACTIVE') {
+                    const baseBal = parseU128Str(reserve.baseBalanceAtomic || '0');
+                    const partnerBal = parseU128Str(reserve.partnerBalanceAtomic || '0');
+                    if (baseTick && baseBal > 0n) {
+                        pooledMap.set(baseTick, (pooledMap.get(baseTick) || 0n) + baseBal);
+                    }
+                    if (partnerTick && partnerBal > 0n) {
+                        pooledMap.set(
+                            partnerTick,
+                            (pooledMap.get(partnerTick) || 0n) + partnerBal
+                        );
+                    }
+                }
+            } else {
+                const pendingKas = sec.pendingKaspa ?? 0;
+                if (pendingKas > 0) {
+                    const sompi = parseDecimalToAtomic(String(pendingKas), KAS_DECIMALS, 'floor');
+                    pendingMap.set('KAS', (pendingMap.get('KAS') || 0n) + sompi);
+                }
+            }
+        }
+
+        for (const asset of this.registry) {
+            const tick = asset.ticker.toUpperCase();
+            const nextPending = pendingMap.get(tick) ?? 0n;
+            const nextPooled = pooledMap.get(tick) ?? 0n;
+            asset.pendingAtomic = nextPending.toString();
+            asset.lpStakedAtomic = nextPooled.toString();
+            asset.lpStaked = Number(formatAtomicToDecimal(nextPooled, asset.decimals, 6, true));
+        }
     }
 
     markOracleUnavailable(reason = LIVE_PRICING_UNAVAILABLE_MESSAGE) {

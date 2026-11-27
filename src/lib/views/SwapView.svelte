@@ -33,6 +33,14 @@
         formatAtomicToDecimal,
         parseKasDecimalToSompi
     } from '$lib/crypto/atomicMath';
+    import type { PairFeeRateBps, Sector, SettlementConfig } from '$lib/stores/type';
+    import {
+        bpsToPctNumber,
+        cancelOrWithdrawPairSector,
+        executeSharedWalletPair,
+        recordPairSettlementActivity,
+        resolveKaspaAssetOracleE8
+    } from '$lib/components/operations/operationsHelpers';
 
     type DexTab = 'swap' | 'liquidity' | 'p2p' | 'fiat';
     type TokenModalMode =
@@ -95,7 +103,11 @@
     let discoveryStatusBanner = $state<string | null>(null);
     let discoverDebounceTimer: ReturnType<typeof setTimeout>;
 
-    // Liquidity Plant & SILO Staking State
+    // Pair Liquidity State
+    let pairBaseTicker = $state('KAS');
+    let pairPartnerTicker = $state('SILO');
+    let pairBaseAmount = $state('');
+    let pairFeeRateBps = $state<PairFeeRateBps>(100);
     let lpTokenBTicker = $state('USDC');
     let lpAmountA = $state('');
     let lpAmountB = $state('');
@@ -892,6 +904,145 @@
         recalculateLpAmountsFromA();
     }
 
+    async function executeSharedDexPair(params: {
+        baseTicker: string;
+        partnerTicker: string;
+        baseAmount: string;
+        feeRateBps: PairFeeRateBps;
+        allocationPct: number;
+    }) {
+        swapError = null;
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
+        if (livePricingUnavailable) {
+            swapError = LIVE_PRICING_UNAVAILABLE_MESSAGE;
+            return;
+        }
+        isProvidingLiquidity = true;
+        try {
+            const res = await executeSharedWalletPair({
+                baseTicker: params.baseTicker,
+                partnerTicker: params.partnerTicker,
+                baseAmountInput: params.baseAmount,
+                feeRateBps: params.feeRateBps,
+                allocationPct: 0,
+                refundKaspaAddress: identity.activeAddress
+            });
+            const existing = (operations.sectors || []).find(
+                (s) =>
+                    s.routeMode === 'auto-lp' &&
+                    s.settlementConfig?.pairReserve?.baseTicker === params.baseTicker &&
+                    s.settlementConfig?.pairReserve?.partnerTicker === params.partnerTicker
+            );
+            let targetSectorId = '';
+            if (existing) {
+                const prev = existing.settlementConfig.pairReserve!;
+                const mergedReserve = {
+                    ...res.reserve,
+                    status:
+                        prev.status === 'ACTIVE' && res.reserve.status === 'ACTIVE'
+                            ? ('ACTIVE' as const)
+                            : res.reserve.status,
+                    baseBalanceAtomic: (
+                        BigInt(prev.baseBalanceAtomic || '0') +
+                        BigInt(res.reserve.baseBalanceAtomic)
+                    ).toString(),
+                    partnerBalanceAtomic: (
+                        BigInt(prev.partnerBalanceAtomic || '0') +
+                        BigInt(res.reserve.partnerBalanceAtomic)
+                    ).toString(),
+                    vaultId: res.reserve.vaultId || prev.vaultId
+                };
+                const nextConfig: SettlementConfig = {
+                    ...existing.settlementConfig,
+                    feeRateBps: params.feeRateBps,
+                    swapSpreadBps: params.feeRateBps,
+                    rebalanceThresholdBps: params.feeRateBps,
+                    pairReserve: mergedReserve
+                };
+                operations.sectors = operations.sectors.map((s) =>
+                    s.id === existing.id ? { ...s, settlementConfig: nextConfig } : s
+                );
+                await operations.dispatchStateAction('UPDATE_SETTLEMENT', {
+                    id: existing.id,
+                    config: nextConfig
+                });
+                targetSectorId = existing.id;
+            } else {
+                const id = Math.random().toString(36).substring(2, 8).toUpperCase();
+                const partnerAssetObj = treasury.getAsset(params.partnerTicker);
+                const newSector: Sector = {
+                    id,
+                    name: `${params.baseTicker} / ${params.partnerTicker}`,
+                    allocationBps: 0,
+                    allocationPercentage: 0,
+                    routeMode: 'auto-lp',
+                    settlementConfig: {
+                        targetAsset: partnerAssetObj as unknown as SettlementConfig['targetAsset'],
+                        targetAssets: res.targetAssets,
+                        plantWeights: { [params.baseTicker]: 50, [params.partnerTicker]: 50 },
+                        plantPair: `${params.baseTicker}/${params.partnerTicker}`,
+                        payoutAddress: identity.activeAddress,
+                        autoPayout: true,
+                        mode: 'epoch',
+                        threshold: 50,
+                        appointmentDate: '',
+                        appointmentTime: '17:00',
+                        feeRateBps: params.feeRateBps,
+                        swapSpreadBps: params.feeRateBps,
+                        rebalanceThresholdBps: params.feeRateBps,
+                        term: 'OPEN',
+                        targetDurationDays: null,
+                        ownerExit24x7: true,
+                        pairReserve: res.reserve
+                    },
+                    pendingKaspa: 0,
+                    width: 6
+                };
+                operations.sectors = [...operations.sectors, newSector];
+                await operations.dispatchStateAction('ADD_SECTOR', newSector);
+                targetSectorId = id;
+            }
+            if (res.reserve.status === 'ACTIVE') {
+                await recordPairSettlementActivity({
+                    sectorId: targetSectorId,
+                    eventType: 'LP_PAIR_ACTIVE',
+                    ticker: res.reserve.baseTicker,
+                    partnerTicker: res.reserve.partnerTicker,
+                    amountAtomic: res.reserve.baseBalanceAtomic,
+                    oracleUsdE8: resolveKaspaAssetOracleE8(res.reserve.baseTicker).toString()
+                });
+            }
+            treasury.syncPoolAndPendingFromSectors(operations.sectors);
+            pairBaseAmount = '';
+        } catch (err: unknown) {
+            swapError = err instanceof Error ? err.message : LIVE_PRICING_UNAVAILABLE_MESSAGE;
+        } finally {
+            isProvidingLiquidity = false;
+        }
+    }
+
+    async function handleDexReserveAction(sector: Sector, action: 'cancel' | 'withdraw') {
+        swapError = null;
+        if (!identity.isWalletConnected || !identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
+        isWithdrawingLp = sector.id;
+        try {
+            await cancelOrWithdrawPairSector({ sector, mode: action });
+            operations.sectors = operations.sectors.filter((s) => s.id !== sector.id);
+            treasury.syncPoolAndPendingFromSectors(operations.sectors);
+            await operations.dispatchStateAction('DELETE_SECTOR', { id: sector.id });
+        } catch (err: unknown) {
+            swapError = err instanceof Error ? err.message : 'Action failed.';
+        } finally {
+            isWithdrawingLp = null;
+        }
+    }
+
     async function executeSupplyLiquidity() {
         swapError = null;
         if (!identity.isWalletConnected || !identity.activeAddress) {
@@ -1265,7 +1416,7 @@
                         ? 'text-[#18C6A5] border-[#18C6A5]'
                         : 'text-neutral-500 hover:text-neutral-300 border-transparent'}"
                 >
-                    Swap
+                    SWAP
                 </button>
                 <button
                     type="button"
@@ -1275,7 +1426,7 @@
                         ? 'text-[#18C6A5] border-[#18C6A5]'
                         : 'text-neutral-500 hover:text-neutral-300 border-transparent'}"
                 >
-                    Liquidity
+                    PAIR
                 </button>
                 <button
                     type="button"
@@ -1661,40 +1812,29 @@
             </div>
         </div>
     {:else if activeDexTab === 'liquidity'}
-        <div class="w-full max-w-[1180px]">
+        <div class="w-full max-w-[540px]">
             <LiquidityAndSiloPanel
-                bind:lpAmountA
-                bind:lpAmountB
-                bind:lpWeightPctB
-                bind:extraPlantLegs
-                bind:lockDurationIndex
-                bind:siloStakeAmountInput
-                {lpTokenA}
-                {lpTokenB}
-                {siloAsset}
-                {lpPositions}
-                {siloStakingTelemetry}
-                {isProvidingLiquidity}
-                {isWithdrawingLp}
-                {isStakingSilo}
-                {isMutatingSiloId}
-                {swapError}
-                {ambientPrimaryHex}
-                {ambientSecondaryHex}
-                onOpenTokenModal={openTokenModal}
-                    onQuickSwapForPair={() => { payTicker = 'KAS'; receiveTicker = lpTokenB.ticker; payAmount = lpAmountA || ''; activeDexTab = 'swap'; }}
-                onSetLpPercentageA={setLpPercentageA}
-                onSetLpPercentageB={setLpPercentageB}
-                onHandleLpInputA={handleLpInputA}
-                onHandleLpInputB={handleLpInputB}
-                onAddSecondaryPlantLeg={addSecondaryPlantLeg}
-                onRemoveSecondaryPlantLeg={removeSecondaryPlantLeg}
-                onAdjustDexPlantSecondaryWeights={adjustDexPlantSecondaryWeights}
-                onExecuteSupplyLiquidity={executeSupplyLiquidity}
-                onWithdrawLpPosition={withdrawLpPosition}
-                onExecuteStakeSilo={executeStakeSilo}
-                onInitiateSiloCooldown={initiateSiloCooldown}
-                onClaimUnstakedSilo={claimUnstakedSilo}
+                mode="swap"
+                bind:baseTicker={pairBaseTicker}
+                bind:partnerTicker={pairPartnerTicker}
+                bind:baseAmount={pairBaseAmount}
+                bind:feeRateBps={pairFeeRateBps}
+                plantSectors={(operations.sectors || []).filter((s) => s.routeMode === 'auto-lp')}
+                isSubmitting={isProvidingLiquidity}
+                isWithdrawingId={isWithdrawingLp}
+                {livePricingUnavailable}
+                errorMessage={swapError}
+                onExecutePair={executeSharedDexPair}
+                onFundReserve={(sec) => {
+                    const r = sec.settlementConfig?.pairReserve;
+                    if (r) {
+                        pairBaseTicker = r.baseTicker;
+                        pairPartnerTicker = r.partnerTicker;
+                        pairFeeRateBps = r.feeRateBps;
+                    }
+                    pairBaseAmount = '';
+                }}
+                onCancelOrWithdrawReserve={handleDexReserveAction}
             />
         </div>
     {:else if activeDexTab === 'p2p'}

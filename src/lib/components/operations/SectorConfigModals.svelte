@@ -4,24 +4,42 @@
     import { txState, getChainExplorerTxUrl } from '$lib/stores/transaction.svelte';
     import { fade } from 'svelte/transition';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
-    import type {
-        RegisterVaultLockPayload,
-        VaultCancelPsktResponse,
-        VaultKind,
-        VaultLockRecord
+    import {
+        LIVE_PRICING_UNAVAILABLE_MESSAGE,
+        formatAtomicToDecimal,
+        parseDecimalToAtomic,
+        parseU128Str,
+        type RegisterVaultLockPayload,
+        type VaultCancelPsktResponse,
+        type VaultKind,
+        type VaultLockRecord
     } from '$lib/crypto/atomicMath';
+    import {
+        dexAtomicDecimals
+    } from '$lib/components/dex/dexHelpers';
+    import LiquidityAndSiloPanel from '$lib/components/dex/LiquidityAndSiloPanel.svelte';
     import type {
         Sector,
         SettlementConfig,
-        PlantAssetTarget
+        PlantAssetTarget,
+        PairFeeRateBps,
+        PairFundMode,
+        PairTermOption
     } from '$lib/stores/type';
     import {
+        DEFAULT_PAIR_FEE_RATE_BPS,
+        DEFAULT_PAIR_TERM,
         DEFAULT_VAULT_THRESHOLD_KAS,
+        PAIR_FEE_RATE_PRESETS,
+        PAIR_TERM_PRESETS,
         buildRegisterVaultLockPayload,
         buildUpsertThermostatValvesPayload,
+        computeHashrateQuickFillPct,
+        computeWalletQuickFillDecimal,
         executeOwnerVaultCancelBroadcast,
         formatSompiToKasDisplay,
         formatVaultKindLabel,
+        hydrateSectorTargetAssets,
         postSovereignStateAction,
         resolveTargetNetworkForAsset,
         sanitizeRetailCopy,
@@ -31,6 +49,11 @@
 
     let {
         isSectorModalOpen = $bindable(false),
+        sectorModalMode = 'split',
+        pairFundMode = $bindable<PairFundMode>('WALLET'),
+        splitWalletBoostOpen = $bindable(false),
+        draftPairFeeBps = $bindable<PairFeeRateBps>(DEFAULT_PAIR_FEE_RATE_BPS),
+        draftPairTerm = $bindable<PairTermOption>(DEFAULT_PAIR_TERM),
         draftSectorName = $bindable(''),
         draftSectorPct = $bindable(0),
         draftSectorMax = $bindable(0),
@@ -48,6 +71,11 @@
         cancelVaultPreview = $bindable(null),
         isThermostatModalOpen = $bindable(false),
         thermostatDrafts = $bindable([]),
+        pairPartnerTicker = $bindable('SILO'),
+        initialPairSwapPayTicker = $bindable('KAS'),
+        initialPairSwapAmount = $bindable(''),
+        isSubmittingPair = false,
+        pairSubmitError = null,
         livePricingUnavailable = false,
         displayHashrate = 0,
         mineableVaultMap = new Map(),
@@ -58,6 +86,7 @@
         onUpdateDraftPct,
         onUpdateDraftHash,
         onCreateSector,
+        onExecutePairFlow,
         onSaveSettlementParams,
         onEqualizeSecondaryWeights,
         onAdjustSecondaryPlantWeight,
@@ -68,6 +97,11 @@
         onThermostatSaved
     }: {
         isSectorModalOpen: boolean;
+        sectorModalMode?: 'split' | 'pair';
+        pairFundMode?: PairFundMode;
+        splitWalletBoostOpen?: boolean;
+        draftPairFeeBps?: PairFeeRateBps;
+        draftPairTerm?: PairTermOption;
         draftSectorName: string;
         draftSectorPct: number;
         draftSectorMax: number;
@@ -85,6 +119,11 @@
         cancelVaultPreview?: VaultCancelPsktResponse | null;
         isThermostatModalOpen?: boolean;
         thermostatDrafts?: ThermostatValveDraft[];
+        pairPartnerTicker?: string;
+        initialPairSwapPayTicker?: string;
+        initialPairSwapAmount?: string;
+        isSubmittingPair?: boolean;
+        pairSubmitError?: string | null;
         livePricingUnavailable?: boolean;
         displayHashrate: number;
         mineableVaultMap: Map<string, MineableKrc20VaultInfo>;
@@ -95,6 +134,13 @@
         onUpdateDraftPct: (valStr: string) => void;
         onUpdateDraftHash: (valStr: string) => void;
         onCreateSector: () => Promise<void>;
+        onExecutePairFlow?: (params: {
+            baseTicker: string;
+            partnerTicker: string;
+            baseAmount: string;
+            feeRateBps: PairFeeRateBps;
+            allocationPct: number;
+        }) => Promise<void>;
         onSaveSettlementParams: () => Promise<void>;
         onEqualizeSecondaryWeights: (mode: 'create' | 'edit') => void;
         onAdjustSecondaryPlantWeight: (
@@ -106,7 +152,11 @@
         onAddOrToggleAssetInSector: (
             mode: 'create' | 'edit',
             asset: UnifiedAsset,
-            actionMode: 'replace_primary' | 'add_secondary'
+            actionMode:
+                | 'replace_primary'
+                | 'add_secondary'
+                | 'replace_pair_slot_0'
+                | 'replace_pair_slot_1'
         ) => void;
         onVaultRegistered?: () => Promise<void>;
         onVaultCancelled?: (txId: string) => Promise<void>;
@@ -114,7 +164,9 @@
     } = $props();
 
     let assetPickerTarget = $state<'create' | 'edit'>('create');
-    let assetPickerActionMode = $state<'replace_primary' | 'add_secondary'>('replace_primary');
+    let assetPickerActionMode = $state<
+        'replace_primary' | 'add_secondary' | 'replace_pair_slot_0' | 'replace_pair_slot_1'
+    >('replace_primary');
     let isAssetPickerOpen = $state(false);
     let assetSearchQuery = $state('');
     let isSearchingAssets = $state(false);
@@ -144,7 +196,45 @@
     let isSavingThermostat = $state(false);
     let thermostatError = $state<string | null>(null);
 
-    $effect(() => () => clearTimeout(assetDiscoverTimer));
+    // Pair & Split modal state
+    let pairPayAssetChoices = $derived.by(() => {
+        const defaults = ['KAS', 'USDC', 'USDT', 'BTC', 'ETH', 'SOL'];
+        const withBalances = (treasury.assets || [])
+            .filter((a) => (a.onChain || 0) > 0 || defaults.includes(a.ticker))
+            .map((a) => a.ticker);
+        return Array.from(new Set([...withBalances, ...defaults])).slice(0, 16);
+    });
+    let splitPayAssetChoices = $derived(
+        pairPayAssetChoices.filter(
+            (t) => t !== (draftSettlementConfig?.targetAsset?.ticker || '').toUpperCase()
+        )
+    );
+    let selectedPayAsset = $derived(treasury.getAsset(initialPairSwapPayTicker));
+    let payBalanceAtomic = $derived.by(() => {
+        try {
+            return parseU128Str(selectedPayAsset?.onChainAtomic || '0', 'onChainAtomic');
+        } catch {
+            return 0n;
+        }
+    });
+    let formattedPayBalance = $derived(
+        formatAtomicToDecimal(
+            payBalanceAtomic,
+            selectedPayAsset?.decimals ?? dexAtomicDecimals(initialPairSwapPayTicker),
+            4,
+            false
+        )
+    );
+    const isPositiveDecimalInput = (raw: string): boolean => {
+        const trimmed = String(raw || '').trim();
+        return /^\d+(\.\d+)?$/.test(trimmed) && /[1-9]/.test(trimmed);
+    };
+
+    $effect(() => () => {
+        clearTimeout(assetDiscoverTimer);
+        clearTimeout(pairSwapQuoteTimer);
+        clearTimeout(createSwapQuoteTimer);
+    });
     $effect(() => {
         if (!isAssetPickerOpen) {
             discoveredPickerAssets = [];
@@ -335,6 +425,19 @@
     }
 
     let isDraftMultiAssetPlant = $derived(draftSelectedAssets.length >= 2);
+    let isPairFlow = $derived(sectorModalMode === 'pair' || isDraftMultiAssetPlant);
+    let createHasSwapAmt = $derived(isPositiveDecimalInput(initialPairSwapAmount));
+    let walletSwapSelected = $derived(
+        isPairFlow
+            ? pairFundMode === 'WALLET' || pairFundMode === 'BOTH'
+            : splitWalletBoostOpen
+    );
+    let isCreateSubmitDisabled = $derived(
+        (walletSwapSelected && livePricingUnavailable && createHasSwapAmt) ||
+            (!isPairFlow &&
+                draftSectorPct <= 0 &&
+                !(splitWalletBoostOpen && !livePricingUnavailable && createHasSwapAmt))
+    );
     let draftMineableVaultInfo = $derived(
         !isDraftMultiAssetPlant
             ? mineableVaultMap.get(
@@ -342,10 +445,13 @@
               ) || null
             : null
     );
-    let draftInternalPairsCount = $derived(
-        draftSelectedAssets.length >= 2
-            ? (draftSelectedAssets.length * (draftSelectedAssets.length - 1)) / 2
-            : 0
+    let autoPairTitle = $derived(
+        draftSelectedAssets.length > 0
+            ? draftSelectedAssets.map((a) => a.ticker.toUpperCase()).join(' / ')
+            : 'KAS / USDC'
+    );
+    let autoSplitTitle = $derived(
+        (draftSettlementConfig?.targetAsset?.ticker || 'KAS').toUpperCase()
     );
 
     let filteredAssets = $derived.by(() => {
@@ -414,412 +520,277 @@
     >
         <div class="absolute inset-0 w-full h-full cursor-default border-none"></div>
         <div class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-2xl sm:rounded-[24px] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col">
-            <div class="p-6 border-b border-white/10 bg-[#11161f] flex justify-between items-center shrink-0">
-                <div class="flex flex-col">
-                    <h2 class="text-white font-black uppercase tracking-widest text-lg leading-none">
-                        New Payout Split
+            <div class="px-5 py-4 border-b border-white/10 bg-[#11161f] flex justify-between items-center shrink-0">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <h2 class="text-white font-black uppercase tracking-widest text-sm sm:text-base leading-none">
+                        {isPairFlow ? 'PAIR' : 'SPLIT'}
                     </h2>
-                    <span
-                        data-testid="sector-architecture-badge"
-                        class="text-[10px] font-bold uppercase tracking-widest mt-1 {isDraftMultiAssetPlant ? 'text-blue-400' : draftMineableVaultInfo ? 'text-amber-400' : 'text-[#18C6A5]'}"
-                    >
-                        {isDraftMultiAssetPlant
-                            ? `Multi-Asset Liquidity Pool (50.0% KAS Anchor • ${draftInternalPairsCount} Cross-Pairs)`
-                            : draftMineableVaultInfo
-                              ? `Proof-of-Hashrate Mineable Token Vault (${draftSettlementConfig.targetAsset.ticker})`
-                              : `1-Asset Payout Split (${draftSettlementConfig.targetAsset.ticker})`}
-                    </span>
+                    {#if !isPairFlow}
+                        <span
+                            data-testid="split-auto-title-badge"
+                            class="px-2 py-0.5 rounded-md bg-[#0a0d12] border border-white/15 text-[10px] font-mono font-bold text-[#18C6A5] truncate"
+                        >
+                            {autoSplitTitle}
+                        </span>
+                    {/if}
                 </div>
                 <button
                     type="button"
+                    aria-label="Close"
                     onclick={() => (isSectorModalOpen = false)}
-                    class="w-8 h-8 rounded-full bg-[#161d29] hover:bg-white/10 border border-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    class="w-8 h-8 rounded-full bg-[#161d29] hover:bg-white/10 border border-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
                 >
                     ✕
                 </button>
             </div>
-            <div class="p-4 sm:p-5 flex flex-col gap-3.5 max-h-[50dvh] sm:max-h-[64vh] overflow-y-auto hide-scrollbar">
-                <div class="flex flex-col gap-1.5">
-                    <label
-                        for="draftSectorNameInput"
-                        class="text-[10px] text-neutral-400 uppercase tracking-widest font-bold ml-1"
-                    >
-                        Name
-                    </label>
-                    <input
-                        id="draftSectorNameInput"
-                        type="text"
-                        bind:value={draftSectorName}
-                        placeholder="Split Name"
-                        spellcheck="false"
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-xs font-bold text-white uppercase tracking-wider outline-none transition-colors"
+            <div class="p-4 sm:p-5 flex flex-col gap-3.5 max-h-[62dvh] sm:max-h-[70vh] overflow-y-auto hide-scrollbar">
+                {#if isPairFlow}
+                    <LiquidityAndSiloPanel
+                        mode="mine"
+                        bind:baseTicker={initialPairSwapPayTicker}
+                        bind:partnerTicker={pairPartnerTicker}
+                        bind:baseAmount={initialPairSwapAmount}
+                        bind:feeRateBps={draftPairFeeBps}
+                        bind:allocationPct={draftSectorPct}
+                        maxAllocationPct={draftSectorMax}
+                        {displayHashrate}
+                        {livePricingUnavailable}
+                        isSubmitting={isSubmittingPair}
+                        errorMessage={pairSubmitError}
+                        onExecutePair={onExecutePairFlow}
+                        onCancelModal={() => (isSectorModalOpen = false)}
                     />
-                </div>
-                <div class="flex flex-col gap-3">
-                    <div class="flex justify-between items-end">
-                        <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
-                            Hashrate %
-                        </span>
-                        <div class="flex items-center gap-2">
-                            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1 shadow-inner">
-                                <input
-                                    type="number"
-                                    value={draftSectorPct}
-                                    oninput={(e) => onUpdateDraftPct(e.currentTarget.value)}
-                                    class="w-16 bg-transparent text-white text-lg font-black font-mono outline-none text-right"
-                                />
-                                <span class="text-neutral-400 font-bold">%</span>
-                            </div>
-                            <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1 shadow-inner">
-                                <input
-                                    type="number"
-                                    value={(displayHashrate * (draftSectorPct / 100)).toFixed(2)}
-                                    oninput={(e) => onUpdateDraftHash(e.currentTarget.value)}
-                                    class="w-14 bg-transparent text-neutral-300 text-sm font-mono font-bold outline-none text-right focus:text-white"
-                                />
-                                <span class="text-neutral-500 font-bold text-xs">TH/s</span>
-                            </div>
-                        </div>
-                    </div>
-                    <input
-                        type="range"
-                        min="0.1"
-                        max={draftSectorMax}
-                        step="0.1"
-                        bind:value={draftSectorPct}
-                        class="w-full custom-range-slider cursor-pointer"
-                    />
-                    <div class="grid grid-cols-4 gap-2 mt-1">
-                        {#each [25, 50, 75, 100] as pct}
-                            <button
-                                type="button"
-                                onclick={() =>
-                                    (draftSectorPct = parseFloat(
-                                        Math.min(draftSectorMax, (draftSectorMax * pct) / 100).toFixed(1)
-                                    ))}
-                                class="tactile-btn py-2 rounded-lg text-[10px] font-mono font-bold text-neutral-300 hover:text-white cursor-pointer"
-                            >
-                                {pct === 100 ? 'MAX' : `${pct}%`}
-                            </button>
-                        {/each}
-                    </div>
-                </div>
-                <div class="h-px bg-white/10 w-full"></div>
-                <div class="flex flex-col gap-3">
-                    <div class="flex items-center justify-between">
-                        <div class="flex flex-col">
-                            <span class="text-[10px] font-black text-white uppercase tracking-widest">
-                                Get Paid In
+                {:else}
+                    <!-- STREAMLINED + SPLIT FLOW -->
+                    <!-- TOP: TARGET TOKEN PICKER -->
+                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-mono font-black uppercase tracking-widest text-neutral-300">
+                                Token
+                            </span>
+                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[9px] font-mono text-[#18C6A5]">
+                                {draftMineableVaultInfo ? 'Mineable Vault' : '100% Target'}
                             </span>
                         </div>
-                        {#if isDraftMultiAssetPlant && draftSelectedAssets.length > 2}
-                            <button
-                                type="button"
-                                onclick={() => onEqualizeSecondaryWeights('create')}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-mono font-bold uppercase text-blue-400 border-blue-500/35 cursor-pointer"
-                            >
-                                50/50
-                            </button>
-                        {/if}
-                    </div>
-                    {#if !isDraftMultiAssetPlant}
-                        <div class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
-                            <div class="flex items-center justify-between">
-                                <span class="text-[9px] font-mono font-black uppercase tracking-widest text-[#18C6A5]">
-                                    {draftMineableVaultInfo
-                                        ? `Mineable Vault (${draftMineableVaultInfo.dailyEmissionTokens.toLocaleString()} ${draftSettlementConfig.targetAsset.ticker}/d)`
-                                        : '1 Target Asset Selected'}
-                                </span>
-                                <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[8px] font-mono text-neutral-300">
-                                    100.0% {draftSettlementConfig.targetAsset.ticker}
-                                </span>
-                            </div>
-                            <button
-                                type="button"
-                                data-testid="open-target-asset-picker-btn"
-                                onclick={() => {
-                                    assetPickerTarget = 'create';
-                                    assetPickerActionMode = 'replace_primary';
-                                    isAssetPickerOpen = true;
-                                    assetSearchQuery = '';
-                                    assetCategoryFilter = 'ALL';
-                                }}
-                                class="w-full bg-[#0a0d12] hover:bg-[#161d29] border border-white/10 hover:border-white/25 rounded-xl px-4 py-3 flex items-center justify-between transition-colors cursor-pointer"
-                            >
-                                <div class="flex items-center gap-3">
-                                    <div
-                                        class="w-7 h-7 rounded-full bg-[#11161f] border border-white/10 flex items-center justify-center text-xs font-black overflow-hidden"
-                                        style="color: {draftSettlementConfig.targetAsset.theme?.hex || '#18C6A5'};"
-                                    >
-                                        {draftSettlementConfig.targetAsset.ticker === 'USD'
-                                            ? '$'
-                                            : draftSettlementConfig.targetAsset.ticker[0]}
-                                    </div>
-                                    <div class="flex flex-col items-start">
-                                        <span class="text-xs font-bold text-white leading-none mb-0.5">
-                                            {draftSettlementConfig.targetAsset.ticker} — {draftSettlementConfig.targetAsset.name}
-                                        </span>
-                                        <span class="text-[9px] font-mono text-neutral-400">
-                                            {draftMineableVaultInfo
-                                                ? `Vault Remaining: ${draftMineableVaultInfo.remainingVaultTokens.toLocaleString()} ${draftMineableVaultInfo.tokenTicker} • ${draftMineableVaultInfo.activeMinersCount} Miners`
-                                                : livePricingUnavailable
-                                                  ? 'Live pricing unavailable'
-                                                  : draftSettlementConfig.targetAsset.spotPrice > 0
-                                                    ? `Live Price: $${draftSettlementConfig.targetAsset.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
-                                                    : 'Change Primary Target Asset ▾'}
-                                        </span>
-                                    </div>
-                                </div>
-                                <span class="text-[8px] uppercase tracking-widest font-bold px-2 py-1 rounded bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/30">
-                                    {draftMineableVaultInfo ? 'MINEABLE KRC-20' : draftSettlementConfig.targetAsset.assetClass}
-                                </span>
-                            </button>
-                            {#if draftMineableVaultInfo}
-                                <div
-                                    data-testid="mineable-syndicate-banner"
-                                    class="bg-[#0a0d12] border border-amber-500/40 rounded-xl p-3 flex items-center justify-between gap-2 text-[9px] font-mono"
-                                >
-                                    <div class="flex flex-col">
-                                        <span class="text-amber-400 font-black uppercase">
-                                            Syndicate Hashpower Pledge Active
-                                        </span>
-                                        <span class="text-neutral-400">
-                                            Pro-rata daily {draftMineableVaultInfo.tokenTicker} distribution at the next payout based on verified miner shares.
-                                        </span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        data-testid="syndicate-sector-toggle"
-                                        onclick={() => (draftIsSyndicateSector = !draftIsSyndicateSector)}
-                                        class="px-2.5 py-1 rounded bg-[#11161f] border {draftIsSyndicateSector ? 'border-[#18C6A5]/50 text-[#18C6A5]' : 'border-white/10 text-neutral-400'} font-black uppercase shrink-0 cursor-pointer"
-                                    >
-                                        {draftIsSyndicateSector ? '✓ SYNDICATE PLEDGED' : 'SOLO SPLIT'}
-                                    </button>
-                                </div>
-                            {/if}
-                            <button
-                                type="button"
-                                data-testid="add-plant-asset-btn"
-                                onclick={() => {
-                                    assetPickerTarget = 'create';
-                                    assetPickerActionMode = 'add_secondary';
-                                    isAssetPickerOpen = true;
-                                    assetSearchQuery = '';
-                                    assetCategoryFilter = 'ALL';
-                                }}
-                                class="tactile-btn w-full py-2.5 rounded-xl border-blue-500/40 text-blue-400 text-[10px] font-black uppercase tracking-widest cursor-pointer"
-                            >
-                                + Pair Token (50% KAS Pool)
-                            </button>
-                        </div>
-                    {:else}
-                        <div
-                            data-testid="multi-asset-plant-panel"
-                            class="bg-[#11161f] border border-blue-500/45 rounded-2xl p-4 flex flex-col gap-3"
+                        <button
+                            type="button"
+                            data-testid="open-target-asset-picker-btn"
+                            onclick={() => {
+                                assetPickerTarget = 'create';
+                                assetPickerActionMode = 'replace_primary';
+                                isAssetPickerOpen = true;
+                                assetSearchQuery = '';
+                                assetCategoryFilter = 'ALL';
+                            }}
+                            class="w-full bg-[#0a0d12] hover:bg-[#161d29] border border-[#18C6A5]/40 rounded-xl px-3.5 py-3 flex items-center justify-between transition-colors cursor-pointer"
                         >
-                            <div class="flex items-center justify-between border-b border-white/10 pb-2">
-                                <span class="text-[9px] font-mono font-black uppercase tracking-widest text-blue-400">
-                                    {draftSelectedAssets.length}-Asset Liquidity Pool ({draftInternalPairsCount} Internal Pairs)
-                                </span>
-                                <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[8px] font-mono font-bold text-[#18C6A5]">
-                                    50% KAS
-                                </span>
-                            </div>
-                            <div
-                                data-testid="plant-kas-anchor-row"
-                                class="bg-[#0a0d12] border border-[#18C6A5]/40 rounded-xl p-3 flex items-center justify-between"
-                            >
-                                <div class="flex items-center gap-2.5">
-                                    <span class="w-6 h-6 rounded-full bg-[#11161f] border border-[#18C6A5]/50 flex items-center justify-center text-[10px] font-black text-[#18C6A5]">
-                                        K
-                                    </span>
-                                    <div class="flex flex-col">
-                                        <span class="text-xs font-bold text-white">KAS (50%)</span>
-                                    </div>
-                                </div>
-                                <span
-                                    data-testid="plant-weight-readout-KAS"
-                                    class="text-xs font-mono font-black text-[#18C6A5] tabular-nums"
-                                >
-                                    50.0%
-                                </span>
-                            </div>
-                            {#each draftSelectedAssets.filter((a) => a.ticker !== 'KAS') as secAsset (secAsset.ticker)}
+                            <div class="flex items-center gap-3 min-w-0">
                                 <div
-                                    data-testid="plant-secondary-row-{secAsset.ticker}"
-                                    class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2"
+                                    class="w-7 h-7 rounded-full bg-[#11161f] border border-white/15 flex items-center justify-center text-xs font-black shrink-0"
+                                    style="color: {draftSettlementConfig.targetAsset.theme?.hex || '#18C6A5'};"
                                 >
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center gap-2">
-                                            <span
-                                                class="w-6 h-6 rounded-full bg-[#11161f] border border-white/15 flex items-center justify-center text-[10px] font-black"
-                                                style="color: {secAsset.theme?.hex || '#3B82F6'};"
-                                            >
-                                                {secAsset.ticker[0]}
-                                            </span>
-                                            <div class="flex flex-col">
-                                                <span class="text-xs font-bold text-white">
-                                                    {secAsset.ticker} ({secAsset.name})
-                                                </span>
-                                                <span class="text-[8px] font-mono text-neutral-400">
-                                                    {secAsset.assetClass}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <span
-                                                data-testid="plant-weight-readout-{secAsset.ticker}"
-                                                class="text-xs font-mono font-black text-blue-400 tabular-nums"
-                                            >
-                                                {secAsset.weightPct.toFixed(2)}%
-                                            </span>
-                                            <button
-                                                type="button"
-                                                aria-label="Remove {secAsset.ticker}"
-                                                onclick={() => onRemoveAssetFromSector('create', secAsset.ticker)}
-                                                class="w-5 h-5 rounded bg-[#11161f] hover:bg-red-950/40 text-neutral-400 hover:text-red-400 text-[10px] flex items-center justify-center cursor-pointer"
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {#if draftSelectedAssets.length > 2}
-                                        <input
-                                            type="range"
-                                            min="1"
-                                            max="49"
-                                            step="0.5"
-                                            data-testid="plant-weight-slider-{secAsset.ticker}"
-                                            value={secAsset.weightPct}
-                                            oninput={(e) =>
-                                                onAdjustSecondaryPlantWeight(
-                                                    'create',
-                                                    secAsset.ticker,
-                                                    parseFloat((e.currentTarget as HTMLInputElement).value) || 25
-                                                )}
-                                            class="w-full custom-range-slider cursor-pointer"
-                                        />
-                                    {/if}
+                                    {draftSettlementConfig.targetAsset.ticker === 'USD'
+                                        ? '$'
+                                        : draftSettlementConfig.targetAsset.ticker[0]}
                                 </div>
-                            {/each}
-                            {#if draftSelectedAssets.length < 5}
+                                <div class="flex flex-col items-start min-w-0">
+                                    <span class="text-xs font-bold text-white leading-none mb-0.5 truncate">
+                                        {draftSettlementConfig.targetAsset.ticker} — {draftSettlementConfig.targetAsset.name}
+                                    </span>
+                                    <span class="text-[9px] font-mono text-neutral-400">
+                                        {draftMineableVaultInfo
+                                            ? `${draftMineableVaultInfo.dailyEmissionTokens.toLocaleString()} ${draftMineableVaultInfo.tokenTicker}/d`
+                                            : livePricingUnavailable
+                                              ? LIVE_PRICING_UNAVAILABLE_MESSAGE
+                                              : draftSettlementConfig.targetAsset.spotPrice > 0
+                                                ? `$${draftSettlementConfig.targetAsset.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                                                : 'Choose Token'}
+                                    </span>
+                                </div>
+                            </div>
+                            <span class="text-xs text-neutral-400 shrink-0">▾</span>
+                        </button>
+
+                        {#if draftMineableVaultInfo}
+                            <div
+                                data-testid="mineable-syndicate-banner"
+                                class="bg-[#0a0d12] border border-amber-500/40 rounded-xl p-2.5 flex items-center justify-between gap-2 text-[9px] font-mono"
+                            >
+                                <span class="text-amber-400 font-black uppercase">
+                                    Syndicate Hashpower Pledge Active
+                                </span>
                                 <button
                                     type="button"
-                                    data-testid="add-plant-asset-btn"
-                                    onclick={() => {
-                                        assetPickerTarget = 'create';
-                                        assetPickerActionMode = 'add_secondary';
-                                        isAssetPickerOpen = true;
-                                        assetSearchQuery = '';
-                                        assetCategoryFilter = 'ALL';
-                                    }}
-                                    class="tactile-btn w-full py-2.5 rounded-xl border-blue-500/40 text-blue-400 text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                                    data-testid="syndicate-sector-toggle"
+                                    onclick={() => (draftIsSyndicateSector = !draftIsSyndicateSector)}
+                                    class="px-2.5 py-1 rounded bg-[#11161f] border {draftIsSyndicateSector ? 'border-[#18C6A5]/50 text-[#18C6A5]' : 'border-white/10 text-neutral-400'} font-black uppercase shrink-0 cursor-pointer"
                                 >
-                                    + Add Token
+                                    {draftIsSyndicateSector ? '✓ SYNDICATE PLEDGED' : 'SOLO SPLIT'}
                                 </button>
-                            {/if}
-                        </div>
-                    {/if}
-                </div>
-                {#if !isDraftMultiAssetPlant && draftSettlementConfig.targetAsset.ticker === 'USD'}
-                    <div class="bg-[#11161f] border {savedBankRailLast4 ? 'border-[#18C6A5]/40' : 'border-amber-500/40'} rounded-xl p-3.5 flex flex-col gap-2 text-[10px] font-mono">
-                        <div class="flex items-center justify-between">
-                            <span class="font-black uppercase tracking-wider {savedBankRailLast4 ? 'text-[#18C6A5]' : 'text-amber-400'}">
-                                {savedBankRailLast4
-                                    ? `✓ Bank Rail Linked: *${savedBankRailLast4} (${savedBankRailMethod})`
-                                    : '⚠ Bank Rail Unlinked'}
+                            </div>
+                        {/if}
+
+                        {#if draftSettlementConfig.targetAsset.ticker === 'USD'}
+                            <div class="bg-[#0a0d12] border {savedBankRailLast4 ? 'border-[#18C6A5]/40' : 'border-amber-500/40'} rounded-xl px-3 py-2 flex items-center justify-between text-[10px] font-mono">
+                                <span class="font-black uppercase tracking-wider {savedBankRailLast4 ? 'text-[#18C6A5]' : 'text-amber-400'}">
+                                    {savedBankRailLast4
+                                        ? `✓ Bank Rail: *${savedBankRailLast4} (${savedBankRailMethod})`
+                                        : '⚠ Bank Rail Unlinked'}
+                                </span>
+                                <span class="text-[9px] text-neutral-400">$25 Min</span>
+                            </div>
+                        {/if}
+                    </div>
+
+                    <!-- MIDDLE: HASHRATE % -->
+                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5 font-mono">
+                        <div class="flex justify-between items-center gap-2">
+                            <span class="text-[10px] font-black text-neutral-300 uppercase tracking-widest">
+                                Hashrate %
                             </span>
-                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[8px] text-neutral-300">
-                                $25.00 Min Batch
-                            </span>
+                            <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1">
+                                    <input
+                                        type="number"
+                                        value={draftSectorPct}
+                                        oninput={(e) => onUpdateDraftPct(e.currentTarget.value)}
+                                        class="w-14 bg-transparent text-white text-base font-black outline-none text-right tabular-nums"
+                                    />
+                                    <span class="text-neutral-400 text-xs font-bold">%</span>
+                                </div>
+                                <div class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1">
+                                    <input
+                                        type="number"
+                                        value={(displayHashrate * (draftSectorPct / 100)).toFixed(2)}
+                                        oninput={(e) => onUpdateDraftHash(e.currentTarget.value)}
+                                        class="w-12 bg-transparent text-[#18C6A5] text-xs font-bold outline-none text-right tabular-nums"
+                                    />
+                                    <span class="text-neutral-500 text-[10px] font-bold">TH/s</span>
+                                </div>
+                            </div>
                         </div>
+                        <input
+                            type="range"
+                            min="0"
+                            max={Math.max(draftSectorMax, 0)}
+                            step="0.1"
+                            disabled={draftSectorMax <= 0}
+                            bind:value={draftSectorPct}
+                            class="w-full custom-range-slider cursor-pointer disabled:opacity-40"
+                        />
+                        <div class="grid grid-cols-4 gap-2">
+                            {#each ([25, 50, 75, 100] as const) as pct}
+                                <button
+                                    type="button"
+                                    data-testid="split-hashrate-qf-{pct}"
+                                    disabled={draftSectorMax <= 0}
+                                    onclick={() =>
+                                        (draftSectorPct = computeHashrateQuickFillPct(
+                                            draftSectorMax,
+                                            pct
+                                        ))}
+                                    class="py-2 rounded-lg bg-[#0a0d12] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    {pct === 100 ? 'MAX' : `${pct}%`}
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <!-- OPTIONAL WALLET BOOST -->
+                    <div class="flex flex-col gap-2 font-mono">
+                        <button
+                            type="button"
+                            data-testid="split-wallet-boost-toggle"
+                            onclick={() => (splitWalletBoostOpen = !splitWalletBoostOpen)}
+                            class="w-full py-2 px-3 rounded-xl border text-[10px] font-bold uppercase tracking-wider flex items-center justify-between cursor-pointer transition-colors {splitWalletBoostOpen ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                        >
+                            <span>+ WALLET</span>
+                            <span>{splitWalletBoostOpen ? '▴' : '▾'}</span>
+                        </button>
+
+                        {#if splitWalletBoostOpen}
+                            <div
+                                data-testid="split-wallet-boost-panel"
+                                class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2"
+                            >
+                                <div class="flex items-center justify-between text-[10px]">
+                                    <span class="text-neutral-400 uppercase font-bold">Pay</span>
+                                    <span class="text-neutral-300 tabular-nums">
+                                        {formattedPayBalance} {initialPairSwapPayTicker}
+                                    </span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <select
+                                        aria-label="Pay Token"
+                                        bind:value={initialPairSwapPayTicker}
+                                        class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-2 text-xs font-bold text-white outline-none"
+                                    >
+                                        {#each splitPayAssetChoices as tick}
+                                            <option value={tick}>{tick}</option>
+                                        {/each}
+                                    </select>
+                                    <input
+                                        type="text"
+                                        inputmode="decimal"
+                                        data-testid="split-wallet-boost-amount"
+                                        bind:value={initialPairSwapAmount}
+                                        placeholder="0.00"
+                                        disabled={livePricingUnavailable}
+                                        class="flex-1 bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2 text-xs font-bold text-white outline-none disabled:opacity-40"
+                                    />
+                                </div>
+                                <div class="grid grid-cols-4 gap-1.5">
+                                    {#each ([25, 50, 75, 100] as const) as pct}
+                                        <button
+                                            type="button"
+                                            data-testid="split-wallet-qf-{pct}"
+                                            disabled={livePricingUnavailable || payBalanceAtomic <= 0n}
+                                            onclick={() => {
+                                                initialPairSwapAmount = computeWalletQuickFillDecimal(
+                                                    selectedPayAsset?.onChainAtomic,
+                                                    selectedPayAsset?.decimals ??
+                                                        dexAtomicDecimals(initialPairSwapPayTicker),
+                                                    pct
+                                                );
+                                            }}
+                                            class="py-1.5 rounded-lg bg-[#0a0d12] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                            {pct === 100 ? 'MAX' : `${pct}%`}
+                                        </button>
+                                    {/each}
+                                </div>
+                                {#if livePricingUnavailable}
+                                    <span class="text-[9px] text-amber-400 font-bold">
+                                        {LIVE_PRICING_UNAVAILABLE_MESSAGE}
+                                    </span>
+                                {/if}
+                            </div>
+                        {/if}
                     </div>
                 {/if}
-                <div class="flex flex-col gap-1.5">
-                    <label
-                        for="draftDestWallet"
-                        class="text-[10px] text-neutral-400 uppercase tracking-widest font-bold ml-1"
-                    >
-                        {isDraftMultiAssetPlant
-                            ? 'Liquidity Pool Address'
-                            : draftSettlementConfig.targetAsset.ticker === 'USD'
-                              ? 'Destination Bank Rail'
-                              : `Destination ${draftSettlementConfig.targetAsset.ticker} Address`}
-                    </label>
-                    <input
-                        id="draftDestWallet"
-                        type="text"
-                        bind:value={draftSettlementConfig.payoutAddress}
-                        placeholder={draftSettlementConfig.targetAsset.ticker === 'USD' ? 'Bank Rail Account' : 'kaspa:...'}
-                        spellcheck="false"
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-xs font-mono text-[#18C6A5] outline-none transition-colors"
-                    />
-                </div>
-                <div class="flex items-center justify-between bg-[#11161f] border border-white/10 rounded-xl p-4">
-                    <div class="flex flex-col">
-                        <span class="text-xs uppercase tracking-widest text-neutral-200 font-bold">
-                            Schedule
-                        </span>
-                    </div>
+            </div>
+            {#if !isPairFlow}
+                <div class="flex gap-3 px-5 py-3 bg-[#11161f] border-t border-white/10 shrink-0">
                     <button
                         type="button"
-                        aria-label="Toggle Auto Payout"
-                        onclick={() =>
-                            (draftSettlementConfig.autoPayout = !draftSettlementConfig.autoPayout)}
-                        class="w-10 h-5 rounded-full border transition-colors duration-300 relative {draftSettlementConfig.autoPayout ? 'bg-amber-500/20 border-amber-500/50' : 'bg-[#0a0d12] border-white/15'} cursor-pointer focus:outline-none"
+                        onclick={() => (isSectorModalOpen = false)}
+                        class="tactile-btn flex-1 py-3.5 text-neutral-300 hover:text-white font-bold uppercase tracking-widest text-xs rounded-xl cursor-pointer"
                     >
-                        <div
-                            class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all duration-300 shadow-sm {draftSettlementConfig.autoPayout ? 'bg-amber-500 left-[22px]' : 'bg-neutral-500 left-1'}"
-                        ></div>
+                        CANCEL
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="initialize-sector-btn"
+                        onclick={onCreateSector}
+                        disabled={isCreateSubmitDisabled}
+                        class="tactile-btn flex-[2] py-3.5 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white font-black uppercase tracking-widest text-xs rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
+                    >
+                        SPLIT
                     </button>
                 </div>
-                {#if !isDraftMultiAssetPlant}
-                    <div
-                        class="flex bg-[#0a0d12] rounded-xl p-1 border border-white/10 {draftSettlementConfig.autoPayout ? '' : 'opacity-50 pointer-events-none'} transition-opacity shadow-inner"
-                    >
-                        <button
-                            type="button"
-                            onclick={() => (draftSettlementConfig.mode = 'threshold')}
-                            class="flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all {draftSettlementConfig.mode === 'threshold' ? 'bg-[#161d29] text-amber-400 shadow-md border border-white/10' : 'text-neutral-400 hover:text-white cursor-pointer border border-transparent'}"
-                        >
-                            Limit
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (draftSettlementConfig.mode = 'epoch')}
-                            class="flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all {draftSettlementConfig.mode === 'epoch' ? 'bg-[#161d29] text-[#18C6A5] shadow-md border border-white/10' : 'text-neutral-400 hover:text-white cursor-pointer border border-transparent'}"
-                        >
-                            Daily Cycle
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (draftSettlementConfig.mode = 'appointment')}
-                            class="flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all {draftSettlementConfig.mode === 'appointment' ? 'bg-[#161d29] text-blue-400 shadow-md border border-white/10' : 'text-neutral-400 hover:text-white cursor-pointer border border-transparent'}"
-                        >
-                            Scheduled
-                        </button>
-                    </div>
-                {/if}
-            </div>
-            <div class="flex gap-3 px-5 py-3 bg-[#11161f] border-t border-white/10 shrink-0">
-                <button
-                    type="button"
-                    onclick={() => (isSectorModalOpen = false)}
-                    class="tactile-btn flex-1 py-3.5 text-neutral-300 hover:text-white font-bold uppercase tracking-widest text-xs rounded-xl cursor-pointer"
-                >
-                    Cancel
-                </button>
-                <button
-                    type="button"
-                    data-testid="initialize-sector-btn"
-                    onclick={onCreateSector}
-                    disabled={draftSectorPct <= 0}
-                    class="tactile-btn flex-[2] py-3.5 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white font-black uppercase tracking-widest text-xs rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
-                >
-                    Save Split
-                </button>
-            </div>
+            {/if}
         </div>
     </div>
 {/if}
@@ -855,8 +826,11 @@
                 <div class="flex flex-col items-center">
                     <h3 class="font-bold tracking-wide text-sm text-center uppercase text-white">
                         {assetPickerActionMode === 'add_secondary'
-                            ? 'Add Asset to 50% KAS Liquidity Pool'
-                            : 'Select Target Asset'}
+                            ? 'Add Token to Liquidity Pair'
+                            : assetPickerActionMode === 'replace_pair_slot_0' ||
+                                assetPickerActionMode === 'replace_pair_slot_1'
+                              ? 'Select Pair Token'
+                              : 'Select Target Asset'}
                     </h3>
                     {#if isSearchingAssets}
                         <span class="text-[8px] font-mono text-[#18C6A5] uppercase animate-pulse mt-0.5">
@@ -1039,14 +1013,9 @@
     >
         <div class="w-full max-w-[520px] bg-[#0a0d12] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
             <div class="p-5 border-b border-white/10 bg-[#11161f] flex items-center justify-between">
-                <div class="flex flex-col">
-                    <h2 class="text-sm font-black uppercase tracking-widest text-white">
-                        New Self-Custody Vault Lock
-                    </h2>
-                    <span class="text-[9px] text-neutral-400 mt-0.5">
-                        Non-custodial on-chain vault with 24/7 owner cancellation
-                    </span>
-                </div>
+                <h2 class="text-sm font-black uppercase tracking-widest text-white">
+                    Vault Lock
+                </h2>
                 <button
                     type="button"
                     onclick={() => (isVaultModalOpen = false)}
@@ -1137,7 +1106,7 @@
                     </div>
                     <div class="flex flex-col gap-1">
                         <label for="vaultTokenTickerInput" class="text-[9px] uppercase text-neutral-400 font-bold">
-                            Token Ticker (Optional)
+                            Token
                         </label>
                         <input
                             id="vaultTokenTickerInput"
@@ -1181,14 +1150,9 @@
     >
         <div class="w-full max-w-[480px] bg-[#0a0d12] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
             <div class="p-5 border-b border-white/10 bg-[#11161f] flex items-center justify-between">
-                <div class="flex flex-col">
-                    <h2 class="text-sm font-black uppercase tracking-widest text-white">
-                        Return Vault Balance to Wallet
-                    </h2>
-                    <span class="text-[9px] text-neutral-400 mt-0.5">
-                        24/7 owner-signed withdrawal back to your refund wallet
-                    </span>
-                </div>
+                <h2 class="text-sm font-black uppercase tracking-widest text-white">
+                    Withdraw
+                </h2>
                 <button
                     type="button"
                     onclick={() => {
@@ -1228,14 +1192,14 @@
                 {#if !txState.decryptedPrivateKeyHex && !cancelVaultTxId}
                     <div class="flex flex-col gap-1">
                         <label for="cancelVaultPwd" class="text-[9px] uppercase text-neutral-400 font-bold">
-                            Wallet Password (Local Signer)
+                            Password
                         </label>
                         <input
                             id="cancelVaultPwd"
                             data-testid="vault-cancel-password-input"
                             type="password"
                             bind:value={cancelVaultPassword}
-                            placeholder="Enter vault password to sign locally"
+                            placeholder=""
                             class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2.5 text-xs text-white outline-none"
                         />
                     </div>
@@ -1298,14 +1262,9 @@
     >
         <div class="w-full max-w-[680px] bg-[#0a0d12] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
             <div class="p-5 border-b border-white/10 bg-[#11161f] flex items-center justify-between">
-                <div class="flex flex-col">
-                    <h2 class="text-sm font-black uppercase tracking-widest text-white">
-                        Payout Priority Thermostat
-                    </h2>
-                    <span class="text-[9px] text-neutral-400 mt-0.5">
-                        Configure up to 4 priority destinations filled in order each cycle
-                    </span>
-                </div>
+                <h2 class="text-sm font-black uppercase tracking-widest text-white">
+                    Thermostat
+                </h2>
                 <button
                     type="button"
                     onclick={() => (isThermostatModalOpen = false)}
@@ -1323,14 +1282,9 @@
                 {#each thermostatDrafts as valve, idx (valve.priorityOrder)}
                     <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2.5">
                         <div class="flex items-center justify-between gap-2">
-                            <div class="flex flex-col">
-                                <span class="text-xs font-black text-white">
-                                    Priority {valve.priorityOrder} — {valve.title}
-                                </span>
-                                <span class="text-[9px] text-neutral-400">
-                                    {valve.subtitle}
-                                </span>
-                            </div>
+                            <span class="text-xs font-black text-white">
+                                {valve.priorityOrder} — {valve.title}
+                            </span>
                             <button
                                 type="button"
                                 onclick={() => {
@@ -1388,16 +1342,16 @@
                                     <input
                                         type="text"
                                         bind:value={thermostatDrafts[idx].externalRailRef}
-                                        placeholder="Optional account or invoice ref"
+                                        placeholder=""
                                         class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-white outline-none"
                                     />
                                 </div>
                                 <div class="flex flex-col gap-1">
-                                    <span class="text-[8px] uppercase text-neutral-400">Verification Commitment</span>
+                                    <span class="text-[8px] uppercase text-neutral-400">Commitment</span>
                                     <input
                                         type="text"
                                         bind:value={thermostatDrafts[idx].zktlsBillerCommitmentHex}
-                                        placeholder="Optional 64-char hex proof ID"
+                                        placeholder=""
                                         class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-neutral-300 outline-none"
                                     />
                                 </div>

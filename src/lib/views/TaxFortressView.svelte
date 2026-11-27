@@ -36,7 +36,11 @@
         'FIAT_OFFRAMP',
         'OTC_SETTLEMENT',
         'PASSTHROUGH_SETTLED',
-        'P2P_ATOMIC_FILL'
+        'P2P_ATOMIC_FILL',
+        'LP_PAIR_ACTIVE',
+        'LP_PAIR_FILLED',
+        'LP_PAIR_WITHDRAWN',
+        'SETTLEMENT_RECEIPT'
     ]);
 
     const EMPTY_HIFO_BUNDLE: HifoTaxBundle = {

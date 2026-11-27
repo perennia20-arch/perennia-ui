@@ -484,6 +484,66 @@ test.describe('Sovereign L1 Batch 4-6 Integration & Repo-Wide Invariants', () =>
         expect(layout).not.toContain('/api/user/ledger');
         expect(layout).not.toContain('LEDGER_KAS');
         expect(layout).not.toContain('AUTO_STAKE_SILO');
+
+        // Clean Top Nav & WALLET / MINE UI alignment invariants
+        const buyNavIdx = layout.indexOf('header-buy-fiat-btn');
+        const opsNavIdx = layout.indexOf('header-nav-OPERATIONS');
+        const dexNavIdx = layout.indexOf('header-nav-DEX');
+        const taxNavIdx = layout.indexOf('header-nav-TAX-FORTRESS');
+        const agentsNavIdx = layout.indexOf('header-agents-btn');
+        const walletBtnIdx = layout.indexOf('header-treasury-btn');
+        const unlockBtnIdx = layout.indexOf('header-unlock-vault-btn');
+        const settingsBtnIdx = layout.indexOf('header-settings-btn');
+        expect(buyNavIdx).toBeGreaterThan(-1);
+        expect(buyNavIdx).toBeLessThan(opsNavIdx);
+        expect(opsNavIdx).toBeLessThan(dexNavIdx);
+        expect(dexNavIdx).toBeLessThan(taxNavIdx);
+        expect(taxNavIdx).toBeLessThan(agentsNavIdx);
+        expect(agentsNavIdx).toBeLessThan(walletBtnIdx);
+        expect(walletBtnIdx).toBeLessThan(unlockBtnIdx);
+        expect(unlockBtnIdx).toBeLessThan(settingsBtnIdx);
+
+        const i18nSrc = fs.readFileSync(path.join(SRC_ROOT, 'lib/stores/i18n.svelte.ts'), 'utf8');
+        expect(i18nSrc).toContain("'nav.exchange': 'Swap'");
+        expect(i18nSrc).toContain("'header.node_online': 'BUY • MINE • SWAP'");
+        expect(i18nSrc).not.toContain('MINE • BUY • TRADE');
+
+        const workerPanel = fs.readFileSync(path.join(SRC_ROOT, 'lib/components/operations/WorkerFleetPanel.svelte'), 'utf8');
+        expect(workerPanel).toContain('+ Miner');
+        expect(workerPanel).not.toContain('+ Split');
+
+        const treasuryVault = fs.readFileSync(path.join(SRC_ROOT, 'lib/views/TreasuryVault.svelte'), 'utf8');
+        expect(treasuryVault).toContain('vault-value-timeframe-delta');
+        expect(treasuryVault).toContain('$0.00 (0.00%)');
+        expect(treasuryVault).toContain('vault-tf-{tf}');
+        expect(treasuryVault).toContain('treasury-token-search-input');
+        expect(treasuryVault).toContain('treasury.totalPendingUsd');
+        expect(treasuryVault).toContain('treasury.totalPooledUsd');
+        expect(treasuryVault).not.toContain('>Organize<');
+        expect(treasuryVault).not.toContain('>Chains<');
+
+        const networkRow = fs.readFileSync(path.join(SRC_ROOT, 'lib/components/treasury/NetworkRow.svelte'), 'utf8');
+        expect(networkRow).toContain('add-chain-btn-');
+        expect(networkRow).toContain('remove-chain-btn-');
+        expect(networkRow).toContain('chain-hide-confirm-banner-');
+        expect(networkRow).not.toContain('Buy Crypto');
+        expect(networkRow).toContain('BUY');
+        expect(networkRow).toContain('SWEEP');
+
+        const lpPanel = fs.readFileSync(path.join(SRC_ROOT, 'lib/components/dex/LiquidityAndSiloPanel.svelte'), 'utf8');
+        const sectorCardSrc = fs.readFileSync(path.join(SRC_ROOT, 'lib/components/operations/SectorCard.svelte'), 'utf8');
+        const modalsSrc = fs.readFileSync(path.join(SRC_ROOT, 'lib/components/operations/SectorConfigModals.svelte'), 'utf8');
+        expect(lpPanel).not.toMatch(/\bAPY\b/);
+        expect(lpPanel).not.toContain('80/20');
+        expect(sectorCardSrc).not.toContain('50% KAS Pool Split');
+        expect(modalsSrc).not.toContain('pair-swap-modal');
+        expect(modalsSrc).not.toContain('(Optional)');
+
+        const taxEventsRoute = fs.readFileSync(path.join(SRC_ROOT, 'routes/api/user/tax-events/+server.ts'), 'utf8');
+        expect(taxEventsRoute).toContain('epoch_payout_outbox');
+        expect(taxEventsRoute).toContain('settlement_receipts');
+        expect(taxEventsRoute).toContain('GET_MATURE_ACCRUAL_AND_OUTBOX');
+        expect(taxEventsRoute).toContain('GET_SETTLEMENT_RECEIPTS');
     });
 
     test('Repo-wide src/ invariant scan passes with zero legacy violations and pure LF endings', () => {

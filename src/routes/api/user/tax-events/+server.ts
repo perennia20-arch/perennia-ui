@@ -1,7 +1,15 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { dbPool } from '$lib/server/db';
 import { redis } from '$lib/server/redis';
-import { parseDecimalToAtomic } from '$lib/crypto/atomicMath';
+import {
+    KAS_DECIMALS,
+    USD_MICROS_DECIMALS,
+    atomicToUsdMicrosFloor,
+    formatAtomicToDecimal,
+    parseDecimalToAtomic,
+    parseU128Str
+} from '$lib/crypto/atomicMath';
 
 export interface HifoTaxLotRecord {
     lotId: string;
@@ -251,7 +259,9 @@ function computePassiveHifoFromEvents(
             (evType === 'DEX_SWAP' ||
                 evType === 'FIAT_OFFRAMP' ||
                 evType === 'PASSTHROUGH_SETTLED' ||
-                evType === 'OTC_SETTLEMENT') &&
+                evType === 'OTC_SETTLEMENT' ||
+                evType === 'LP_PAIR_FILLED' ||
+                evType === 'LP_PAIR_WITHDRAWN') &&
             qty > 0
         ) {
             const candidateLots = simulatedLots
@@ -405,7 +415,7 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
             )
             .catch(() => {});
 
-        const [res, l1QueueRes, dbLotsRes, dbMatchesRes] = await Promise.all([
+        const [res, l1QueueRes, dbLotsRes, dbMatchesRes, outboxDbRes, receiptsDbRes] = await Promise.all([
             client.query(
                 `SELECT * FROM tax_ledger_events
                  WHERE wallet_address = $1 OR wallet_address = $2
@@ -440,6 +450,24 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
                      LIMIT 500`,
                     [cleanWallet, prefixedWallet]
                 )
+                .catch(() => ({ rows: [] as any[] })),
+            client
+                .query(
+                    `SELECT * FROM epoch_payout_outbox
+                     WHERE wallet_address = $1 OR wallet_address = $2
+                     ORDER BY updated_at DESC, created_at DESC
+                     LIMIT 150`,
+                    [prefixedWallet, cleanWallet]
+                )
+                .catch(() => ({ rows: [] as any[] })),
+            client
+                .query(
+                    `SELECT * FROM settlement_receipts
+                     WHERE wallet_address = $1 OR wallet_address = $2
+                     ORDER BY created_at DESC
+                     LIMIT 150`,
+                    [prefixedWallet, cleanWallet]
+                )
                 .catch(() => ({ rows: [] as any[] }))
         ]);
 
@@ -461,19 +489,32 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
             }
         }
 
+        const l1ColorForTicker = (ticker: string): string => {
+            if (ticker === 'BTC') return '#F7931A';
+            if (ticker === 'ETH') return '#627EEA';
+            if (ticker === 'SOL') return '#14F195';
+            if (ticker === 'USD') return '#10B981';
+            if (ticker === 'USDC' || ticker === 'USDT') return '#3B82F6';
+            if (ticker === 'POL') return '#8247E5';
+            if (ticker === 'AVAX') return '#E84142';
+            if (ticker === 'ARB') return '#28A0F0';
+            if (ticker === 'BASE') return '#0052FF';
+            return '#18C6A5';
+        };
+
+        const atomicDecForTicker = (ticker: string): number => {
+            const t = ticker.toUpperCase();
+            if (t === 'USDC' || t === 'USDT') return 6;
+            if (t === 'SOL') return 9;
+            if (t === 'ETH' || t === 'BASE' || t === 'ARB' || t === 'POL') return 18;
+            return KAS_DECIMALS;
+        };
+
+        const seenTxKeys = new Set<string>();
         const events = res.rows.map((row, idx) => {
             const evId = String(row.event_id || `ev_${idx}`);
             const ticker = String(row.asset_ticker || 'KAS').toUpperCase();
-            let color = '#18C6A5';
-            if (ticker === 'BTC') color = '#F7931A';
-            else if (ticker === 'ETH') color = '#627EEA';
-            else if (ticker === 'SOL') color = '#14F195';
-            else if (ticker === 'USD') color = '#10B981';
-            else if (ticker === 'USDC' || ticker === 'USDT') color = '#3B82F6';
-            else if (ticker === 'POL') color = '#8247E5';
-            else if (ticker === 'AVAX') color = '#E84142';
-            else if (ticker === 'ARB') color = '#28A0F0';
-            else if (ticker === 'BASE') color = '#0052FF';
+            const color = l1ColorForTicker(ticker);
 
             let displayType = row.event_type;
             if (row.event_type === 'YIELD') displayType = 'Epoch L1 Payout';
@@ -490,6 +531,12 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
             else if (row.event_type === 'OTC_SETTLEMENT') displayType = 'OTC Settlement';
             else if (row.event_type === 'TAX_ESCROW_LP')
                 displayType = 'Tax Escrow Auto-LP';
+            else if (row.event_type === 'LP_PAIR_ACTIVE')
+                displayType = 'Pair Active';
+            else if (row.event_type === 'LP_PAIR_FILLED')
+                displayType = 'Pair Filled';
+            else if (row.event_type === 'LP_PAIR_WITHDRAWN')
+                displayType = 'Pair Withdraw';
 
             const rawDbTxHash = String(row.tx_hash || '').trim();
             const linkedQueue = rawDbTxHash ? l1PayoutMap.get(rawDbTxHash) : null;
@@ -499,6 +546,8 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
                 String(row.event_id || '')
                     .split('-')[0]
                     .toUpperCase();
+            if (resolvedTxHash) seenTxKeys.add(resolvedTxHash.toLowerCase());
+            if (rawDbTxHash) seenTxKeys.add(rawDbTxHash.toLowerCase());
             const payoutAddress =
                 row.payout_address ||
                 linkedQueue?.destination_address ||
@@ -548,6 +597,145 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
                     (isQueuedId ? 'QUEUED_FOR_L1_DISPATCH' : 'DISPATCHED_ONCHAIN')
             };
         });
+
+        let remoteOutboxRows: any[] = [];
+        let remoteReceiptRows: any[] = [];
+        const rustUrl = String(env.RUST_BACKEND_URL || '').trim();
+        const adminToken = String(env.INTERNAL_ADMIN_TOKEN || env.PERENNIA_ADMIN_KEY || '').trim();
+        if (rustUrl && adminToken) {
+            const headers = {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${adminToken}`
+            };
+            const [obRes, rcRes] = await Promise.all([
+                fetch(`${rustUrl.replace(/\/$/, '')}/v1/state/action`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        action: 'GET_MATURE_ACCRUAL_AND_OUTBOX',
+                        wallet: prefixedWallet,
+                        payload: { wallet: prefixedWallet }
+                    }),
+                    signal: AbortSignal.timeout(2500)
+                }).catch(() => null),
+                fetch(`${rustUrl.replace(/\/$/, '')}/v1/state/action`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        action: 'GET_SETTLEMENT_RECEIPTS',
+                        wallet: prefixedWallet,
+                        payload: { wallet: prefixedWallet }
+                    }),
+                    signal: AbortSignal.timeout(2500)
+                }).catch(() => null)
+            ]);
+            if (obRes?.ok) {
+                const obData = await obRes.json().catch(() => null);
+                if (Array.isArray(obData?.outbox)) remoteOutboxRows = obData.outbox;
+                else if (Array.isArray(obData?.data?.outbox)) remoteOutboxRows = obData.data.outbox;
+            }
+            if (rcRes?.ok) {
+                const rcData = await rcRes.json().catch(() => null);
+                if (Array.isArray(rcData?.receipts)) remoteReceiptRows = rcData.receipts;
+                else if (Array.isArray(rcData?.data?.receipts)) remoteReceiptRows = rcData.data.receipts;
+            }
+        }
+
+        const cachedKasSpotStr = await redis.get('oracle:spot:KAS_USDC').catch(() => null);
+        const kasOracleUsdE8 = cachedKasSpotStr
+            ? parseDecimalToAtomic(cachedKasSpotStr, KAS_DECIMALS, 'floor')
+            : 0n;
+
+        const mergedReceipts = [...receiptsDbRes.rows, ...remoteReceiptRows];
+        for (let i = 0; i < mergedReceipts.length; i++) {
+            const r = mergedReceipts[i];
+            const txHash = String(
+                r.destination_txid || r.destinationTxid || r.kaspa_l1_txid || r.kaspaL1Txid || r.receipt_id || r.receiptId || ''
+            ).trim();
+            if (!txHash || seenTxKeys.has(txHash.toLowerCase())) continue;
+            seenTxKeys.add(txHash.toLowerCase());
+            const ticker = String(r.target_asset || r.targetAsset || 'KAS').toUpperCase();
+            const dec = atomicDecForTicker(ticker);
+            const settledAtomic = parseU128Str(String(r.settled_atomic ?? r.settledAtomic ?? '0'));
+            const amountStr = formatAtomicToDecimal(settledAtomic, dec);
+            const kasInAtomic = parseU128Str(String(r.kas_in_sompi ?? r.kasInSompi ?? '0'));
+            const spotStr = await redis.get(`oracle:spot:${ticker}_USDC`).catch(() => null);
+            const oracleE8 =
+                ticker === 'USDC' || ticker === 'USDT'
+                    ? 100_000_000n
+                    : spotStr
+                      ? parseDecimalToAtomic(spotStr, KAS_DECIMALS, 'floor')
+                      : kasInAtomic > 0n && kasOracleUsdE8 > 0n
+                        ? 0n
+                        : 0n;
+            const usdMicros =
+                oracleE8 > 0n && settledAtomic > 0n
+                    ? atomicToUsdMicrosFloor(settledAtomic, dec, oracleE8)
+                    : kasInAtomic > 0n && kasOracleUsdE8 > 0n
+                      ? atomicToUsdMicrosFloor(kasInAtomic, KAS_DECIMALS, kasOracleUsdE8)
+                      : 0n;
+            const usdFloat = Number(formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS));
+            const tsIso = new Date(r.created_at || r.createdAt || Date.now()).toISOString();
+            const destAddr = String(r.destination_address || r.destinationAddress || prefixedWallet);
+            const tier = String(r.settlement_tier || r.settlementTier || 'L1 Settlement').toUpperCase();
+            events.push({
+                id: String(r.receipt_id || r.receiptId || `rcpt_${i}`),
+                timestamp: new Date(tsIso).toLocaleString(),
+                recordedAtIso: tsIso,
+                type: tier.includes('SWAP') || tier.includes('HTLC') ? 'L1 Swap Settlement' : 'L1 Settlement Fill',
+                rawEventType: 'SETTLEMENT_RECEIPT',
+                asset: { ticker, color: l1ColorForTicker(ticker) },
+                amount: Number(amountStr),
+                kasSompi: Number(kasInAtomic > 0n ? kasInAtomic : parseDecimalToAtomic(amountStr, KAS_DECIMALS, 'floor')),
+                usdValueAtTime: usdFloat,
+                costBasisUsd: usdFloat,
+                realizedGainLossUsd: 0,
+                holdingPeriod: 'SHORT_TERM',
+                spotPriceAtExecution: Number(formatAtomicToDecimal(oracleE8, KAS_DECIMALS)),
+                txHash,
+                payoutAddress: destAddr,
+                explorerUrl: buildExplorerTxUrl(ticker, txHash),
+                l1Status: String(r.status || 'CONFIRMED')
+            });
+        }
+
+        const mergedOutbox = [...outboxDbRes.rows, ...remoteOutboxRows];
+        for (let i = 0; i < mergedOutbox.length; i++) {
+            const o = mergedOutbox[i];
+            const txHash = String(o.txid || o.payout_id || o.payoutId || '').trim();
+            if (!txHash || seenTxKeys.has(txHash.toLowerCase())) continue;
+            seenTxKeys.add(txHash.toLowerCase());
+            const payoutSompi = parseU128Str(String(o.payout_sompi ?? o.payoutSompi ?? '0'));
+            if (payoutSompi <= 0n) continue;
+            const amountStr = formatAtomicToDecimal(payoutSompi, KAS_DECIMALS);
+            const usdMicros =
+                kasOracleUsdE8 > 0n ? atomicToUsdMicrosFloor(payoutSompi, KAS_DECIMALS, kasOracleUsdE8) : 0n;
+            const usdFloat = Number(formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS));
+            const tsIso = new Date(o.updated_at || o.updatedAt || o.created_at || o.createdAt || Date.now()).toISOString();
+            const destAddr = String(o.destination_address || o.destinationAddress || prefixedWallet);
+            const isConfirmed = String(o.status || '').toUpperCase().includes('CONFIRM') || String(o.status || '').toUpperCase().includes('SENT');
+            events.push({
+                id: String(o.payout_id || o.payoutId || `outbox_${i}`),
+                timestamp: new Date(tsIso).toLocaleString(),
+                recordedAtIso: tsIso,
+                type: 'Epoch L1 Payout',
+                rawEventType: 'YIELD',
+                asset: { ticker: 'KAS', color: '#18C6A5' },
+                amount: Number(amountStr),
+                kasSompi: Number(payoutSompi),
+                usdValueAtTime: usdFloat,
+                costBasisUsd: usdFloat,
+                realizedGainLossUsd: 0,
+                holdingPeriod: 'SHORT_TERM',
+                spotPriceAtExecution: Number(formatAtomicToDecimal(kasOracleUsdE8, KAS_DECIMALS)),
+                txHash,
+                payoutAddress: destAddr,
+                explorerUrl: txHash.length >= 12 ? buildExplorerTxUrl('KAS', txHash) : buildAddressExplorerUrl('KAS', destAddr),
+                l1Status: isConfirmed ? 'DISPATCHED_ONCHAIN' : String(o.status || 'QUEUED_FOR_L1_DISPATCH')
+            });
+        }
+
+        events.sort((a, b) => new Date(b.recordedAtIso).getTime() - new Date(a.recordedAtIso).getTime());
 
         if (wantHifoBundle) {
             const openCostBasisUsd = lots
@@ -600,6 +788,68 @@ export const GET = async ({ cookies, url }: RequestEvent) => {
                   hifoSummary: null
               })
             : json([]);
+    } finally {
+        if (client) client.release();
+    }
+};
+
+export const POST = async ({ cookies, request }: RequestEvent) => {
+    const rawWallet = cookies.get('kaspa_wallet');
+    if (!rawWallet) {
+        return json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+    const prefixedWallet = rawWallet.startsWith('kaspa:') ? rawWallet : `kaspa:${rawWallet}`;
+
+    let body: Record<string, unknown>;
+    try {
+        body = (await request.json()) as Record<string, unknown>;
+    } catch {
+        return json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    const eventType = String(body.eventType || 'LP_PAIR_ACTIVE').trim().toUpperCase();
+    const ticker = String(body.ticker || 'KAS').trim().toUpperCase();
+    const sectorId = String(body.sectorId || '').trim();
+    const amountAtomic = parseU128Str(String(body.amountAtomic ?? '0'), 'amountAtomic');
+    const oracleUsdE8 = parseU128Str(String(body.oracleUsdE8 ?? '0'), 'oracleUsdE8');
+    const dec = ticker === 'USDC' || ticker === 'USDT' ? 6 : KAS_DECIMALS;
+    const amountDecimal = formatAtomicToDecimal(amountAtomic, dec, 8, true);
+    const grossMicros =
+        oracleUsdE8 > 0n ? atomicToUsdMicrosFloor(amountAtomic, dec, oracleUsdE8) : 0n;
+    const grossUsdStr = formatAtomicToDecimal(grossMicros, USD_MICROS_DECIMALS, 2, false);
+    const spotStr =
+        oracleUsdE8 > 0n ? formatAtomicToDecimal(oracleUsdE8, KAS_DECIMALS, 8, true) : '0';
+    const txHash =
+        String(body.txHash || '').trim() ||
+        `LP-${sectorId || Date.now()}-${eventType}`.slice(0, 64);
+    const eventId = `lp_${sectorId || txHash}_${eventType}`;
+
+    let client;
+    try {
+        client = await dbPool.connect();
+        await client.query(
+            `INSERT INTO tax_ledger_events (
+                event_id, wallet_address, event_type, asset_ticker,
+                amount_tokens, gross_proceeds_usd, spot_price_at_execution,
+                tx_hash, payout_address, recorded_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            ON CONFLICT (event_id) DO NOTHING`,
+            [
+                eventId,
+                prefixedWallet,
+                eventType,
+                ticker,
+                amountDecimal,
+                grossUsdStr,
+                spotStr,
+                txHash,
+                prefixedWallet
+            ]
+        );
+        return json({ success: true, eventId });
+    } catch (error) {
+        console.error('Tax Events POST Fault:', error);
+        return json({ success: false, error: 'Failed to record tax event' }, { status: 500 });
     } finally {
         if (client) client.release();
     }

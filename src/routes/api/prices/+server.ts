@@ -202,7 +202,9 @@ function filterOutliersAndComputeMedian(
 }
 
 async function queryYahooFinanceQuote(
-    tickerOrSymbol: string
+    tickerOrSymbol: string,
+    historyInterval = '15m',
+    historyRange = '5d'
 ): Promise<{
     priceUsd: number;
     change24hPct: number;
@@ -215,7 +217,7 @@ async function queryYahooFinanceQuote(
 
     try {
         const res = await fetch(
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=15m&range=5d`,
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${encodeURIComponent(historyInterval)}&range=${encodeURIComponent(historyRange)}`,
             {
                 headers: {
                     'User-Agent':
@@ -562,12 +564,16 @@ async function fetchHistoricalPriceSeries(
 
     const spec =
         tf === '1H'
-            ? { mexcInterval: '1m', gateInterval: '1m', limit: 60, ttl: 25 }
+            ? { mexcInterval: '1m', gateInterval: '1m', limit: 60, ttl: 25, yInt: '2m', yRange: '1d' }
             : tf === '7D'
-              ? { mexcInterval: '60m', gateInterval: '1h', limit: 168, ttl: 180 }
+              ? { mexcInterval: '60m', gateInterval: '1h', limit: 168, ttl: 180, yInt: '1h', yRange: '7d' }
               : tf === '30D'
-                ? { mexcInterval: '1d', gateInterval: '1d', limit: 30, ttl: 300 }
-                : { mexcInterval: '15m', gateInterval: '15m', limit: 96, ttl: 60 };
+                ? { mexcInterval: '1d', gateInterval: '1d', limit: 30, ttl: 300, yInt: '1d', yRange: '1mo' }
+                : tf === '1Y'
+                  ? { mexcInterval: '1d', gateInterval: '1d', limit: 365, ttl: 900, yInt: '1d', yRange: '1y' }
+                  : tf === 'ALL'
+                    ? { mexcInterval: '1W', gateInterval: '7d', limit: 260, ttl: 1800, yInt: '1wk', yRange: 'max' }
+                    : { mexcInterval: '15m', gateInterval: '15m', limit: 96, ttl: 60, yInt: '15m', yRange: '1d' };
 
     let points: number[] = [];
 
@@ -610,7 +616,7 @@ async function fetchHistoricalPriceSeries(
     }
 
     if (points.length < 2) {
-        const yf = await queryYahooFinanceQuote(cleanTick);
+        const yf = await queryYahooFinanceQuote(cleanTick, spec.yInt, spec.yRange);
         if (yf && yf.points.length >= 2) {
             points = yf.points;
         }

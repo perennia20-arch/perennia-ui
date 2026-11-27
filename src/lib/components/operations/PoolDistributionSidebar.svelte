@@ -35,6 +35,13 @@
     let userRoutedAssets = $derived.by(() => {
         const routed = new Set<string>();
         for (const sec of operations.sectors || []) {
+            const reserve = sec.settlementConfig?.pairReserve;
+            if (reserve?.status === 'QUEUED') {
+                const partnerTick = reserve.partnerTicker?.trim().toUpperCase();
+                if (partnerTick && partnerTick !== 'KAS') {
+                    routed.add(partnerTick);
+                }
+            }
             if (readSectorAllocationBps(sec) <= 0) {
                 continue;
             }
@@ -81,13 +88,6 @@
     let flushProgressPctDisplay = $derived(
         formatBpsToPctDisplay(flushProgressBps, 1, true)
     );
-    let solvencyLabel = $derived.by(() => {
-        if (operations.livePricingUnavailable) return 'Live pricing unavailable';
-        const proof = operations.solvencyProof;
-        if (!proof) return 'Reserve Check Ready';
-        if (proof.isSolvent === false) return 'Reserve Check Pending';
-        return '100% Reserve Verified';
-    });
 </script>
 
 <div
@@ -191,12 +191,6 @@
                 </div>
                 <div class="text-lg font-mono font-black text-white tracking-wider text-center py-0.5 tabular-nums">
                     {operations.formatEpochCountdown()}
-                </div>
-                <div
-                    data-testid="sidebar-solvency-badge"
-                    class="text-[8px] font-mono text-center uppercase tracking-wider {operations.livePricingUnavailable ? 'text-amber-400' : 'text-[#18C6A5]'}"
-                >
-                    {solvencyLabel}
                 </div>
             </div>
 
