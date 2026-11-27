@@ -505,6 +505,8 @@ test.describe('Sovereign L1 Batch 4-6 Integration & Repo-Wide Invariants', () =>
 
         const i18nSrc = fs.readFileSync(path.join(SRC_ROOT, 'lib/stores/i18n.svelte.ts'), 'utf8');
         expect(i18nSrc).toContain("'nav.exchange': 'Swap'");
+        expect(i18nSrc).toContain("'header.buy_crypto': 'Buy'");
+        expect(i18nSrc).not.toContain("'header.buy_crypto': 'Buy Crypto'");
         expect(i18nSrc).toContain("'header.node_online': 'BUY • MINE • SWAP'");
         expect(i18nSrc).not.toContain('MINE • BUY • TRADE');
 

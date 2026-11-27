@@ -1565,7 +1565,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     onclick={() =>
                                         ui.openFiatModal('KAS', false, '')}
                                     class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.showFiatModal ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-[#18C6A5] hover:text-white border border-transparent hover:border-[#18C6A5]/35'}"
-                                    title="Buy Crypto with USD"
+                                    title="Buy"
                                 >
                                     <span>{i18n.t('header.buy_crypto')}</span>
                                 </button>
