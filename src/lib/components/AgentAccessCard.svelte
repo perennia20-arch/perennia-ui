@@ -66,7 +66,7 @@
     let errorMsg = $state<string | null>(null);
 
     let readyMandate = $state<ReadyMandate | null>(null);
-    let copiedTarget = $state<'ai' | 'mcp' | 'key' | null>(null);
+    let copiedTarget = $state<'ai' | 'mcp' | 'url' | 'key' | null>(null);
 
     let nameInput = $state('Bot 1');
     let dailyUsdInput = $state('100');
@@ -130,21 +130,25 @@
 
     function buildAiPrompt(m: ReadyMandate): string {
         const slipLabel = `${(m.maxSlippageBps / 100).toFixed(1)}% (${m.maxSlippageBps} bps)`;
-        const capLabel = m.dailyUsd === '0' ? '$0 USD/24h (read/split only)' : `$${m.dailyUsd} USD/24h`;
+        const capLabel = m.dailyUsd === '0' ? `${i18n.formatFiat(0, { decimals: 0 })} / 24h (read/split only)` : `${i18n.formatFiat(Number(m.dailyUsd) || 0, { decimals: 0 })} / 24h`;
         return [
             `Connect to my Perennia Sovereign account immediately (works in ChatGPT, Claude, Gemini, Cursor, or Antigravity).`,
             `Protocol Spec: https://perennia.io/llms.txt (local mirror: ${siteOrigin}/llms.txt)`,
             `MCP Endpoint: ${siteOrigin}/api/v1/agent/mcp`,
             `Auth Header: Authorization: Bearer ${m.token}`,
-            `Mandate: ${m.label} | Scopes: ${m.scopes.join(', ')} | Daily Cap: ${capLabel} | Max Slippage: ${slipLabel} | Assets: ${m.assets.join(', ')} | Cold Vault: LOCKED`,
+            `Mandate: ${m.label} | Verbs: ${m.scopes.join(', ')} | Daily Cap: ${capLabel} | Max Slippage: ${slipLabel} | Assets: ${m.assets.join(', ')} | Non-Custodial Cold Vault: LOCKED`,
+            `Strategy Rules:`,
+            `1) Poll GET ${siteOrigin}/api/v1/agent/alpha every 5s to detect filling PENDING SPLITS >= 75% (BATCH_BOOST piggybacks) and spread dislocations.`,
+            `2) Route SWAP, PAIR, and BOOST executions via POST /api/v1/agent/quote -> local Schnorr sign -> POST /api/v1/agent/execute.`,
+            `3) Compute SILO non-custodial UTXO lock breakeven tiers (10k SILO = 35 bps, 100k SILO = 25 bps, 1M SILO = 15 bps vs 50 bps base).`,
             `Endpoints:`,
+            `- GET ${siteOrigin}/api/v1/agent/alpha`,
             `- GET ${siteOrigin}/api/v1/agent/me/telemetry`,
             `- GET ${siteOrigin}/api/v1/agent/me/buckets`,
-            `- GET ${siteOrigin}/api/v1/agent/me/taxes`,
             `- GET ${siteOrigin}/api/v1/agent/markets`,
             `- POST ${siteOrigin}/api/v1/agent/quote`,
             `- POST ${siteOrigin}/api/v1/agent/execute`,
-            `First action: Call GET ${siteOrigin}/api/v1/agent/me/telemetry and GET ${siteOrigin}/api/v1/agent/me/buckets with Authorization: Bearer ${m.token}, and report my live account telemetry, balances, active workers, and bucket splits right now.`
+            `First action: Call GET ${siteOrigin}/api/v1/agent/alpha and GET ${siteOrigin}/api/v1/agent/me/telemetry with Authorization: Bearer ${m.token} and report live alpha and worker splits.`
         ].join('\n');
     }
 
@@ -226,7 +230,7 @@
         customAsset = '';
     }
 
-    async function handleCopy(kind: 'ai' | 'mcp' | 'key', text: string) {
+    async function handleCopy(kind: 'ai' | 'mcp' | 'url' | 'key', text: string) {
         if (!browser) return;
         const ok = await copyToClipboard(text);
         if (!ok) {
@@ -278,14 +282,14 @@
         let normalizedDailyUsd = '0';
 
         if (hasSpendScope) {
-            const clean = dailyUsdInput.trim().replace(/^\$/, '');
+            const clean = dailyUsdInput.trim().replace(/^[^\d.]+/, '');
             if (!/^\d+(\.\d{1,2})?$/.test(clean)) {
-                errorMsg = 'Enter a valid USD limit.';
+                errorMsg = `Enter a valid ${i18n.currency} limit.`;
                 return;
             }
-            const micros = parseDecimalToAtomic(clean, USD_MICROS_DECIMALS, 'strict');
+            const micros = i18n.currencyUnitToUsdMicros(clean);
             if (micros < 1_000_000n) {
-                errorMsg = 'Minimum daily limit is $1.';
+                errorMsg = 'Minimum daily limit is $1 USD equivalent.';
                 return;
             }
             normalizedDailyUsd = clean;
@@ -469,53 +473,72 @@
                     </span>
                 </div>
 
-                <button
-                    type="button"
-                    data-testid="agent-copy-ai-btn"
-                    onclick={() => readyMandate && handleCopy('ai', buildAiPrompt(readyMandate))}
-                    class="tactile-btn w-full py-2.5 px-3 rounded-xl border-[#18C6A5]/60 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer"
-                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 72%);"
-                >
-                    {copiedTarget === 'ai' ? 'COPY FOR AI ✓' : 'COPY FOR AI'}
-                </button>
-
-                <div class="grid grid-cols-4 gap-1.5">
-                    <button
-                        type="button"
-                        data-testid="agent-copy-mcp-btn"
-                        onclick={() => readyMandate && handleCopy('mcp', buildMcpJson(readyMandate.token))}
-                        class="tactile-btn py-1.5 px-2 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
-                    >
-                        {copiedTarget === 'mcp' ? 'MCP ✓' : 'MCP'}
-                    </button>
-                    <button
-                        type="button"
-                        data-testid="agent-copy-key-btn"
-                        onclick={() => readyMandate && handleCopy('key', readyMandate.token)}
-                        class="tactile-btn py-1.5 px-2 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
-                    >
-                        {copiedTarget === 'key' ? 'KEY ✓' : 'KEY'}
-                    </button>
-                    <a
-                        data-testid="agent-ready-llms-btn"
-                        href="/llms.txt"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="tactile-btn py-1.5 px-1.5 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-secondary)] hover:text-[var(--accent-text)] text-[9px] font-black uppercase tracking-wider text-center flex items-center justify-center whitespace-nowrap"
-                    >
-                        LLMS.TXT ↗
-                    </a>
-                    <button
-                        type="button"
-                        data-testid="agent-ready-done-btn"
-                        onclick={() => {
-                            readyMandate = null;
-                            copiedTarget = null;
-                        }}
-                        class="tactile-btn py-1.5 px-2 rounded-lg border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
-                    >
-                        DONE
-                    </button>
+                <div class="flex flex-col gap-1.5 pt-0.5 text-[9px]">
+                    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+                        <span class="truncate text-[var(--text-secondary)] font-bold">1. AI CHAT COMMAND</span>
+                        <button
+                            type="button"
+                            data-testid="agent-copy-ai-btn"
+                            onclick={() => readyMandate && handleCopy('ai', buildAiPrompt(readyMandate))}
+                            class="tactile-btn px-2.5 py-1 rounded border-[#18C6A5]/60 text-[var(--accent-text)] text-[9px] font-black uppercase cursor-pointer shrink-0"
+                        >
+                            {copiedTarget === 'ai' ? '✓' : 'COPY'}
+                        </button>
+                    </div>
+                    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+                        <span class="truncate text-[var(--text-secondary)] font-bold">2. DESKTOP AGENT (MCP)</span>
+                        <button
+                            type="button"
+                            data-testid="agent-copy-mcp-btn"
+                            onclick={() => readyMandate && handleCopy('mcp', buildMcpJson(readyMandate.token))}
+                            class="tactile-btn px-2.5 py-1 rounded border-[var(--border-strong)] text-[var(--text-primary)] text-[9px] font-black uppercase cursor-pointer shrink-0"
+                        >
+                            {copiedTarget === 'mcp' ? '✓' : 'COPY'}
+                        </button>
+                    </div>
+                    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+                        <span class="truncate text-[var(--text-muted)]">3. BOT API URL &amp; KEY ({`${readyMandate.token.slice(0, 10)}••••`})</span>
+                        <div class="flex items-center gap-1 shrink-0">
+                            <button
+                                type="button"
+                                data-testid="agent-copy-url-btn"
+                                onclick={() => handleCopy('url', `${siteOrigin}/api/v1/agent`)}
+                                class="tactile-btn px-2 py-1 rounded border-[var(--border-strong)] text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer"
+                            >
+                                {copiedTarget === 'url' ? '✓' : 'COPY URL'}
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="agent-copy-key-btn"
+                                onclick={() => readyMandate && handleCopy('key', readyMandate.token)}
+                                class="tactile-btn px-2 py-1 rounded border-[var(--border-strong)] text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer"
+                            >
+                                {copiedTarget === 'key' ? '✓' : 'COPY KEY'}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 pt-0.5">
+                        <a
+                            data-testid="agent-ready-llms-btn"
+                            href="/llms.txt"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="tactile-btn px-2.5 py-1 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-secondary)] hover:text-[var(--accent-text)] text-[9px] font-black uppercase tracking-wider whitespace-nowrap"
+                        >
+                            LLMS.TXT ↗
+                        </a>
+                        <button
+                            type="button"
+                            data-testid="agent-ready-done-btn"
+                            onclick={() => {
+                                readyMandate = null;
+                                copiedTarget = null;
+                            }}
+                            class="tactile-btn px-3 py-1 rounded-lg border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                        >
+                            DONE
+                        </button>
+                    </div>
                 </div>
             </div>
         {/if}
@@ -548,7 +571,7 @@
                         for="agent-limit-input"
                         class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]"
                     >
-                        DAILY (USD)
+                        DAILY ({i18n.currency})
                     </label>
                     <input
                         id="agent-limit-input"
@@ -673,7 +696,7 @@
                 class="tactile-btn w-full py-2 rounded-xl border-[#18C6A5]/55 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
             >
-                {isCreating ? '...' : 'CREATE'}
+                {isCreating ? '...' : 'ARM BOT'}
             </button>
         </div>
 

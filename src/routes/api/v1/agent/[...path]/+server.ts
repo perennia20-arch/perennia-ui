@@ -174,6 +174,7 @@ function resolveRequiredScopes(
         if (subPath === 'me/lp' || subPath === 'lp') return ['READ'];
         if (subPath === 'me/boost' || subPath === 'chronos/rfq') return ['BOOST'];
         if (
+            subPath === 'alpha' ||
             subPath === 'me/telemetry' ||
             subPath === 'me/buckets' ||
             subPath === 'me/taxes' ||
@@ -396,6 +397,19 @@ async function proxyAgentGateway(event: RequestEvent): Promise<Response> {
     }
 
     const rawToken = extractRawAgentToken(event.request.headers);
+    if (subPath === 'alpha') {
+        if (!rawToken || (!rawToken.startsWith('per_ag_v1.') && !rawToken.startsWith('per_md_v1.'))) {
+            return json(
+                {
+                    ok: false,
+                    isError: true,
+                    error: 'UNAUTHORIZED',
+                    message: 'Authenticated Mode A (per_ag_v1.*) or Mode B (per_md_v1.*) Agent Key required for /api/v1/agent/alpha.'
+                },
+                { status: 401, headers: NO_STORE_HEADERS }
+            );
+        }
+    }
     if (rawToken && rawToken.startsWith('per_md_v1.')) {
         const activeScopes = await resolveModeBScopes(rawToken);
         if (activeScopes) {

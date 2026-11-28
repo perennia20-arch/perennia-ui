@@ -20,8 +20,14 @@ Stateless Auth, UTXO Parallelism, Shadow Mode & x402: Pass HMAC-Blake3 capabilit
 ## Native Agent Discovery & Real-Time Streaming
 
 - [MCP Tool Manifest & JSON-RPC 2.0 Server](${origin}/api/v1/agent/mcp): GET returns JSON Schema 2020-12 tool definitions (perennia_get_markets, perennia_quote_swap, perennia_execute_swap, perennia_me_telemetry_and_buckets); POST executes JSON-RPC 2.0 initialize, tools/list, and sterile tools/call requests.
+- [Agent-Only Alpha & Hashrate Batch Intelligence](${origin}/api/v1/agent/alpha): GET (strictly authenticated with Mode A per_ag_v1.* or Mode B per_md_v1.* Bearer/X-Agent-Key; returns 401/403 unauthenticated) returning exact u128 base-10 strings for hashrateBatchCalls (PENDING SPLITS >= 7500 bps fill sorted by fillBps and incomingPoolThsE6 for BATCH_BOOST settlement piggybacking), spreadDislocations, and L1 PAIR yieldSpikes.
 - [Market Pulse & Pair Discovery](${origin}/api/v1/agent/markets): GET cache-only multi-chain, KAS, KRC-20, and KCC-20 pairs, pool reserves, Dark Pool midpoints, resting Maker RFQ depth, Maker/Taker bps, and $1.00 stablecoin depeg circuit-breaker status.
 - [SSE & WebSocket Market Pulse Stream](${origin}/api/v1/agent/stream): GET 1-second push stream (Server-Sent Events or WebSocket upgrade) of cached Redis market snapshots so agents subscribe without polling REST.
+
+## BOT Capability Verbs & Non-Custodial SILO UTXO Fee Tiers
+
+- Mode B BOT Verbs: READ (telemetry/markets/alpha), SPLIT (update 22:00 UTC mining sector allocationBps summing to 10000), SWAP (sign & execute Dark Pool/SOR quotes), PAIR (allocate liquidity pairs), BOOST (piggyback >= 75% filled PENDING SPLITS batches via BATCH_BOOST). Cold-vault airlocks and external withdrawal overrides are permanently locked.
+- Non-Custodial SILO Fee-Tier UTXO Locks: Verify ownership of unspent SILO outpoints (txid:vout) with zero custodial staking to unlock discounted swap taker tiers: 0 SILO -> 50 bps; >= 10,000 SILO -> 35 bps; >= 100,000 SILO -> 25 bps; >= 1,000,000 SILO -> 15 bps (preserving strict >= 2 bps zero-loss floor).
 
 ## Stateless Authentication & x402 Burst Credits
 

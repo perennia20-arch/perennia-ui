@@ -38,7 +38,9 @@ const PUBLIC_API_PREFIXES = [
     '/api/webhooks',
     '/api/prices',
     '/api/buckets',
-    '/api/telemetry'
+    '/api/telemetry',
+    '/api/v1/agent',
+    '/llms.txt'
 ];
 
 const WEBHOOK_BYPASS_PREFIXES = [
@@ -156,10 +158,15 @@ export const handle: Handle = async ({ event, resolve }) => {
         event.request.method === 'PATCH' ||
         event.request.method === 'DELETE';
 
+    const hasStatelessAgentAuth =
+        pathname.startsWith('/api/v1/agent') &&
+        Boolean(event.request.headers.get('authorization') || event.request.headers.get('x-agent-key'));
+
     if (
         pathname.startsWith('/api') &&
         isMutatingMethod &&
         !isWebhookRoute(pathname) &&
+        !hasStatelessAgentAuth &&
         requestOrigin &&
         !isOriginTrustedForCsrf(requestOrigin, event.url.origin)
     ) {

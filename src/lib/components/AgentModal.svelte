@@ -56,7 +56,7 @@
                 <div class="flex items-center gap-2.5">
                     <span class="w-2 h-2 rounded-full {activeCount > 0 ? 'bg-[#18C6A5]' : 'bg-[var(--text-muted)]'}"></span>
                     <h2 class="text-xs font-black uppercase tracking-[0.18em] text-[var(--text-primary)]">
-                        AGENTS
+                        BOT
                     </h2>
                     {#if activeCount > 0}
                         <span
@@ -103,7 +103,7 @@
             </div>
 
             <div class="px-5 py-2.5 bg-[var(--bg-elevated)] border-t border-[var(--border-subtle)] flex items-center justify-between text-[9px] text-[var(--text-muted)]">
-                <span>COLD VAULT LOCKED</span>
+                <span>NON-CUSTODIAL · COLD VAULT LOCKED</span>
                 {#if !readyBannerOpen}
                     <a
                         data-testid="agent-footer-llms-btn"
