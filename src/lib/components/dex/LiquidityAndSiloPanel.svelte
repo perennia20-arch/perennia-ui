@@ -154,6 +154,32 @@
         );
     }
 
+    let customPairQuery = $state('');
+    let isDiscoveringKrc20 = $state(false);
+    let pairDiscoveryNote = $state<string | null>(null);
+
+    async function discoverAndSelectKrc20() {
+        const clean = customPairQuery.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (clean.length < 2 || clean.length > 10) return;
+        pairDiscoveryNote = null;
+        isDiscoveringKrc20 = true;
+        try {
+            const discovered = await treasury.discoverAndRegisterToken?.(clean, true);
+            const resolved = discovered?.primary?.ticker?.toUpperCase() || clean;
+            if (isKaspaNativePairAsset(resolved) || discovered?.primary?.network === 'KAS') {
+                partnerTicker = resolved === String(baseTicker || 'KAS').toUpperCase() ? 'SILO' : resolved;
+                pairDiscoveryNote = `Bound L1 KRC-20 pair ${baseTicker}/${partnerTicker}`;
+                customPairQuery = '';
+            } else {
+                pairDiscoveryNote = 'Only Kaspa L1 / KRC-20 tokens can anchor native LP pairs.';
+            }
+        } catch {
+            pairDiscoveryNote = 'KRC-20 lookup unavailable.';
+        } finally {
+            isDiscoveringKrc20 = false;
+        }
+    }
+
     async function submitPair() {
         if (submitDisabled || !onExecutePair) return;
         await onExecutePair({
@@ -188,13 +214,42 @@
                 aria-label={partnerTicker}
                 data-testid="pair-partner-select"
                 bind:value={partnerTicker}
-                class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3 py-2 text-xs font-black text-white uppercase outline-none cursor-pointer"
+                class="bg-[var(--bg-elevated)] border border-[var(--border-strong)] rounded-xl px-3 py-2 text-xs font-black text-[var(--text-primary)] uppercase outline-none cursor-pointer"
             >
                 {#each partnerChoices as tick}
                     <option value={tick}>{tick}</option>
                 {/each}
             </select>
         </div>
+
+        <div class="flex items-center gap-1.5">
+            <input
+                type="text"
+                maxlength="10"
+                data-testid="pair-krc20-search-input"
+                bind:value={customPairQuery}
+                onkeydown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        discoverAndSelectKrc20();
+                    }
+                }}
+                placeholder="Search KRC-20 ticker (SILO, NACHO...)"
+                class="flex-1 bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/60 rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
+            />
+            <button
+                type="button"
+                data-testid="pair-krc20-search-btn"
+                disabled={isDiscoveringKrc20 || customPairQuery.trim().length < 2}
+                onclick={discoverAndSelectKrc20}
+                class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[9px] font-black uppercase text-[var(--accent-text)] cursor-pointer disabled:opacity-40"
+            >
+                {isDiscoveringKrc20 ? '...' : '+ KRC-20'}
+            </button>
+        </div>
+        {#if pairDiscoveryNote}
+            <div class="text-[9px] font-bold text-[var(--accent-text)] px-0.5">{pairDiscoveryNote}</div>
+        {/if}
 
         <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-2">
             <div class="flex items-center justify-between text-[10px] text-neutral-400 tabular-nums">
@@ -326,22 +381,35 @@
                 {#if reserve}
                     {@const disp = formatPairReserveDisplay(reserve)}
                     {#if reserve.status === 'QUEUED'}
-                        <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <span class="font-black text-white">{reserve.baseTicker} / {reserve.partnerTicker}</span>
-                                <span class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-[9px] font-bold text-amber-300 uppercase">QUEUED</span>
+                        <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 flex flex-col gap-2 text-xs">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="font-black text-[var(--text-primary)]">{reserve.baseTicker} / {reserve.partnerTicker}</span>
+                                    <span class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-[9px] font-bold text-amber-500 uppercase">QUEUED · {disp.progressPctDisplay}%</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[var(--text-secondary)] tabular-nums text-[11px]">
+                                        {disp.heldBaseFormatted} {reserve.baseTicker} / {disp.queuedBaseFormatted} {reserve.baseTicker}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        disabled={isWithdrawingId === sec.id}
+                                        onclick={() => onCancelOrWithdrawReserve?.(sec, 'cancel')}
+                                        class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-strong)] hover:border-red-400/50 text-[10px] font-black uppercase text-[var(--text-secondary)] hover:text-red-500 cursor-pointer disabled:opacity-40"
+                                    >
+                                        CANCEL
+                                    </button>
+                                </div>
                             </div>
-                            <span class="text-neutral-300 tabular-nums text-[11px]">
-                                {disp.heldBaseFormatted} {reserve.baseTicker} / {disp.queuedBaseFormatted} {reserve.baseTicker}
-                            </span>
-                            <button
-                                type="button"
-                                disabled={isWithdrawingId === sec.id}
-                                onclick={() => onCancelOrWithdrawReserve?.(sec, 'cancel')}
-                                class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/15 hover:border-red-400/50 text-[10px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer disabled:opacity-40"
+                            <div
+                                data-testid="swap-pair-queued-progress-{sec.id}"
+                                class="w-full h-1.5 rounded-full bg-[var(--bg-input)] border border-[var(--border-subtle)] overflow-hidden"
                             >
-                                CANCEL
-                            </button>
+                                <div
+                                    class="h-full bg-[#18C6A5] transition-all duration-300"
+                                    style="width: {Math.min(100, Math.max(0, disp.progressBps / 100))}%;"
+                                ></div>
+                            </div>
                         </div>
                     {:else}
                         <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-xs">

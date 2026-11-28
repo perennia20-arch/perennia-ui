@@ -1387,6 +1387,12 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
             upstreamBody.lpFeeTierBps = Number(lpSplit!.feeTierBps);
         } else if (typeof rawRouteMode === 'string' && rawRouteMode.trim()) {
             upstreamBody.routeMode = rawRouteMode.trim();
+            if (rawRouteMode.trim().toUpperCase() === 'BATCH_BOOST') {
+                upstreamBody.boostBucketAsset =
+                    typeof body.boostBucketAsset === 'string' && body.boostBucketAsset.trim()
+                        ? body.boostBucketAsset.trim().toUpperCase()
+                        : receiveAsset;
+            }
         }
 
         const upstreamHeaders: Record<string, string> = {
@@ -1590,6 +1596,8 @@ export const POST: RequestHandler = async ({ request, cookies, locals }: Request
 
         return json({
             ...sorResult,
+            batchBoostTriggered: Boolean(upstreamData.batchBoostTriggered),
+            batchBoostAsset: upstreamData.batchBoostAsset ?? (typeof body.boostBucketAsset === 'string' ? body.boostBucketAsset.trim().toUpperCase() : undefined),
             lpFeeAtomic: resolvedLpFeeAtomic,
             treasuryFeeAtomic: resolvedTreasuryFeeAtomic,
             masterTreasuryAddress: resolvedMasterTreasury,

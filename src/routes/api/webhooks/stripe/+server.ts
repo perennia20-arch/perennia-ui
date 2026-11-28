@@ -148,7 +148,12 @@ async function ensureStripeWebhookTables(): Promise<void> {
             `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS gross_charge_cents BIGINT NOT NULL DEFAULT 0;`,
             `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS settled_net_cents BIGINT;`,
             `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS fulfilled_principal_cents BIGINT;`,
-            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;`
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS clearing_hold_status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE';`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS clearing_unlocks_at TIMESTAMP WITH TIME ZONE;`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS settled_webhook_id VARCHAR(128);`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS settlement_txid VARCHAR(255);`,
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_fiat_onramp_settled_webhook ON fiat_onramp_orders (settled_webhook_id) WHERE settled_webhook_id IS NOT NULL;`
         ];
         for (const stmt of alterStatements) {
             await client.query(stmt).catch(() => {});
@@ -202,10 +207,6 @@ async function resolveLiveAssetSpotUsd(tickerRaw: string): Promise<number> {
         }
     } catch {
         // Continue to exchange fallback
-    }
-    if (ticker === 'SILO') {
-        const kasSpot = await resolveLiveAssetSpotUsd('KAS');
-        return kasSpot > 0 ? Number((kasSpot / 23.809524).toFixed(6)) : 0;
     }
     try {
         const mexcRes = await fetch(
@@ -532,13 +533,41 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
     }
 
     // =========================================================================
-    // 3. CLEARED / SUCCEEDED — ZERO-LOSS BALANCE TRANSACTION & QUARANTINE GUARD
+    // 3. CLEARED / SUCCEEDED / WIRE SETTLED — ZERO-LOSS & IDEMPOTENT GUARD
     // =========================================================================
+    const normalizedEvtLower = String(eventType || '').trim().toLowerCase();
+    const isWireWebhookEvent =
+        normalizedEvtLower === 'mercury_wire_settled' ||
+        normalizedEvtLower === 'mercury.wire.settled' ||
+        normalizedEvtLower === 'bridge.wire.settled' ||
+        normalizedEvtLower === 'wire.settled';
+    if (isWireWebhookEvent) {
+        const wireStatusUpper = String(
+            dataObj?.wire_status ??
+                dataObj?.wireStatus ??
+                eventPayload?.wireStatus ??
+                dataObj?.status ??
+                ''
+        )
+            .trim()
+            .toUpperCase();
+        if (wireStatusUpper !== 'SETTLED') {
+            return json({
+                received: true,
+                settled: false,
+                orderId: orderId || null,
+                wireStatus: wireStatusUpper || 'PENDING',
+                message: 'Wire funds are not in final SETTLED state; holding KAS release.'
+            });
+        }
+    }
+
     const isSucceededEvent =
         eventType === 'payment_intent.succeeded' ||
         (eventType === 'crypto.onramp_session_updated' &&
             String(dataObj.status || '').toLowerCase() ===
-                'fulfillment_complete');
+                'fulfillment_complete') ||
+        isWireWebhookEvent;
 
     if (!isSucceededEvent) {
         return json({
@@ -556,8 +585,29 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
         );
     }
 
+    const webhookEventId = String(
+        eventPayload?.id || dataObj?.webhook_id || dataObj?.webhookId || ''
+    ).trim();
+
     const client = await dbPool.connect();
     try {
+        if (webhookEventId) {
+            const dupWh = await client
+                .query(
+                    `SELECT order_id FROM fiat_onramp_orders WHERE settled_webhook_id = $1 LIMIT 1`,
+                    [webhookEventId]
+                )
+                .catch(() => ({ rows: [] as any[] }));
+            if (dupWh.rows.length > 0) {
+                return json({
+                    received: true,
+                    success: true,
+                    alreadyCompleted: true,
+                    idempotentReplay: true,
+                    orderId: dupWh.rows[0].order_id
+                });
+            }
+        }
         const existingRes = await client.query(
             `SELECT * FROM fiat_onramp_orders WHERE order_id = $1 LIMIT 1`,
             [orderId]
@@ -807,9 +857,11 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
               quoted_principal_cents, perennia_fee_cents, stripe_gateway_fee_cents, gross_charge_cents,
               settled_net_cents, fulfilled_principal_cents, fiat_amount_usd, fee_usd, hard_cost_usd,
               guaranteed_profit_usd, net_usd_converted, locked_spot_price, estimated_kas, delivered_kas,
-              wire_memo, stripe_payment_intent_id, master_treasury_fee_usdc, tx_hash, status)
-             VALUES ($1, $2, 'STRIPE_ACH_DIRECT_DEBIT', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $22, $1, $23, $19, $24, 'COMPLETED')
+              wire_memo, stripe_payment_intent_id, master_treasury_fee_usdc, tx_hash,
+              clearing_hold_status, settled_webhook_id, settlement_txid, status)
+             VALUES ($1, $2, $25, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $22, $1, $23, $19, $24,
+                     'AVAILABLE', $26, $24, 'COMPLETED')
              ON CONFLICT (order_id) DO UPDATE SET
                 settled_net_cents = EXCLUDED.settled_net_cents,
                 fulfilled_principal_cents = EXCLUDED.fulfilled_principal_cents,
@@ -818,6 +870,15 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
                 delivered_kas = EXCLUDED.delivered_kas,
                 master_treasury_fee_usdc = EXCLUDED.master_treasury_fee_usdc,
                 stripe_payment_intent_id = COALESCE(NULLIF(EXCLUDED.stripe_payment_intent_id, ''), fiat_onramp_orders.stripe_payment_intent_id),
+                settled_webhook_id = COALESCE(NULLIF(EXCLUDED.settled_webhook_id, ''), fiat_onramp_orders.settled_webhook_id),
+                settlement_txid = COALESCE(fiat_onramp_orders.settlement_txid, EXCLUDED.settlement_txid),
+                clearing_hold_status = CASE
+                    WHEN fiat_onramp_orders.clearing_hold_status = 'CLEARING'
+                     AND fiat_onramp_orders.clearing_unlocks_at IS NOT NULL
+                     AND fiat_onramp_orders.clearing_unlocks_at > CURRENT_TIMESTAMP
+                    THEN 'CLEARING'
+                    ELSE 'AVAILABLE'
+                END,
                 tx_hash = EXCLUDED.tx_hash,
                 status = 'COMPLETED',
                 updated_at = CURRENT_TIMESTAMP`,
@@ -845,7 +906,9 @@ export const POST: RequestHandler = async ({ request }: RequestEvent) => {
                 kasSpot,
                 deliveredKas,
                 piId || null,
-                txHash
+                txHash,
+                isWireWebhookEvent ? 'MERCURY_INSTITUTIONAL_WIRE' : 'STRIPE_ACH_DIRECT_DEBIT',
+                webhookEventId || null
             ]
         );
 

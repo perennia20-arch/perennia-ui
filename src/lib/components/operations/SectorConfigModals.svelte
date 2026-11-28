@@ -423,6 +423,11 @@
         }
     }
 
+    let draftChainDestAuto = $derived(
+        draftSettlementConfig?.targetAsset?.ticker
+            ? resolveChainAddressForTicker(draftSettlementConfig.targetAsset.ticker)
+            : ''
+    );
     let isDraftMultiAssetPlant = $derived(draftSelectedAssets.length >= 2);
     let isPairFlow = $derived(sectorModalMode === 'pair' || isDraftMultiAssetPlant);
     let createHasSwapAmt = $derived(isPositiveDecimalInput(initialPairSwapAmount));
@@ -589,14 +594,14 @@
                                     style="color: {draftSettlementConfig.targetAsset.theme?.hex || '#18C6A5'};"
                                 >
                                     {draftSettlementConfig.targetAsset.ticker === 'USD'
-                                        ? '$'
+                                        ? i18n.currencySymbol
                                         : draftSettlementConfig.targetAsset.ticker[0]}
                                 </div>
                                 <div class="flex flex-col items-start min-w-0">
-                                    <span class="text-xs font-bold text-white leading-none mb-0.5 truncate">
+                                    <span class="text-xs font-bold text-[var(--text-primary)] leading-none mb-0.5 truncate">
                                         {draftSettlementConfig.targetAsset.ticker} — {draftSettlementConfig.targetAsset.name}
                                     </span>
-                                    <span class="text-[9px] font-mono text-neutral-400">
+                                    <span class="text-[9px] font-mono text-[var(--text-muted)]">
                                         {draftMineableVaultInfo
                                             ? `${draftMineableVaultInfo.dailyEmissionTokens.toLocaleString()} ${draftMineableVaultInfo.tokenTicker}/d`
                                             : livePricingUnavailable
@@ -607,8 +612,38 @@
                                     </span>
                                 </div>
                             </div>
-                            <span class="text-xs text-neutral-400 shrink-0">▾</span>
+                            <span class="text-xs text-[var(--text-muted)] shrink-0">▾</span>
                         </button>
+
+                        {#if draftSettlementConfig.targetAsset.ticker !== 'USD'}
+                            {@const splitNet = resolveTargetNetworkForAsset(draftSettlementConfig.targetAsset.ticker)}
+                            <div
+                                data-testid="split-noncustodial-dest-box"
+                                class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 flex flex-col gap-1 text-[9px] font-mono"
+                            >
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                                        Direct {splitNet} Settlement Address
+                                    </span>
+                                    <span class="font-black text-[var(--accent-text)] uppercase">
+                                        SELF-CUSTODY
+                                    </span>
+                                </div>
+                                <input
+                                    type="text"
+                                    data-testid="split-noncustodial-dest-input"
+                                    value={draftSettlementConfig.destinationAddress || draftChainDestAuto}
+                                    oninput={(e) => {
+                                        draftSettlementConfig = {
+                                            ...draftSettlementConfig,
+                                            destinationAddress: (e.currentTarget as HTMLInputElement).value.trim()
+                                        };
+                                    }}
+                                    placeholder={splitNet === 'BTC' ? 'bc1...' : splitNet === 'SOL' ? 'Solana address...' : splitNet === 'KAS' ? 'kaspa:...' : '0x...'}
+                                    class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 text-[10px] text-[var(--text-primary)] outline-none"
+                                />
+                            </div>
+                        {/if}
 
                         {#if draftMineableVaultInfo}
                             <div

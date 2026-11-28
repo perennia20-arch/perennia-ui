@@ -441,6 +441,34 @@
         )
     );
 
+    let clearingHoldOrders = $state<any[]>([]);
+    let clearingHoldBannerMsg = $derived.by(() => {
+        if (!Array.isArray(clearingHoldOrders) || clearingHoldOrders.length === 0) return null;
+        const active = clearingHoldOrders.find((o) => String(o.clearingHoldStatus || '').toUpperCase() === 'CLEARING');
+        if (!active) return null;
+        const unlockMs = Date.parse(String(active.clearingUnlocksAt || ''));
+        if (!Number.isFinite(unlockMs)) {
+            return 'CLEARING · 5 BIZ DAYS → AVAILABLE (External L1 sweep locked until ACH settles)';
+        }
+        const diffMs = Math.max(0, unlockMs - Date.now());
+        const daysLeft = Math.floor(diffMs / 86_400_000);
+        const hoursLeft = Math.floor((diffMs % 86_400_000) / 3_600_000);
+        return `CLEARING (${daysLeft}d ${hoursLeft}h) → AVAILABLE · External L1 sweep unlocks ${new Date(unlockMs).toUTCString()}`;
+    });
+
+    async function fetchClearingHolds() {
+        if (!browser || !identity.isWalletConnected) return;
+        try {
+            const res = await fetch('/api/fiat/offramp');
+            if (res.ok) {
+                const data = await res.json().catch(() => ({}));
+                clearingHoldOrders = Array.isArray(data?.clearingHoldOrders) ? data.clearingHoldOrders : [];
+            }
+        } catch {
+            // Ignore transient status sync error
+        }
+    }
+
     async function fetchColdVaultRulesAndSysConfig() {
         if (!browser || !identity.isWalletConnected) return;
         try {
@@ -1963,6 +1991,7 @@
             fetchSyntheticLedger();
             fetchWalletActivity();
             fetchColdVaultRulesAndSysConfig();
+            fetchClearingHolds();
         }
         refreshInterval = setInterval(() => {
             if (identity.isWalletConnected) {
@@ -1970,6 +1999,7 @@
                 fetchSyntheticLedger();
                 fetchWalletActivity();
                 fetchColdVaultRulesAndSysConfig();
+                fetchClearingHolds();
             }
         }, 12000);
     });
@@ -2812,6 +2842,22 @@
                     <div class="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto relative z-20">
                         <button
                             type="button"
+                            data-testid="wallet-vault-json-btn"
+                            onclick={() => browser && window.dispatchEvent(new CustomEvent('perennia:open-bundles', { detail: { tab: 'vault' } }))}
+                            class="tactile-btn px-2.5 py-1.5 rounded-xl border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[9px] font-mono font-black uppercase tracking-wider cursor-pointer shrink-0 whitespace-nowrap"
+                        >
+                            VAULT .JSON
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="wallet-profile-json-btn"
+                            onclick={() => browser && window.dispatchEvent(new CustomEvent('perennia:open-bundles', { detail: { tab: 'profile' } }))}
+                            class="tactile-btn px-2.5 py-1.5 rounded-xl border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[9px] font-mono font-black uppercase tracking-wider cursor-pointer shrink-0 whitespace-nowrap"
+                        >
+                            PROFILE .JSON
+                        </button>
+                        <button
+                            type="button"
                             data-testid="wallet-ledger-csv-link"
                             onclick={() => (ui.activeTab = 'TAX FORTRESS')}
                             class="tactile-btn px-3 py-1.5 rounded-xl border border-[var(--border-active)] text-[var(--accent-text)] hover:text-[var(--text-primary)] text-[9px] font-mono font-black uppercase tracking-wider cursor-pointer shrink-0 whitespace-nowrap"
@@ -2829,6 +2875,16 @@
                         </div>
                     </div>
                 </div>
+
+                {#if clearingHoldBannerMsg}
+                    <div
+                        data-testid="wallet-clearing-hold-banner"
+                        class="px-3.5 py-2.5 rounded-xl bg-[var(--bg-elevated)] border border-amber-500/45 text-amber-500 text-[10px] font-mono font-bold flex items-center justify-between gap-2"
+                    >
+                        <span>⏳ {clearingHoldBannerMsg}</span>
+                        <span class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-amber-500/40 text-[8px] font-black uppercase">CLEARING</span>
+                    </div>
+                {/if}
 
                 <div class="grid grid-cols-3 gap-2 sm:gap-3 border-t border-[var(--border-subtle)] pt-4">
                     <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">

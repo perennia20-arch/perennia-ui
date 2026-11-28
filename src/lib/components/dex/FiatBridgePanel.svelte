@@ -59,19 +59,21 @@
     let payoutMethod = $state<'ach' | 'wire'>('ach');
 
     // Pillar 1 Gateway Method & Rail State
-    let onrampGatewayMethod = $state<OnrampGatewayMethod>('ach');
+    let buyTab = $state<'INSTANT' | 'VIP_WIRE'>('INSTANT');
+    let onrampGatewayMethod = $state<OnrampGatewayMethod>('card');
 	let onrampUseColdStorage = $state(false);
 	let onrampColdAddress = $state('');
 	let onrampCardError = $state<string | null>(null);
+    let wireCopyKey = $state<string | null>(null);
     let lastAutoAchAmountBucket = $state<'below625' | 'above625' | 'wire100k'>(
-        'above625'
+        'below625'
     );
     let onrampPaymentRail = $state<
         | 'SOVEREIGN_WIRE_ACH'
         | 'CARD_INSTANT'
         | 'STRIPE_CRYPTO_ONRAMP'
         | 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'
-    >('SOVEREIGN_WIRE_ACH');
+    >('CARD_INSTANT');
     let onrampSettlementTarget = $state<'L1_KAS' | 'L1_SELF_CUSTODY'>('L1_KAS');
 
     let offrampBankLabel = $state('Bank Account');
@@ -126,33 +128,14 @@
     );
     let abaTelemetry = $derived(evaluateAbaRoutingNumber(offrampRoutingNumber));
 
-    // Automatically default orders of $625+ to ACH ($5 cap) and hard-gate $100,000+ to Institutional Wire
+    // Keep INSTANT Card default unless user chooses ACH/VIP Wire, or order >= $100,000+ requires Institutional Wire
     $effect(() => {
         const parsedUsd = Math.max(0, parseFloat(onrampFiatAmountUsd) || 0);
         if (parsedUsd >= 100_000) {
-            if (lastAutoAchAmountBucket !== 'wire100k') {
-                lastAutoAchAmountBucket = 'wire100k';
-            }
-            if (onrampGatewayMethod !== 'wire') {
-                onrampGatewayMethod = 'wire';
-            }
-            if (onrampPaymentRail !== 'BRIDGE_VIRTUAL_ACCOUNT_WIRE') {
-                onrampPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
-            }
-        } else if (parsedUsd >= 625) {
-            if (lastAutoAchAmountBucket !== 'above625') {
-                lastAutoAchAmountBucket = 'above625';
-                onrampGatewayMethod = 'ach';
-                onrampPaymentRail = 'SOVEREIGN_WIRE_ACH';
-            }
-        } else {
-            if (lastAutoAchAmountBucket !== 'below625') {
-                lastAutoAchAmountBucket = 'below625';
-                if (onrampGatewayMethod === 'wire') {
-                    onrampGatewayMethod = 'ach';
-                    onrampPaymentRail = 'SOVEREIGN_WIRE_ACH';
-                }
-            }
+            lastAutoAchAmountBucket = 'wire100k';
+            buyTab = 'VIP_WIRE';
+            onrampGatewayMethod = 'wire';
+            onrampPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
         }
     });
 
@@ -261,15 +244,21 @@
         offrampError = null;
     }
 
+    function copyPanelWireField(key: string, text: string) {
+        if (!browser || !navigator.clipboard) return;
+        navigator.clipboard.writeText(text).then(() => {
+            wireCopyKey = key;
+            setTimeout(() => {
+                if (wireCopyKey === key) wireCopyKey = null;
+            }, 1800);
+        }).catch(() => {});
+    }
+
     function resolveSpotForTicker(ticker: string): number {
         const clean = ticker.trim().toUpperCase();
         if (clean === 'USD' || clean === 'USDC' || clean === 'USDT') return 1.0;
         const assetObj = treasury.getAsset(clean);
         if (assetObj.spotPrice > 0) return assetObj.spotPrice;
-        const kasSpot = treasury.getAsset('KAS').spotPrice || 0;
-        if (clean === DEFAULT_ECOSYSTEM_TICKER && kasSpot > 0) {
-            return Number((kasSpot / 23.809524).toFixed(6));
-        }
         return 0;
     }
 
@@ -1102,6 +1091,42 @@
             data-testid="fiat-step1-calculator-card"
             class="flex flex-col gap-3"
         >
+            <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-elevated)] p-1 rounded-xl border border-[var(--border-subtle)]">
+                <button
+                    type="button"
+                    data-testid="panel-buy-tab-instant"
+                    onclick={() => {
+                        buyTab = 'INSTANT';
+                        if (onrampGatewayMethod === 'wire') {
+                            onrampGatewayMethod = 'card';
+                            onrampPaymentRail = 'CARD_INSTANT';
+                        }
+                        showOnrampBankLinker = false;
+                    }}
+                    class="py-2 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors {buyTab === 'INSTANT'
+                        ? 'bg-[var(--bg-card)] text-[var(--accent-text)] border border-[var(--border-active)]'
+                        : 'text-[var(--text-muted)] border border-transparent hover:text-[var(--text-primary)]'}"
+                >
+                    INSTANT · CARD / ACH
+                </button>
+                <button
+                    type="button"
+                    data-testid="panel-buy-tab-vip-wire"
+                    onclick={() => {
+                        buyTab = 'VIP_WIRE';
+                        onrampGatewayMethod = 'wire';
+                        onrampPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
+                        if ((parseFloat(onrampFiatAmountUsd) || 0) < 2500) {
+                            onrampFiatAmountUsd = '2500';
+                        }
+                    }}
+                    class="py-2 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors {buyTab === 'VIP_WIRE' || onrampCostPlusQuote.requiresInstitutionalWire
+                        ? 'bg-[var(--bg-card)] text-amber-500 border border-amber-500/45'
+                        : 'text-[var(--text-muted)] border border-transparent hover:text-[var(--text-primary)]'}"
+                >
+                    VIP WIRE · {i18n.formatFiat(2500, { decimals: 0 })}+
+                </button>
+            </div>
             <div class="sr-only">
                 {#each ['KAS', 'USDC', 'BTC', 'ETH', 'SOL', 'SILO'] as quickAsset}
                     <button
@@ -1120,21 +1145,39 @@
                 {/each}
             </div>
             <div
-                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/35"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[var(--border-active)]"
                 style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.10), transparent 65%);"
             >
                 <div class="flex items-center justify-between flex-wrap gap-2">
                     <label
                         for="onrampFiatAmountUsd"
-                        class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
+                        class="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]"
                     >
-                        Amount (USD)
+                        {i18n.t('dex.you_pay')} ({i18n.currency})
                     </label>
+                    {#if buyTab === 'INSTANT' && !onrampCostPlusQuote.requiresInstitutionalWire}
+                        <div class="flex items-center gap-1 flex-wrap">
+                            {#each ['50', '100', '250', '500'] as presetAmt (presetAmt)}
+                                <button
+                                    type="button"
+                                    data-testid="panel-buy-preset-{presetAmt}"
+                                    onclick={() => {
+                                        onrampFiatAmountUsd = presetAmt;
+                                    }}
+                                    class="px-2 py-0.5 rounded-lg text-[9px] font-black border cursor-pointer transition-colors {onrampFiatAmountUsd === presetAmt
+                                        ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                        : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
+                                >
+                                    {i18n.formatFiat(Number(presetAmt), { decimals: 0 })}
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                        <span class="text-2xl md:text-3xl font-bold text-neutral-500"
-                            >$</span
+                        <span class="text-2xl md:text-3xl font-bold text-[var(--text-muted)]"
+                            >{i18n.currencySymbol}</span
                         >
                         <input
                             id="onrampFiatAmountUsd"
@@ -1142,50 +1185,48 @@
                             type="number"
                             min="10"
                             bind:value={onrampFiatAmountUsd}
-                            class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none tabular-nums"
+                            class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-[var(--text-primary)] outline-none tabular-nums"
                         />
                     </div>
                     <div
-                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] border border-[#18C6A5]/40"
+                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-active)]"
                     >
-                        <div class="w-6 h-6 rounded-full bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-[10px] font-black">
-                            $
+                        <div class="w-6 h-6 rounded-full bg-[var(--bg-teal-subtle)] border border-[var(--border-active)] text-[var(--accent-text)] flex items-center justify-center text-[10px] font-black">
+                            {i18n.currencySymbol}
                         </div>
-                        <span class="text-xs font-black text-white tracking-wider">
-                            USD
+                        <span class="text-xs font-black text-[var(--text-primary)] tracking-wider">
+                            {i18n.currency}
                         </span>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-white/10 text-[9px] font-mono">
-                    <div class="bg-[var(--bg-card)] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
-                        <span class="text-neutral-500 uppercase text-[7px]">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[var(--border-subtle)] text-[9px] font-mono">
+                    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-2.5 py-1.5 flex flex-col">
+                        <span class="text-[var(--text-muted)] uppercase text-[7px]">
                             Fee ({onrampCostPlusQuote.protocolFeeFloorPct.toFixed(
                                 2
                             )}%)
                         </span>
-                        <span class="text-white font-bold">
-                            ${onrampCostPlusQuote.perenniaFeeUsd.toFixed(2)} USD
+                        <span class="text-[var(--text-primary)] font-bold">
+                            {i18n.formatFiat(onrampCostPlusQuote.perenniaFeeUsd)}
                         </span>
                     </div>
-                    <div class="bg-[var(--bg-card)] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
-                        
-                        <span class="text-neutral-300 font-bold">
-                            ${onrampCostPlusQuote.stripeGatewayFeeUsd.toFixed(
-                                2
-                            )} USD
+                    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-2.5 py-1.5 flex flex-col">
+                        <span class="text-[var(--text-muted)] uppercase text-[7px]">
+                            Gateway Fee
+                        </span>
+                        <span class="text-[var(--text-secondary)] font-bold">
+                            {i18n.formatFiat(onrampCostPlusQuote.stripeGatewayFeeUsd)}
                         </span>
                     </div>
-                    <div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-xl px-2.5 py-1.5 flex flex-col">
-                        <span class="text-[#18C6A5] uppercase text-[7px] font-bold">
+                    <div class="bg-[var(--bg-card)] border border-[var(--border-active)] rounded-xl px-2.5 py-1.5 flex flex-col">
+                        <span class="text-[var(--accent-text)] uppercase text-[7px] font-bold">
                             Total
                         </span>
                         <span
                             data-testid="fiat-onramp-fee-breakdown" class:hidden={!(parseFloat(onrampFiatAmountUsd) > 0)}
-                            class="text-[#18C6A5] font-black"
+                            class="text-[var(--accent-text)] font-black"
                         >
-                            ${onrampCostPlusQuote.totalGrossChargeUsd.toFixed(
-                                2
-                            )} (Fee: ${onrampCostPlusQuote.feeUsd.toFixed(2)})
+                            {i18n.formatFiat(onrampCostPlusQuote.totalGrossChargeUsd)} (Fee: {i18n.formatFiat(onrampCostPlusQuote.feeUsd)})
                         </span>
                     </div>
                 </div>
@@ -1210,140 +1251,154 @@
             <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-card)] p-1 rounded-xl border border-white/5"><button type="button" data-testid="onramp-dest-self-custody-card" onclick={() => { onrampUseColdStorage = false; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!onrampUseColdStorage ? 'bg-[var(--bg-hover)] text-white border border-white/15' : 'text-neutral-400 hover:text-white'}">Wallet</button><button type="button" data-testid="onramp-dest-cold-storage-btn" onclick={() => { onrampUseColdStorage = true; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampUseColdStorage ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}">Cold Storage</button></div>{#if onrampUseColdStorage}<div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[#18C6A5]">Cold Storage Destination Wallet</span><input type="text" bind:value={onrampColdAddress} placeholder={onrampTargetTicker === 'KAS' || onrampTargetTicker === 'SILO' ? 'kaspa:q...' : onrampTargetTicker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white outline-none focus:border-[#18C6A5]/60" /></div>{/if}
             
 
-            <!-- Card vs. ACH Selector (Auto-Defaults to ACH @ $625+ / Hard-Gated to Wire @ $100,000+) -->
-            <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
-                <div class="flex items-center gap-1.5 flex-wrap">
-                    <button
-                        type="button"
-                        data-testid="onramp-rail-ach-btn"
-                        disabled={onrampCostPlusQuote.requiresInstitutionalWire}
-                        onclick={() => {
-                            onrampGatewayMethod = 'ach';
-                            onrampPaymentRail = 'SOVEREIGN_WIRE_ACH';
-                        }}
-                        class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {onrampGatewayMethod ===
-                            'ach' &&
-                        !onrampCostPlusQuote.requiresInstitutionalWire
-                            ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]/45'
-                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
+            {#if buyTab === 'INSTANT' && !onrampCostPlusQuote.requiresInstitutionalWire && onrampGatewayMethod !== 'wire'}
+                <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button
+                            type="button"
+                            data-testid="onramp-rail-card-btn"
+                            onclick={() => {
+                                onrampGatewayMethod = 'card';
+                                showOnrampBankLinker = false;
+                                onrampPaymentRail = 'CARD_INSTANT';
+                            }}
+                            class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors {onrampGatewayMethod === 'card'
+                                ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
+                        >
+                            Card / Apple Pay
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="onramp-rail-ach-btn"
+                            onclick={() => {
+                                onrampGatewayMethod = 'ach';
+                                onrampPaymentRail = 'SOVEREIGN_WIRE_ACH';
+                            }}
+                            class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors {onrampGatewayMethod === 'ach'
+                                ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
+                        >
+                            Bank ACH
+                        </button>
+                    </div>
+                    <span
+                        data-testid="panel-buy-clearing-hold-badge"
+                        class="px-2 py-0.5 rounded-md border font-black uppercase text-[8px] {onrampGatewayMethod === 'ach'
+                            ? 'bg-[var(--bg-card)] text-amber-500 border-amber-500/45'
+                            : 'bg-[var(--bg-card)] text-[var(--accent-text)] border-[var(--border-active)]'}"
                     >
-                        Bank
-                    </button>
-                    <button
-                        type="button"
-                        data-testid="onramp-rail-card-btn"
-                        disabled={onrampCostPlusQuote.requiresInstitutionalWire}
-                        onclick={() => {
-                            onrampGatewayMethod = 'card'; showOnrampBankLinker = false;
-                            onrampPaymentRail = 'CARD_INSTANT';
-                        }}
-                        class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {onrampGatewayMethod ===
-                            'card' &&
-                        !onrampCostPlusQuote.requiresInstitutionalWire
-                            ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]/45'
-                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
-                    >
-                        Card
-                    </button>
-                    <button
-                        type="button"
-                        data-testid="onramp-rail-wire-btn"
-                        onclick={() => {
-                            onrampGatewayMethod = 'wire';
-                            onrampPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
-                        }}
-                        class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors {onrampGatewayMethod ===
-                            'wire' ||
-                        onrampCostPlusQuote.requiresInstitutionalWire
-                            ? 'bg-[var(--bg-hover)] text-amber-400 border-amber-500/45'
-                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
-                    >
-                        Wire
-                    </button>
+                        {onrampGatewayMethod === 'ach' ? 'CLEARING · 5 BIZ DAYS → AVAILABLE' : 'AVAILABLE ON SETTLE'}
+                    </span>
                 </div>
-                {#if onrampGatewayMethod === 'ach' && !onrampCostPlusQuote.requiresInstitutionalWire}
-                    <button
-                        type="button"
-                        onclick={() =>
-                            (showOnrampBankLinker = !showOnrampBankLinker)}
-                        class="font-bold {savedBankLast4
-                            ? 'text-[#18C6A5]'
-                            : 'text-amber-400'} hover:underline uppercase cursor-pointer"
-                    >
-                        {showOnrampBankLinker
-                            ? '[Close Bank ✕]'
-                            : savedBankLast4
-                              ? `✓ Bank *${savedBankLast4} [Change]`
-                              : '[+ Link Bank Account]'}
-                    </button>
+                {#if onrampGatewayMethod === 'ach'}
+                    <div class="flex justify-end px-0.5 text-[9px]">
+                        <button
+                            type="button"
+                            onclick={() => (showOnrampBankLinker = !showOnrampBankLinker)}
+                            class="font-bold {savedBankLast4 ? 'text-[var(--accent-text)]' : 'text-amber-500'} hover:underline uppercase cursor-pointer"
+                        >
+                            {showOnrampBankLinker ? '[Close Bank ✕]' : savedBankLast4 ? `✓ Bank *${savedBankLast4} [Change]` : '[+ Link Bank Account]'}
+                        </button>
+                    </div>
                 {/if}
-            </div>
+            {/if}
 
-            {#if onrampCostPlusQuote.requiresInstitutionalWire || onrampGatewayMethod === 'wire' || onrampPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'}
-                <!-- $100,000+ Institutional Wire Instruction View (Column N.A. / Mercury Ending in 9901) -->
+            {#if buyTab === 'VIP_WIRE' || onrampCostPlusQuote.requiresInstitutionalWire || onrampGatewayMethod === 'wire' || onrampPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'}
+                <!-- VIP Wire ($2,500+) Institutional Fedwire Instruction View (Mercury) -->
                 <div
                     data-testid="fiat-mercury-wire-instructions-card"
                     transition:slide={{ duration: 150 }}
                     class="bg-[var(--bg-card)] border border-amber-500/45 rounded-xl p-3.5 flex flex-col gap-2.5 text-[9px] font-mono"
                 >
-                    <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2">
-                        <span class="text-amber-400 font-black uppercase tracking-wider">
-                            Wire Instructions
+                    <div class="flex items-center justify-between flex-wrap gap-2 border-b border-[var(--border-subtle)] pb-2">
+                        <span class="text-amber-500 font-black uppercase tracking-wider">
+                            Fedwire Instructions (Mercury)
                         </span>
-                        <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
-                            
+                        <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-active)] text-[var(--accent-text)] font-bold text-[8px] uppercase">
+                            Releases on SETTLED
                         </span>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
-                            <span class="text-[7px] text-neutral-500 uppercase">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2.5 flex flex-col gap-0.5">
+                            <span class="text-[7px] text-[var(--text-muted)] uppercase">
                                 Recipient
                             </span>
-                            <span class="text-white font-bold">
+                            <span class="text-[var(--text-primary)] font-bold">
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.beneficiaryName} ({MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountDescriptor})
                             </span>
                         </div>
-                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
-                            <span class="text-[7px] text-neutral-500 uppercase">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2.5 flex flex-col gap-0.5">
+                            <span class="text-[7px] text-[var(--text-muted)] uppercase">
                                 Receiving Bank
                             </span>
-                            <span class="text-white font-bold">
+                            <span class="text-[var(--text-primary)] font-bold">
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankName}
                             </span>
                         </div>
-                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
-                            <span class="text-[7px] text-neutral-500 uppercase">
-                                Routing Number
-                            </span>
-                            <span class="text-[#18C6A5] font-black select-all">
-                                {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
-                            </span>
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2.5 flex items-center justify-between gap-2">
+                            <div class="flex flex-col gap-0.5 min-w-0">
+                                <span class="text-[7px] text-[var(--text-muted)] uppercase">
+                                    Routing Number
+                                </span>
+                                <span class="text-[var(--accent-text)] font-black select-all">
+                                    {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                data-testid="panel-copy-wire-routing-btn"
+                                onclick={() => copyPanelWireField('routing', MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber)}
+                                class="px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer shrink-0"
+                            >
+                                {wireCopyKey === 'routing' ? '✓' : 'COPY'}
+                            </button>
                         </div>
-                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
-                            <span class="text-[7px] text-neutral-500 uppercase">
-                                Account Number
-                            </span>
-                            <span class="text-[#18C6A5] font-black select-all">
-                                {MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber}
-                            </span>
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2.5 flex items-center justify-between gap-2">
+                            <div class="flex flex-col gap-0.5 min-w-0">
+                                <span class="text-[7px] text-[var(--text-muted)] uppercase">
+                                    Account Number
+                                </span>
+                                <span class="text-[var(--accent-text)] font-black select-all">
+                                    {MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber}
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                data-testid="panel-copy-wire-account-btn"
+                                onclick={() => copyPanelWireField('account', MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber)}
+                                class="px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer shrink-0"
+                            >
+                                {wireCopyKey === 'account' ? '✓' : 'COPY'}
+                            </button>
                         </div>
                     </div>
-                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div class="flex flex-col">
-                            <span class="text-[7px] text-neutral-500 uppercase">
+                            <span class="text-[7px] text-[var(--text-muted)] uppercase">
                                 Bank Address
                             </span>
-                            <span class="text-neutral-300">
+                            <span class="text-[var(--text-secondary)]">
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankAddress}
                             </span>
                         </div>
-                        <div class="flex flex-col sm:items-end shrink-0">
-                            <span class="text-[7px] text-amber-400 uppercase font-bold">
-                                Reference Code
-                            </span>
-                            <span class="text-white font-black select-all">
-                                {previewWireReferenceMemo}
-                            </span>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <div class="flex flex-col sm:items-end">
+                                <span class="text-[7px] text-amber-500 uppercase font-bold">
+                                    Reference Code
+                                </span>
+                                <span class="text-[var(--text-primary)] font-black select-all">
+                                    {previewWireReferenceMemo}
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                data-testid="panel-copy-wire-memo-btn"
+                                onclick={() => copyPanelWireField('memo', previewWireReferenceMemo)}
+                                class="px-2 py-1 rounded border border-amber-500/45 bg-[var(--bg-card)] text-amber-500 text-[8px] font-black uppercase cursor-pointer shrink-0"
+                            >
+                                {wireCopyKey === 'memo' ? '✓' : 'COPY'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1441,7 +1496,7 @@
                 >
                     {#if isInitializingOnramp}
                         Purchasing {onrampTargetTicker}...
-                    {:else if onrampCostPlusQuote.requiresInstitutionalWire || onrampGatewayMethod === 'wire'}
+                    {:else if buyTab === 'VIP_WIRE' || onrampCostPlusQuote.requiresInstitutionalWire || onrampGatewayMethod === 'wire'}
                         Generate Institutional Wire Order (~{onrampCostPlusQuote.estimatedTokens.toLocaleString(
                             undefined,
                             {
@@ -1451,13 +1506,7 @@
                                         : 2
                             }
                         )}
-                        {onrampTargetTicker} • ${onrampCostPlusQuote.totalGrossChargeUsd.toLocaleString(
-                            undefined,
-                            {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2
-                            }
-                        )} USD) →
+                        {onrampTargetTicker} • {i18n.formatFiat(onrampCostPlusQuote.totalGrossChargeUsd)}) →
                     {:else}
                         Buy {onrampTargetTicker} (~{onrampCostPlusQuote.estimatedTokens.toLocaleString(
                             undefined,
@@ -1468,9 +1517,7 @@
                                         : 2
                             }
                         )}
-                        {onrampTargetTicker} • Total ${onrampCostPlusQuote.totalGrossChargeUsd.toFixed(
-                            2
-                        )} USD) →
+                        {onrampTargetTicker} • Total {i18n.formatFiat(onrampCostPlusQuote.totalGrossChargeUsd)}) →
                     {/if}
                 </button>
             </div>

@@ -1527,6 +1527,8 @@ export interface FormattedPairReserveDisplay {
     partnerFormatted: string;
     heldBaseFormatted: string;
     queuedBaseFormatted: string;
+    progressBps: number;
+    progressPctDisplay: string;
     totalUsdFormatted: string;
     accruedFeesUsdFormatted: string;
     livePricingUnavailable: boolean;
@@ -1542,6 +1544,19 @@ export function formatPairReserveDisplay(reserve: PairReserveState): FormattedPa
     const heldBaseAtomic = safeParseU128(reserve?.heldBaseAtomic || '0', 0n);
     const queuedBaseAtomic = safeParseU128(reserve?.queuedBaseAtomic || '0', 0n);
     const accruedFeesMicros = safeParseU128(reserve?.accruedFeesUsdMicros || '0', 0n);
+
+    let progressBpsBig = 0n;
+    const totalTargetAtomic = heldBaseAtomic + queuedBaseAtomic;
+    if (reserve?.status === 'ACTIVE') {
+        progressBpsBig = MAX_BPS;
+    } else if (totalTargetAtomic > 0n) {
+        progressBpsBig = (heldBaseAtomic * MAX_BPS) / totalTargetAtomic;
+        if (progressBpsBig > MAX_BPS) progressBpsBig = MAX_BPS;
+    } else if (heldBaseAtomic > 0n) {
+        progressBpsBig = 5_000n;
+    }
+    const progressBps = Number(progressBpsBig);
+    const progressPctDisplay = formatBpsToPctDisplay(progressBps, 1, true);
 
     const baseE8 = resolveKaspaAssetOracleE8(baseTicker);
     const partnerE8 = resolveKaspaAssetOracleE8(partnerTicker);
@@ -1561,6 +1576,8 @@ export function formatPairReserveDisplay(reserve: PairReserveState): FormattedPa
         partnerFormatted: formatAtomicToDecimal(partnerBalanceAtomic, partnerDec, 4, true),
         heldBaseFormatted: formatAtomicToDecimal(heldBaseAtomic, baseDec, 4, true),
         queuedBaseFormatted: formatAtomicToDecimal(queuedBaseAtomic, baseDec, 4, true),
+        progressBps,
+        progressPctDisplay,
         totalUsdFormatted: i18n.formatFiatFromUsdMicros(totalUsdMicros),
         accruedFeesUsdFormatted: `+${i18n.formatFiatFromUsdMicros(accruedFeesMicros)}`,
         livePricingUnavailable: pricingUnavailable

@@ -76,7 +76,12 @@
     let userActiveBuckets = $derived(
         displayedBuckets.filter((b) => {
             const ticker = String(b.asset || '').trim().toUpperCase();
-            return ticker !== 'KAS' && userRoutedAssets.has(ticker);
+            return (
+                ticker !== 'KAS' &&
+                (userRoutedAssets.has(ticker) ||
+                    safeFiniteNumber(b.pendingKas, 0) > 0 ||
+                    safeFiniteNumber(b.weightPct, 0) > 0)
+            );
         })
     );
 
@@ -190,7 +195,7 @@
                         Next Payout
                     </span>
                 </div>
-                <div class="text-lg font-mono font-black text-white tracking-wider text-center py-0.5 tabular-nums">
+                <div class="text-lg font-mono font-black text-[var(--text-primary)] tracking-wider text-center py-0.5 tabular-nums">
                     {operations.formatEpochCountdown()}
                 </div>
             </div>
@@ -198,17 +203,17 @@
             <!-- MATURE ACCRUAL & DIRECT PAYOUT QUEUE -->
             <div
                 data-testid="sidebar-mature-accrual-card"
-                class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-3 flex flex-col gap-2 font-mono"
+                class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-3 flex flex-col gap-2 font-mono"
             >
                 <div class="flex items-center justify-between gap-1">
-                    <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-300 truncate">
+                    <span class="text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)] truncate">
                         Mining Rewards
                     </span>
-                    <span class="text-[8px] font-bold text-[#18C6A5] tabular-nums">
+                    <span class="text-[8px] font-bold text-[var(--accent-text)] tabular-nums">
                         {flushProgressPctDisplay}%
                     </span>
                 </div>
-                <div class="w-full bg-[var(--bg-card)] rounded-full h-1.5 overflow-hidden border border-white/10">
+                <div class="w-full bg-[var(--bg-card)] rounded-full h-1.5 overflow-hidden border border-[var(--border-subtle)]">
                     <div
                         class="h-full transition-all duration-500 bg-[#18C6A5]"
                         style="width: {Math.min(100, flushProgressBps / 100)}%;"
@@ -216,26 +221,26 @@
                 </div>
                 <div class="flex flex-col gap-1 text-[9px]">
                     <div class="flex items-center justify-between gap-1">
-                        <span class="text-neutral-400">Maturing</span>
-                        <span class="text-neutral-200 font-bold tabular-nums">
+                        <span class="text-[var(--text-muted)]">Maturing</span>
+                        <span class="text-[var(--text-secondary)] font-bold tabular-nums">
                             {formatSompiToKasDisplay(accrual?.immatureSompi, 4, true)} KAS
                         </span>
                     </div>
                     <div class="flex items-center justify-between gap-1">
-                        <span class="text-neutral-400">Ready for Payout</span>
-                        <span class="text-[#18C6A5] font-bold tabular-nums">
+                        <span class="text-[var(--text-muted)]">Ready for Payout</span>
+                        <span class="text-[var(--accent-text)] font-bold tabular-nums">
                             {formatSompiToKasDisplay(accrual?.unpaidMatureSompi, 4, true)} KAS
                         </span>
                     </div>
                     <div class="flex items-center justify-between gap-1">
-                        <span class="text-neutral-400">Minimum Payout</span>
-                        <span class="text-neutral-300 tabular-nums">
+                        <span class="text-[var(--text-muted)]">Minimum Payout</span>
+                        <span class="text-[var(--text-secondary)] tabular-nums">
                             {formatSompiToKasDisplay(flushFloorSompi, 2, true)} KAS
                         </span>
                     </div>
                     <div class="flex items-center justify-between gap-1">
-                        <span class="text-neutral-400">Lifetime Paid</span>
-                        <span class="text-white font-bold tabular-nums">
+                        <span class="text-[var(--text-muted)]">Lifetime Paid</span>
+                        <span class="text-[var(--text-primary)] font-bold tabular-nums">
                             {formatSompiToKasDisplay(accrual?.lifetimeFlushedSompi, 2, true)} KAS
                         </span>
                     </div>
@@ -244,18 +249,18 @@
                 {#if outboxItems.length > 0}
                     <div
                         data-testid="sidebar-payout-outbox-list"
-                        class="pt-2 border-t border-white/10 flex flex-col gap-1.5"
+                        class="pt-2 border-t border-[var(--border-subtle)] flex flex-col gap-1.5"
                     >
-                        <span class="text-[8px] font-bold uppercase tracking-wider text-neutral-400">
+                        <span class="text-[8px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                             Recent Payout Queue
                         </span>
                         {#each outboxItems as item (item.outboxKey)}
-                            <div class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2 py-1.5 flex items-center justify-between gap-1.5 text-[8px]">
+                            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5 flex items-center justify-between gap-1.5 text-[8px]">
                                 <div class="flex flex-col min-w-0">
-                                    <span class="text-white font-bold tabular-nums truncate">
+                                    <span class="text-[var(--text-primary)] font-bold tabular-nums truncate">
                                         {formatSompiToKasDisplay(item.payoutSompi, 4, true)} KAS
                                     </span>
-                                    <span class="text-neutral-400 truncate">
+                                    <span class="text-[var(--text-muted)] truncate">
                                         {formatOutboxStateLabel(item.state)}
                                     </span>
                                 </div>
@@ -264,7 +269,7 @@
                                         href={getChainExplorerTxUrl('KAS', item.txid)}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        class="text-[#18C6A5] hover:underline font-bold shrink-0"
+                                        class="text-[var(--accent-text)] hover:underline font-bold shrink-0"
                                     >
                                         Tx ↗
                                     </a>
@@ -278,17 +283,17 @@
             <!-- PENDING SPLITS -->
             <div class="flex flex-col gap-2">
                 <div class="flex items-center justify-between gap-1 px-0.5">
-                    <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400 truncate">
+                    <span class="text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] truncate">
                         Pending Splits
                     </span>
-                    <span class="text-[8px] font-mono text-neutral-500 shrink-0">
+                    <span class="text-[8px] font-mono text-[var(--text-muted)] shrink-0">
                         {userActiveBuckets.length} Active
                     </span>
                 </div>
                 <div data-testid="pool-buckets-scroll-container" class="flex flex-col gap-2.5 pr-0.5">
                     {#if userActiveBuckets.length === 0}
-                        <div class="bg-[var(--bg-elevated)] border border-dashed border-white/10 rounded-xl p-3 text-center flex flex-col gap-1">
-                            <span class="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
+                        <div class="bg-[var(--bg-elevated)] border border-dashed border-[var(--border-subtle)] rounded-xl p-3 text-center flex flex-col gap-1">
+                            <span class="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
                                 No pending splits
                             </span>
                         </div>
@@ -311,10 +316,10 @@
                             {@const bucketBadge = ui.microBadges[`bucket_${bucket.asset}`]}
                             <div
                                 data-testid="bucket-card-{bucket.asset}"
-                                class="tactile-card bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-2 relative"
+                                class="tactile-card bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2 relative"
                             >
                                 {#if bucketBadge}
-                                    <div class="micro-confirm-badge absolute top-2 right-2 z-30 px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase">
+                                    <div class="micro-confirm-badge absolute top-2 right-2 z-30 px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/60 text-[var(--accent-text)] text-[8px] font-mono font-black uppercase">
                                         {bucketBadge.label}
                                     </div>
                                 {/if}
@@ -324,7 +329,7 @@
                                             class="w-2 h-2 rounded-full shrink-0"
                                             style="background-color: {assetTheme};"
                                         ></span>
-                                        <span class="text-xs font-bold font-mono text-white truncate">
+                                        <span class="text-xs font-bold font-mono text-[var(--text-primary)] truncate">
                                             {bucket.asset}
                                         </span>
                                     </div>

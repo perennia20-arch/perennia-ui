@@ -22,10 +22,6 @@ export async function resolveSpotUsd(ticker: string): Promise<number> {
 		);
 		if (dbRes.rows[0]?.price_usd > 0) return Number(dbRes.rows[0].price_usd);
 	} catch {}
-	if (t === 'SILO') {
-		const kas = await resolveSpotUsd('KAS');
-		if (kas > 0) return Number((kas / 23.809524).toFixed(6));
-	}
 	return 0;
 }
 

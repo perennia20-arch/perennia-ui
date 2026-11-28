@@ -740,7 +740,7 @@ export const CHAPTER_STEPS_REGISTRY: Record<number, TutorialRelayStepSpec[]> = {
             description:
                 'We have entered 1,000 KAS in the [You Pay] box so you can see the live SILO conversion quote:',
             bullets: [
-                'Live Oracle Rate: 1,000 KAS converts into ~3,928.57 SILO at the live oracle rate (1 KAS = 23.809524 SILO).',
+                'Live Oracle Rate: 1,000 KAS converts into SILO dynamically using the real-time Kaspa oracle & pool ratio.',
                 '1-Click Self-Custody or Platform Execution: Swaps from your Platform Balance execute with $0 gas; swaps from your L1 wallet use a 1-click local browser signature.',
                 'Click [Next →] to execute your SILO token purchase!'
             ],

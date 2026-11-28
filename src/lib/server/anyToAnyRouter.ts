@@ -207,14 +207,6 @@ try {
 const dbRes = await dbPool.query(`SELECT price_usd FROM rwa_oracle_feeds WHERE ticker = $1 AND price_usd > 0 ORDER BY updated_at DESC LIMIT 1`, [clean]);
 if (dbRes.rows.length > 0) { const p = Number(dbRes.rows[0].price_usd || 0); if (Number.isFinite(p) && p > 0) { DYNAMIC_SYNTHETIC_RWAS.add(clean); await redis.set(`oracle:spot:${clean}_USDC`, String(p), 'EX', 120).catch(() => {}); return p; } }
 } catch {}
-if (clean === 'PERX' || clean === 'BEDRCK' || clean === 'SILO') {
-const kasRaw = await redis.get('oracle:spot:KAS_USDC').catch(() => null);
-const kasUsd = kasRaw ? parseFloat(kasRaw) : 0;
-if (Number.isFinite(kasUsd) && kasUsd > 0) {
-const derived = clean === 'SILO' ? Number((kasUsd / 23.809524).toFixed(6)) : Number((kasUsd * (clean === 'PERX' ? 0.1 : 0.01)).toFixed(6));
-await redis.set(`oracle:spot:${clean}_USDC`, String(derived), 'EX', 60).catch(() => {}); return derived;
-}
-}
 const disc = await discoverExactTickerOnDemandUsd(clean);
 return disc > 0 ? disc : 0;
 }

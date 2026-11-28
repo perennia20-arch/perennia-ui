@@ -142,16 +142,17 @@ export const INSTITUTIONAL_WIRE_ONRAMP_FEE_BPS = 20;
 export const ONRAMP_MIN_FEE_FLOOR_CENTS = 250;
 export const ACH_AUTO_DEFAULT_THRESHOLD_CENTS = 62_500;
 export const PRO_TIER_THRESHOLD_CENTS = 1_000_000;
-export const INSTITUTIONAL_WIRE_THRESHOLD_CENTS = 10_000_000;
+export const INSTITUTIONAL_WIRE_THRESHOLD_CENTS = 250_000;
+export const MANDATORY_WIRE_THRESHOLD_CENTS = 10_000_000;
 
 export const MERCURY_COLUMN_WIRE_INSTRUCTIONS = {
     beneficiaryName: 'Perennia, LLC',
     beneficiaryAddress: 'Registered Agent on File (Texas SOS #806549837)',
     bankName: 'Column N.A. (Mercury)',
-    accountDescriptor: 'COLUMN NA-MERCURY (Private OTC Desk)',
-    routingNumber: 'PRIVATE-OTC',
-    accountNumber: 'PRIVATE-ESCROW-ONLY',
-    accountLast4: 'OTC',
+    accountDescriptor: 'COLUMN NA-MERCURY (VIP Wire Desk)',
+    routingNumber: '121145433',
+    accountNumber: '580798008849901',
+    accountLast4: '9901',
     bankAddress:
         '1 Letterman Drive, Building A, Suite A4-700, San Francisco, CA 94129',
     accountType: 'COMMERCIAL CHECKING'
@@ -357,7 +358,11 @@ export function calculateGatewayGrossUpCents(params: {
     );
     const isLoyal = Boolean(params.loyalMinerOrSubscriber);
 
-    if (safePrincipalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS) {
+    if (
+        safePrincipalCents >= MANDATORY_WIRE_THRESHOLD_CENTS ||
+        (params.paymentMethod === 'wire' &&
+            safePrincipalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS)
+    ) {
         const perenniaFeeCents = Math.max(
             ONRAMP_MIN_FEE_FLOOR_CENTS,
             Math.ceil(

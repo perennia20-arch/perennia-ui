@@ -1,5 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { redis } from '$lib/server/redis';
+import { ORACLE_E8_DECIMALS, safeDecimalToAtomic } from '$lib/crypto/atomicMath';
 
 async function resolveKasSpotUsd(): Promise<number> {
 for (const key of ['oracle:spot:KAS_USDC', 'oracle:spot:KAS_USD']) {
@@ -90,29 +91,27 @@ volume24hKas = Number(tok?.totalVolumeKAS ?? stats?.totalVolumeKasKaspiano ?? 0)
 volume24hUsd = Number(tok?.totalVolumeUsd ?? stats?.totalVolumeUsdKaspiano ?? 0) || 0;
 trades24h = Number(tok?.totalTrades ?? stats?.totalTradesKaspiano ?? 0) || 0;
 }
-if (priceUsd <= 0 && kasUsd > 0) {
-if (ticker === 'SILO') {
-priceKas = Number((1 / 23.809524).toFixed(8));
-priceUsd = Number((kasUsd / 23.809524).toFixed(6));
-source = 'PERENNIA_RESERVE_ANCHOR';
-} else if (ticker === 'PERX' || ticker === 'BEDRCK') {
-priceKas = ticker === 'PERX' ? 0.1 : 0.01;
-priceUsd = Number((kasUsd * priceKas).toFixed(6));
-source = 'PERENNIA_RESERVE_ANCHOR';
-}
-}
 if (priceUsd > 0) {
+const priceE8 = safeDecimalToAtomic(priceUsd.toFixed(8), ORACLE_E8_DECIMALS, 0n, 'floor').toString();
 const pipe = redis.pipeline();
 pipe.set(`krc20:spot:${ticker}_USD`, String(priceUsd), 'EX', 90);
 pipe.set(`oracle:spot:${ticker}_USDC`, String(priceUsd), 'EX', 90);
+pipe.set(`oracle:spot:${ticker}_E8`, priceE8, 'EX', 90);
 await pipe.exec().catch(() => {});
 return json({
-success: true, ticker, price: priceUsd, priceUsd, priceKas, change24h,
+success: true, ticker, price: priceUsd, priceUsd, priceE8, priceKas, change24h,
 volume24hKas, volume24hUsd, trades24h, holders, maxSupply, mintedSupply,
 existsOnKasplex, state, source
 });
 }
-return json({ price: 0, ticker, existsOnKasplex, state }, { status: 404 });
+return json({
+price: 0,
+priceE8: '0',
+ticker,
+existsOnKasplex,
+state,
+livePricingUnavailable: true
+}, { status: existsOnKasplex ? 503 : 404 });
 } catch {
 return json({ price: 0 }, { status: 500 });
 }

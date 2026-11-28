@@ -758,12 +758,6 @@ async function resolveAssetSpotPrice(ticker: string): Promise<number> {
     } catch {
         // Ignore DB lookup error
     }
-    if (clean === 'SILO') {
-        const kasSpot = await resolveAssetSpotPrice('KAS');
-        if (kasSpot > 0) {
-            return Number((kasSpot / 23.809524).toFixed(6));
-        }
-    }
     try {
         const mexcRes = await fetch(
             `https://api.mexc.com/api/v3/ticker/price?symbol=${encodeURIComponent(clean)}USDT`,
@@ -1075,6 +1069,7 @@ export const GET: RequestHandler = async ({
         let savedBankRailLast4: string | null = null;
         let savedBankRail: any = null;
         let recentPayouts: any[] = [];
+        let clearingHolds: Array<{ orderId: string; status: string; unlocksAt: string | null }> = [];
 
         if (sessionWallet) {
             const cleanWallet = sessionWallet
@@ -1091,6 +1086,37 @@ export const GET: RequestHandler = async ({
                 savedBankRailLast4 = loaded.meta.bankLast4;
             }
             try {
+                await dbPool
+                    .query(
+                        `UPDATE fiat_onramp_orders
+                         SET clearing_hold_status = 'AVAILABLE', updated_at = CURRENT_TIMESTAMP
+                         WHERE (wallet_address = $1 OR wallet_address = $2)
+                           AND clearing_hold_status = 'CLEARING'
+                           AND clearing_unlocks_at IS NOT NULL
+                           AND clearing_unlocks_at <= CURRENT_TIMESTAMP`,
+                        [prefixedWallet, cleanWallet]
+                    )
+                    .catch(() => {});
+                const holdRes = await dbPool
+                    .query(
+                        `SELECT order_id, clearing_hold_status, clearing_unlocks_at
+                         FROM fiat_onramp_orders
+                         WHERE (wallet_address = $1 OR wallet_address = $2)
+                           AND clearing_hold_status = 'CLEARING'
+                           AND clearing_unlocks_at > CURRENT_TIMESTAMP
+                         ORDER BY clearing_unlocks_at DESC
+                         LIMIT 10`,
+                        [prefixedWallet, cleanWallet]
+                    )
+                    .catch(() => ({ rows: [] as any[] }));
+                clearingHolds = holdRes.rows.map((h: any) => ({
+                    orderId: String(h.order_id || ''),
+                    status: 'CLEARING',
+                    unlocksAt: h.clearing_unlocks_at
+                        ? new Date(h.clearing_unlocks_at).toISOString()
+                        : null
+                }));
+
                 await ensureFiatOfframpTables();
                 const res = await dbPool.query(
                     `SELECT payout_id, source_type, source_asset, amount_crypto, gross_usd, fee_usd,
@@ -1123,6 +1149,9 @@ export const GET: RequestHandler = async ({
             savedBankRailReady: Boolean(savedBankRailLast4),
             savedBankRailLast4,
             savedBankRail,
+            clearingHoldActive: clearingHolds.length > 0,
+            clearingHoldUnlocksAt: clearingHolds[0]?.unlocksAt || null,
+            clearingHolds,
             phase2GuardActive: false,
             recentPayouts
         });
@@ -1408,6 +1437,43 @@ export const POST: RequestHandler = async ({
                     message: 'Off-ramp settlements only accept direct transfers from your self-custody wallet.'
                 },
                 { status: 422 }
+            );
+        }
+
+        await dbPool
+            .query(
+                `UPDATE fiat_onramp_orders
+                 SET clearing_hold_status = 'AVAILABLE', updated_at = CURRENT_TIMESTAMP
+                 WHERE (wallet_address = $1 OR wallet_address = $2)
+                   AND clearing_hold_status = 'CLEARING'
+                   AND clearing_unlocks_at IS NOT NULL
+                   AND clearing_unlocks_at <= CURRENT_TIMESTAMP`,
+                [prefixedWallet, cleanWallet]
+            )
+            .catch(() => {});
+        const activeHoldRes = await dbPool
+            .query(
+                `SELECT clearing_unlocks_at
+                 FROM fiat_onramp_orders
+                 WHERE (wallet_address = $1 OR wallet_address = $2)
+                   AND clearing_hold_status = 'CLEARING'
+                   AND clearing_unlocks_at > CURRENT_TIMESTAMP
+                 ORDER BY clearing_unlocks_at DESC
+                 LIMIT 1`,
+                [prefixedWallet, cleanWallet]
+            )
+            .catch(() => ({ rows: [] as any[] }));
+        if (activeHoldRes.rows.length > 0 && !Boolean(preFlightOnly)) {
+            return json(
+                {
+                    error: 'CLEARING_HOLD_ACTIVE',
+                    clearingHoldStatus: 'CLEARING',
+                    clearingUnlocksAt: new Date(
+                        activeHoldRes.rows[0].clearing_unlocks_at
+                    ).toISOString(),
+                    message: 'Reversible ACH funds are in a 5-business-day clearing hold before external withdrawal unlocks.'
+                },
+                { status: 423 }
             );
         }
 

@@ -562,14 +562,14 @@
             {#if pairReserve.status === 'QUEUED'}
                 <div class="flex items-center justify-between gap-2">
                     <div class="flex items-center gap-2 min-w-0">
-                        <span class="text-xs font-black uppercase text-white tracking-wider truncate">
+                        <span class="text-xs font-black uppercase text-[var(--text-primary)] tracking-wider truncate">
                             {pairReserve.baseTicker} / {pairReserve.partnerTicker}
                         </span>
                         <span
                             data-testid="pair-status-queued-{sector.id}"
-                            class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-[9px] font-bold uppercase text-amber-300"
+                            class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-[9px] font-bold uppercase text-amber-500 tabular-nums"
                         >
-                            QUEUED
+                            QUEUED · {pairReserveDisplay.progressPctDisplay}%
                         </span>
                     </div>
                     <button
@@ -579,12 +579,21 @@
                             onCancelOrWithdrawPair
                                 ? onCancelOrWithdrawPair(sector, 'cancel')
                                 : onDeleteSector(sector.id)}
-                        class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/15 hover:border-red-400/50 text-[9px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer shrink-0"
+                        class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-strong)] hover:border-red-400/50 text-[9px] font-black uppercase text-[var(--text-secondary)] hover:text-red-500 cursor-pointer shrink-0"
                     >
                         CANCEL
                     </button>
                 </div>
-                <div class="flex items-center justify-between text-[11px] text-neutral-300 tabular-nums pt-1 border-t border-white/[0.05]">
+                <div
+                    data-testid="pair-queued-progress-{sector.id}"
+                    class="w-full h-1.5 rounded-full bg-[var(--bg-input)] border border-[var(--border-subtle)] overflow-hidden"
+                >
+                    <div
+                        class="h-full bg-[#18C6A5] transition-all duration-300"
+                        style="width: {Math.min(100, Math.max(0, pairReserveDisplay.progressBps / 100))}%;"
+                    ></div>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-[var(--text-secondary)] tabular-nums pt-1 border-t border-[var(--border-subtle)]">
                     <span>{pairReserveDisplay.heldBaseFormatted} {pairReserve.baseTicker}</span>
                     <span>
                         {pairReserveDisplay.queuedBaseFormatted} {pairReserve.baseTicker} → {pairReserve.partnerTicker}

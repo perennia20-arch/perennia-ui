@@ -30,16 +30,31 @@ const INSTITUTIONAL_WIRE_TIER_BPS = 20;
 const MIN_FEE_FLOOR_CENTS = 250;
 const ACH_AUTO_DEFAULT_CENTS = 62_500;
 const PRO_TIER_THRESHOLD_CENTS = 1_000_000;
-const INSTITUTIONAL_WIRE_THRESHOLD_CENTS = 10_000_000;
+const INSTITUTIONAL_WIRE_THRESHOLD_CENTS = 250_000;
+const MANDATORY_WIRE_THRESHOLD_CENTS = 10_000_000;
+const ACH_CLEARING_HOLD_BUSINESS_DAYS = 5;
+
+function addBusinessDays(start: Date, businessDays: number): Date {
+    const cur = new Date(start.getTime());
+    let added = 0;
+    while (added < businessDays) {
+        cur.setUTCDate(cur.getUTCDate() + 1);
+        const day = cur.getUTCDay();
+        if (day !== 0 && day !== 6) {
+            added += 1;
+        }
+    }
+    return cur;
+}
 
 const MERCURY_COLUMN_WIRE_COORDINATES = {
     beneficiaryName: 'Perennia, LLC',
     beneficiaryAddress: 'Registered Agent on File (Texas SOS #806549837)',
     bankName: 'Column N.A. (Mercury)',
-    accountDescriptor: 'COLUMN NA-MERCURY (Private OTC Desk)',
-    routingNumber: 'PRIVATE-OTC',
-    accountNumber: 'PRIVATE-ESCROW-ONLY',
-    accountLast4: 'OTC',
+    accountDescriptor: 'COLUMN NA-MERCURY (VIP Wire Desk)',
+    routingNumber: (env.MERCURY_WIRE_ROUTING || '121145433').trim(),
+    accountNumber: (env.MERCURY_WIRE_ACCOUNT || '580798008849901').trim(),
+    accountLast4: '9901',
     bankAddress:
         '1 Letterman Drive, Building A, Suite A4-700, San Francisco, CA 94129',
     accountType: 'COMMERCIAL CHECKING'
@@ -668,17 +683,18 @@ function calculateOnrampCostPlusQuote(params: {
     const explicitMethod = String(params.paymentMethod || '').toLowerCase();
 
     const isInstitutionalWire =
-        principalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS ||
+        principalCents >= MANDATORY_WIRE_THRESHOLD_CENTS ||
+        (explicitMethod === 'wire' &&
+            principalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS) ||
         (railUpper !== 'SOVEREIGN_WIRE_ACH' && railUpper.includes('WIRE')) ||
-        railUpper.includes('BRIDGE') ||
-        explicitMethod === 'wire';
+        railUpper.includes('BRIDGE');
 
     const isProOrMiner =
         !isInstitutionalWire &&
         (principalCents >= PRO_TIER_THRESHOLD_CENTS || loyalMinerOrSubscriber);
 
     const tierName: 'RETAIL' | 'PRO_MINER' | 'INSTITUTIONAL_WIRE' =
-        principalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS
+        isInstitutionalWire
             ? 'INSTITUTIONAL_WIRE'
             : isProOrMiner
               ? 'PRO_MINER'
@@ -711,10 +727,7 @@ function calculateOnrampCostPlusQuote(params: {
     let targetNetCents = principalCents + perenniaFeeCents + gasSpikeCents;
 
     let resolvedMethod: 'ach' | 'card' | 'wire' = 'ach';
-    if (
-        principalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS ||
-        isInstitutionalWire
-    ) {
+    if (isInstitutionalWire) {
         resolvedMethod = 'wire';
     } else if (explicitMethod === 'card' || railUpper === 'CARD_INSTANT') {
         resolvedMethod = 'card';
@@ -816,8 +829,7 @@ const savingsVsCoinbaseUsd = roundCents(
                   : 'STRIPE_ACH_DIRECT_DEBIT',
         whaleWireFeeWaived: resolvedMethod === 'wire',
         bundledUsdcFeeWaived: ticker === 'USDC' && isSiloOrKasBundle,
-        requiresInstitutionalWire:
-            principalCents >= INSTITUTIONAL_WIRE_THRESHOLD_CENTS,
+        requiresInstitutionalWire: isInstitutionalWire,
         autoDefaultedToAch:
             principalCents >= ACH_AUTO_DEFAULT_CENTS &&
             resolvedMethod === 'ach',
@@ -898,7 +910,12 @@ async function ensureFiatOnrampTables() {
             `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS bridge_wire_routing VARCHAR(64);`,
             `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS bridge_wire_account VARCHAR(64);`,
             `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS bank_last4 VARCHAR(10);`,
-            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS master_treasury_fee_usdc DOUBLE PRECISION NOT NULL DEFAULT 0.0;`
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS master_treasury_fee_usdc DOUBLE PRECISION NOT NULL DEFAULT 0.0;`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS clearing_hold_status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE';`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS clearing_unlocks_at TIMESTAMP WITH TIME ZONE;`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS settled_webhook_id VARCHAR(128);`,
+            `ALTER TABLE fiat_onramp_orders ADD COLUMN IF NOT EXISTS settlement_txid VARCHAR(255);`,
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_fiat_onramp_settled_webhook ON fiat_onramp_orders (settled_webhook_id) WHERE settled_webhook_id IS NOT NULL;`
         ];
         for (const stmt of alterCols) {
             await client.query(stmt).catch(() => {});
@@ -1656,9 +1673,6 @@ async function resolveLiveTargetAssetSpotUsd(
     } catch {
         // Fallback below
     }
-    if (ticker === 'SILO' && kasSpotPrice > 0) {
-        return Number((kasSpotPrice / 23.809524).toFixed(6));
-    }
     if (!CORE_STATIC_TICKERS.has(ticker)) {
         const discoveredSpot = await discoverAndCacheCanonicalSpotPrice(ticker);
         if (discoveredSpot > 0) {
@@ -2067,6 +2081,10 @@ export const GET: RequestHandler = async ({
                     postTradeAllocation: r.post_trade_sweep_json,
                     txHash: r.tx_hash,
                     status: r.status,
+                    clearingHoldStatus: r.clearing_hold_status || 'AVAILABLE',
+                    clearingUnlocksAt: r.clearing_unlocks_at
+                        ? new Date(r.clearing_unlocks_at).toISOString()
+                        : null,
                     wireInstructions: getMercuryDirectWireInstructions(
                         r.wire_memo,
                         r.settlement_target,
@@ -2716,7 +2734,13 @@ export const POST: RequestHandler = async ({
             targetAsset
         );
 
-        if (isDirectMercuryWire && !(await isAuthorizedDirectorRequest(request, sessionWallet))) { return json({ error: "Institutional OTC Wire Desk requires prior Director onboarding." }, { status: 403 }); } if (isDirectMercuryWire) {
+        if (isDirectMercuryWire && fiatAmountUsd < 2500) {
+            return json(
+                { error: 'VIP Wire orders require a minimum of $2,500 USD equivalent.' },
+                { status: 400 }
+            );
+        }
+        if (isDirectMercuryWire) {
             bridgeVirtualAccountId = `mercury_wire_${onrampSessionId.toLowerCase()}`;
         } else {
             const onrampSessionRes =
@@ -2810,6 +2834,11 @@ export const POST: RequestHandler = async ({
         let finalDeliveredTokens = 0;
         let finalDeliveredKas = 0;
 
+        const isReversibleAch = !isDirectMercuryWire && quote.paymentMethod === 'ach';
+        const clearingHoldStatus = isReversibleAch ? 'CLEARING' : 'AVAILABLE';
+        const clearingUnlocksAt = isReversibleAch
+            ? addBusinessDays(new Date(), ACH_CLEARING_HOLD_BUSINESS_DAYS)
+            : null;
         try {
             await client.query(
                 `INSERT INTO fiat_onramp_orders
@@ -2821,9 +2850,9 @@ export const POST: RequestHandler = async ({
                   delivered_kas, wire_memo, routing_topology, wholesale_order_id, wholesale_withdraw_id,
                   changenow_exchange_id, payin_address, stripe_payment_intent_id, stripe_onramp_session_id,
                   bridge_virtual_account_id, bridge_wire_routing, bridge_wire_account, bank_last4,
-                  master_treasury_fee_usdc, post_trade_sweep_json, status)
+                  master_treasury_fee_usdc, post_trade_sweep_json, clearing_hold_status, clearing_unlocks_at, status)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-                         $20, $21, $22, $23, $24, 0.0, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)`,
+                         $20, $21, $22, $23, $24, 0.0, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)`,
                 [
                     onrampSessionId,
                     formattedWallet,
@@ -2863,6 +2892,8 @@ export const POST: RequestHandler = async ({
                     bankRailResult.bankLast4,
                     quote.perenniaFeeUsd,
                     JSON.stringify(postTradeAllocation),
+                    clearingHoldStatus,
+                    clearingUnlocksAt,
                     finalStatus
                 ]
             );
@@ -2933,6 +2964,9 @@ export const POST: RequestHandler = async ({
             requiresInstitutionalWire: quote.requiresInstitutionalWire,
             paymentRail: resolvedPaymentRail,
             settlementTarget,
+            clearingHoldStatus,
+            clearingUnlocksAt: clearingUnlocksAt ? clearingUnlocksAt.toISOString() : null,
+            clearingHoldBusinessDays: isReversibleAch ? ACH_CLEARING_HOLD_BUSINESS_DAYS : 0,
             routingTopology: quote.routingTopology,
             wholesaleOrderId,
             wholesaleWithdrawId,

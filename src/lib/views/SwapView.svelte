@@ -234,12 +234,10 @@
         if (Number.isFinite(assetObj.spotPrice) && assetObj.spotPrice > 0) {
             return assetObj.spotPrice;
         }
-        const kasSpot = treasury.getAsset('KAS').spotPrice || 0;
-        if (clean === DEFAULT_ECOSYSTEM_TICKER && kasSpot > 0) {
-            return Number((kasSpot / 23.809524).toFixed(6));
-        }
         return 0;
     }
+
+    let isBoostSwap = $state(false);
 
     let paySpotUsd = $derived(resolveLiveSpotUsd(payTicker));
     let receiveSpotUsd = $derived(resolveLiveSpotUsd(receiveTicker));
@@ -431,6 +429,7 @@
                 receiveTicker = intent.receiveTicker.toUpperCase();
             if (intent.payAmount !== undefined)
                 payAmount = String(intent.payAmount);
+            isBoostSwap = intent.reason === 'bucket_boost';
             activeDexTab = 'swap';
             ui.clearSwapIntent();
         }
@@ -442,6 +441,7 @@
                 receiveTicker = String(prefill.receiveAsset).toUpperCase();
             if (prefill.amount !== undefined)
                 payAmount = String(prefill.amount);
+            isBoostSwap = false;
             activeDexTab = 'swap';
             (ui as any).dexPrefill = null;
         }
@@ -655,12 +655,13 @@
         }
 
         const slippageBps = Math.max(1, Math.min(5000, Math.round(Number(slippagePct || 0.5) * 100)));
+        const recNet = String(receiveToken.network || 'KAS').toUpperCase();
         const resolvedDestAddr =
-            receiveToken.network === 'ETH' || receiveToken.network === 'BASE' || receiveToken.network === 'ARB'
+            recNet === 'ETH' || recNet === 'BASE' || recNet === 'ARB' || recNet === 'POL' || recNet === 'AVAX' || recNet === 'RWA'
                 ? identity.sovereignKeys?.ethereum?.address || identity.activeAddress
-                : receiveToken.network === 'SOL'
+                : recNet === 'SOL'
                   ? identity.sovereignKeys?.solana?.address || identity.activeAddress
-                  : receiveToken.network === 'BTC'
+                  : recNet === 'BTC'
                     ? identity.sovereignKeys?.bitcoin?.address || identity.activeAddress
                     : identity.activeAddress;
 
@@ -673,11 +674,13 @@
                     wallet: identity.activeAddress,
                     payAsset: payTicker,
                     receiveAsset: receiveTicker,
-                    targetNetwork: receiveToken.network || 'KAS',
+                    targetNetwork: recNet,
                     destinationAddress: resolvedDestAddr,
                     refundKaspaAddress: identity.activeAddress,
                     amountAtomic,
-                    slippageBps
+                    slippageBps,
+                    routeMode: isBoostSwap ? 'BATCH_BOOST' : 'DIRECT_SWAP',
+                    ...(isBoostSwap ? { boostBucketAsset: receiveTicker } : {})
                 })
             });
 

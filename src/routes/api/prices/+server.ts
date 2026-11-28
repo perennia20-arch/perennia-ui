@@ -1038,10 +1038,6 @@ async function queryKrc20Indexer(
         }
     }
 	if (spotPriceUsd <= 0) { try { const kcRes = await kaspaComFloorPromise; if (kcRes && kcRes.ok) { const kcData = await kcRes.json(); const kcEntry = Array.isArray(kcData) ? kcData[0] : kcData; const floorKas = Number(kcEntry?.floor_price ?? kcEntry?.floorPrice ?? 0); if (Number.isFinite(floorKas) && floorKas > 0) { existsOnKasplex = true; if (kasUsdPrice > 0) spotPriceUsd = Number((floorKas * kasUsdPrice).toPrecision(8)); } } } catch {} }
-    if (ticker === 'SILO' && spotPriceUsd <= 0 && kasUsdPrice > 0) {
-        existsOnKasplex = true;
-        spotPriceUsd = Number((kasUsdPrice / 23.809524).toFixed(6));
-    }
     if (!existsOnKasplex && spotPriceUsd <= 0) {
         return null;
     }

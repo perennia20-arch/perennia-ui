@@ -19,6 +19,18 @@
         SUPPORTED_CURRENCIES
     } from '$lib/stores/i18n.svelte';
     import { safeFiniteNumber } from '$lib/crypto/atomicMath';
+    import { copyToClipboard } from '$lib/utils/clipboard';
+    import {
+        VAULT_BUNDLE_FILENAME,
+        PROFILE_BUNDLE_FILENAME,
+        SILO_UTXO_LOCKS_STORAGE_KEY,
+        createEncryptedVaultBundleJson,
+        parseAndDecryptVaultBundleJson,
+        createProfileBundleJson,
+        parseAndValidateProfileBundleJson,
+        buildHifoTaxLotsCsv,
+        downloadTextFile
+    } from '$lib/utils/portableBundles';
     import type { Worker } from '$lib/stores/type';
     import {
         evaluateAbaRoutingNumber,
@@ -56,8 +68,9 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
     } | null>(null);
 
     // Global In-Context Fiat Modal State
+    let buyModalTab = $state<'INSTANT' | 'VIP_WIRE'>('INSTANT');
     let globalFiatUsdInput = $state('');
-    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('ach');
+    let globalFiatGatewayMethod = $state<OnrampGatewayMethod>('card');
 	let globalUseColdStorage = $state(false);
 	let globalColdAddress = $state('');
 	let globalCardError = $state<string | null>(null);
@@ -69,7 +82,166 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         | 'CARD_INSTANT'
         | 'STRIPE_CRYPTO_ONRAMP'
         | 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'
-    >('SOVEREIGN_WIRE_ACH');
+    >('CARD_INSTANT');
+    let wireCopySuccess = $state<string | null>(null);
+
+    // Portable Dual .JSON Modal State
+    let showPortableBundlesModal = $state(false);
+    let bundleActiveTab = $state<'vault' | 'profile'>('vault');
+    let vaultBundlePassphrase = $state('');
+    let vaultImportText = $state('');
+    let profileImportText = $state('');
+    let bundleStatusMsg = $state<string | null>(null);
+    let bundleErrorMsg = $state<string | null>(null);
+    let isBundleBusy = $state(false);
+
+    async function copyWireField(label: string, text: string) {
+        const ok = await copyToClipboard(text);
+        if (ok) {
+            wireCopySuccess = label;
+            setTimeout(() => {
+                if (wireCopySuccess === label) wireCopySuccess = null;
+            }, 1800);
+        }
+    }
+
+    async function handleExportVaultBundle() {
+        bundleErrorMsg = null;
+        bundleStatusMsg = null;
+        isBundleBusy = true;
+        try {
+            let rawVaultPayload: Record<string, any> | null = null;
+            if (browser) {
+                const stored = localStorage.getItem('perennia_sovereign_payload');
+                if (stored) rawVaultPayload = JSON.parse(stored);
+            }
+            const customWatchlist = treasury.registry
+                .filter((a) => a.assetClass === 'Custom' || a.isKrc20)
+                .map((a) => a.ticker);
+            const jsonText = await createEncryptedVaultBundleJson({
+                passphrase: vaultBundlePassphrase,
+                kaspaAddress: identity.activeAddress || '',
+                sovereignKeys: identity.sovereignKeys,
+                rawVaultPayload,
+                watchlistTickers: customWatchlist
+            });
+            downloadTextFile(VAULT_BUNDLE_FILENAME, jsonText, 'application/json');
+            bundleStatusMsg = `Exported ${VAULT_BUNDLE_FILENAME} (AES-256-GCM encrypted)`;
+        } catch (err: any) {
+            bundleErrorMsg = err?.message || 'Vault export failed.';
+        } finally {
+            isBundleBusy = false;
+        }
+    }
+
+    async function handleImportVaultBundle() {
+        bundleErrorMsg = null;
+        bundleStatusMsg = null;
+        isBundleBusy = true;
+        try {
+            const { bundle, decrypted } = await parseAndDecryptVaultBundleJson(
+                vaultImportText,
+                vaultBundlePassphrase
+            );
+            if (browser) {
+                const payloadToStore = decrypted.rawVaultPayload || {
+                    wallets: decrypted.sovereignKeys || {
+                        kaspa: { address: decrypted.publicAddresses.kaspa }
+                    }
+                };
+                localStorage.setItem('perennia_sovereign_payload', JSON.stringify(payloadToStore));
+                if (bundle.lockedSiloPointers.length > 0) {
+                    localStorage.setItem(
+                        SILO_UTXO_LOCKS_STORAGE_KEY,
+                        JSON.stringify(bundle.lockedSiloPointers)
+                    );
+                }
+            }
+            for (const tk of bundle.watchlistTickers) {
+                if (!treasury.registry.some((a) => a.ticker === tk)) {
+                    treasury.discoverAndRegisterToken?.(tk, true).catch(() => {});
+                }
+            }
+            if (decrypted.rawVaultPayload) {
+                identity.authorizeSovereignVault(decrypted.rawVaultPayload);
+            }
+            bundleStatusMsg = `Restored ${bundle.publicAddresses.kaspa.slice(0, 14)}... from ${VAULT_BUNDLE_FILENAME}`;
+        } catch (err: any) {
+            bundleErrorMsg = err?.message || 'Vault import failed.';
+        } finally {
+            isBundleBusy = false;
+        }
+    }
+
+    async function handleExportProfileBundle(asCsv = false) {
+        bundleErrorMsg = null;
+        bundleStatusMsg = null;
+        isBundleBusy = true;
+        try {
+            const taxRes = await fetch('/api/user/tax-events').catch(() => null);
+            const taxData = taxRes && taxRes.ok ? await taxRes.json().catch(() => ({})) : {};
+            const hifoTaxLots = Array.isArray(taxData?.hifoLots)
+                ? taxData.hifoLots
+                : Array.isArray(taxData?.lots)
+                  ? taxData.lots
+                  : [];
+            if (asCsv) {
+                const csv = buildHifoTaxLotsCsv(hifoTaxLots);
+                downloadTextFile('perennia-hifo-ledger.csv', csv, 'text/csv;charset=utf-8');
+                bundleStatusMsg = 'Exported perennia-hifo-ledger.csv';
+                return;
+            }
+            const tokenSplits = (operations.sectors || []).map((s) => ({
+                id: s.id,
+                name: s.name,
+                routeMode: String(s.routeMode || 'auto-swap'),
+                allocationBps: Math.round(Number(s.allocationPct || 0) * 100),
+                targetTicker: String(s.settlementConfig?.targetAsset?.ticker || 'KAS'),
+                targetNetwork: String(s.settlementConfig?.targetNetwork || 'KAS'),
+                destinationAddress: s.settlementConfig?.destinationAddress
+            }));
+            const workerAliases = (operations.workers || []).map((w) => ({
+                workerId: String(w.id || ''),
+                alias: String(w.name || '')
+            }));
+            let botTemplates: Array<Record<string, unknown>> = [];
+            const mandatesRes = await fetch('/api/agent/mandates').catch(() => null);
+            if (mandatesRes && mandatesRes.ok) {
+                const md = await mandatesRes.json().catch(() => ({}));
+                if (Array.isArray(md?.mandates)) botTemplates = md.mandates;
+            }
+            const profileJson = createProfileBundleJson({
+                locale: i18n.locale,
+                currency: i18n.currency,
+                tokenSplits,
+                workerAliases,
+                botMandateTemplates: botTemplates,
+                hifoTaxLots
+            });
+            downloadTextFile(PROFILE_BUNDLE_FILENAME, profileJson, 'application/json');
+            bundleStatusMsg = `Exported ${PROFILE_BUNDLE_FILENAME} (secrets stripped)`;
+        } catch (err: any) {
+            bundleErrorMsg = err?.message || 'Profile export failed.';
+        } finally {
+            isBundleBusy = false;
+        }
+    }
+
+    function handleImportProfileBundle() {
+        bundleErrorMsg = null;
+        bundleStatusMsg = null;
+        try {
+            const prof = parseAndValidateProfileBundleJson(profileImportText);
+            settingsStore.setLocale(prof.locale as any);
+            settingsStore.setCurrency(prof.currency as any);
+            if (browser) {
+                localStorage.setItem('perennia_profile_import_v1', JSON.stringify(prof));
+            }
+            bundleStatusMsg = `Applied ${PROFILE_BUNDLE_FILENAME} (${prof.locale} · ${prof.currency})`;
+        } catch (err: any) {
+            bundleErrorMsg = err?.message || 'Profile import failed.';
+        }
+    }
     let globalFiatDeliveryMode = $state<
         'L1_KAS' | 'L1_SELF_CUSTODY'
     >('L1_KAS');
@@ -101,33 +273,14 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         evaluateAbaRoutingNumber(inlineRoutingNumber)
     );
 
-    // Auto-default orders >= $625 to ACH ($5 cap) and hard-gate $100,000+ to Institutional Wire
+    // Hard-gate $100,000+ to Wire; keep INSTANT card default unless user picks ACH or VIP WIRE
     $effect(() => {
         const parsedUsd = Math.max(0, parseFloat(globalFiatUsdInput) || 0);
         if (parsedUsd >= 100_000) {
-            if (lastGlobalAchBucket !== 'wire100k') {
-                lastGlobalAchBucket = 'wire100k';
-            }
-            if (globalFiatGatewayMethod !== 'wire') {
-                globalFiatGatewayMethod = 'wire';
-            }
-            if (globalFiatPaymentRail !== 'BRIDGE_VIRTUAL_ACCOUNT_WIRE') {
-                globalFiatPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
-            }
-        } else if (parsedUsd >= 625) {
-            if (lastGlobalAchBucket !== 'above625') {
-                lastGlobalAchBucket = 'above625';
-                globalFiatGatewayMethod = 'ach';
-                globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
-            }
-        } else {
-            if (lastGlobalAchBucket !== 'below625') {
-                lastGlobalAchBucket = 'below625';
-                if (globalFiatGatewayMethod === 'wire') {
-                    globalFiatGatewayMethod = 'ach';
-                    globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
-                }
-            }
+            lastGlobalAchBucket = 'wire100k';
+            buyModalTab = 'VIP_WIRE';
+            globalFiatGatewayMethod = 'wire';
+            globalFiatPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
         }
     });
 
@@ -785,15 +938,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     treasury.spotOracleOnline = true;
                     treasury.spotOracleError = null;
                     const kasSpotVal = treasury.getAsset('KAS').spotPrice;
-                    if (
-                        kasSpotVal > 0 &&
-                        treasury.getAsset(DEFAULT_ECOSYSTEM_TICKER).spotPrice <= 0
-                    ) {
-                        treasury.updateAsset(DEFAULT_ECOSYSTEM_TICKER, {
-                            spotPrice: Number((kasSpotVal / 23.809524).toFixed(6))
-                        });
-                    }
-                    if (treasury.getAsset('USDC').spotPrice <= 0) {
+                    if (kasSpotVal > 0 && treasury.getAsset('USDC').spotPrice <= 0) {
                         treasury.updateAsset('USDC', { spotPrice: 1.0 });
                     }
                     if (treasury.getAsset('USDT').spotPrice <= 0) {
@@ -1205,18 +1350,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         if (ticker === 'KAS' && spotVal > 0) {
                             kasSpotHydrated = true;
                         }
-                        if (
-                            ticker === 'KAS' &&
-                            spotVal > 0 &&
-                            treasury.getAsset(DEFAULT_ECOSYSTEM_TICKER)
-                                .spotPrice <= 0
-                        ) {
-                            treasury.updateAsset(DEFAULT_ECOSYSTEM_TICKER, {
-                                spotPrice: Number(
-                                    (spotVal / 23.809524).toFixed(6)
-                                )
-                            });
-                        }
                     }
                 }
                 if (kasSpotHydrated) {
@@ -1418,7 +1551,18 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
         );
         navHistoryReady = true;
         window.addEventListener('popstate', handleAppPopState);
-        return () => window.removeEventListener('popstate', handleAppPopState);
+        const onOpenBundles = (ev: Event) => {
+            const detail = (ev as CustomEvent)?.detail;
+            bundleActiveTab = detail?.tab === 'profile' ? 'profile' : 'vault';
+            bundleErrorMsg = null;
+            bundleStatusMsg = null;
+            showPortableBundlesModal = true;
+        };
+        window.addEventListener('perennia:open-bundles', onOpenBundles);
+        return () => {
+            window.removeEventListener('popstate', handleAppPopState);
+            window.removeEventListener('perennia:open-bundles', onOpenBundles);
+        };
     });
 
     $effect(() => {
@@ -1778,11 +1922,28 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                                 data-testid="wallet-menu-backup-btn"
                                                 onclick={() => {
                                                     ui.showHeaderWalletMenu = false;
-                                                    ui.activeTab = 'TREASURY';
+                                                    bundleActiveTab = 'vault';
+                                                    bundleErrorMsg = null;
+                                                    bundleStatusMsg = null;
+                                                    showPortableBundlesModal = true;
                                                 }}
                                                 class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer"
                                             >
                                                 {i18n.t('wallet.vault_backup')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                data-testid="wallet-menu-profile-btn"
+                                                onclick={() => {
+                                                    ui.showHeaderWalletMenu = false;
+                                                    bundleActiveTab = 'profile';
+                                                    bundleErrorMsg = null;
+                                                    bundleStatusMsg = null;
+                                                    showPortableBundlesModal = true;
+                                                }}
+                                                class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                                            >
+                                                {i18n.t('wallet.profile_backup')}
                                             </button>
                                             <div class="border-t border-[var(--border-subtle)] my-0.5"></div>
                                             <button
@@ -1891,6 +2052,42 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     ✕
                 </button>
             </div>
+            <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-elevated)] p-1 rounded-xl border border-[var(--border-subtle)]">
+                <button
+                    type="button"
+                    data-testid="buy-tab-instant"
+                    onclick={() => {
+                        buyModalTab = 'INSTANT';
+                        if (globalFiatGatewayMethod === 'wire') {
+                            globalFiatGatewayMethod = 'card';
+                            globalFiatPaymentRail = 'CARD_INSTANT';
+                        }
+                        showInlineBankSetup = false;
+                    }}
+                    class="py-2 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors {buyModalTab === 'INSTANT'
+                        ? 'bg-[var(--bg-card)] text-[var(--accent-text)] border border-[var(--border-active)]'
+                        : 'text-[var(--text-muted)] border border-transparent hover:text-[var(--text-primary)]'}"
+                >
+                    INSTANT · CARD / ACH
+                </button>
+                <button
+                    type="button"
+                    data-testid="buy-tab-vip-wire"
+                    onclick={() => {
+                        buyModalTab = 'VIP_WIRE';
+                        globalFiatGatewayMethod = 'wire';
+                        globalFiatPaymentRail = 'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
+                        if ((parseFloat(globalFiatUsdInput) || 0) < 2500) {
+                            globalFiatUsdInput = '2500';
+                        }
+                    }}
+                    class="py-2 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors {buyModalTab === 'VIP_WIRE' || globalCostPlusPreview.requiresInstitutionalWire
+                        ? 'bg-[var(--bg-card)] text-amber-500 border border-amber-500/45'
+                        : 'text-[var(--text-muted)] border border-transparent hover:text-[var(--text-primary)]'}"
+                >
+                    VIP WIRE · {i18n.formatFiat(2500, { decimals: 0 })}+
+                </button>
+            </div>
             <div
                 class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[var(--border-active)]"
                 style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 65%);"
@@ -1902,6 +2099,24 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         {i18n.t('dex.you_pay')}
                     </label>
+                    {#if buyModalTab === 'INSTANT' && !globalCostPlusPreview.requiresInstitutionalWire}
+                        <div class="flex items-center gap-1 flex-wrap">
+                            {#each ['50', '100', '250', '500'] as presetAmt (presetAmt)}
+                                <button
+                                    type="button"
+                                    data-testid="buy-preset-{presetAmt}"
+                                    onclick={() => {
+                                        globalFiatUsdInput = presetAmt;
+                                    }}
+                                    class="px-2 py-0.5 rounded-lg text-[9px] font-black border cursor-pointer transition-colors {globalFiatUsdInput === presetAmt
+                                        ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                        : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
+                                >
+                                    {i18n.formatFiat(Number(presetAmt), { decimals: 0 })}
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-1.5 flex-1 min-w-0">
@@ -2101,119 +2316,132 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             </div>
             <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-3.5 flex flex-col gap-2.5">
                 <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-card)] p-1 rounded-xl border border-[var(--border-subtle)]"><button type="button" onclick={() => { globalUseColdStorage = false; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!globalUseColdStorage ? 'bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-strong)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">Wallet</button><button type="button" data-testid="global-dest-cold-storage-btn" onclick={() => { globalUseColdStorage = true; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalUseColdStorage ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">Cold Storage</button></div>{#if globalUseColdStorage}<div class="bg-[var(--bg-card)] border border-[var(--border-active)] rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[var(--accent-text)]">Cold Storage Destination Wallet</span><input type="text" bind:value={globalColdAddress} placeholder={selectedGlobalTargetAsset.ticker === 'KAS' || selectedGlobalTargetAsset.ticker === 'SILO' ? 'kaspa:q...' : selectedGlobalTargetAsset.ticker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[var(--text-primary)] outline-none focus:border-[var(--border-active)]" /></div>{/if}
-                <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                        <button
-                            type="button"
-                            data-testid="modal-rail-stripe-btn"
-                            disabled={globalCostPlusPreview.requiresInstitutionalWire}
-                            onclick={() => {
-                                globalFiatGatewayMethod = 'ach';
-                                globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
-                            }}
-                            class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
-                                'ach' &&
-                            !globalCostPlusPreview.requiresInstitutionalWire
-                                ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
-                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
-                        >
-                            Bank
-                        </button>
-                        <button
-                            type="button"
-                            disabled={globalCostPlusPreview.requiresInstitutionalWire}
-                            onclick={() => {
-                                globalFiatGatewayMethod = 'card'; showInlineBankSetup = false;
-                                globalFiatPaymentRail = 'CARD_INSTANT';
-                            }}
-                            class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
-                                'card' &&
-                            !globalCostPlusPreview.requiresInstitutionalWire
-                                ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
-                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
-                        >
-                            Card
-                        </button>
-                        <button
-                            type="button"
-                            data-testid="modal-rail-bridge-wire-btn"
-                            onclick={() => {
-                                globalFiatGatewayMethod = 'wire';
-                                globalFiatPaymentRail =
-                                    'BRIDGE_VIRTUAL_ACCOUNT_WIRE';
-                            }}
-                            class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {globalFiatGatewayMethod ===
-                                'wire' ||
-                            globalCostPlusPreview.requiresInstitutionalWire
-                                ? 'bg-[var(--bg-hover)] text-amber-500 border-amber-500/40'
-                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
-                        >
-                            Wire
-                        </button>
-                    </div>
-                    {#if globalFiatGatewayMethod === 'ach'}{#if savedBankLast4}
+                {#if buyModalTab === 'INSTANT' && !globalCostPlusPreview.requiresInstitutionalWire && globalFiatGatewayMethod !== 'wire'}
+                    <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
+                        <div class="flex items-center gap-1.5 flex-wrap">
                             <button
                                 type="button"
-                                onclick={() =>
-                                    (showInlineBankSetup =
-                                        !showInlineBankSetup)}
+                                data-testid="modal-rail-card-btn"
+                                onclick={() => {
+                                    globalFiatGatewayMethod = 'card';
+                                    showInlineBankSetup = false;
+                                    globalFiatPaymentRail = 'CARD_INSTANT';
+                                }}
+                                class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {globalFiatGatewayMethod === 'card'
+                                    ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                    : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
+                            >
+                                Card / Apple Pay
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="modal-rail-stripe-btn"
+                                onclick={() => {
+                                    globalFiatGatewayMethod = 'ach';
+                                    globalFiatPaymentRail = 'SOVEREIGN_WIRE_ACH';
+                                }}
+                                class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {globalFiatGatewayMethod === 'ach'
+                                    ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                    : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
+                            >
+                                Bank ACH
+                            </button>
+                        </div>
+                        <span
+                            data-testid="buy-clearing-hold-badge"
+                            class="px-2 py-0.5 rounded-md border font-black uppercase text-[8px] {globalFiatGatewayMethod === 'ach'
+                                ? 'bg-[var(--bg-card)] text-amber-500 border-amber-500/45'
+                                : 'bg-[var(--bg-card)] text-[var(--accent-text)] border-[var(--border-active)]'}"
+                        >
+                            {globalFiatGatewayMethod === 'ach' ? 'CLEARING · 5 BIZ DAYS → AVAILABLE' : 'AVAILABLE ON SETTLE'}
+                        </span>
+                    </div>
+                {/if}
+                {#if globalFiatGatewayMethod === 'ach' && buyModalTab === 'INSTANT'}
+                    <div class="flex items-center justify-between px-0.5 text-[9px]">
+                        {#if savedBankLast4}
+                            <button
+                                type="button"
+                                onclick={() => (showInlineBankSetup = !showInlineBankSetup)}
                                 class="font-bold text-[var(--accent-text)] hover:underline uppercase cursor-pointer"
                             >
-                                {showInlineBankSetup
-                                    ? '[Close Bank ✕]'
-                                    : `✓ Bank *${savedBankLast4} [Change]`}
+                                {showInlineBankSetup ? '[Close Bank ✕]' : `✓ Bank *${savedBankLast4} [Change]`}
                             </button>
                         {:else}
                             <button
                                 type="button"
                                 data-testid="global-fiat-link-bank-toggle-btn"
-                                onclick={() =>
-                                    (showInlineBankSetup =
-                                        !showInlineBankSetup)}
+                                onclick={() => (showInlineBankSetup = !showInlineBankSetup)}
                                 class="font-bold text-amber-500 hover:underline uppercase cursor-pointer"
                             >
-                                {showInlineBankSetup
-                                    ? '[Hide Bank ▴]'
-                                    : '[+ Link Bank Account]'}
+                                {showInlineBankSetup ? '[Hide Bank ▴]' : '[+ Link Bank Account]'}
                             </button>
                         {/if}
-                    {/if}
-                </div>
+                    </div>
+                {/if}
                 {#if inlineBankBanner}
                     <div class="p-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-active)] text-[var(--accent-text)] text-[9px] font-bold text-center">
                         {inlineBankBanner}
                     </div>
                 {/if}
-                {#if globalCostPlusPreview.requiresInstitutionalWire || globalFiatGatewayMethod === 'wire' || globalFiatPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'}
+                {#if buyModalTab === 'VIP_WIRE' || globalCostPlusPreview.requiresInstitutionalWire || globalFiatGatewayMethod === 'wire' || globalFiatPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'}
                     <div
+                        data-testid="global-mercury-wire-box"
                         transition:slide={{ duration: 150 }}
                         class="bg-[var(--bg-card)] border border-amber-500/45 rounded-xl p-3 flex flex-col gap-2 text-[9px] font-mono"
                     >
-                        <div class="flex items-center justify-between">
+                        <div class="flex items-center justify-between flex-wrap gap-1.5">
                             <span class="text-amber-500 font-black uppercase">
-                                Wire Instructions
+                                Fedwire Instructions (Mercury)
                             </span>
-                            <span class="text-[var(--accent-text)] font-bold"></span>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[8px]">
-                            <div class="bg-[var(--bg-elevated)] p-2 rounded border border-[var(--border-subtle)]">
-                                <span class="text-[var(--text-muted)] block">ABA ROUTING</span>
-                                <span class="text-[var(--text-primary)] font-black select-all">
-                                    {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
-                                </span>
-                            </div>
-                            <div class="bg-[var(--bg-elevated)] p-2 rounded border border-[var(--border-subtle)]">
-                                <span class="text-[var(--text-muted)] block">ACCOUNT NUMBER</span>
-                                <span class="text-[var(--text-primary)] font-black select-all">
-                                    {MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="flex items-center justify-between text-[8px] text-[var(--text-muted)]">
-                            <span>{MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankName}</span>
-                            <span class="text-amber-500 font-bold select-all">
-                                Memo: {globalWireMemoPreview}
+                            <span class="text-[8px] font-bold uppercase text-[var(--accent-text)]">
+                                Releases on SETTLED
                             </span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[8px]">
+                            <div class="bg-[var(--bg-elevated)] p-2 rounded border border-[var(--border-subtle)] flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <span class="text-[var(--text-muted)] block">ABA ROUTING</span>
+                                    <span class="text-[var(--text-primary)] font-black select-all">
+                                        {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    data-testid="copy-wire-routing-btn"
+                                    onclick={() => copyWireField('routing', MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber)}
+                                    class="px-2 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer shrink-0"
+                                >
+                                    {wireCopySuccess === 'routing' ? '✓' : 'COPY'}
+                                </button>
+                            </div>
+                            <div class="bg-[var(--bg-elevated)] p-2 rounded border border-[var(--border-subtle)] flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <span class="text-[var(--text-muted)] block">ACCOUNT NUMBER</span>
+                                    <span class="text-[var(--text-primary)] font-black select-all">
+                                        {MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber}
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    data-testid="copy-wire-account-btn"
+                                    onclick={() => copyWireField('account', MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber)}
+                                    class="px-2 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer shrink-0"
+                                >
+                                    {wireCopySuccess === 'account' ? '✓' : 'COPY'}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between gap-2 text-[8px] text-[var(--text-muted)] bg-[var(--bg-elevated)] px-2 py-1.5 rounded border border-[var(--border-subtle)]">
+                            <span class="truncate">{MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankName} · {globalWireMemoPreview}</span>
+                            <button
+                                type="button"
+                                data-testid="copy-wire-memo-btn"
+                                onclick={() => copyWireField('memo', globalWireMemoPreview)}
+                                class="px-2 py-0.5 rounded border border-amber-500/45 bg-[var(--bg-card)] text-amber-500 text-[8px] font-black uppercase cursor-pointer shrink-0"
+                            >
+                                {wireCopySuccess === 'memo' ? '✓ MEMO' : 'COPY MEMO'}
+                            </button>
                         </div>
                     </div>
                 {:else if globalFiatGatewayMethod === 'card'}<div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-[var(--text-secondary)]">Credit / Debit Card</span><span class="text-[8px] font-mono text-[var(--text-muted)]">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'modal', onState: (st) => { globalCardError = st.error; } }} class="bg-[var(--bg-input)] border border-[var(--border-subtle)] focus-within:border-[var(--border-active)] rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if globalCardError}<span class="text-[8px] font-mono font-bold text-red-400">{globalCardError}</span>{/if}</div>{:else if globalFiatGatewayMethod === 'ach' && (showInlineBankSetup || !savedBankLast4)}
@@ -2462,6 +2690,189 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+{/if}
+
+{#if showPortableBundlesModal}
+    <div
+        data-testid="portable-bundles-modal"
+        class="fixed inset-0 z-[9997] flex items-center justify-center p-4 bg-[var(--bg-overlay)] font-mono"
+        transition:fade={{ duration: 120 }}
+    >
+        <button
+            type="button"
+            aria-label="Close Backup and Profile Modal"
+            onclick={() => (showPortableBundlesModal = false)}
+            class="fixed inset-0 w-full h-full bg-transparent border-none cursor-default"
+        ></button>
+        <div
+            role="dialog"
+            aria-label="Vault and Profile Portability"
+            class="relative z-10 w-full max-w-[480px] bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-2xl p-4 sm:p-5 flex flex-col gap-3.5 shadow-2xl"
+        >
+            <div class="flex items-center justify-between pb-2.5 border-b border-[var(--border-subtle)]">
+                <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
+                    PORTABLE .JSON BUNDLES
+                </span>
+                <button
+                    type="button"
+                    data-testid="close-portable-bundles-modal-btn"
+                    onclick={() => (showPortableBundlesModal = false)}
+                    class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[10px] font-black text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                    {i18n.t('modal.close')}
+                </button>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-elevated)] p-1 rounded-xl border border-[var(--border-subtle)]">
+                <button
+                    type="button"
+                    data-testid="bundle-tab-vault"
+                    onclick={() => {
+                        bundleActiveTab = 'vault';
+                        bundleErrorMsg = null;
+                        bundleStatusMsg = null;
+                    }}
+                    class="py-1.5 px-2 rounded-lg text-[10px] font-black uppercase cursor-pointer {bundleActiveTab === 'vault'
+                        ? 'bg-[var(--bg-card)] text-[var(--accent-text)] border border-[var(--border-active)]'
+                        : 'text-[var(--text-muted)] border border-transparent hover:text-[var(--text-primary)]'}"
+                >
+                    VAULT (.JSON)
+                </button>
+                <button
+                    type="button"
+                    data-testid="bundle-tab-profile"
+                    onclick={() => {
+                        bundleActiveTab = 'profile';
+                        bundleErrorMsg = null;
+                        bundleStatusMsg = null;
+                    }}
+                    class="py-1.5 px-2 rounded-lg text-[10px] font-black uppercase cursor-pointer {bundleActiveTab === 'profile'
+                        ? 'bg-[var(--bg-card)] text-[var(--accent-text)] border border-[var(--border-active)]'
+                        : 'text-[var(--text-muted)] border border-transparent hover:text-[var(--text-primary)]'}"
+                >
+                    PROFILE &amp; CSV
+                </button>
+            </div>
+            {#if bundleActiveTab === 'vault'}
+                <div class="flex flex-col gap-2.5 text-[10px]">
+                    <p class="text-[var(--text-muted)] leading-relaxed">
+                        AES-256-GCM + PBKDF2 (250k) encrypted browser vault backup (`perennia-vault.v1.json`). Never transmitted to any server.
+                    </p>
+                    <input
+                        type="password"
+                        data-testid="vault-bundle-passphrase-input"
+                        bind:value={vaultBundlePassphrase}
+                        placeholder="Encryption / decryption passphrase (min 8 chars)"
+                        class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[var(--border-active)] rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
+                    />
+                    <button
+                        type="button"
+                        data-testid="export-vault-json-btn"
+                        disabled={isBundleBusy}
+                        onclick={handleExportVaultBundle}
+                        class="tactile-btn w-full py-2.5 rounded-xl border border-[var(--border-active)] text-[var(--accent-text)] text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                    >
+                        {isBundleBusy ? 'Encrypting...' : 'EXPORT perennia-vault.v1.json ↓'}
+                    </button>
+                    <textarea
+                        rows="3"
+                        data-testid="import-vault-json-textarea"
+                        bind:value={vaultImportText}
+                        placeholder="Paste perennia-vault.v1.json or select file below..."
+                        class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-[10px] font-mono text-[var(--text-primary)] outline-none"
+                    ></textarea>
+                    <div class="flex items-center gap-2">
+                        <label class="px-3 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] font-black uppercase text-[var(--text-secondary)] cursor-pointer shrink-0">
+                            LOAD FILE
+                            <input
+                                type="file"
+                                accept=".json,application/json"
+                                class="hidden"
+                                onchange={async (e) => {
+                                    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+                                    if (file) vaultImportText = await file.text();
+                                }}
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            data-testid="import-vault-json-btn"
+                            disabled={isBundleBusy || !vaultImportText.trim()}
+                            onclick={handleImportVaultBundle}
+                            class="tactile-btn flex-1 py-2 rounded-xl border border-[var(--border-strong)] text-[var(--text-primary)] text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                        >
+                            IMPORT VAULT .JSON
+                        </button>
+                    </div>
+                </div>
+            {:else}
+                <div class="flex flex-col gap-2.5 text-[10px]">
+                    <p class="text-[var(--text-muted)] leading-relaxed">
+                        Portable non-secret settings, TOKEN SPLITS, worker aliases, stripped BOT templates &amp; HEFO ledger (`perennia-profile.v1.json`).
+                    </p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            data-testid="export-profile-json-btn"
+                            disabled={isBundleBusy}
+                            onclick={() => handleExportProfileBundle(false)}
+                            class="tactile-btn py-2.5 rounded-xl border border-[var(--border-active)] text-[var(--accent-text)] text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                        >
+                            EXPORT PROFILE .JSON ↓
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="export-hifo-csv-btn"
+                            disabled={isBundleBusy}
+                            onclick={() => handleExportProfileBundle(true)}
+                            class="tactile-btn py-2.5 rounded-xl border border-[var(--border-subtle)] text-[var(--text-primary)] text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                        >
+                            EXPORT LEDGER .CSV ↓
+                        </button>
+                    </div>
+                    <textarea
+                        rows="3"
+                        data-testid="import-profile-json-textarea"
+                        bind:value={profileImportText}
+                        placeholder="Paste perennia-profile.v1.json or select file below..."
+                        class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-[10px] font-mono text-[var(--text-primary)] outline-none"
+                    ></textarea>
+                    <div class="flex items-center gap-2">
+                        <label class="px-3 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] font-black uppercase text-[var(--text-secondary)] cursor-pointer shrink-0">
+                            LOAD FILE
+                            <input
+                                type="file"
+                                accept=".json,application/json"
+                                class="hidden"
+                                onchange={async (e) => {
+                                    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+                                    if (file) profileImportText = await file.text();
+                                }}
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            data-testid="import-profile-json-btn"
+                            disabled={isBundleBusy || !profileImportText.trim()}
+                            onclick={handleImportProfileBundle}
+                            class="tactile-btn flex-1 py-2 rounded-xl border border-[var(--border-strong)] text-[var(--text-primary)] text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                        >
+                            IMPORT PROFILE .JSON
+                        </button>
+                    </div>
+                </div>
+            {/if}
+            {#if bundleErrorMsg}
+                <div class="p-2.5 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/45 text-red-400 text-[9px] font-bold">
+                    ⚠ {bundleErrorMsg}
+                </div>
+            {/if}
+            {#if bundleStatusMsg}
+                <div class="p-2.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-active)] text-[var(--accent-text)] text-[9px] font-bold">
+                    ✓ {bundleStatusMsg}
+                </div>
+            {/if}
         </div>
     </div>
 {/if}

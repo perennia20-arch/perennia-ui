@@ -51,10 +51,6 @@ export async function resolveBucketSpotUsd(ticker: string): Promise<number> {
             return Number(dbRes.rows[0].price_usd);
         }
     } catch {}
-    if (clean === 'SILO') {
-        const kas = await resolveBucketSpotUsd('KAS');
-        if (kas > 0) return Number((kas / 23.809524).toFixed(6));
-    }
     return 0;
 }
 
