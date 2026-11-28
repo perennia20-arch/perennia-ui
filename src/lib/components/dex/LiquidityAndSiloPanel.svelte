@@ -170,14 +170,14 @@
     data-testid="pair-flow-panel"
     class="w-full {mode === 'swap' ? 'max-w-[540px] mx-auto' : ''} flex flex-col gap-3 font-mono"
 >
-    <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+    <div class="bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
         <!-- ASSET PAIR + AMOUNT -->
         <div class="flex items-center justify-between text-[11px] font-bold">
             <select
                 aria-label={baseTicker}
                 data-testid="pair-base-select"
                 bind:value={baseTicker}
-                class="bg-[#11161f] border border-white/15 rounded-xl px-3 py-2 text-xs font-black text-white uppercase outline-none cursor-pointer"
+                class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3 py-2 text-xs font-black text-white uppercase outline-none cursor-pointer"
             >
                 {#each baseChoices as tick}
                     <option value={tick}>{tick}</option>
@@ -188,7 +188,7 @@
                 aria-label={partnerTicker}
                 data-testid="pair-partner-select"
                 bind:value={partnerTicker}
-                class="bg-[#11161f] border border-white/15 rounded-xl px-3 py-2 text-xs font-black text-white uppercase outline-none cursor-pointer"
+                class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3 py-2 text-xs font-black text-white uppercase outline-none cursor-pointer"
             >
                 {#each partnerChoices as tick}
                     <option value={tick}>{tick}</option>
@@ -196,7 +196,7 @@
             </select>
         </div>
 
-        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2">
+        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-2">
             <div class="flex items-center justify-between text-[10px] text-neutral-400 tabular-nums">
                 <span>{baseTicker} {maxBaseDecimal}</span>
                 <span>{partnerTicker} {partnerMaxDecimal}</span>
@@ -208,7 +208,7 @@
                 bind:value={baseAmount}
                 placeholder="0.00"
                 disabled={livePricingUnavailable}
-                class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2.5 text-lg font-black text-white tabular-nums outline-none disabled:opacity-40"
+                class="w-full bg-[var(--bg-card)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2.5 text-lg font-black text-white tabular-nums outline-none disabled:opacity-40"
             />
             <div class="grid grid-cols-4 gap-1.5">
                 {#each ([25, 50, 75, 100] as const) as pct}
@@ -223,7 +223,7 @@
                                 pct
                             );
                         }}
-                        class="py-1.5 rounded-lg bg-[#0a0d12] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        class="py-1.5 rounded-lg bg-[var(--bg-card)] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         {pct === 100 ? 'MAX' : `${pct}%`}
                     </button>
@@ -238,7 +238,7 @@
                     type="button"
                     data-testid="pair-fee-pill-{preset.bps}"
                     onclick={() => (feeRateBps = preset.bps)}
-                    class="py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer {feeRateBps === preset.bps ? 'bg-[#161d29] border-[#18C6A5]/60 text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                    class="py-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer {feeRateBps === preset.bps ? 'bg-[var(--bg-hover)] border-[#18C6A5]/60 text-[#18C6A5]' : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                 >
                     {preset.label}
                 </button>
@@ -251,7 +251,7 @@
                 data-testid="pair-hashrate-slider-row"
                 class="flex items-center gap-1.5 pt-1 border-t border-white/5"
             >
-                <div class="flex items-center bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 shrink-0">
+                <div class="flex items-center bg-[var(--bg-elevated)] border border-white/10 rounded-lg px-2 py-1 shrink-0">
                     <input
                         type="number"
                         value={Number(allocationPct || 0).toFixed(1)}
@@ -274,7 +274,7 @@
                     }}
                     class="pair-slim-range flex-1 min-w-[60px] cursor-pointer disabled:opacity-40"
                 />
-                <div class="flex items-center gap-0.5 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 shrink-0">
+                <div class="flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-white/10 rounded-lg px-2 py-1 shrink-0">
                     <input
                         type="number"
                         value={(displayHashrate * (Number(allocationPct || 0) / 100)).toFixed(2)}
@@ -287,11 +287,11 @@
         {/if}
 
         {#if livePricingUnavailable}
-            <div class="px-3 py-2 rounded-xl bg-[#11161f] border border-amber-500/40 text-[10px] font-bold text-amber-300">
+            <div class="px-3 py-2 rounded-xl bg-[var(--bg-elevated)] border border-amber-500/40 text-[10px] font-bold text-amber-300">
                 {LIVE_PRICING_UNAVAILABLE_MESSAGE}
             </div>
         {:else if errorMessage}
-            <div class="px-3 py-2 rounded-xl bg-red-950/30 border border-red-500/40 text-[10px] font-bold text-red-300">
+            <div class="px-3 py-2 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/40 text-[10px] font-bold text-red-300">
                 {errorMessage}
             </div>
         {/if}
@@ -326,10 +326,10 @@
                 {#if reserve}
                     {@const disp = formatPairReserveDisplay(reserve)}
                     {#if reserve.status === 'QUEUED'}
-                        <div class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
+                        <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
                             <div class="flex items-center gap-2 min-w-0">
                                 <span class="font-black text-white">{reserve.baseTicker} / {reserve.partnerTicker}</span>
-                                <span class="px-1.5 py-0.5 rounded bg-[#11161f] border border-amber-500/40 text-[9px] font-bold text-amber-300 uppercase">QUEUED</span>
+                                <span class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-[9px] font-bold text-amber-300 uppercase">QUEUED</span>
                             </div>
                             <span class="text-neutral-300 tabular-nums text-[11px]">
                                 {disp.heldBaseFormatted} {reserve.baseTicker} / {disp.queuedBaseFormatted} {reserve.baseTicker}
@@ -338,13 +338,13 @@
                                 type="button"
                                 disabled={isWithdrawingId === sec.id}
                                 onclick={() => onCancelOrWithdrawReserve?.(sec, 'cancel')}
-                                class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/15 hover:border-red-400/50 text-[10px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer disabled:opacity-40"
+                                class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/15 hover:border-red-400/50 text-[10px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer disabled:opacity-40"
                             >
                                 CANCEL
                             </button>
                         </div>
                     {:else}
-                        <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-xs">
+                        <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-xs">
                             <div class="flex items-center justify-between gap-2">
                                 <span class="font-black text-white">{reserve.baseTicker} / {reserve.partnerTicker}</span>
                                 <div class="flex items-center gap-2 tabular-nums">
@@ -362,7 +362,7 @@
                                 <button
                                     type="button"
                                     onclick={() => onFundReserve?.(sec)}
-                                    class="flex-1 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase cursor-pointer"
+                                    class="flex-1 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase cursor-pointer"
                                 >
                                     FUND
                                 </button>
@@ -370,7 +370,7 @@
                                     type="button"
                                     disabled={isWithdrawingId === sec.id}
                                     onclick={() => onCancelOrWithdrawReserve?.(sec, 'withdraw')}
-                                    class="flex-1 py-1.5 rounded-lg bg-[#11161f] border border-white/15 text-neutral-300 hover:text-white text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                                    class="flex-1 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-white/15 text-neutral-300 hover:text-white text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
                                 >
                                     WITHDRAW
                                 </button>
@@ -389,7 +389,7 @@
         appearance: none;
         height: 4px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.12);
+        background: var(--border-subtle);
         outline: none;
     }
     input[type='range'].pair-slim-range::-webkit-slider-thumb {
@@ -398,7 +398,7 @@
         width: 12px;
         height: 12px;
         border-radius: 999px;
-        background: #0c1017;
+        background: var(--bg-card);
         border: 2px solid #18c6a5;
         cursor: pointer;
     }

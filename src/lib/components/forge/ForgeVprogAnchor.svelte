@@ -127,15 +127,15 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" in:fade={{ duration: 150 }}>
     <div
-        class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
+        class="lg:col-span-7 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
         style="background-image: radial-gradient(ellipse at top left, rgba(59, 130, 246, 0.14), transparent 65%);"
     >
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-4">
             <div class="flex flex-col">
-                <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-white">
+                <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-[var(--text-primary)]">
                     Mode 04 • vProg &amp; Covenant State Anchor
                 </h2>
-                <span class="text-[10px] text-neutral-400 mt-0.5">
+                <span class="text-[10px] text-[var(--text-muted)] mt-0.5">
                     Anchor verifiable program state-roots (`kaspanet/vprogs`), Proof-of-Lock vesting covenants, and L1 spend rules onto the Kaspa BlockDAG.
                 </span>
             </div>
@@ -153,7 +153,7 @@
             <div class="flex flex-col gap-1.5">
                 <label
                     for="vprogResId"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     vProg Resource / Sovereign Program ID
                 </label>
@@ -163,20 +163,20 @@
                     type="text"
                     bind:value={vprogResourceId}
                     placeholder="perennia-settlement-vprog-v1"
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono font-bold text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
             <div class="flex flex-col gap-1.5">
                 <label
                     for="vprogRule"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     L1 Covenant Spend Condition
                 </label>
                 <select
                     id="vprogRule"
                     bind:value={vprogCovenantRule}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono font-bold text-white outline-none cursor-pointer"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono font-bold text-[var(--text-primary)] outline-none cursor-pointer"
                 >
                     <option value="SOVEREIGN_STATE_TRANSITION">
                         SOVEREIGN_STATE_TRANSITION (State Root Proof)
@@ -197,7 +197,7 @@
         <div class="flex flex-col gap-1.5">
             <label
                 for="vprogProgHash"
-                class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
             >
                 Program / Verifier VK Hash (64-Char Hex)
             </label>
@@ -206,14 +206,14 @@
                 data-testid="vprog-program-hash-input"
                 type="text"
                 bind:value={vprogProgramHash}
-                class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono text-[#18C6A5] outline-none"
+                class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono text-[var(--accent-text)] outline-none"
             />
         </div>
 
         <div class="flex flex-col gap-1.5">
             <label
                 for="vprogStateRoot"
-                class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
             >
                 Initial L1 State Root Commitment (64-Char Hex)
             </label>
@@ -222,7 +222,7 @@
                 data-testid="vprog-state-root-input"
                 type="text"
                 bind:value={vprogStateRootHex}
-                class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono text-blue-400 outline-none"
+                class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-xl px-4 py-3 text-xs font-mono text-blue-400 outline-none"
             />
         </div>
 
@@ -230,7 +230,7 @@
             <div class="sm:col-span-2 flex flex-col gap-1.5">
                 <label
                     for="vprogSubnet"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Subnetwork ID (20-Byte Hex)
                 </label>
@@ -238,13 +238,13 @@
                     id="vprogSubnet"
                     type="text"
                     bind:value={vprogSubnetworkId}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-xl px-3.5 py-2.5 text-[11px] font-mono text-neutral-200 outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-xl px-3.5 py-2.5 text-[11px] font-mono text-[var(--text-secondary)] outline-none"
                 />
             </div>
             <div class="flex flex-col gap-1.5">
                 <label
                     for="vprogLockTimeInput"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Covenant LockTime
                 </label>
@@ -253,7 +253,7 @@
                     type="number"
                     min="0"
                     bind:value={vprogLockTime}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--text-primary)] outline-none"
                 />
             </div>
         </div>
@@ -273,28 +273,28 @@
     </div>
 
     <div
-        class="lg:col-span-5 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-4"
+        class="lg:col-span-5 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-4"
         style="background-image: radial-gradient(ellipse at bottom right, rgba(59, 130, 246, 0.10), transparent 65%);"
     >
-        <span class="text-xs font-black uppercase tracking-widest text-white border-b border-white/10 pb-3">
+        <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)] border-b border-[var(--border-subtle)] pb-3">
             Kaspa TransactionSigningHash Payload Digest
         </span>
-        <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
+        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2">
             <span class="text-[9px] font-bold uppercase tracking-widest text-blue-400">
                 32-Byte Blake2b Payload Hash (`computePayloadHash`)
             </span>
             <span
                 data-testid="vprog-payload-hash-display"
-                class="text-[10px] font-mono text-white break-all select-all bg-[#0a0d12] p-3 rounded-xl border border-white/10"
+                class="text-[10px] font-mono text-[var(--text-primary)] break-all select-all bg-[var(--bg-card)] p-3 rounded-xl border border-[var(--border-subtle)]"
             >
                 {vprogComputedPayloadHash}
             </span>
         </div>
         <div class="flex flex-col gap-1.5">
-            <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
+            <span class="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                 vProg-v1 L1 State-Anchor Envelope JSON
             </span>
-            <pre class="bg-[#11161f] border border-white/10 rounded-2xl p-4 text-[10px] text-blue-400 overflow-x-auto">{JSON.stringify(
+            <pre class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 text-[10px] text-blue-400 overflow-x-auto">{JSON.stringify(
                 JSON.parse(vprogEnvelopePreviewJson),
                 null,
                 2

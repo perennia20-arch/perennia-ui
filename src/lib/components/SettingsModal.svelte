@@ -291,17 +291,17 @@ function close() {
         <button
             type="button"
             aria-label="Close Settings"
-            class="absolute inset-0 w-full h-full bg-[#06080b]/92 border-none cursor-default"
+            class="absolute inset-0 w-full h-full bg-[var(--bg-overlay)] border-none cursor-default"
             onclick={close}
         ></button>
 
         <div
             data-testid="settings-modal-card"
-            class="relative z-10 w-full max-w-[560px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
+            class="relative z-10 w-full max-w-[560px] bg-[var(--bg-card)] border-t sm:border border-white/15 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
         >
-            <div class="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
+            <div class="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[var(--bg-elevated)]">
                 <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-lg bg-[#0a0d12] border border-white/10 flex items-center justify-center text-[#18C6A5]">
+                    <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] border border-white/10 flex items-center justify-center text-[#18C6A5]">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -328,7 +328,7 @@ function close() {
             <div class="p-6 flex flex-col gap-5 max-h-[72vh] overflow-y-auto hide-scrollbar">
                 <div
                     data-testid="settings-vault-auth-section"
-                    class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3"
+                    class="bg-[var(--bg-elevated)] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3"
                 >
                     <div class="flex items-center justify-between gap-2">
                         <span class="text-xs font-mono font-black uppercase tracking-wider text-white">
@@ -364,7 +364,7 @@ function close() {
                             type="button"
                             data-testid="settings-auth-mode-fingerprint"
                             onclick={() => selectSettingsVaultMode('fingerprint')}
-                            class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'fingerprint' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}"
+                            class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'fingerprint' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[var(--bg-card)] text-neutral-300 hover:text-white'}"
                         >
                             Fingerprint
                         </button>
@@ -372,7 +372,7 @@ function close() {
                             type="button"
                             data-testid="settings-auth-mode-both"
                             onclick={() => selectSettingsVaultMode('both')}
-                            class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'both' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}"
+                            class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'both' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[var(--bg-card)] text-neutral-300 hover:text-white'}"
                         >
                             Both
                         </button>
@@ -380,7 +380,7 @@ function close() {
                             type="button"
                             data-testid="settings-auth-mode-password"
                             onclick={() => selectSettingsVaultMode('password')}
-                            class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'password' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-300 hover:text-white'}"
+                            class="py-2.5 px-2 rounded-xl border text-[10px] font-mono font-black uppercase tracking-wider cursor-pointer transition-all {smAuthMode === 'password' ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[var(--bg-card)] text-neutral-300 hover:text-white'}"
                         >
                             Password
                         </button>
@@ -396,7 +396,7 @@ function close() {
                                 bind:value={smEnrollPassword}
                                 onkeydown={(e) => e.key === 'Enter' && confirmSettingsBioEnroll()}
                                 placeholder="Confirm vault password once..."
-                                class="flex-1 bg-[#0a0d12] border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-neutral-500 focus:outline-none focus:border-[#18C6A5]"
+                                class="flex-1 bg-[var(--bg-card)] border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-neutral-500 focus:outline-none focus:border-[#18C6A5]"
                             />
                             <button
                                 type="button"
@@ -429,7 +429,7 @@ function close() {
 
                 <!-- INTERACTIVE PLATFORM GUIDE & TOUR LAUNCHER -->
                 {#if !pwa.isStandalone}
-                    <div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-3.5 flex items-center justify-between gap-3">
+                    <div class="bg-[var(--bg-elevated)] border border-[#18C6A5]/45 rounded-xl p-3.5 flex items-center justify-between gap-3">
                         <div class="flex flex-col">
                             <span class="text-[10px] font-black uppercase tracking-widest text-white">
                                 Standalone App Mode
@@ -454,7 +454,7 @@ function close() {
 
                 <div
                     data-testid="settings-guide-section"
-                    class="bg-[#11161f] border border-[#18C6A5]/40 rounded-xl p-4 flex flex-col gap-3"
+                    class="bg-[var(--bg-elevated)] border border-[#18C6A5]/40 rounded-xl p-4 flex flex-col gap-3"
                     style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
                 >
                     <div class="flex items-start justify-between gap-3">
@@ -530,7 +530,7 @@ function close() {
                                     {i18n.t('settings.language_sub')}
                                 </span>
                             </div>
-                            <span class="px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[9px] font-mono font-black text-[#18C6A5]">
+                            <span class="px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/35 text-[9px] font-mono font-black text-[#18C6A5]">
                                 {settingsStore.locale} • {i18n.activeLocaleSpec.nativeName}
                             </span>
                         </div>
@@ -543,7 +543,7 @@ function close() {
                                     type="button"
                                     data-testid="settings-locale-btn-{loc.code}"
                                     onclick={() => handleSelectLocale(loc.code)}
-                                    class="py-2 px-1.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {settingsStore.locale === loc.code ? 'bg-[#161d29] border-[#18C6A5] text-[#18C6A5] shadow-sm' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                                    class="py-2 px-1.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {settingsStore.locale === loc.code ? 'bg-[var(--bg-hover)] border-[#18C6A5] text-[#18C6A5] shadow-sm' : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                                     title="{loc.label} ({loc.nativeName})"
                                 >
                                     <span class="text-[10px] font-mono font-black uppercase">
@@ -570,7 +570,7 @@ function close() {
                             <div class="flex items-center gap-2 shrink-0">
                                 <span
                                     data-testid="settings-fx-rate-badge"
-                                    class="px-2.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] font-mono font-bold text-white"
+                                    class="px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-white/10 text-[9px] font-mono font-bold text-white"
                                 >
                                     1 USD = {i18n.activeFxRate.toFixed(
                                         settingsStore.currency === 'JPY' ? 2 : 4
@@ -596,7 +596,7 @@ function close() {
                                     type="button"
                                     data-testid="settings-currency-btn-{cur.code}"
                                     onclick={() => handleSelectCurrency(cur.code)}
-                                    class="py-2 px-1.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {settingsStore.currency === cur.code ? 'bg-[#161d29] border-[#18C6A5] text-[#18C6A5] shadow-sm' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                                    class="py-2 px-1.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-0.5 {settingsStore.currency === cur.code ? 'bg-[var(--bg-hover)] border-[#18C6A5] text-[#18C6A5] shadow-sm' : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                                     title="{cur.name} ({cur.symbol})"
                                 >
                                     <span class="text-[10px] font-mono font-black">
@@ -624,14 +624,14 @@ function close() {
                                 {i18n.t('settings.theme_sub')}
                             </span>
                         </div>
-                        <div class="flex bg-[#11161f] p-1 rounded-xl border border-white/10">
+                        <div class="flex bg-[var(--bg-elevated)] p-1 rounded-xl border border-white/10">
                             <button
                                 type="button"
                                 onclick={() => {
                                     settingsStore.theme = 'dark';
                                     settingsStore.save();
                                 }}
-                                class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer {settingsStore.theme === 'dark' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40 shadow-sm' : 'text-neutral-500 hover:text-white'}"
+                                class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer {settingsStore.theme === 'dark' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40 shadow-sm' : 'text-neutral-500 hover:text-white'}"
                             >
                                 {i18n.t('settings.dark')}
                             </button>
@@ -641,7 +641,7 @@ function close() {
                                     settingsStore.theme = 'light';
                                     settingsStore.save();
                                 }}
-                                class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer {settingsStore.theme === 'light' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40 shadow-sm' : 'text-neutral-500 hover:text-white'}"
+                                class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer {settingsStore.theme === 'light' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40 shadow-sm' : 'text-neutral-500 hover:text-white'}"
                             >
                                 {i18n.t('settings.light')}
                             </button>
@@ -656,7 +656,7 @@ function close() {
                                 </span>
                                 <span class="text-[9px] text-neutral-500">
                                     {settingsStore.theme === 'dark'
-                                        ? '0% = Obsidian Slate (#06080B) • 100% = Deep Charcoal'
+                                        ? '0% = Obsidian Slate • 100% = Deep Charcoal'
                                         : '0% = Soft Eggshell (#F6F3E9) • 100% = Rich Vanilla (#EAE4D3)'}
                                 </span>
                             </div>
@@ -691,7 +691,8 @@ function close() {
                             type="range"
                             min="0"
                             max="8"
-                            bind:value={settingsStore.fiatDecimals}
+                            value={settingsStore.fiatDecimals}
+                            oninput={(e) => settingsStore.setFiatDecimals(Number(e.currentTarget.value))}
                             class="custom-slider w-full"
                         />
                     </div>
@@ -708,7 +709,8 @@ function close() {
                             type="range"
                             min="0"
                             max="18"
-                            bind:value={settingsStore.tokenDecimals}
+                            value={settingsStore.tokenDecimals}
+                            oninput={(e) => settingsStore.setTokenDecimals(Number(e.currentTarget.value))}
                             class="custom-slider w-full"
                         />
                     </div>
@@ -717,7 +719,7 @@ function close() {
                 <div class="h-px w-full bg-white/10"></div>
 
                 <!-- ENCRYPTED VAULT BACKUP (.JSON) -->
-                <div class="bg-[#11161f] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
+                <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
                     <div class="flex flex-col gap-1">
                         <span class="text-[10px] font-bold text-[#18C6A5] uppercase tracking-widest">
                             {i18n.t('settings.backup_title')}
@@ -728,7 +730,7 @@ function close() {
                     </div>
                     {#if backupStatus}
                         <div
-                            class="p-2.5 rounded-lg border text-[9px] font-mono uppercase tracking-wider {backupStatus.type === 'success' ? 'bg-[#18C6A5]/10 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/30 border-red-500/40 text-red-400'}"
+                            class="p-2.5 rounded-lg border text-[9px] font-mono uppercase tracking-wider {backupStatus.type === 'success' ? 'bg-[#18C6A5]/10 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[var(--bg-danger-subtle)] border-red-500/40 text-red-400'}"
                         >
                             {backupStatus.message}
                         </div>
@@ -753,7 +755,7 @@ function close() {
                 </div>
             </div>
 
-            <div class="p-4 bg-[#11161f] border-t border-white/10 flex justify-between items-center">
+            <div class="p-4 bg-[var(--bg-elevated)] border-t border-white/10 flex justify-between items-center">
                 <button
                     type="button"
                     onclick={resetDefaults}
@@ -777,11 +779,11 @@ function close() {
     .custom-slider {
         -webkit-appearance: none;
         appearance: none;
-        background: #11161f;
+        background: var(--bg-elevated);
         height: 6px;
         border-radius: 3px;
         outline: none;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--border-subtle);
     }
     .custom-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
@@ -789,7 +791,7 @@ function close() {
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        background: #11161f;
+        background: var(--bg-elevated);
         cursor: pointer;
         border: 2px solid #18c6a5;
         box-shadow: 0 0 10px rgba(24, 198, 165, 0.4);

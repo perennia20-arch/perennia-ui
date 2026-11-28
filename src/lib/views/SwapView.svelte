@@ -6,6 +6,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import {
         treasury,
         DEFAULT_ECOSYSTEM_TICKER,
@@ -307,13 +308,7 @@
     });
 
     function formatSpotPriceDisplay(price: number): string {
-        if (!Number.isFinite(price) || price <= 0) return '$0.00';
-        if (price < 0.01) return `$${price.toFixed(6)}`;
-        if (price < 1) return `$${price.toFixed(4)}`;
-        return `$${price.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        })}`;
+        return i18n.formatSpotPrice(price);
     }
 
     function formatOracleRate(rate: number): string {
@@ -1355,7 +1350,7 @@
     <!-- TOP CENTERED SEARCH BAR & SUB-NAVIGATION -->
     <div class="w-full max-w-[540px] flex flex-col gap-3 mb-5">
         <div
-            class="w-full bg-[#0a0d12] border border-white/10 hover:border-white/20 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-xl transition-colors"
+            class="w-full bg-[var(--bg-card)] border border-white/10 hover:border-white/20 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-xl transition-colors"
         >
             <div class="flex items-center gap-3 flex-1 min-w-0">
                 <svg
@@ -1390,7 +1385,7 @@
             <button
                 type="button"
                 onclick={() => openTokenModal('receive')}
-                class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-[10px] font-mono font-black text-[#18C6A5] tracking-wider uppercase shrink-0 cursor-pointer hover:border-[#18C6A5]/45 transition-colors"
+                class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/10 text-[10px] font-mono font-black text-[#18C6A5] tracking-wider uppercase shrink-0 cursor-pointer hover:border-[#18C6A5]/45 transition-colors"
             >
                 {payToken.ticker}/{receiveToken.ticker}
             </button>
@@ -1400,7 +1395,7 @@
         
 
         <div
-            class="w-full bg-[#0a0d12] border border-white/10 rounded-2xl px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-2 overflow-x-auto hide-scrollbar shadow-xl"
+            class="w-full bg-[var(--bg-card)] border border-white/10 rounded-2xl px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-2 overflow-x-auto hide-scrollbar shadow-xl"
             style="background-image: radial-gradient(ellipse at top right, {ambientSecondaryHex}14, transparent 70%);"
         >
             <div class="flex items-center gap-3.5 sm:gap-6 shrink-0">
@@ -1454,14 +1449,14 @@
 							Buy / Sell
 						</button>
             </div>
-            <button type="button" data-testid="dex-settings-btn" onclick={() => (showDexProvidersModal = true)} class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-mono font-bold text-neutral-300 hover:text-white flex items-center gap-1.5 cursor-pointer"><span>&#9881;</span><span>{slippagePct === 0.5 ? 'Auto' : `${slippagePct.toFixed(1)}%`}</span></button>
+            <button type="button" data-testid="dex-settings-btn" onclick={() => (showDexProvidersModal = true)} class="px-2.5 py-1 rounded-xl bg-[var(--bg-elevated)] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-mono font-bold text-neutral-300 hover:text-white flex items-center gap-1.5 cursor-pointer"><span>&#9881;</span><span>{slippagePct === 0.5 ? 'Auto' : `${slippagePct.toFixed(1)}%`}</span></button>
         </div>
     </div>
 
     {#if swapSuccessBanner}
         <div
             data-testid="swap-success-banner"
-            class="w-full {activeDexTab === 'swap' ? 'max-w-[540px]' : 'max-w-[1180px]'} mb-4 bg-[#11161f] border border-[#18C6A5]/50 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-[#18C6A5]"
+            class="w-full {activeDexTab === 'swap' ? 'max-w-[540px]' : 'max-w-[1180px]'} mb-4 bg-[var(--bg-elevated)] border border-[#18C6A5]/50 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-[#18C6A5]"
         >
             <span>✓ {swapSuccessBanner}</span>
             <div class="flex items-center gap-2">
@@ -1495,13 +1490,13 @@
     {#if activeDexTab === 'swap'}
         <!-- CENTERED AMBIENT-GLOW SWAP STATION CARD -->
         <div
-            class="w-full max-w-[540px] bg-[#0a0d12] border border-white/10 rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3 relative overflow-hidden {tileSweepActive ? 'shimmer-flash' : ''}"
+            class="w-full max-w-[540px] bg-[var(--bg-card)] border border-white/10 rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3 relative overflow-hidden {tileSweepActive ? 'shimmer-flash' : ''}"
             style="
                 background-image:
                     radial-gradient(ellipse at top left, {ambientPrimaryHex}18, transparent 60%),
                     radial-gradient(ellipse at bottom right, {ambientSecondaryHex}1c, transparent 65%);
                 box-shadow:
-                    0 20px 60px -15px rgba(0, 0, 0, 0.85),
+                    0 20px 60px -15px rgba(0, 0, 0, 0.28),
                     0 0 40px -15px {ambientPrimaryHex}22,
                     0 0 40px -15px {ambientSecondaryHex}22;
             "
@@ -1510,14 +1505,14 @@
             {#if livePricingUnavailable}
                 <div
                     data-testid="swap-live-pricing-unavailable"
-                    class="bg-[#11161f] border border-amber-500/45 rounded-xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-amber-300"
+                    class="bg-[var(--bg-elevated)] border border-amber-500/45 rounded-xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-amber-300"
                 >
                     ⚠ {LIVE_PRICING_UNAVAILABLE_MESSAGE}
                 </div>
             {:else if swapError}
                 <div
                     data-testid="swap-error-banner"
-                    class="bg-red-950/30 border border-red-500/45 rounded-xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-red-400"
+                    class="bg-[var(--bg-danger-subtle)] border border-red-500/45 rounded-xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-red-400"
                 >
                     ⚠ {swapError}
                 </div>
@@ -1525,7 +1520,7 @@
 
             <!-- YOU PAY BOX -->
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-colors"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-colors"
                 style="border-color: {ambientPrimaryHex}38;"
             >
                 <div class="flex items-center justify-between">
@@ -1561,7 +1556,7 @@
                         type="button"
                         data-testid="dex-pay-token-selector"
                         onclick={() => openTokenModal('pay')}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] cursor-pointer"
                         style="border-color: {ambientPrimaryHex}45;"
                     >
                         <div
@@ -1608,10 +1603,7 @@
                     class="flex items-center justify-between text-[10px] font-mono text-neutral-500 pt-0.5"
                 >
                     <span>
-                        ≈ ${swapQuote.grossUsd.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        })}
+                        ≈ {i18n.formatFiat(swapQuote.grossUsd)}
                     </span>
                     <span>
                         Balance: {payToken.availableBalance.toLocaleString(
@@ -1632,7 +1624,7 @@
                     type="button"
                     data-testid="swap-flip-assets-btn"
                     onclick={flipSwapTokens}
-                    class="tactile-btn w-10 h-10 rounded-xl bg-[#0a0d12] border border-white/15 hover:border-amber-500/50 text-amber-400 hover:text-[#18C6A5] flex items-center justify-center cursor-pointer shadow-xl transition-all"
+                    class="tactile-btn w-10 h-10 rounded-xl bg-[var(--bg-card)] border border-white/15 hover:border-amber-500/50 text-amber-400 hover:text-[#18C6A5] flex items-center justify-center cursor-pointer shadow-xl transition-all"
                     title="Flip Pay & Receive Assets"
                 >
                     ⇅
@@ -1641,7 +1633,7 @@
 
             <!-- YOU RECEIVE (EST.) BOX -->
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-colors"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-colors"
                 style="border-color: {ambientSecondaryHex}45;"
             >
                 <div class="flex items-center justify-between">
@@ -1688,7 +1680,7 @@
                         type="button"
                         data-testid="dex-receive-token-selector"
                         onclick={() => openTokenModal('receive')}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] cursor-pointer"
                         style="border-color: {ambientSecondaryHex}50;"
                     >
                         <div
@@ -1735,10 +1727,7 @@
                     class="flex items-center justify-between text-[10px] font-mono text-neutral-500 pt-0.5"
                 >
                     <span>
-                        ≈ ${swapQuote.netUsd.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        })}
+                        ≈ {i18n.formatFiat(swapQuote.netUsd)}
                     </span>
                     <span>
                         Balance: {receiveToken.availableBalance.toLocaleString(
@@ -1754,10 +1743,10 @@
             </div>
 
             {#if parseFloat(payAmount) > 0}
-<div class="bg-[#11161f]/85 border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-col gap-2 text-xs font-mono mt-1">
+<div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl px-3.5 py-2.5 flex flex-col gap-2 text-xs font-mono mt-1">
   <button type="button" data-testid="dex-quote-summary-toggle" onclick={() => (showSwapQuoteDetails = !showSwapQuoteDetails)} class="w-full flex items-center justify-between gap-2 text-left cursor-pointer">
     <span data-testid="dex-oracle-rate-readout" class="text-neutral-300 font-semibold tabular-nums truncate">1 {payToken.ticker} = {formatOracleRate(swapQuote.exchangeRate)} {receiveToken.ticker}</span>
-    <span class="text-neutral-300 font-bold shrink-0 flex items-center gap-1.5">Fee <span data-testid="dex-active-fee-pct" class="text-[#18C6A5]">{(activeFeeRateDecimal * 100).toFixed(2)}%</span> (${swapQuote.feeUsd.toFixed(2)}) <span class="text-[10px] text-neutral-500">{showSwapQuoteDetails ? '▴' : '▾'}</span></span>
+    <span class="text-neutral-300 font-bold shrink-0 flex items-center gap-1.5">Fee <span data-testid="dex-active-fee-pct" class="text-[#18C6A5]">{(activeFeeRateDecimal * 100).toFixed(2)}%</span> ({i18n.formatFiat(swapQuote.feeUsd)}) <span class="text-[10px] text-neutral-500">{showSwapQuoteDetails ? '▴' : '▾'}</span></span>
   </button>
   {#if showSwapQuoteDetails}
   <div class="pt-2 border-t border-white/10 flex flex-col gap-1.5 text-[11px] text-neutral-400">
@@ -1774,7 +1763,7 @@
             <div class="relative mt-1">
                 {#if ui.microBadges['dex_swap_btn']}
                     <div
-                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase"
+                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase"
                     >
                         {ui.microBadges['dex_swap_btn'].label}
                     </div>
@@ -1870,7 +1859,7 @@
 <!-- UNIVERSAL ASSET SELECTION DRAWER MODAL -->
 {#if isTokenModalOpen}
     <div
-        class="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono"
+        class="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[var(--bg-overlay)] font-mono"
         transition:fade={{ duration: 150 }}
     >
         <button
@@ -1881,11 +1870,11 @@
         ></button>
 
         <div
-            class="relative z-10 w-full max-w-[490px] bg-[#0a0d12] border-t sm:border border-white/15 rounded-t-[28px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden h-[82dvh] sm:h-[580px] pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
+            class="relative z-10 w-full max-w-[490px] bg-[var(--bg-card)] border-t sm:border border-white/15 rounded-t-[28px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden h-[82dvh] sm:h-[580px] pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
             transition:slide={{ duration: 180 }}
         >
             <div
-                class="p-4 border-b border-white/10 flex items-center justify-between bg-[#11161f]"
+                class="p-4 border-b border-white/10 flex items-center justify-between bg-[var(--bg-elevated)]"
             >
                 <button
                     type="button"
@@ -1906,7 +1895,7 @@
             </div>
 
             <div
-                class="p-3 border-b border-white/10 bg-[#0a0d12] flex flex-col gap-2.5"
+                class="p-3 border-b border-white/10 bg-[var(--bg-card)] flex flex-col gap-2.5"
             >
                 <input
                     type="text"
@@ -1917,7 +1906,7 @@
                             (e.currentTarget as HTMLInputElement).value
                         )}
                     placeholder="Search any ticker or paste 0x / SPL / KRC-20 contract..."
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-2.5 text-xs font-mono text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-2.5 text-xs font-mono text-white outline-none"
                 />
                 {#if isDiscoveringCustomToken}
                     <span class="text-[9px] font-mono text-[#18C6A5] animate-pulse px-1">
@@ -1941,8 +1930,8 @@
                             onclick={() => (tokenModalCategory = cat.id as any)}
                             class="py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase cursor-pointer transition-colors {tokenModalCategory ===
                             cat.id
-                                ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40'
-                                : 'bg-[#11161f] text-neutral-400 hover:text-white border border-transparent'}"
+                                ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40'
+                                : 'bg-[var(--bg-elevated)] text-neutral-400 hover:text-white border border-transparent'}"
                         >
                             {cat.label}
                         </button>
@@ -1950,7 +1939,7 @@
                 </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-2 bg-[#0a0d12] hide-scrollbar">
+            <div class="flex-1 overflow-y-auto p-2 bg-[var(--bg-card)] hide-scrollbar">
                 <div class="flex flex-col gap-1">
                     {#each filteredModalAssets as asset (asset.ticker)}
                         {@const liveSpot = resolveLiveSpotUsd(asset.ticker)}
@@ -1958,11 +1947,11 @@
                             type="button"
                             data-testid="dex-select-token-{asset.ticker}"
                             onclick={() => handleSelectTokenFromModal(asset)}
-                            class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#11161f] transition-colors cursor-pointer border border-transparent hover:border-white/10 text-left"
+                            class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer border border-transparent hover:border-white/10 text-left"
                         >
                             <div class="flex items-center gap-3">
                                 <div
-                                    class="w-8 h-8 rounded-full bg-[#11161f] border border-white/10 flex items-center justify-center text-xs font-black overflow-hidden shrink-0"
+                                    class="w-8 h-8 rounded-full bg-[var(--bg-elevated)] border border-white/10 flex items-center justify-center text-xs font-black overflow-hidden shrink-0"
                                     style="color: {asset.theme?.hex || '#18C6A5'};"
                                 >
                                     {#if asset.imgUrl}
@@ -2006,7 +1995,7 @@
                                     {formatSpotPriceDisplay(liveSpot)}
                                 </span>
                                 <span
-                                    class="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-neutral-400 mt-0.5"
+                                    class="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-white/10 text-neutral-400 mt-0.5"
                                 >
                                     {asset.assetClass}
                                 </span>
@@ -2019,11 +2008,11 @@
     </div>
 {/if}
 {#if showDexProvidersModal}
-<div data-testid="dex-slippage-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[#06080b]/92 font-mono">
-  <div class="w-full max-w-[340px] bg-[#0a0d12] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
+<div data-testid="dex-slippage-modal" class="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-[var(--bg-overlay)] font-mono">
+  <div class="w-full max-w-[340px] bg-[var(--bg-card)] border border-white/15 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
     <div class="flex items-center justify-between"><h3 class="text-sm font-black uppercase tracking-wider text-white">Slippage</h3><button type="button" data-testid="close-dex-slippage-btn" onclick={() => (showDexProvidersModal = false)} class="text-neutral-400 hover:text-white px-2 py-1 text-sm cursor-pointer">&#x2715;</button></div>
-    <div class="grid grid-cols-3 gap-2">{#each [[0.5, 'Auto'], [0.1, '0.1%'], [1.0, '1.0%']] as [sVal, sLabel]}<button type="button" data-testid="slippage-pill-{sVal}" onclick={() => { slippagePct = Number(sVal); showDexProvidersModal = false; }} class="py-2.5 rounded-xl border text-xs font-black cursor-pointer {slippagePct === Number(sVal) ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-300 hover:text-white'}">{sLabel}</button>{/each}</div>
-    <div class="flex items-center justify-between gap-2 bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5"><span class="text-xs text-neutral-400 font-bold">Custom</span><div class="flex items-center gap-1"><input type="number" step="0.1" min="0.05" max="25" bind:value={slippagePct} class="w-16 bg-transparent text-right text-sm font-black text-white focus:outline-none" /><span class="text-xs text-neutral-400 font-bold">%</span></div></div>
+    <div class="grid grid-cols-3 gap-2">{#each [[0.5, 'Auto'], [0.1, '0.1%'], [1.0, '1.0%']] as [sVal, sLabel]}<button type="button" data-testid="slippage-pill-{sVal}" onclick={() => { slippagePct = Number(sVal); showDexProvidersModal = false; }} class="py-2.5 rounded-xl border text-xs font-black cursor-pointer {slippagePct === Number(sVal) ? 'bg-[#18C6A5]/20 border-[#18C6A5] text-[#18C6A5]' : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-300 hover:text-white'}">{sLabel}</button>{/each}</div>
+    <div class="flex items-center justify-between gap-2 bg-[var(--bg-elevated)] border border-white/10 rounded-xl px-3.5 py-2.5"><span class="text-xs text-neutral-400 font-bold">Custom</span><div class="flex items-center gap-1"><input type="number" step="0.1" min="0.05" max="25" bind:value={slippagePct} class="w-16 bg-transparent text-right text-sm font-black text-white focus:outline-none" /><span class="text-xs text-neutral-400 font-bold">%</span></div></div>
   </div>
 </div>
 {/if}

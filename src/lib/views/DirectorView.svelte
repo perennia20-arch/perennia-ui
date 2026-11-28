@@ -5,6 +5,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
 
     type DirectorZone =
         | 'ZONE_1_TRIAGE'
@@ -344,53 +345,53 @@
 
 <div
     data-testid="director-command-center"
-    class="w-full max-w-[1720px] mx-auto px-3 sm:px-5 lg:px-8 py-4 flex flex-col gap-5 font-mono text-white"
+    class="w-full max-w-[1720px] mx-auto px-3 sm:px-5 lg:px-8 py-4 flex flex-col gap-5 font-mono text-[var(--text-primary)]"
     in:fade={{ duration: 150 }}
 >
     <!-- Top Executive Status Bar -->
     <div
-        class="bg-[#0a0d12] border border-amber-500/40 rounded-2xl p-4 md:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+        class="bg-[var(--bg-card)] border border-amber-500/40 rounded-2xl p-4 md:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
         style="background-image: radial-gradient(ellipse at top left, rgba(245, 158, 11, 0.12), transparent 60%);"
     >
         <div class="flex flex-col gap-1">
             <div class="flex items-center gap-2.5 flex-wrap">
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-                <h1 class="text-sm md:text-base font-black uppercase tracking-widest text-white">
+                <h1 class="text-sm md:text-base font-black uppercase tracking-widest text-[var(--text-primary)]">
                     Director Command Center — 5-Zone Sovereign Control Plane
                 </h1>
-                <span class="px-2 py-0.5 rounded bg-[#11161f] border border-amber-500/45 text-amber-400 text-[9px] font-black uppercase">
+                <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/45 text-amber-400 text-[9px] font-black uppercase">
                     Perennia, LLC • EIN 41-5328735
                 </span>
             </div>
-            <p class="text-[10px] text-neutral-400">
+            <p class="text-[10px] text-[var(--text-muted)]">
                 Master Treasury:
-                <span class="text-[#18C6A5] font-bold select-all">
+                <span class="text-[var(--accent-text)] font-bold select-all">
                     {adminData.adminWallet || identity.activeAddress}
                 </span>
                 • Stratum Coinbase:
-                <span class="text-neutral-300 select-all">
+                <span class="text-[var(--text-secondary)] select-all">
                     {adminData.stratumMiningAddress || 'Local Node Default'}
                 </span>
             </p>
         </div>
 
         <div class="flex items-center gap-2 flex-wrap">
-            <div class="px-3 py-1.5 rounded-xl bg-[#11161f] border border-white/10 flex flex-col">
-                <span class="text-[7px] text-neutral-500 uppercase">Netting &amp; SOR Profit</span>
-                <span class="text-xs font-black text-[#18C6A5]">
-                    ${Number(adminData.nettingProfitUsd || 0).toFixed(2)} USD
+            <div class="px-3 py-1.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] flex flex-col">
+                <span class="text-[7px] text-[var(--text-muted)] uppercase">Netting &amp; SOR Profit</span>
+                <span class="text-xs font-black text-[var(--accent-text)]">
+                    {i18n.formatFiat(Number(adminData.nettingProfitUsd || 0), { includeCode: true })}
                 </span>
             </div>
-            <div class="px-3 py-1.5 rounded-xl bg-[#11161f] border border-white/10 flex flex-col">
-                <span class="text-[7px] text-neutral-500 uppercase">60% LP Compound Vault</span>
-                <span class="text-xs font-black text-[#18C6A5]">
-                    ${Number(adminData.treasurySplit6040?.perenniaLpCompound60Usd || 0).toFixed(2)}
+            <div class="px-3 py-1.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] flex flex-col">
+                <span class="text-[7px] text-[var(--text-muted)] uppercase">60% LP Compound Vault</span>
+                <span class="text-xs font-black text-[var(--accent-text)]">
+                    {i18n.formatFiat(Number(adminData.treasurySplit6040?.perenniaLpCompound60Usd || 0))}
                 </span>
             </div>
-            <div class="px-3 py-1.5 rounded-xl bg-[#11161f] border border-white/10 flex flex-col">
-                <span class="text-[7px] text-neutral-500 uppercase">40% Liquid ACH Reserve</span>
+            <div class="px-3 py-1.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] flex flex-col">
+                <span class="text-[7px] text-[var(--text-muted)] uppercase">40% Liquid ACH Reserve</span>
                 <span class="text-xs font-black text-amber-400">
-                    ${Number(adminData.treasurySplit6040?.liquidClearingReserve40Usd || 0).toFixed(2)}
+                    {i18n.formatFiat(Number(adminData.treasurySplit6040?.liquidClearingReserve40Usd || 0))}
                 </span>
             </div>
             <button
@@ -398,7 +399,7 @@
                 data-testid="director-refresh-btn"
                 onclick={loadDirectorDashboard}
                 disabled={isLoading}
-                class="tactile-btn px-3.5 py-2 rounded-xl bg-[#11161f] border border-white/15 hover:border-[#18C6A5]/50 text-[10px] font-black uppercase text-white cursor-pointer"
+                class="tactile-btn px-3.5 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[10px] font-black uppercase text-[var(--text-primary)] cursor-pointer"
             >
                 {isLoading ? 'Syncing...' : 'Refresh Telemetry ↻'}
             </button>
@@ -410,10 +411,10 @@
             transition:slide={{ duration: 150 }}
             class="p-3 rounded-xl border text-xs font-bold flex items-center justify-between {statusBanner.tone ===
             'emerald'
-                ? 'bg-[#0a1815] border-[#18C6A5]/50 text-[#18C6A5]'
+                ? 'bg-[var(--bg-teal-subtle)] border-[#18C6A5]/50 text-[var(--accent-text)]'
                 : statusBanner.tone === 'amber'
-                  ? 'bg-amber-950/30 border-amber-500/50 text-amber-300'
-                  : 'bg-red-950/30 border-red-500/50 text-red-400'}"
+                  ? 'bg-[var(--bg-warn-subtle)] border-amber-500/50 text-amber-500'
+                  : 'bg-[var(--bg-danger-subtle)] border-red-500/50 text-red-500'}"
         >
             <span>{statusBanner.text}</span>
             <button
@@ -427,18 +428,18 @@
     {/if}
 
     <!-- 5-Zone Navigation Tabs -->
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-2 bg-[#0a0d12] p-1.5 rounded-2xl border border-white/10">
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-2 bg-[var(--bg-card)] p-1.5 rounded-2xl border border-[var(--border-subtle)]">
         <button
             type="button"
             data-testid="director-zone-1-tab"
             onclick={() => (activeZone = 'ZONE_1_TRIAGE')}
             class="py-3 px-3 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 {activeZone ===
             'ZONE_1_TRIAGE'
-                ? 'bg-[#161d29] border-amber-500/50 text-amber-400'
-                : 'bg-[#11161f]/60 border-transparent text-neutral-400 hover:text-white'}"
+                ? 'bg-[var(--bg-hover)] border-amber-500/50 text-amber-400'
+                : 'bg-[var(--bg-elevated)] border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
         >
             <div class="flex flex-col">
-                <span class="text-[8px] text-neutral-500 uppercase font-bold">Zone 01</span>
+                <span class="text-[8px] text-[var(--text-muted)] uppercase font-bold">Zone 01</span>
                 <span class="text-[10px] font-black uppercase">Triage &amp; Exceptions</span>
             </div>
             {#if Number(adminData.triageExceptions?.totalExceptions || 0) > 0}
@@ -446,7 +447,7 @@
                     {adminData.triageExceptions.totalExceptions}
                 </span>
             {:else}
-                <span class="px-2 py-0.5 rounded-full bg-[#18C6A5]/15 border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-bold">
+                <span class="px-2 py-0.5 rounded-full bg-[#18C6A5]/15 border border-[#18C6A5]/40 text-[var(--accent-text)] text-[8px] font-bold">
                     CLEAR
                 </span>
             {/if}
@@ -458,14 +459,14 @@
             onclick={() => (activeZone = 'ZONE_2_STEERING')}
             class="py-3 px-3 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 {activeZone ===
             'ZONE_2_STEERING'
-                ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]'
-                : 'bg-[#11161f]/60 border-transparent text-neutral-400 hover:text-white'}"
+                ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50 text-[var(--accent-text)]'
+                : 'bg-[var(--bg-elevated)] border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
         >
             <div class="flex flex-col">
-                <span class="text-[8px] text-neutral-500 uppercase font-bold">Zone 02</span>
+                <span class="text-[8px] text-[var(--text-muted)] uppercase font-bold">Zone 02</span>
                 <span class="text-[10px] font-black uppercase">Token Steering Matrix</span>
             </div>
-            <span class="text-[9px] font-bold text-neutral-400">
+            <span class="text-[9px] font-bold text-[var(--text-muted)]">
                 {adminData.tokenSteeringMatrix?.length || 7} Assets
             </span>
         </button>
@@ -476,14 +477,14 @@
             onclick={() => (activeZone = 'ZONE_3_FIAT_DESK')}
             class="py-3 px-3 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 {activeZone ===
             'ZONE_3_FIAT_DESK'
-                ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]'
-                : 'bg-[#11161f]/60 border-transparent text-neutral-400 hover:text-white'}"
+                ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50 text-[var(--accent-text)]'
+                : 'bg-[var(--bg-elevated)] border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
         >
             <div class="flex flex-col">
-                <span class="text-[8px] text-neutral-500 uppercase font-bold">Zone 03</span>
+                <span class="text-[8px] text-[var(--text-muted)] uppercase font-bold">Zone 03</span>
                 <span class="text-[10px] font-black uppercase">Fiat Settlement Desk</span>
             </div>
-            <span class="text-[9px] font-bold text-[#18C6A5]">*OTC</span>
+            <span class="text-[9px] font-bold text-[var(--accent-text)]">*OTC</span>
         </button>
 
         <button
@@ -492,14 +493,14 @@
             onclick={() => (activeZone = 'ZONE_4_GOVERNOR')}
             class="py-3 px-3 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 {activeZone ===
             'ZONE_4_GOVERNOR'
-                ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]'
-                : 'bg-[#11161f]/60 border-transparent text-neutral-400 hover:text-white'}"
+                ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50 text-[var(--accent-text)]'
+                : 'bg-[var(--bg-elevated)] border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
         >
             <div class="flex flex-col">
-                <span class="text-[8px] text-neutral-500 uppercase font-bold">Zone 04</span>
+                <span class="text-[8px] text-[var(--text-muted)] uppercase font-bold">Zone 04</span>
                 <span class="text-[10px] font-black uppercase">Stratum &amp; Governor</span>
             </div>
-            <span class="text-[9px] font-bold text-neutral-300">
+            <span class="text-[9px] font-bold text-[var(--text-secondary)]">
                 {adminData.stratumAndGovernor?.maintenanceGraceShield ? '🛡️ SHIELD' : 'ARMED'}
             </span>
         </button>
@@ -510,14 +511,14 @@
             onclick={() => (activeZone = 'ZONE_5_FIREWALL')}
             class="py-3 px-3 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 {activeZone ===
             'ZONE_5_FIREWALL'
-                ? 'bg-[#161d29] border-red-500/50 text-red-400'
-                : 'bg-[#11161f]/60 border-transparent text-neutral-400 hover:text-white'}"
+                ? 'bg-[var(--bg-hover)] border-red-500/50 text-red-400'
+                : 'bg-[var(--bg-elevated)] border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
         >
             <div class="flex flex-col">
-                <span class="text-[8px] text-neutral-500 uppercase font-bold">Zone 05</span>
+                <span class="text-[8px] text-[var(--text-muted)] uppercase font-bold">Zone 05</span>
                 <span class="text-[10px] font-black uppercase">Firewall &amp; DB Matrix</span>
             </div>
-            <span class="text-[9px] font-bold text-neutral-400">
+            <span class="text-[9px] font-bold text-[var(--text-muted)]">
                 {adminData.securityBlacklist?.length || 0} Blocks
             </span>
         </button>
@@ -532,32 +533,32 @@
             class="grid grid-cols-1 lg:grid-cols-3 gap-4"
         >
             <!-- 1. $100,000+ Institutional Wires Awaiting Release -->
-            <div class="bg-[#0a0d12] border border-amber-500/35 rounded-2xl p-4 flex flex-col gap-3">
-                <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
+            <div class="bg-[var(--bg-card)] border border-amber-500/35 rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5">
                     <span class="text-xs font-black uppercase text-amber-400">
                         🏛️ $100k+ Institutional Wires
                     </span>
-                    <span class="px-2 py-0.5 rounded bg-[#11161f] border border-amber-500/40 text-amber-300 text-[9px] font-bold">
+                    <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-amber-300 text-[9px] font-bold">
                         {adminData.triageExceptions?.institutionalWireQueue?.length || 0} Pending
                     </span>
                 </div>
                 {#if !adminData.triageExceptions?.institutionalWireQueue?.length}
-                    <div class="p-6 text-center text-[10px] text-neutral-500 border border-white/5 rounded-xl bg-[#11161f]/50">
+                    <div class="p-6 text-center text-[10px] text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-elevated)]">
                         No pending $100,000+ institutional wires awaiting Mercury (*OTC) clearing.
                     </div>
                 {:else}
                     <div class="flex flex-col gap-2.5 max-h-[380px] overflow-y-auto">
                         {#each adminData.triageExceptions.institutionalWireQueue as wire (wire.order_id)}
-                            <div class="bg-[#11161f] border border-amber-500/30 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
+                            <div class="bg-[var(--bg-elevated)] border border-amber-500/30 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
                                 <div class="flex items-center justify-between">
-                                    <span class="font-black text-white">{wire.order_id}</span>
+                                    <span class="font-black text-[var(--text-primary)]">{wire.order_id}</span>
                                     <span class="text-amber-400 font-bold">
-                                        ${Number(wire.fiat_amount_usd || 0).toLocaleString()} USD
+                                        {i18n.formatFiat(Number(wire.fiat_amount_usd || 0), { decimals: 0, includeCode: true })}
                                     </span>
                                 </div>
-                                <div class="text-[9px] text-neutral-400">
-                                    Target: <strong class="text-white">{Number(wire.estimated_tokens || wire.estimated_kas || 0).toFixed(4)} {wire.target_asset || 'KAS'}</strong>
-                                    • Memo: <strong class="text-[#18C6A5]">{wire.wire_memo}</strong>
+                                <div class="text-[9px] text-[var(--text-muted)]">
+                                    Target: <strong class="text-[var(--text-primary)]">{Number(wire.estimated_tokens || wire.estimated_kas || 0).toFixed(4)} {wire.target_asset || 'KAS'}</strong>
+                                    • Memo: <strong class="text-[var(--accent-text)]">{wire.wire_memo}</strong>
                                 </div>
                                 <div class="flex items-center gap-2 pt-1">
                                     <button
@@ -572,7 +573,7 @@
                                                 `Institutional Wire ${wire.order_id} Released ✓`
                                             )}
                                         disabled={actionBusyKey === `WIRE_${wire.order_id}`}
-                                        class="tactile-btn flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                                        class="tactile-btn flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                                     >
                                         [Confirm Mercury Receipt &amp; Release]
                                     </button>
@@ -587,7 +588,7 @@
                                                 `CANCEL_${wire.order_id}`,
                                                 `Order ${wire.order_id} Cancelled`
                                             )}
-                                        class="px-2.5 py-1.5 rounded-lg bg-[#0a0d12] border border-red-500/40 text-red-400 text-[9px] font-bold uppercase cursor-pointer"
+                                        class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-card)] border border-red-500/40 text-red-400 text-[9px] font-bold uppercase cursor-pointer"
                                     >
                                         Cancel
                                     </button>
@@ -599,28 +600,28 @@
             </div>
 
             <!-- 2. Zero-Loss Quarantine Queue (Foreign Card / FX Shortfall) -->
-            <div class="bg-[#0a0d12] border border-red-500/35 rounded-2xl p-4 flex flex-col gap-3">
-                <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
+            <div class="bg-[var(--bg-card)] border border-red-500/35 rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5">
                     <span class="text-xs font-black uppercase text-red-400">
                         🛡️ Zero-Loss Quarantine Queue
                     </span>
-                    <span class="px-2 py-0.5 rounded bg-[#11161f] border border-red-500/40 text-red-400 text-[9px] font-bold">
+                    <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-red-500/40 text-red-400 text-[9px] font-bold">
                         {adminData.triageExceptions?.quarantineQueue?.length || 0} Held
                     </span>
                 </div>
                 {#if !adminData.triageExceptions?.quarantineQueue?.length}
-                    <div class="p-6 text-center text-[10px] text-neutral-500 border border-white/5 rounded-xl bg-[#11161f]/50">
+                    <div class="p-6 text-center text-[10px] text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-elevated)]">
                         Zero Stripe fee-shortfall quarantines. All settled payments met 100% gross-up targets.
                     </div>
                 {:else}
                     <div class="flex flex-col gap-2.5 max-h-[380px] overflow-y-auto">
                         {#each adminData.triageExceptions.quarantineQueue as qOrd (qOrd.order_id)}
-                            <div class="bg-[#11161f] border border-red-500/40 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
+                            <div class="bg-[var(--bg-elevated)] border border-red-500/40 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
                                 <div class="flex items-center justify-between">
-                                    <span class="font-black text-white">{qOrd.order_id}</span>
+                                    <span class="font-black text-[var(--text-primary)]">{qOrd.order_id}</span>
                                     <span class="text-red-400 font-bold">{qOrd.status}</span>
                                 </div>
-                                <p class="text-[9px] text-neutral-300">
+                                <p class="text-[9px] text-[var(--text-secondary)]">
                                     {qOrd.quarantine_reason || 'Unexpected foreign card / FX fee shortfall detected.'}
                                 </p>
                                 <div class="flex items-center gap-2 pt-1">
@@ -636,7 +637,7 @@
                                                 `REL_Q_${qOrd.order_id}`,
                                                 `Released Capped Principal for ${qOrd.order_id} (Perennia Fee Locked) ✓`
                                             )}
-                                        class="tactile-btn flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                                        class="tactile-btn flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                                     >
                                         [Release Capped Principal]
                                     </button>
@@ -652,7 +653,7 @@
                                                 `REF_Q_${qOrd.order_id}`,
                                                 `Issued Stripe Refund for ${qOrd.order_id}`
                                             )}
-                                        class="px-2.5 py-1.5 rounded-lg bg-[#0a0d12] border border-red-500/40 text-red-400 text-[9px] font-bold uppercase cursor-pointer"
+                                        class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-card)] border border-red-500/40 text-red-400 text-[9px] font-bold uppercase cursor-pointer"
                                     >
                                         [Refund]
                                     </button>
@@ -664,9 +665,9 @@
             </div>
 
             <!-- 3. Sovereign L1 Pool Solvency & Outbox Guard -->
-            <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
-                <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
-                    <span class="text-xs font-black uppercase text-[#18C6A5]">
+            <div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5">
+                    <span class="text-xs font-black uppercase text-[var(--accent-text)]">
                         ⚖️ Sovereign L1 Pool Solvency Guard
                     </span>
                     <button
@@ -679,7 +680,7 @@
                                 'Sovereign L1 Pool Solvency & Outbox Audit Completed ✓'
                             )}
                         disabled={actionBusyKey === 'RECONCILE_DRIFT'}
-                        class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer"
+                        class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/45 text-[var(--accent-text)] text-[9px] font-black uppercase cursor-pointer"
                     >
                         {actionBusyKey === 'RECONCILE_DRIFT'
                             ? 'Checking...'
@@ -687,39 +688,39 @@
                     </button>
                 </div>
                 {#if adminData.livePricingUnavailable}
-                    <div class="p-3 rounded-xl bg-[#11161f] border border-amber-500/45 text-amber-300 text-[10px] font-bold uppercase text-center">
+                    <div class="p-3 rounded-xl bg-[var(--bg-elevated)] border border-amber-500/45 text-amber-300 text-[10px] font-bold uppercase text-center">
                         Live pricing unavailable
                     </div>
                 {/if}
                 {#if adminData.solvencyProof}
                     <div class="grid grid-cols-2 gap-2 text-[9px] font-mono">
-                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2">
-                            <span class="text-neutral-500 block">POOL UTXO RESERVE</span>
-                            <span class="text-white font-bold">{adminData.solvencyProof.poolUtxoKas ?? '0'} KAS</span>
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2">
+                            <span class="text-[var(--text-muted)] block">POOL UTXO RESERVE</span>
+                            <span class="text-[var(--text-primary)] font-bold">{adminData.solvencyProof.poolUtxoKas ?? '0'} KAS</span>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2">
-                            <span class="text-neutral-500 block">SOLVENCY STATUS</span>
-                            <span class="{adminData.solvencyProof.isSolvent ? 'text-[#18C6A5]' : 'text-red-400'} font-bold">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-2">
+                            <span class="text-[var(--text-muted)] block">SOLVENCY STATUS</span>
+                            <span class="{adminData.solvencyProof.isSolvent ? 'text-[var(--accent-text)]' : 'text-red-400'} font-bold">
                                 {adminData.solvencyProof.isSolvent ? 'SOLVENT (1:1 L1)' : 'HALTED / CHECK CIRCUIT'}
                             </span>
                         </div>
                     </div>
                 {/if}
                 {#if !adminData.triageExceptions?.ledgerDriftAlerts?.length}
-                    <div class="p-6 text-center text-[10px] text-neutral-500 border border-white/5 rounded-xl bg-[#11161f]/50">
+                    <div class="p-6 text-center text-[10px] text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-elevated)]">
                         Pool UTXO reserves cover 100% of mature accrued miner payouts and outbox dispatches.
                     </div>
                 {:else}
                     <div class="flex flex-col gap-2 max-h-[380px] overflow-y-auto">
                         {#each adminData.triageExceptions.ledgerDriftAlerts as alert (alert.wallet || alert.eventId)}
-                            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1.5 text-[10px]">
+                            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1.5 text-[10px]">
                                 <div class="flex items-center justify-between gap-2">
-                                    <span class="font-bold text-white truncate">{alert.wallet || alert.eventType}</span>
+                                    <span class="font-bold text-[var(--text-primary)] truncate">{alert.wallet || alert.eventType}</span>
                                     <span class="text-amber-400 font-bold shrink-0">
                                         {alert.severity || `Δ ${alert.driftKas || 0} KAS`}
                                     </span>
                                 </div>
-                                <span class="text-[9px] text-neutral-400">{alert.reason}</span>
+                                <span class="text-[9px] text-[var(--text-muted)]">{alert.reason}</span>
                             </div>
                         {/each}
                     </div>
@@ -736,30 +737,30 @@
             data-testid="director-zone-2-panel"
             class="flex flex-col gap-4"
         >
-            <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl p-5 flex flex-col gap-4">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-3">
+            <div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-2xl p-5 flex flex-col gap-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
                     <div class="flex flex-col gap-1">
-                        <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-[#18C6A5]">
+                        <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-[var(--accent-text)]">
                             Zone 02 • 5-State Token Steering Matrix &amp; Reserve Whitelist Firewall
                         </h2>
-                        <p class="text-[10px] text-neutral-400">
+                        <p class="text-[10px] text-[var(--text-muted)]">
                             Protocol fees are strictly skimmed in verified Reserve Whitelist assets (`KAS`, `BTC`, `ETH`, `SOL`, `USDC`, `USDT`, `SILO`). Non-whitelisted assets default to `PASS_THROUGH` (skimming 100% in KAS/USDC).
                         </p>
                     </div>
                     <div class="flex items-center gap-2 text-[9px]">
-                        <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
-                            LP Compound (60%): ${Number(adminData.treasurySplit6040?.perenniaLpCompound60Usd || 0).toFixed(2)}
+                        <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[var(--accent-text)] font-bold">
+                            LP Compound (60%): {i18n.formatFiat(Number(adminData.treasurySplit6040?.perenniaLpCompound60Usd || 0))}
                         </span>
-                        <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-amber-500/40 text-amber-400 font-bold">
-                            Liquid Reserve (40%): ${Number(adminData.treasurySplit6040?.liquidClearingReserve40Usd || 0).toFixed(2)}
+                        <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-amber-500/40 text-amber-400 font-bold">
+                            Liquid Reserve (40%): {i18n.formatFiat(Number(adminData.treasurySplit6040?.liquidClearingReserve40Usd || 0))}
                         </span>
                     </div>
                 </div>
 
                 <!-- Add / Override Token Form -->
-                <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 grid grid-cols-1 sm:grid-cols-6 gap-2.5 items-end">
+                <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3.5 grid grid-cols-1 sm:grid-cols-6 gap-2.5 items-end">
                     <div class="flex flex-col gap-1">
-                        <label for="steerTicker" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="steerTicker" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Ticker
                         </label>
                         <input
@@ -768,11 +769,11 @@
                             type="text"
                             bind:value={newSteeringTicker}
                             placeholder="NACHO"
-                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white uppercase outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] uppercase outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="steerName" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="steerName" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Asset Label
                         </label>
                         <input
@@ -780,11 +781,11 @@
                             type="text"
                             bind:value={newSteeringName}
                             placeholder="Nacho the Kat"
-                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="steerNet" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="steerNet" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Network
                         </label>
                         <input
@@ -792,18 +793,18 @@
                             type="text"
                             bind:value={newSteeringNetwork}
                             placeholder="KAS"
-                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white uppercase outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] uppercase outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="steerState" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="steerState" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             5-State Mode
                         </label>
                         <select
                             id="steerState"
                             data-testid="steering-state-select"
                             bind:value={newSteeringState}
-                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         >
                             <option value="AUTO_BALANCE">AUTO_BALANCE</option>
                             <option value="ACCUMULATE">ACCUMULATE</option>
@@ -813,7 +814,7 @@
                         </select>
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="steerWeight" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="steerWeight" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Target Weight %
                         </label>
                         <input
@@ -822,7 +823,7 @@
                             min="0"
                             max="100"
                             bind:value={newSteeringWeightPct}
-                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <button
@@ -847,7 +848,7 @@
                             newSteeringTicker = '';
                             newSteeringName = '';
                         }}
-                        class="tactile-btn py-2 px-3 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                        class="tactile-btn py-2 px-3 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                     >
                         [Apply Steering Rule]
                     </button>
@@ -857,7 +858,7 @@
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse text-[10px]">
                         <thead>
-                            <tr class="border-b border-white/10 text-[8px] uppercase text-neutral-400">
+                            <tr class="border-b border-[var(--border-subtle)] text-[8px] uppercase text-[var(--text-muted)]">
                                 <th class="py-2.5 px-3">Asset</th>
                                 <th class="py-2.5 px-3">Network</th>
                                 <th class="py-2.5 px-3">Whitelist Firewall</th>
@@ -867,42 +868,42 @@
                                 <th class="py-2.5 px-3 text-right">1-Click State Override</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/5">
+                        <tbody class="divide-y divide-[var(--border-subtle)]">
                             {#each adminData.tokenSteeringMatrix || [] as row (row.ticker)}
-                                <tr class="hover:bg-[#11161f]/60">
-                                    <td class="py-2.5 px-3 font-black text-white">
+                                <tr class="hover:bg-[var(--bg-elevated)]">
+                                    <td class="py-2.5 px-3 font-black text-[var(--text-primary)]">
                                         {row.ticker}
-                                        <span class="block text-[8px] font-normal text-neutral-400">
+                                        <span class="block text-[8px] font-normal text-[var(--text-muted)]">
                                             {row.asset_name || row.ticker}
                                         </span>
                                     </td>
-                                    <td class="py-2.5 px-3 text-neutral-300">{row.network}</td>
+                                    <td class="py-2.5 px-3 text-[var(--text-secondary)]">{row.network}</td>
                                     <td class="py-2.5 px-3">
                                         {#if row.is_whitelisted}
-                                            <span class="px-2 py-0.5 rounded bg-[#18C6A5]/15 border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-bold">
+                                            <span class="px-2 py-0.5 rounded bg-[#18C6A5]/15 border border-[#18C6A5]/40 text-[var(--accent-text)] text-[8px] font-bold">
                                                 WHITELISTED
                                             </span>
                                         {:else}
-                                            <span class="px-2 py-0.5 rounded bg-white/5 border border-white/15 text-neutral-400 text-[8px] font-bold">
+                                            <span class="px-2 py-0.5 rounded bg-white/5 border border-[var(--border-strong)] text-[var(--text-muted)] text-[8px] font-bold">
                                                 ISOLATED
                                             </span>
                                         {/if}
                                     </td>
                                     <td class="py-2.5 px-3 font-mono">
-                                        <span class="text-white font-bold">
+                                        <span class="text-[var(--text-primary)] font-bold">
                                             {Number(row.target_weight_pct || 0).toFixed(1)}%
                                         </span>
-                                        <span class="text-neutral-500"> / </span>
-                                        <span class="text-[#18C6A5]">
+                                        <span class="text-[var(--text-muted)]"> / </span>
+                                        <span class="text-[var(--accent-text)]">
                                             {Number(row.actual_weight_pct || 0).toFixed(1)}%
                                         </span>
                                     </td>
                                     <td class="py-2.5 px-3 font-mono">
-                                        <span class="text-white font-bold">
+                                        <span class="text-[var(--text-primary)] font-bold">
                                             {Number(row.accumulatedFeeTokens || 0).toFixed(4)} {row.ticker}
                                         </span>
-                                        <span class="block text-[8px] text-neutral-500">
-                                            Reserve: ${Number(row.reserveValueUsd || 0).toFixed(2)}
+                                        <span class="block text-[8px] text-[var(--text-muted)]">
+                                            Reserve: {i18n.formatFiat(Number(row.reserveValueUsd || 0))}
                                         </span>
                                     </td>
                                     <td class="py-2.5 px-3">
@@ -910,14 +911,14 @@
                                             data-testid="steering-badge-{row.ticker}"
                                             class="px-2 py-0.5 rounded text-[8px] font-black uppercase border {row.steering_state ===
                                             'ACCUMULATE'
-                                                ? 'bg-[#18C6A5]/20 border-[#18C6A5]/50 text-[#18C6A5]'
+                                                ? 'bg-[#18C6A5]/20 border-[#18C6A5]/50 text-[var(--accent-text)]'
                                                 : row.steering_state === 'AUTO_BALANCE'
                                                   ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
                                                   : row.steering_state === 'FREEZE'
                                                     ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                                                     : row.steering_state === 'BLACKLISTED'
                                                       ? 'bg-red-500/20 border-red-500/50 text-red-400'
-                                                      : 'bg-white/5 border-white/15 text-neutral-300'}"
+                                                      : 'bg-white/5 border-[var(--border-strong)] text-[var(--text-secondary)]'}"
                                         >
                                             {row.steering_state}
                                         </span>
@@ -940,8 +941,8 @@
                                                         )}
                                                     class="px-2 py-1 rounded text-[8px] font-bold uppercase border cursor-pointer transition-colors {row.steering_state ===
                                                     stMode
-                                                        ? 'bg-[#161d29] border-[#18C6A5] text-[#18C6A5]'
-                                                        : 'bg-[#0a0d12] border-white/10 text-neutral-400 hover:text-white'}"
+                                                        ? 'bg-[var(--bg-hover)] border-[#18C6A5] text-[var(--accent-text)]'
+                                                        : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                                                 >
                                                     {stMode.replace('_', ' ')}
                                                 </button>
@@ -967,43 +968,43 @@
         >
             <!-- Mercury Commercial Checking (*OTC) & Stripe Webhook Coordinates -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-2">
-                    <span class="text-[9px] text-neutral-400 uppercase font-bold">
+                <div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-2">
+                    <span class="text-[9px] text-[var(--text-muted)] uppercase font-bold">
                         Connected Commercial Bank Vault
                     </span>
-                    <span class="text-xs font-black text-white">
+                    <span class="text-xs font-black text-[var(--text-primary)]">
                         {adminData.fiatSettlementDesk?.mercuryCheckingAccount?.label}
                     </span>
-                    <div class="text-[10px] font-mono text-[#18C6A5]">
+                    <div class="text-[10px] font-mono text-[var(--accent-text)]">
                         ABA Routing: <strong>PRIVATE-OTC</strong> • Account: <strong>PRIVATE-ESCROW-ONLY</strong>
                     </div>
-                    <span class="text-[8px] text-neutral-500">
+                    <span class="text-[8px] text-[var(--text-muted)]">
                         {adminData.fiatSettlementDesk?.mercuryCheckingAccount?.bankAddress}
                     </span>
                 </div>
 
-                <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
-                    <span class="text-[9px] text-neutral-400 uppercase font-bold">
+                <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2">
+                    <span class="text-[9px] text-[var(--text-muted)] uppercase font-bold">
                         Live Stripe Webhook Endpoint
                     </span>
-                    <span class="text-xs font-black text-[#18C6A5] break-all">
+                    <span class="text-xs font-black text-[var(--accent-text)] break-all">
                         {adminData.fiatSettlementDesk?.stripeWebhookEndpoint?.url}
                     </span>
-                    <div class="text-[10px] text-neutral-300">
+                    <div class="text-[10px] text-[var(--text-secondary)]">
                         Destination ID: <strong>{adminData.fiatSettlementDesk?.stripeWebhookEndpoint?.destinationId}</strong>
                     </div>
-                    <span class="text-[8px] text-neutral-500">
+                    <span class="text-[8px] text-[var(--text-muted)]">
                         API Version: {adminData.fiatSettlementDesk?.stripeWebhookEndpoint?.apiVersion} • ACH Hold Active
                     </span>
                 </div>
 
-                <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-2">
+                <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col justify-between gap-2">
                     <div class="flex items-center justify-between">
-                        <span class="text-[9px] text-neutral-400 uppercase font-bold">
+                        <span class="text-[9px] text-[var(--text-muted)] uppercase font-bold">
                             Captured Gross-Up On-Ramp Margin
                         </span>
-                        <span class="text-sm font-black text-[#18C6A5]">
-                            ${Number(adminData.fiatSettlementDesk?.totalGrossUpProfitUsd || 0).toFixed(2)} USD
+                        <span class="text-sm font-black text-[var(--accent-text)]">
+                            {i18n.formatFiat(Number(adminData.fiatSettlementDesk?.totalGrossUpProfitUsd || 0), { includeCode: true })}
                         </span>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap pt-2">
@@ -1012,7 +1013,7 @@
                             data-testid="export-batch-ach-csv-btn"
                             onclick={() =>
                                 downloadCsvAction('EXPORT_BATCH_ACH_CSV', 'Perennia_Mercury_ACH_Batch')}
-                            class="tactile-btn flex-1 py-2 px-3 rounded-xl text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                            class="tactile-btn flex-1 py-2 px-3 rounded-xl text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                         >
                             [Export Batch ACH CSV ↓]
                         </button>
@@ -1030,13 +1031,13 @@
             </div>
 
             <!-- Off-Ramp ACH / Wire Payout Queue -->
-            <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
                     <div class="flex items-center gap-2">
-                        <h3 class="text-xs font-black uppercase text-white">
+                        <h3 class="text-xs font-black uppercase text-[var(--text-primary)]">
                             Off-Ramp Bank Payout Queue (`fiat_payout_queue`)
                         </h3>
-                        <span class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] text-neutral-300">
+                        <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] text-[var(--text-secondary)]">
                             {adminData.fiatPayouts?.length || 0} Records
                         </span>
                     </div>
@@ -1045,7 +1046,7 @@
                             type="text"
                             bind:value={batchTracePrefixInput}
                             placeholder="Optional Batch Trace Prefix"
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-[10px] text-[var(--text-primary)] outline-none"
                         />
                         <button
                             type="button"
@@ -1059,7 +1060,7 @@
                                     'BULK_FIAT',
                                     'All Queued ACH Off-Ramp Payouts Marked Dispatched ✓'
                                 )}
-                            class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                            class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                         >
                             [Bulk Settle Queued ACH Payouts]
                         </button>
@@ -1069,7 +1070,7 @@
                 <div class="overflow-x-auto max-h-[380px]">
                     <table class="w-full text-left border-collapse text-[10px]">
                         <thead>
-                            <tr class="border-b border-white/10 text-[8px] uppercase text-neutral-400">
+                            <tr class="border-b border-[var(--border-subtle)] text-[8px] uppercase text-[var(--text-muted)]">
                                 <th class="py-2 px-2.5">Payout ID</th>
                                 <th class="py-2 px-2.5">Wallet</th>
                                 <th class="py-2 px-2.5">Sold Crypto</th>
@@ -1079,23 +1080,23 @@
                                 <th class="py-2 px-2.5 text-right">Director Actions</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/5">
+                        <tbody class="divide-y divide-[var(--border-subtle)]">
                             {#each adminData.fiatPayouts || [] as p (p.payout_id)}
                                 {@const decRail = decryptedRailsByPayout[p.payout_id]}
-                                <tr class="hover:bg-[#11161f]/60">
-                                    <td class="py-2 px-2.5 font-bold text-white">{p.payout_id}</td>
-                                    <td class="py-2 px-2.5 text-neutral-400">
+                                <tr class="hover:bg-[var(--bg-elevated)]">
+                                    <td class="py-2 px-2.5 font-bold text-[var(--text-primary)]">{p.payout_id}</td>
+                                    <td class="py-2 px-2.5 text-[var(--text-muted)]">
                                         {String(p.wallet_address || '').slice(0, 16)}...
                                     </td>
                                     <td class="py-2 px-2.5 font-mono">
                                         {Number(p.amount_crypto || 0).toFixed(4)} {p.source_asset}
                                     </td>
                                     <td class="py-2 px-2.5 font-mono">
-                                        <span class="text-[#18C6A5] font-bold">
-                                            ${Number(p.net_fiat_usd || 0).toFixed(2)}
+                                        <span class="text-[var(--accent-text)] font-bold">
+                                            {i18n.formatFiat(Number(p.net_fiat_usd || 0))}
                                         </span>
-                                        <span class="text-neutral-500 text-[8px] block">
-                                            Fee: ${Number(p.fee_usd || 0).toFixed(2)}
+                                        <span class="text-[var(--text-muted)] text-[8px] block">
+                                            Fee: {i18n.formatFiat(Number(p.fee_usd || 0))}
                                         </span>
                                     </td>
                                     <td class="py-2 px-2.5">
@@ -1107,9 +1108,9 @@
                                         {/if}
                                     </td>
                                     <td class="py-2 px-2.5">
-                                        <span class="font-bold text-white">{p.status}</span>
+                                        <span class="font-bold text-[var(--text-primary)]">{p.status}</span>
                                         {#if p.trace_id}
-                                            <span class="block text-[8px] text-[#18C6A5]">{p.trace_id}</span>
+                                            <span class="block text-[8px] text-[var(--accent-text)]">{p.trace_id}</span>
                                         {/if}
                                     </td>
                                     <td class="py-2 px-2.5 text-right">
@@ -1118,7 +1119,7 @@
                                                 type="button"
                                                 onclick={() =>
                                                     decryptPayoutBankRail(p.payout_id, p.wallet_address)}
-                                                class="px-2 py-1 rounded bg-[#11161f] border border-white/15 text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
+                                                class="px-2 py-1 rounded bg-[var(--bg-elevated)] border border-[var(--border-strong)] text-[8px] font-bold uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                                             >
                                                 [Decrypt ABA]
                                             </button>
@@ -1127,7 +1128,7 @@
                                                     type="text"
                                                     bind:value={customTraceInputs[p.payout_id]}
                                                     placeholder="Trace #"
-                                                    class="w-24 bg-[#11161f] border border-white/10 rounded px-2 py-1 text-[9px] text-white outline-none"
+                                                    class="w-24 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded px-2 py-1 text-[9px] text-[var(--text-primary)] outline-none"
                                                 />
                                                 <button
                                                     type="button"
@@ -1141,7 +1142,7 @@
                                                             `SETTLE_${p.payout_id}`,
                                                             `Payout ${p.payout_id} Dispatched ✓`
                                                         )}
-                                                    class="px-2 py-1 rounded bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[8px] font-black uppercase cursor-pointer"
+                                                    class="px-2 py-1 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/45 text-[var(--accent-text)] text-[8px] font-black uppercase cursor-pointer"
                                                 >
                                                     [Settle]
                                                 </button>
@@ -1156,7 +1157,7 @@
                                                             `REF_${p.payout_id}`,
                                                             `Payout ${p.payout_id} Refunded to Ledger`
                                                         )}
-                                                    class="px-2 py-1 rounded bg-[#11161f] border border-red-500/45 text-red-400 text-[8px] font-bold uppercase cursor-pointer"
+                                                    class="px-2 py-1 rounded bg-[var(--bg-elevated)] border border-red-500/45 text-red-400 text-[8px] font-bold uppercase cursor-pointer"
                                                 >
                                                     [Refund]
                                                 </button>
@@ -1182,13 +1183,13 @@
         >
             <!-- Top Row: Maintenance Grace Shield + Independent Subsystem Kill-Switches -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
+                <div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3">
                     <div class="flex items-center justify-between">
                         <div class="flex flex-col">
-                            <span class="text-xs font-black uppercase text-[#18C6A5]">
+                            <span class="text-xs font-black uppercase text-[var(--accent-text)]">
                                 🛡️ Stratum Maintenance Grace Shield
                             </span>
-                            <span class="text-[9px] text-neutral-400">
+                            <span class="text-[9px] text-[var(--text-muted)]">
                                 Pauses the 2-hour disconnect streak-reset timer globally across all miners during server/ISP maintenance.
                             </span>
                         </div>
@@ -1204,28 +1205,28 @@
                             class="tactile-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase border cursor-pointer {adminData.stratumAndGovernor
                                 ?.maintenanceGraceShield
                                 ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                                : 'bg-[#11161f] border-[#18C6A5]/45 text-[#18C6A5]'}"
+                                : 'bg-[var(--bg-elevated)] border-[#18C6A5]/45 text-[var(--accent-text)]'}"
                         >
                             {adminData.stratumAndGovernor?.maintenanceGraceShield
                                 ? '🛡️ SHIELD ACTIVE (STREAKS FROZEN)'
                                 : '[Activate Grace Shield]'}
                         </button>
                     </div>
-                    <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-[9px]">
-                        <div class="bg-[#11161f] rounded-lg p-2 border border-white/5">
-                            <span class="text-neutral-500 block text-[7px]">KASPAD CONSENSUS</span>
-                            <span class="text-[#18C6A5] font-bold">
+                    <div class="grid grid-cols-3 gap-2 pt-2 border-t border-[var(--border-subtle)] text-[9px]">
+                        <div class="bg-[var(--bg-elevated)] rounded-lg p-2 border border-[var(--border-subtle)]">
+                            <span class="text-[var(--text-muted)] block text-[7px]">KASPAD CONSENSUS</span>
+                            <span class="text-[var(--accent-text)] font-bold">
                                 {adminData.stratumAndGovernor?.consensusNodes?.kaspadStatus || 'Online'}
                             </span>
                         </div>
-                        <div class="bg-[#11161f] rounded-lg p-2 border border-white/5">
-                            <span class="text-neutral-500 block text-[7px]">VIRTUAL DAA SCORE</span>
-                            <span class="text-white font-bold">
+                        <div class="bg-[var(--bg-elevated)] rounded-lg p-2 border border-[var(--border-subtle)]">
+                            <span class="text-[var(--text-muted)] block text-[7px]">VIRTUAL DAA SCORE</span>
+                            <span class="text-[var(--text-primary)] font-bold">
                                 {Number(adminData.stratumAndGovernor?.consensusNodes?.virtualDaaScore || 0).toLocaleString()}
                             </span>
                         </div>
-                        <div class="bg-[#11161f] rounded-lg p-2 border border-white/5">
-                            <span class="text-neutral-500 block text-[7px]">22:00 UTC EPOCH BELL</span>
+                        <div class="bg-[var(--bg-elevated)] rounded-lg p-2 border border-[var(--border-subtle)]">
+                            <span class="text-[var(--text-muted)] block text-[7px]">22:00 UTC EPOCH BELL</span>
                             <button
                                 type="button"
                                 data-testid="force-epoch-bell-btn"
@@ -1242,18 +1243,18 @@
                         </div>
                     </div>
                     {#if lastEpochBellTelemetry}
-                        <div data-testid="director-epoch-bell-telemetry" class="bg-[#11161f] border border-[#18C6A5]/35 rounded-xl p-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[9px] font-mono">
-                            <div><span class="text-neutral-500 block">EPOCH ID</span><span class="text-white font-bold">{lastEpochBellTelemetry.epochId || 'LATEST'}</span></div>
-                            <div><span class="text-neutral-500 block">TIER 1 (L1 COW)</span><span class="text-[#18C6A5] font-bold">{lastEpochBellTelemetry.tier1CowCross?.matchedPairs ?? lastEpochBellTelemetry.tier1CowCross ?? 0}</span></div>
-                            <div><span class="text-neutral-500 block">TIER 2 (HTLC BATCH)</span><span class="text-white font-bold">{lastEpochBellTelemetry.tier2BotBatchHtlc?.batchesSettled ?? lastEpochBellTelemetry.tier2BotBatchHtlc ?? 0}</span></div>
-                            <div><span class="text-neutral-500 block">TIER 3 (CHANGENOW SPLIT)</span><span class="text-amber-300 font-bold">{lastEpochBellTelemetry.tier3ChangeNowSplit?.splitsCreated ?? lastEpochBellTelemetry.tier3ChangeNowSplit ?? 0}</span></div>
+                        <div data-testid="director-epoch-bell-telemetry" class="bg-[var(--bg-elevated)] border border-[#18C6A5]/35 rounded-xl p-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[9px] font-mono">
+                            <div><span class="text-[var(--text-muted)] block">EPOCH ID</span><span class="text-[var(--text-primary)] font-bold">{lastEpochBellTelemetry.epochId || 'LATEST'}</span></div>
+                            <div><span class="text-[var(--text-muted)] block">TIER 1 (L1 COW)</span><span class="text-[var(--accent-text)] font-bold">{lastEpochBellTelemetry.tier1CowCross?.matchedPairs ?? lastEpochBellTelemetry.tier1CowCross ?? 0}</span></div>
+                            <div><span class="text-[var(--text-muted)] block">TIER 2 (HTLC BATCH)</span><span class="text-[var(--text-primary)] font-bold">{lastEpochBellTelemetry.tier2BotBatchHtlc?.batchesSettled ?? lastEpochBellTelemetry.tier2BotBatchHtlc ?? 0}</span></div>
+                            <div><span class="text-[var(--text-muted)] block">TIER 3 (CHANGENOW SPLIT)</span><span class="text-amber-300 font-bold">{lastEpochBellTelemetry.tier3ChangeNowSplit?.splitsCreated ?? lastEpochBellTelemetry.tier3ChangeNowSplit ?? 0}</span></div>
                         </div>
                     {/if}
                 </div>
 
                 <!-- Independent Subsystem Kill-Switches -->
-                <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-                    <span class="text-xs font-black uppercase text-white">
+                <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
+                    <span class="text-xs font-black uppercase text-[var(--text-primary)]">
                         ⚡ Independent Subsystem Kill-Switches (Zero Stratum Interruption)
                     </span>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1292,10 +1293,10 @@
                                         `${sw.label} ${!sw.paused ? 'PAUSED' : 'RESUMED'} ✓`
                                     )}
                                 class="p-2.5 rounded-xl border text-left flex flex-col justify-between gap-1.5 cursor-pointer transition-all {sw.paused
-                                    ? 'bg-red-950/30 border-red-500/60 text-red-400'
-                                    : 'bg-[#11161f] border-[#18C6A5]/35 text-[#18C6A5]'}"
+                                    ? 'bg-[var(--bg-danger-subtle)] border-red-500/60 text-red-400'
+                                    : 'bg-[var(--bg-elevated)] border-[#18C6A5]/35 text-[var(--accent-text)]'}"
                             >
-                                <span class="text-[9px] font-black uppercase text-white">{sw.label}</span>
+                                <span class="text-[9px] font-black uppercase text-[var(--text-primary)]">{sw.label}</span>
                                 <span class="text-[8px] font-bold uppercase">
                                     {sw.paused ? '⏸ PAUSED' : '● ONLINE'}
                                 </span>
@@ -1306,19 +1307,19 @@
             </div>
 
                         <!-- Dynamic Pool Batch & Gas Governor -->
-            <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
                     <div class="flex flex-col gap-0.5">
                         <div class="flex items-center gap-2 flex-wrap">
-                            <h3 class="text-xs font-black uppercase text-white">Dynamic Pool Batch &amp; Seed-and-Clear Governor</h3>
-                            <span data-testid="director-lp-routing-mode-badge" class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase">Auto Admin LP: 50/50 Locked • Manual Seed: 0.5F + U</span>
+                            <h3 class="text-xs font-black uppercase text-[var(--text-primary)]">Dynamic Pool Batch &amp; Seed-and-Clear Governor</h3>
+                            <span data-testid="director-lp-routing-mode-badge" class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[var(--accent-text)] text-[8px] font-black uppercase">Auto Admin LP: 50/50 Locked • Manual Seed: 0.5F + U</span>
                         </div>
-                        <span class="text-[9px] text-neutral-400">Automatic admin routing stays 50/50. Use manual Seed &amp; Clear (0.5F + U) to pre-skew wholesale liquidity, clear user queues internally, and land new LP at 50/50.</span>
+                        <span class="text-[9px] text-[var(--text-muted)]">Automatic admin routing stays 50/50. Use manual Seed &amp; Clear (0.5F + U) to pre-skew wholesale liquidity, clear user queues internally, and land new LP at 50/50.</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <span class="text-[9px] text-neutral-400 uppercase font-bold">Max Gas Ceiling ($):</span>
-                        <input type="number" step="0.25" bind:value={gasCeilingInput} class="w-20 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none" />
-                        <button type="button" data-testid="save-gas-ceiling-btn" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'SET_MAX_GAS_CEILING', maxGasCeilingUsd: parseFloat(gasCeilingInput) || 2.5 }, 'GAS_CEILING', `Max Gas Ceiling set to $${gasCeilingInput} USD ✓`)} class="px-2.5 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer">[Set Cap]</button>
+                        <span class="text-[9px] text-[var(--text-muted)] uppercase font-bold">Max Gas Ceiling ($):</span>
+                        <input type="number" step="0.25" bind:value={gasCeilingInput} class="w-20 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)] outline-none" />
+                        <button type="button" data-testid="save-gas-ceiling-btn" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'SET_MAX_GAS_CEILING', maxGasCeilingUsd: parseFloat(gasCeilingInput) || 2.5 }, 'GAS_CEILING', `Max Gas Ceiling set to $${gasCeilingInput} USD ✓`)} class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/45 text-[var(--accent-text)] text-[9px] font-black uppercase cursor-pointer">[Set Cap]</button>
                     </div>
                 </div>
 
@@ -1328,29 +1329,29 @@
                         {@const targetBatchUsd = Math.max(userUsd + 25, parseFloat(seedTargetUsdInputs[q.asset] ?? '500') || 500)}
                         {@const founderFillUsd = Math.max(0, targetBatchUsd - userUsd)}
                         {@const extWholesaleUsd = Number((0.5 * founderFillUsd + userUsd).toFixed(2))}
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2 text-[10px]">
                             <div class="flex items-center justify-between">
-                                <span class="font-black text-white">{q.asset} • {q.queueType}</span>
-                                <span class="px-2 py-0.5 rounded text-[8px] font-black uppercase {q.statusPill === 'GREEN' ? 'bg-[#18C6A5]/20 text-[#18C6A5]' : q.statusPill === 'AMBER' ? 'bg-amber-500/20 text-amber-300' : 'bg-red-500/20 text-red-400'}">{q.heldByDirector ? 'HELD' : `${q.fillPct}% FULL`}</span>
+                                <span class="font-black text-[var(--text-primary)]">{q.asset} • {q.queueType}</span>
+                                <span class="px-2 py-0.5 rounded text-[8px] font-black uppercase {q.statusPill === 'GREEN' ? 'bg-[#18C6A5]/20 text-[var(--accent-text)]' : q.statusPill === 'AMBER' ? 'bg-amber-500/20 text-amber-300' : 'bg-red-500/20 text-red-400'}">{q.heldByDirector ? 'HELD' : `${q.fillPct}% FULL`}</span>
                             </div>
-                            <div class="text-[9px] text-neutral-400 flex items-center justify-between">
-                                <span>Pending: <strong class="text-white">{q.pendingKas} KAS</strong> (${q.pendingUsd})</span>
+                            <div class="text-[9px] text-[var(--text-muted)] flex items-center justify-between">
+                                <span>Pending: <strong class="text-[var(--text-primary)]">{q.pendingKas} KAS</strong> ({i18n.formatFiat(Number(q.pendingUsd || 0))})</span>
                                 <span>Min: {q.minThresholdKas} KAS</span>
                             </div>
-                            <div class="w-full h-1.5 bg-[#0a0d12] rounded-full overflow-hidden"><div class="h-full bg-[#18C6A5]" style="width: {Math.min(100, Number(q.fillPct || 0))}%;"></div></div>
+                            <div class="w-full h-1.5 bg-[var(--bg-card)] rounded-full overflow-hidden"><div class="h-full bg-[#18C6A5]" style="width: {Math.min(100, Number(q.fillPct || 0))}%;"></div></div>
                             <div class="flex items-center gap-2 pt-0.5">
-                                <button type="button" data-testid="governor-flush-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'FLUSH_NOW', asset: q.asset }, `FLUSH_${q.asset}`, `Flushed ${q.asset} Batch Queue ✓`)} class="flex-1 py-1 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-black uppercase cursor-pointer">[Flush Now]</button>
-                                <button type="button" data-testid="governor-hold-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'TOGGLE_HOLD', asset: q.asset }, `HOLD_${q.asset}`, `${q.asset} Queue ${q.heldByDirector ? 'Resumed' : 'Held'}`)} class="flex-1 py-1 rounded bg-[#0a0d12] border border-amber-500/40 text-amber-300 text-[8px] font-bold uppercase cursor-pointer">{q.heldByDirector ? '[Resume Queue]' : '[Hold Queue]'}</button>
+                                <button type="button" data-testid="governor-flush-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'FLUSH_NOW', asset: q.asset }, `FLUSH_${q.asset}`, `Flushed ${q.asset} Batch Queue ✓`)} class="flex-1 py-1 rounded bg-[var(--bg-card)] border border-[#18C6A5]/40 text-[var(--accent-text)] text-[8px] font-black uppercase cursor-pointer">[Flush Now]</button>
+                                <button type="button" data-testid="governor-hold-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'TOGGLE_HOLD', asset: q.asset }, `HOLD_${q.asset}`, `${q.asset} Queue ${q.heldByDirector ? 'Resumed' : 'Held'}`)} class="flex-1 py-1 rounded bg-[var(--bg-card)] border border-amber-500/40 text-amber-300 text-[8px] font-bold uppercase cursor-pointer">{q.heldByDirector ? '[Resume Queue]' : '[Hold Queue]'}</button>
                             </div>
                             {#if q.asset !== 'KAS'}
-                                <div class="border-t border-white/5 pt-2 mt-0.5 flex flex-col gap-1.5">
-                                    <div class="flex items-center justify-between text-[8px] text-neutral-400">
-                                        <span>0.5F + U Wholesale: <strong class="text-white">${extWholesaleUsd.toFixed(0)}</strong></span>
-                                        <span>New 50/50 LP: <strong class="text-[#18C6A5]">~${founderFillUsd.toFixed(0)}</strong></span>
+                                <div class="border-t border-[var(--border-subtle)] pt-2 mt-0.5 flex flex-col gap-1.5">
+                                    <div class="flex items-center justify-between text-[8px] text-[var(--text-muted)]">
+                                        <span>0.5F + U Wholesale: <strong class="text-[var(--text-primary)]">{i18n.formatFiat(extWholesaleUsd, { decimals: 0 })}</strong></span>
+                                        <span>New 50/50 LP: <strong class="text-[var(--accent-text)]">~{i18n.formatFiat(founderFillUsd, { decimals: 0 })}</strong></span>
                                     </div>
                                     <div class="flex items-center gap-1.5">
-                                        <input type="number" min="50" step="50" data-testid="governor-seed-usd-{q.asset}" value={seedTargetUsdInputs[q.asset] ?? '500'} oninput={(e) => { seedTargetUsdInputs = { ...seedTargetUsdInputs, [q.asset]: (e.currentTarget as HTMLInputElement).value }; }} class="w-20 bg-[#0a0d12] border border-white/15 rounded px-2 py-1 text-[9px] text-white font-bold tabular-nums outline-none" />
-                                        <button type="button" data-testid="governor-seed-clear-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'SEED_AND_CLEAR_BUCKET', asset: q.asset, targetBatchUsd }, `SEED_${q.asset}`, `Seed & Clear (${q.asset}): $${extWholesaleUsd.toFixed(0)} wholesale -> 50/50 LP + queue cleared ✓`)} disabled={actionBusyKey === `SEED_${q.asset}`} class="flex-1 py-1 px-2 rounded bg-[#18C6A5]/15 border border-[#18C6A5]/50 text-[#18C6A5] hover:text-white text-[8px] font-black uppercase cursor-pointer">{actionBusyKey === `SEED_${q.asset}` ? 'Seeding...' : '[Seed & Clear 50/50]'}</button>
+                                        <input type="number" min="50" step="50" data-testid="governor-seed-usd-{q.asset}" value={seedTargetUsdInputs[q.asset] ?? '500'} oninput={(e) => { seedTargetUsdInputs = { ...seedTargetUsdInputs, [q.asset]: (e.currentTarget as HTMLInputElement).value }; }} class="w-20 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded px-2 py-1 text-[9px] text-[var(--text-primary)] font-bold tabular-nums outline-none" />
+                                        <button type="button" data-testid="governor-seed-clear-{q.asset}" onclick={() => dispatchDirectorAction({ action: 'GOVERN_DYNAMIC_QUEUE', governorAction: 'SEED_AND_CLEAR_BUCKET', asset: q.asset, targetBatchUsd }, `SEED_${q.asset}`, `Seed & Clear (${q.asset}): ${i18n.formatFiat(extWholesaleUsd, { decimals: 0 })} wholesale -> 50/50 LP + queue cleared ✓`)} disabled={actionBusyKey === `SEED_${q.asset}`} class="flex-1 py-1 px-2 rounded bg-[#18C6A5]/15 border border-[#18C6A5]/50 text-[var(--accent-text)] hover:text-[var(--text-primary)] text-[8px] font-black uppercase cursor-pointer">{actionBusyKey === `SEED_${q.asset}` ? 'Seeding...' : '[Seed & Clear 50/50]'}</button>
                                     </div>
                                 </div>
                             {/if}
@@ -1359,46 +1360,46 @@
                 </div>
             </div>
 <!-- System Treasury & Airlock Ceiling Config -->
-            <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-                <span class="text-xs font-black uppercase text-white">
+            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
+                <span class="text-xs font-black uppercase text-[var(--text-primary)]">
                     Hot/Cold Airlock Ceiling &amp; Solvency Parameters (`system_treasury_config`)
                 </span>
                 <div class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 items-end">
                     <div class="flex flex-col gap-1">
-                        <label for="hotCeilInput" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="hotCeilInput" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Hot Ceiling (KAS)
                         </label>
                         <input
                             id="hotCeilInput"
                             type="number"
                             bind:value={hotCeilingKasInput}
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="minRunwayInput" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="minRunwayInput" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Min Runway (KAS)
                         </label>
                         <input
                             id="minRunwayInput"
                             type="number"
                             bind:value={minRunwayKasInput}
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="fppsFloatInput" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="fppsFloatInput" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             FPPS Max Float (KAS)
                         </label>
                         <input
                             id="fppsFloatInput"
                             type="number"
                             bind:value={fppsMaxFloatKasInput}
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="poolFeePctInput" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="poolFeePctInput" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Base Pool Fee (%)
                         </label>
                         <input
@@ -1406,11 +1407,11 @@
                             type="number"
                             step="0.05"
                             bind:value={poolFeeRatePctInput}
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="coldKasInput" class="text-[8px] text-neutral-400 uppercase font-bold">
+                        <label for="coldKasInput" class="text-[8px] text-[var(--text-muted)] uppercase font-bold">
                             Cold Vault KAS Address
                         </label>
                         <input
@@ -1418,14 +1419,14 @@
                             type="text"
                             bind:value={coldKasAddressInput}
                             placeholder="kaspa:q..."
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <button
                         type="button"
                         onclick={updateSystemTreasuryConfig}
                         disabled={actionBusyKey === 'SAVE_SYS_CONFIG'}
-                        class="tactile-btn py-2 px-3 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                        class="tactile-btn py-2 px-3 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                     >
                         [Save Airlock Config]
                     </button>
@@ -1444,7 +1445,7 @@
         >
             <!-- Top Row: Security Firewall Blacklist Manager + Miner Impersonation / Whitelist -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="bg-[#0a0d12] border border-red-500/35 rounded-2xl p-4 flex flex-col gap-3">
+                <div class="bg-[var(--bg-card)] border border-red-500/35 rounded-2xl p-4 flex flex-col gap-3">
                     <span class="text-xs font-black uppercase text-red-400">
                         🔨 Security Firewall Blacklist (Wallets, Workers, Scam Contracts &amp; IPs)
                     </span>
@@ -1452,7 +1453,7 @@
                         <select
                             data-testid="firewall-entity-type-select"
                             bind:value={firewallEntityType}
-                            class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none"
                         >
                             <option value="WALLET">WALLET</option>
                             <option value="WORKER">WORKER</option>
@@ -1464,7 +1465,7 @@
                             type="text"
                             bind:value={firewallTargetInput}
                             placeholder="kaspa:q... or IP or Ticker"
-                            class="sm:col-span-2 bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                            class="sm:col-span-2 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none"
                         />
                         <button
                             type="button"
@@ -1490,12 +1491,12 @@
                     </div>
                     <div class="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto pt-1">
                         {#each adminData.securityBlacklist || [] as blk (blk.target_value)}
-                            <div class="bg-[#11161f] border border-white/10 rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-[10px]">
+                            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-[10px]">
                                 <div class="flex items-center gap-2 min-w-0">
                                     <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[8px] font-bold">
                                         {blk.entity_type}
                                     </span>
-                                    <span class="font-bold text-white truncate">{blk.target_value}</span>
+                                    <span class="font-bold text-[var(--text-primary)] truncate">{blk.target_value}</span>
                                 </div>
                                 <button
                                     type="button"
@@ -1509,7 +1510,7 @@
                                             `REV_${blk.target_value}`,
                                             `Revoked Blacklist on ${blk.target_value} ✓`
                                         )}
-                                    class="text-[8px] font-bold uppercase text-[#18C6A5] hover:underline cursor-pointer shrink-0"
+                                    class="text-[8px] font-bold uppercase text-[var(--accent-text)] hover:underline cursor-pointer shrink-0"
                                 >
                                     [Revoke]
                                 </button>
@@ -1519,8 +1520,8 @@
                 </div>
 
                 <!-- Miner Command Center Impersonation & Closed Beta Whitelist -->
-                <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-                    <span class="text-xs font-black uppercase text-white">
+                <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
+                    <span class="text-xs font-black uppercase text-[var(--text-primary)]">
                         🔑 Miner Command Center Telemetry &amp; Whitelist
                     </span>
                     <div class="flex items-center gap-2">
@@ -1528,7 +1529,7 @@
                             type="text"
                             bind:value={impersonateWalletInput}
                             placeholder="Enter Miner Kaspa Address to Inspect..."
-                            class="flex-1 bg-[#11161f] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none"
+                            class="flex-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                         />
                         <button
                             type="button"
@@ -1543,13 +1544,13 @@
                             type="text"
                             bind:value={whitelistWalletInput}
                             placeholder="Whitelist Kaspa Address (kaspa:q...)"
-                            class="flex-1 bg-[#11161f] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none"
+                            class="flex-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                         />
                         <input
                             type="text"
                             bind:value={whitelistLabelInput}
                             placeholder="Label"
-                            class="w-32 bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                            class="w-32 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none"
                         />
                         <button
                             type="button"
@@ -1566,17 +1567,17 @@
                                 );
                                 whitelistWalletInput = '';
                             }}
-                            class="tactile-btn px-3 py-2 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border border-[#18C6A5]/45 cursor-pointer"
+                            class="tactile-btn px-3 py-2 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border border-[#18C6A5]/45 cursor-pointer"
                         >
                             [Whitelist]
                         </button>
                     </div>
                     <div class="flex flex-col gap-1.5 max-h-[160px] overflow-y-auto pt-1">
                         {#each adminData.commandCenters || [] as cc (cc.wallet_address)}
-                            <div class="bg-[#11161f] border border-white/5 rounded-lg px-3 py-1.5 flex items-center justify-between text-[9px]">
-                                <span class="text-neutral-300 truncate max-w-[260px]">{cc.wallet_address}</span>
+                            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-3 py-1.5 flex items-center justify-between text-[9px]">
+                                <span class="text-[var(--text-secondary)] truncate max-w-[260px]">{cc.wallet_address}</span>
                                 <div class="flex items-center gap-2">
-                                    <span class="text-neutral-500">
+                                    <span class="text-[var(--text-muted)]">
                                         {cc.worker_count || 0} rigs • {cc.sector_count || 0} silos
                                     </span>
                                     <button
@@ -1594,9 +1595,9 @@
             </div>
 
             <!-- Live PostgreSQL Table Matrix Inspector -->
-            <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
-                    <span class="text-xs font-black uppercase text-white">
+            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
+                    <span class="text-xs font-black uppercase text-[var(--text-primary)]">
                         🗄️ PostgreSQL Sovereign Table Inspector ({dbTableRows.length} rows)
                     </span>
                     <div class="flex items-center gap-2">
@@ -1607,7 +1608,7 @@
                                 inspectDatabaseTable(
                                     (e.currentTarget as HTMLSelectElement).value
                                 )}
-                            class="bg-[#11161f] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-[#18C6A5] font-bold outline-none"
+                            class="bg-[var(--bg-elevated)] border border-[var(--border-strong)] rounded-lg px-3 py-1.5 text-xs text-[var(--accent-text)] font-bold outline-none"
                         >
                             {#each adminData.allowedTables || [] as tbl}
                                 <option value={tbl}>{tbl}</option>
@@ -1616,19 +1617,19 @@
                         <button
                             type="button"
                             onclick={() => inspectDatabaseTable(selectedDbTable)}
-                            class="px-3 py-1.5 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
+                            class="px-3 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] font-bold uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                         >
                             {isLoadingTable ? 'Loading...' : 'Reload Table ↻'}
                         </button>
                     </div>
                 </div>
-                <div class="max-h-[340px] overflow-auto bg-[#11161f] rounded-xl p-3 border border-white/5 text-[10px]">
+                <div class="max-h-[340px] overflow-auto bg-[var(--bg-elevated)] rounded-xl p-3 border border-[var(--border-subtle)] text-[10px]">
                     {#if dbTableRows.length === 0}
-                        <div class="text-neutral-500 text-center py-6">
+                        <div class="text-[var(--text-muted)] text-center py-6">
                             No rows in `{selectedDbTable}`.
                         </div>
                     {:else}
-                        <pre class="text-[9px] text-neutral-300 whitespace-pre-wrap break-all">{JSON.stringify(dbTableRows.slice(0, 25), null, 2)}</pre>
+                        <pre class="text-[9px] text-[var(--text-secondary)] whitespace-pre-wrap break-all">{JSON.stringify(dbTableRows.slice(0, 25), null, 2)}</pre>
                     {/if}
                 </div>
             </div>

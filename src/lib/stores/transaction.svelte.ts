@@ -54,7 +54,7 @@ class TransactionEngineState {
     error = $state('');
     get overlayClass() {
         return this.isBroadcasting
-            ? 'fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0d12]/95 font-mono text-white font-bold tracking-widest uppercase transition-none'
+            ? 'fixed inset-0 z-[9999] flex items-center justify-center bg-[var(--bg-overlay)] font-mono text-[var(--text-primary)] font-bold tracking-widest uppercase transition-none'
             : 'hidden';
     }
 }

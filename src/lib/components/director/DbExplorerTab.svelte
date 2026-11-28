@@ -80,12 +80,12 @@
     class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start"
     in:fade={{ duration: 150 }}
 >
-    <div class="lg:col-span-3 bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col gap-2 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-white/10 pb-2.5 px-1">
-            <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+    <div class="lg:col-span-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-4 flex flex-col gap-2 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5 px-1">
+            <span class="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                 PostgreSQL Schema
             </span>
-            <span class="text-[9px] font-mono text-neutral-400">
+            <span class="text-[9px] font-mono text-[var(--text-muted)]">
                 {CORE_TABLES.length} Tables
             </span>
         </div>
@@ -99,7 +99,7 @@
                         selectedTable = tbl;
                         onLoadTable(tbl);
                     }}
-                    class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-mono font-bold transition-colors cursor-pointer flex items-center justify-between border {isActive ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45' : 'bg-[#11161f]/60 text-neutral-300 hover:text-white border-white/5'}"
+                    class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-mono font-bold transition-colors cursor-pointer flex items-center justify-between border {isActive ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[#18C6A5]/45' : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'}"
                 >
                     <span class="truncate">{tbl}</span>
                     {#if isActive}
@@ -110,13 +110,13 @@
         </div>
     </div>
 
-    <div class="lg:col-span-9 bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl min-h-[580px]">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3.5">
+    <div class="lg:col-span-9 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl min-h-[580px]">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-3.5">
             <div class="flex items-center gap-2.5">
-                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-xs font-mono font-black text-[#18C6A5]">
+                <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-xs font-mono font-black text-[var(--accent-text)]">
                     public.{selectedTable}
                 </span>
-                <span class="text-[10px] font-mono text-neutral-400">
+                <span class="text-[10px] font-mono text-[var(--text-muted)]">
                     {filteredRows.length} Row{filteredRows.length === 1 ? '' : 's'}
                 </span>
             </div>
@@ -125,13 +125,13 @@
                     type="text"
                     bind:value={tableSearchFilter}
                     placeholder="Filter rows by wallet, txid, ticker..."
-                    class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-1.5 text-xs font-mono text-white outline-none w-64"
+                    class="bg-[var(--bg-elevated)] border border-[var(--border-strong)] rounded-xl px-3.5 py-1.5 text-xs font-mono text-[var(--text-primary)] outline-none w-64"
                 />
                 <button
                     type="button"
                     onclick={() => onLoadTable(selectedTable)}
                     disabled={isLoadingTable}
-                    class="tactile-btn px-3.5 py-1.5 rounded-xl text-[10px] font-mono font-bold uppercase text-neutral-200 hover:text-white cursor-pointer"
+                    class="tactile-btn px-3.5 py-1.5 rounded-xl text-[10px] font-mono font-bold uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
                     {isLoadingTable ? 'Querying...' : 'Refresh ↻'}
                 </button>
@@ -139,30 +139,30 @@
         </div>
 
         {#if isLoadingTable}
-            <div class="flex-1 flex items-center justify-center text-xs font-mono text-[#18C6A5] animate-pulse uppercase tracking-widest">
+            <div class="flex-1 flex items-center justify-center text-xs font-mono text-[var(--accent-text)] animate-pulse uppercase tracking-widest">
                 Querying PostgreSQL Table public.{selectedTable}...
             </div>
         {:else if filteredRows.length === 0}
-            <div class="flex-1 flex items-center justify-center text-xs font-mono text-neutral-500 uppercase tracking-widest border border-dashed border-white/10 rounded-2xl">
+            <div class="flex-1 flex items-center justify-center text-xs font-mono text-[var(--text-muted)] uppercase tracking-widest border border-dashed border-[var(--border-subtle)] rounded-2xl">
                 0 matching rows in public.{selectedTable}
             </div>
         {:else}
-            <div class="overflow-x-auto max-h-[500px] border border-white/10 rounded-2xl bg-[#11161f]/40">
+            <div class="overflow-x-auto max-h-[500px] border border-[var(--border-subtle)] rounded-2xl bg-[var(--bg-elevated)]">
                 <table class="w-full text-left border-collapse text-[11px] font-mono">
-                    <thead class="sticky top-0 bg-[#11161f] border-b border-white/10 z-10">
+                    <thead class="sticky top-0 bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)] z-10">
                         <tr>
                             {#each columnKeys as col (col)}
-                                <th class="py-2.5 px-3 text-[9px] font-black uppercase tracking-wider text-neutral-400 whitespace-nowrap">
+                                <th class="py-2.5 px-3 text-[9px] font-black uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
                                     {col}
                                 </th>
                             {/each}
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5">
+                    <tbody class="divide-y divide-[var(--border-subtle)]">
                         {#each filteredRows as row, rIdx (rIdx)}
-                            <tr class="hover:bg-[#161d29]/70 transition-colors">
+                            <tr class="hover:bg-[var(--bg-hover)] transition-colors">
                                 {#each columnKeys as col (col)}
-                                    <td class="py-2.5 px-3 text-neutral-200 max-w-[260px] truncate" title={formatCellValue(row[col])}>
+                                    <td class="py-2.5 px-3 text-[var(--text-secondary)] max-w-[260px] truncate" title={formatCellValue(row[col])}>
                                         {formatCellValue(row[col])}
                                     </td>
                                 {/each}

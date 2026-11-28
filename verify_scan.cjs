@@ -22,6 +22,9 @@ function walkFiles(dir) {
 const retiredActionPattern =
     /\b(CLAIM_PENDING_SECTOR_KAS|STAKE_LP|WITHDRAW_LP|STAKE_SILO|CLAIM_UNSTAKED_SILO|SWEEP_TOKEN_TO_COLD_VAULT_NOW|SWEEP_TO_COLD_VAULT_NOW|WITHDRAW_SYNTHETIC_ASSET|DISPATCH_L1_PAYOUT|DISPATCH_OTC_UTXOS)\b/;
 
+const hardcodedDarkHexPattern =
+    /#(?:06080b|070b0e|080b10|0a0d12|0a1815|0b0e14|0c1017|0d1117|11161f|141923|161b22|161d29|1a080a)\b|\bbg-(?:black|slate-950|zinc-950|neutral-950|gray-950|red-950|amber-950|teal-950)(?:\/[0-9]+)?\b|rgba\((?:0,\s*0,\s*0,\s*0\.(?:7|8|9)|5,\s*7,\s*11|6,\s*8,\s*11|10,\s*13,\s*18)/i;
+
 const lfCheckedFiles = [
     'src/routes/api/state/+server.ts',
     'src/routes/+layout.svelte',
@@ -62,6 +65,9 @@ for (const abs of srcFiles) {
     }
     if (rel !== 'src/lib/crypto/atomicMath.ts' && retiredActionPattern.test(src)) {
         violations.push(`${rel}: references retired custodial 422 action`);
+    }
+    if (rel !== 'src/app.css' && hardcodedDarkHexPattern.test(src)) {
+        violations.push(`${rel}: contains hardcoded dark hex or dark surface class (Light Mode ban)`);
     }
 }
 

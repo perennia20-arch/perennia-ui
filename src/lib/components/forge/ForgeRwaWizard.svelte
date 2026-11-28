@@ -2,6 +2,7 @@
     import { fade } from 'svelte/transition';
     import { browser } from '$app/environment';
     import { identity } from '$lib/stores/identity.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { DEFAULT_RWA_INDEX_TICKER } from '$lib/stores/treasury.svelte';
 
     let {
@@ -326,7 +327,7 @@
 </script>
 
 <div class="flex flex-col gap-6" data-testid="rwa-wizard-card" in:fade={{ duration: 150 }}>
-    <div class="bg-[#0a0d12] border border-white/10 rounded-2xl p-5 flex items-center justify-between relative overflow-hidden">
+    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-5 flex items-center justify-between relative overflow-hidden">
         {#each [1, 2, 3, 4] as step}
             <button
                 type="button"
@@ -336,12 +337,12 @@
                 class="flex items-center gap-3 cursor-pointer z-10 bg-transparent border-none"
             >
                 <div
-                    class="w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs transition-all border {currentStep >= step ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/50' : 'bg-[#11161f] text-neutral-500 border-white/10'}"
+                    class="w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs transition-all border {currentStep >= step ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[#18C6A5]/50' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border-[var(--border-subtle)]'}"
                 >
                     0{step}
                 </div>
                 <span
-                    class="text-[10px] uppercase tracking-widest font-bold hidden sm:inline {currentStep >= step ? 'text-white' : 'text-neutral-500'}"
+                    class="text-[10px] uppercase tracking-widest font-bold hidden sm:inline {currentStep >= step ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}"
                 >
                     {step === 1
                         ? 'Classification'
@@ -356,16 +357,16 @@
     </div>
 
     <div
-        class="bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-6 min-h-[480px]"
+        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-6 min-h-[480px]"
         style="background-image: radial-gradient(ellipse at top right, rgba(245, 158, 11, 0.08), transparent 65%);"
     >
         {#if currentStep === 1}
             <div class="flex flex-col gap-5 flex-1">
                 <div>
-                    <h2 class="text-base font-black text-white uppercase tracking-widest">
+                    <h2 class="text-base font-black text-[var(--text-primary)] uppercase tracking-widest">
                         Step 01 • Initialize RWA Asset Manifest
                     </h2>
-                    <p class="text-[10px] text-neutral-400 uppercase tracking-widest mt-1">
+                    <p class="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">
                         Select one of 12 institutional asset classes and define its master title.
                     </p>
                 </div>
@@ -375,7 +376,7 @@
                     data-testid="rwa-asset-name-input"
                     bind:value={assetName}
                     placeholder="Asset Master Title (e.g. Richardson Solar Microgrid Series A)"
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 rounded-xl outline-none transition-colors text-xs font-mono font-bold"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 text-[var(--text-primary)] p-3.5 rounded-xl outline-none transition-colors text-xs font-mono font-bold"
                 />
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     {#each assetRegistry as cls}
@@ -383,14 +384,14 @@
                             type="button"
                             data-testid="rwa-class-{cls.id}"
                             onclick={() => (assetClass = cls.id)}
-                            class="tactile-card p-4 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2 {assetClass === cls.id ? 'bg-[#161d29] border-[#18C6A5]/55' : 'bg-[#11161f] border-white/10 hover:border-white/20'}"
+                            class="tactile-card p-4 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2 {assetClass === cls.id ? 'bg-[var(--bg-hover)] border-[#18C6A5]/55' : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]'}"
                         >
                             <div class="text-2xl">{cls.icon}</div>
                             <div>
-                                <p class="text-white font-bold tracking-wide text-xs mb-1">
+                                <p class="text-[var(--text-primary)] font-bold tracking-wide text-xs mb-1">
                                     {cls.name}
                                 </p>
-                                <p class="text-neutral-400 text-[9px] uppercase tracking-wider leading-relaxed">
+                                <p class="text-[var(--text-muted)] text-[9px] uppercase tracking-wider leading-relaxed">
                                     {cls.desc}
                                 </p>
                             </div>
@@ -401,10 +402,10 @@
         {:else if currentStep === 2}
             <div class="flex flex-col gap-5 flex-1">
                 <div>
-                    <h2 class="text-base font-black text-white uppercase tracking-widest">
+                    <h2 class="text-base font-black text-[var(--text-primary)] uppercase tracking-widest">
                         Step 02 • Asset Telemetry &amp; On-Chain Metadata
                     </h2>
-                    <p class="text-[10px] text-neutral-400 uppercase tracking-widest mt-1">
+                    <p class="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">
                         Bind physical or corporate parameters to the LexCryptographic manifest.
                     </p>
                 </div>
@@ -413,7 +414,7 @@
                         <div class="flex flex-col gap-1.5">
                             <label
                                 for={field.id}
-                                class="text-[10px] text-[#18C6A5] tracking-widest uppercase font-bold"
+                                class="text-[10px] text-[var(--accent-text)] tracking-widest uppercase font-bold"
                             >
                                 {field.label}
                             </label>
@@ -422,7 +423,7 @@
                                 id={field.id}
                                 placeholder={field.placeholder}
                                 bind:value={metadata[field.id]}
-                                class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 rounded-xl outline-none text-xs font-mono"
+                                class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 text-[var(--text-primary)] p-3.5 rounded-xl outline-none text-xs font-mono"
                             />
                         </div>
                     {/each}
@@ -432,10 +433,10 @@
             <div class="flex flex-col gap-5 flex-1">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                        <h2 class="text-base font-black text-white uppercase tracking-widest">
+                        <h2 class="text-base font-black text-[var(--text-primary)] uppercase tracking-widest">
                             Step 03 • LexCryptographic Bridge (Client-Side WebCrypto SHA-256)
                         </h2>
-                        <p class="text-[10px] text-neutral-400 uppercase tracking-widest mt-1">
+                        <p class="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">
                             Drop supporting legal PDFs or generate a self-attested SHA-256 manifest digest locally in your browser.
                         </p>
                     </div>
@@ -443,7 +444,7 @@
                         type="button"
                         data-testid="rwa-auto-hash-btn"
                         onclick={generateSelfAttestedComplianceDigest}
-                        class="tactile-btn px-4 py-2.5 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase tracking-widest cursor-pointer"
+                        class="tactile-btn px-4 py-2.5 rounded-xl border-[#18C6A5]/40 text-[var(--accent-text)] text-[9px] font-black uppercase tracking-widest cursor-pointer"
                     >
                         [⚡ Auto-Hash Manifest &amp; E-Sign]
                     </button>
@@ -452,7 +453,7 @@
                     <div
                         role="button"
                         tabindex="0"
-                        class="border-2 border-dashed min-h-[240px] {filesDropped ? 'border-[#18C6A5]/60 bg-[#11161f]' : 'border-white/15 bg-[#11161f]/60'} rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-colors cursor-pointer hover:border-[#18C6A5]/50"
+                        class="border-2 border-dashed min-h-[240px] {filesDropped ? 'border-[#18C6A5]/60 bg-[var(--bg-elevated)]' : 'border-[var(--border-strong)] bg-[var(--bg-elevated)]'} rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-colors cursor-pointer hover:border-[#18C6A5]/50"
                         onclick={() => fileInputRef?.click()}
                         onkeydown={(e: KeyboardEvent) =>
                             (e.key === 'Enter' || e.key === ' ') && fileInputRef?.click()}
@@ -466,68 +467,68 @@
                             class="hidden"
                             onchange={handleFileInputChange}
                         />
-                        <div class="w-10 h-10 rounded-xl bg-[#0a0d12] border border-white/10 flex items-center justify-center mb-3 text-neutral-300">
+                        <div class="w-10 h-10 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] flex items-center justify-center mb-3 text-[var(--text-secondary)]">
                             📄
                         </div>
                         {#if isHashingFiles}
-                            <p class="text-[#18C6A5] font-bold uppercase tracking-widest text-xs animate-pulse">
+                            <p class="text-[var(--accent-text)] font-bold uppercase tracking-widest text-xs animate-pulse">
                                 Computing Local SHA-256 Digest...
                             </p>
                         {:else if filesDropped && complianceAttestationHash}
-                            <p class="text-[#18C6A5] font-bold uppercase tracking-widest text-xs mb-2">
+                            <p class="text-[var(--accent-text)] font-bold uppercase tracking-widest text-xs mb-2">
                                 ✓ Payload Secured &amp; Hashed Locally
                             </p>
-                            <div class="w-full bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl p-3 mb-3 text-left">
-                                <span class="text-[8px] text-[#18C6A5] uppercase tracking-widest font-bold block mb-1">
+                            <div class="w-full bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-xl p-3 mb-3 text-left">
+                                <span class="text-[8px] text-[var(--accent-text)] uppercase tracking-widest font-bold block mb-1">
                                     Master SHA-256 Attestation Digest
                                 </span>
                                 <span
                                     data-testid="rwa-sha256-digest"
-                                    class="text-[10px] font-mono text-white break-all select-all"
+                                    class="text-[10px] font-mono text-[var(--text-primary)] break-all select-all"
                                 >
                                     {complianceAttestationHash}
                                 </span>
                             </div>
                             <div class="flex flex-col gap-1.5 w-full max-h-[110px] overflow-y-auto hide-scrollbar">
                                 {#each uploadedFiles as f}
-                                    <div class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 flex flex-col text-left">
-                                        <span class="text-[9px] text-neutral-200 font-bold truncate">
+                                    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 flex flex-col text-left">
+                                        <span class="text-[9px] text-[var(--text-secondary)] font-bold truncate">
                                             ✓ {f.name}
                                         </span>
-                                        <span class="text-[8px] font-mono text-neutral-400 truncate">
+                                        <span class="text-[8px] font-mono text-[var(--text-muted)] truncate">
                                             SHA-256: {f.sha256}
                                         </span>
                                     </div>
                                 {/each}
                             </div>
                         {:else}
-                            <p class="text-white font-bold tracking-wide text-xs mb-1">
+                            <p class="text-[var(--text-primary)] font-bold tracking-wide text-xs mb-1">
                                 Click or Drop Legal Compliance Documents
                             </p>
-                            <p class="text-[9px] text-neutral-400 uppercase tracking-widest mb-3">
+                            <p class="text-[9px] text-[var(--text-muted)] uppercase tracking-widest mb-3">
                                 100% Client-Side WebCrypto SHA-256 Attestation
                             </p>
                             <div class="flex flex-col gap-1 w-full max-w-[260px] mx-auto">
                                 {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.upload || [] as doc}
-                                    <span class="text-[9px] text-neutral-300 uppercase tracking-wider bg-[#0a0d12] border border-white/10 px-2.5 py-1 rounded-lg">
+                                    <span class="text-[9px] text-[var(--text-secondary)] uppercase tracking-wider bg-[var(--bg-card)] border border-[var(--border-subtle)] px-2.5 py-1 rounded-lg">
                                         • {doc}
                                     </span>
                                 {/each}
                             </div>
                         {/if}
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-6 flex flex-col justify-between min-h-[240px]">
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-6 flex flex-col justify-between min-h-[240px]">
                         <div>
-                            <h3 class="text-[10px] text-[#18C6A5] tracking-widest uppercase font-bold mb-4">
+                            <h3 class="text-[10px] text-[var(--accent-text)] tracking-widest uppercase font-bold mb-4">
                                 Auto-Generated Smart Framework
                             </h3>
                             <div class="flex flex-col gap-2">
                                 {#each legalRequirements[assetClass as keyof typeof legalRequirements]?.esign || [] as edoc}
-                                    <div class="flex items-center justify-between bg-[#0a0d12] p-3 rounded-xl border border-white/10">
-                                        <span class="text-[10px] text-neutral-200 font-mono truncate mr-2">
+                                    <div class="flex items-center justify-between bg-[var(--bg-card)] p-3 rounded-xl border border-[var(--border-subtle)]">
+                                        <span class="text-[10px] text-[var(--text-secondary)] font-mono truncate mr-2">
                                             {edoc.replace(/ /g, '_')}.pdf
                                         </span>
-                                        <span class="text-[8px] text-[#18C6A5] uppercase tracking-widest shrink-0 border border-[#18C6A5]/35 bg-[#11161f] px-2 py-0.5 rounded">
+                                        <span class="text-[8px] text-[var(--accent-text)] uppercase tracking-widest shrink-0 border border-[#18C6A5]/35 bg-[var(--bg-elevated)] px-2 py-0.5 rounded">
                                             Generated
                                         </span>
                                     </div>
@@ -538,7 +539,7 @@
                             type="button"
                             data-testid="rwa-esign-btn"
                             onclick={() => (esignComplete = true)}
-                            class="tactile-btn w-full mt-4 py-3.5 rounded-xl text-[10px] font-black tracking-widest uppercase cursor-pointer {esignComplete ? 'text-[#18C6A5] border-[#18C6A5]/50' : 'text-white border-white/15'}"
+                            class="tactile-btn w-full mt-4 py-3.5 rounded-xl text-[10px] font-black tracking-widest uppercase cursor-pointer {esignComplete ? 'text-[var(--accent-text)] border-[#18C6A5]/50' : 'text-[var(--text-primary)] border-[var(--border-strong)]'}"
                         >
                             {esignComplete
                                 ? '✓ Cryptographically E-Signed'
@@ -550,19 +551,19 @@
         {:else if currentStep === 4}
             <div class="flex flex-col gap-5 flex-1">
                 <div>
-                    <h2 class="text-base font-black text-white uppercase tracking-widest">
+                    <h2 class="text-base font-black text-[var(--text-primary)] uppercase tracking-widest">
                         Step 04 • Fractionalization Matrix &amp; Revenue Auto-Burn Sink
                     </h2>
-                    <p class="text-[10px] text-neutral-400 uppercase tracking-widest mt-1">
+                    <p class="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">
                         Configure total valuation, fractional KRC-20 supply, ticker symbol, and 22:00 UTC revenue buyback-and-burn rate.
                     </p>
                 </div>
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-6 flex flex-col gap-6">
+                <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-6 flex flex-col gap-6">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
                         <div class="flex flex-col gap-1.5">
                             <label
                                 for="rwaValuation"
-                                class="text-[10px] text-[#18C6A5] uppercase tracking-widest font-bold"
+                                class="text-[10px] text-[var(--accent-text)] uppercase tracking-widest font-bold"
                             >
                                 Total Asset Valuation (USD)
                             </label>
@@ -570,13 +571,13 @@
                                 id="rwaValuation"
                                 type="number"
                                 bind:value={assetValuation}
-                                class="w-full bg-[#0a0d12] border border-white/10 text-white p-3.5 rounded-xl outline-none font-mono text-sm font-bold"
+                                class="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] p-3.5 rounded-xl outline-none font-mono text-sm font-bold"
                             />
                         </div>
                         <div class="flex flex-col gap-1.5">
                             <label
                                 for="rwaSupply"
-                                class="text-[10px] text-[#18C6A5] uppercase tracking-widest font-bold"
+                                class="text-[10px] text-[var(--accent-text)] uppercase tracking-widest font-bold"
                             >
                                 Total Fractional Token Supply
                             </label>
@@ -585,7 +586,7 @@
                                 type="number"
                                 min="1"
                                 bind:value={tokenSupply}
-                                class="w-full bg-[#0a0d12] border border-white/10 text-white p-3.5 rounded-xl outline-none font-mono text-sm font-bold"
+                                class="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] p-3.5 rounded-xl outline-none font-mono text-sm font-bold"
                             />
                         </div>
                         <div class="flex flex-col gap-1.5">
@@ -601,26 +602,23 @@
                                 min="0"
                                 max="1000"
                                 bind:value={rwaRevenueBurnBps}
-                                class="w-full bg-[#0a0d12] border border-white/10 text-amber-400 p-3.5 rounded-xl outline-none font-mono text-sm font-bold"
+                                class="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] text-amber-400 p-3.5 rounded-xl outline-none font-mono text-sm font-bold"
                             />
                         </div>
                     </div>
-                    <div class="border-t border-white/10 pt-5 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+                    <div class="border-t border-[var(--border-subtle)] pt-5 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                         <div>
-                            <p class="text-[9px] text-neutral-400 uppercase tracking-widest font-bold mb-1">
+                            <p class="text-[9px] text-[var(--text-muted)] uppercase tracking-widest font-bold mb-1">
                                 Derived Par Value Per Token
                             </p>
-                            <p class="text-2xl font-black text-white tabular-nums">
-                                ${pricePerToken.toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 4
-                                })}
+                            <p class="text-2xl font-black text-[var(--text-primary)] tabular-nums">
+                                {i18n.formatFiat(pricePerToken, { decimals: 4 })}
                             </p>
                         </div>
                         <div class="flex flex-col gap-1">
                             <label
                                 for="rwaTickerInput"
-                                class="text-[9px] text-[#18C6A5] uppercase tracking-widest font-bold"
+                                class="text-[9px] text-[var(--accent-text)] uppercase tracking-widest font-bold"
                             >
                                 RWA Ticker Symbol (4–6 Letters)
                             </label>
@@ -634,16 +632,16 @@
                                     tokenTicker = tokenTicker.toUpperCase().replace(/[^A-Z]/g, '');
                                 }}
                                 placeholder="PERX"
-                                class="w-40 bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 text-white font-mono text-base font-black px-4 py-2 rounded-xl uppercase text-center outline-none"
+                                class="w-40 bg-[var(--bg-card)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 text-[var(--text-primary)] font-mono text-base font-black px-4 py-2 rounded-xl uppercase text-center outline-none"
                             />
                         </div>
                     </div>
                     {#if complianceAttestationHash}
-                        <div class="border-t border-white/10 pt-4 flex flex-col gap-1">
-                            <span class="text-[9px] text-[#18C6A5] uppercase tracking-widest font-bold">
+                        <div class="border-t border-[var(--border-subtle)] pt-4 flex flex-col gap-1">
+                            <span class="text-[9px] text-[var(--accent-text)] uppercase tracking-widest font-bold">
                                 Bound LexCryptographic SHA-256 Digest
                             </span>
-                            <span class="text-[10px] font-mono text-neutral-300 break-all">
+                            <span class="text-[10px] font-mono text-[var(--text-secondary)] break-all">
                                 {complianceAttestationHash}
                             </span>
                         </div>
@@ -652,11 +650,11 @@
             </div>
         {/if}
 
-        <div class="mt-auto pt-4 border-t border-white/10 flex justify-between items-center">
+        <div class="mt-auto pt-4 border-t border-[var(--border-subtle)] flex justify-between items-center">
             <button
                 type="button"
                 onclick={prevStep}
-                class="tactile-btn px-6 py-3 rounded-xl text-neutral-300 hover:text-white text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+                class="tactile-btn px-6 py-3 rounded-xl text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-widest cursor-pointer"
                 style="visibility: {currentStep === 1 ? 'hidden' : 'visible'}"
             >
                 ← Go Back
@@ -667,7 +665,7 @@
                     data-testid="rwa-next-step-btn"
                     onclick={nextStep}
                     disabled={currentStep === 1 && (!assetName || !assetClass)}
-                    class="tactile-btn px-8 py-3 rounded-xl border-[#18C6A5]/45 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                    class="tactile-btn px-8 py-3 rounded-xl border-[#18C6A5]/45 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                 >
                     Continue →
                 </button>
@@ -677,7 +675,7 @@
                     data-testid="rwa-ignite-forge-btn"
                     onclick={triggerIgniteRwaForge}
                     disabled={isForging || !esignComplete}
-                    class="tactile-btn px-8 py-3.5 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                    class="tactile-btn px-8 py-3.5 rounded-xl border-[#18C6A5]/50 text-[var(--accent-text)] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
                 >
                     {isForging

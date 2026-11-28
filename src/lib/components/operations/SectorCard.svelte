@@ -3,6 +3,7 @@
     import { operations } from '$lib/stores/operations.svelte';
     import { ui } from '$lib/stores/ui.svelte';
     import { pwa } from '$lib/stores/pwa.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
     import {
         getChainExplorerAddressUrl,
@@ -537,12 +538,12 @@
     ondragover={(e) => onDragOver(e, sector.id)}
     ondragleave={onDragLeave}
     ondrop={(e) => onDrop(e, sector.id)}
-    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[#0c1017] rounded-xl px-3 py-2 flex flex-col gap-1.5 relative {isEditing ? 'cursor-default' : 'cursor-pointer'} min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02]' : ''}"
-    style="border: 1px solid {isEditing ? `${hex}75` : 'rgba(255,255,255,0.08)'}; box-shadow: none;"
+    class="tactile-card {shimmerTargetId === `sector_${sector.id}` ? 'shimmer-flash' : ''} sector-card-compact bg-[var(--bg-card)] rounded-xl px-3 py-2 flex flex-col gap-1.5 relative {isEditing ? 'cursor-default' : 'cursor-pointer'} min-w-0 overflow-hidden {spanClass} {isDragged ? 'opacity-50 scale-95' : ''} {isDropTarget ? 'scale-[1.02]' : ''}"
+    style="border: 1px solid {isEditing ? `${hex}75` : 'var(--border-subtle)'}; box-shadow: none;"
 >
     {#if activeBadge}
         <div
-            class="micro-confirm-badge absolute top-2.5 left-1/2 -translate-x-1/2 z-40 px-3 py-1 rounded-lg bg-[#11161f] border text-[10px] font-mono font-black uppercase tracking-widest"
+            class="micro-confirm-badge absolute top-2.5 left-1/2 -translate-x-1/2 z-40 px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border text-[10px] font-mono font-black uppercase tracking-widest"
             style="border-color: {activeBadge.accentHex}60; color: {activeBadge.accentHex};"
         >
             {activeBadge.label}
@@ -566,7 +567,7 @@
                         </span>
                         <span
                             data-testid="pair-status-queued-{sector.id}"
-                            class="px-1.5 py-0.5 rounded bg-[#11161f] border border-amber-500/40 text-[9px] font-bold uppercase text-amber-300"
+                            class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-amber-500/40 text-[9px] font-bold uppercase text-amber-300"
                         >
                             QUEUED
                         </span>
@@ -578,7 +579,7 @@
                             onCancelOrWithdrawPair
                                 ? onCancelOrWithdrawPair(sector, 'cancel')
                                 : onDeleteSector(sector.id)}
-                        class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/15 hover:border-red-400/50 text-[9px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer shrink-0"
+                        class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/15 hover:border-red-400/50 text-[9px] font-black uppercase text-neutral-300 hover:text-red-300 cursor-pointer shrink-0"
                     >
                         CANCEL
                     </button>
@@ -613,7 +614,7 @@
                     class="flex items-center gap-1.5 pt-1 border-t border-white/[0.05] min-w-0 w-full font-mono font-bold"
                     role="group"
                 >
-                    <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+                    <div class="flex items-center bg-[var(--bg-input)] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
                         <input
                             type="number"
                             value={allocationPctDisplay}
@@ -632,9 +633,9 @@
                         oninput={(e) => onSliderInput(sector.id, e)}
                         onchange={() => onSliderChange(sector.id)}
                         class="sector-slim-range flex-1 min-w-[48px] touch-pan-y cursor-pointer"
-                        style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) 100%);"
+                        style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100, Math.max(0, allocationPctNumeric))}%,var(--border-subtle) {Math.min(100, Math.max(0, allocationPctNumeric))}%,var(--border-subtle) 100%);"
                     />
-                    <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+                    <div class="flex items-center gap-0.5 bg-[var(--bg-input)] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
                         <input
                             type="number"
                             value={_num(mappedHash).toFixed(2)}
@@ -650,7 +651,7 @@
                         type="button"
                         data-testid="pair-fund-btn-{sector.id}"
                         onclick={() => onFundPair?.(sector)}
-                        class="flex-1 py-1.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase cursor-pointer"
+                        class="flex-1 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-black uppercase cursor-pointer"
                     >
                         FUND
                     </button>
@@ -661,7 +662,7 @@
                             onCancelOrWithdrawPair
                                 ? onCancelOrWithdrawPair(sector, 'withdraw')
                                 : onDeleteSector(sector.id)}
-                        class="flex-1 py-1.5 rounded-lg bg-[#11161f] border border-white/15 text-neutral-300 hover:text-white text-[10px] font-black uppercase cursor-pointer"
+                        class="flex-1 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-white/15 text-neutral-300 hover:text-white text-[10px] font-black uppercase cursor-pointer"
                     >
                         WITHDRAW
                     </button>
@@ -709,7 +710,7 @@
                     e.stopPropagation();
                     isEditing ? cancelInlineEditor() : openInlineEditor('closed');
                 }}
-                class="cursor-pointer w-5 h-5 flex items-center justify-center border rounded-md text-[10px] transition-colors {isEditing ? 'bg-[#161d29] border-[#18C6A5]/60 text-[#18C6A5]' : 'bg-white/[0.03] border-white/10 text-neutral-400 hover:text-white'}"
+                class="cursor-pointer w-5 h-5 flex items-center justify-center border rounded-md text-[10px] transition-colors {isEditing ? 'bg-[var(--bg-hover)] border-[#18C6A5]/60 text-[#18C6A5]' : 'bg-white/[0.03] border-white/10 text-neutral-400 hover:text-white'}"
             >
                 {isEditing ? '▴' : '⚙'}
             </button>
@@ -742,7 +743,7 @@
                 <div class="flex -space-x-1.5 shrink-0 mt-0.5">
                     {#each plantTargets as pt (pt.ticker)}
                         <div
-                            class="w-4 h-4 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[7px] font-black"
+                            class="w-4 h-4 rounded-full border border-white/15 bg-[var(--bg-input)] flex items-center justify-center text-[7px] font-black"
                             style="color:{pt.theme?.hex || '#18C6A5'};"
                         >
                             {pt.ticker[0]}
@@ -751,7 +752,7 @@
                 </div>
             {:else}
                 <div
-                    class="w-4 h-4 mt-0.5 rounded-full border border-white/15 bg-[#080b10] flex items-center justify-center text-[8px] font-black overflow-hidden shrink-0"
+                    class="w-4 h-4 mt-0.5 rounded-full border border-white/15 bg-[var(--bg-input)] flex items-center justify-center text-[8px] font-black overflow-hidden shrink-0"
                     style="color:{hex};"
                 >
                     {#if sector.settlementConfig?.targetAsset?.imgUrl}
@@ -771,7 +772,7 @@
             <div class="flex flex-col min-w-0">
                 <span
                     class="text-[11px] font-mono font-bold tracking-wide truncate group-hover:underline"
-                    style="color:{isLp ? '#e5e7eb' : hex};"
+                    style="color:{isLp ? 'var(--text-primary)' : hex};"
                 >
                     {isLp ? plantPairLabel : isUsdSilo ? 'USD' : targetTicker} ▾
                 </span>
@@ -809,9 +810,9 @@
                       ? `${sector.settlementConfig?.threshold || DEFAULT_RESERVE_PAYOUT_KAS} KAS`
                       : sector.settlementConfig?.mode || 'epoch'}
             </span>
-            <span class="text-[9px] text-neutral-400 tabular-nums whitespace-nowrap">
+            <span class="text-[9px] text-[var(--text-muted)] tabular-nums whitespace-nowrap">
                 ~{_num(dailyKas).toFixed(1)} KAS/d{#if !livePricingUnavailable}
-                    {' '}<span class="text-[#18C6A5]">(${_num(dailyUsd).toFixed(2)}/d)</span>
+                    {' '}<span class="text-[var(--accent-text)]">({i18n.formatFiat(_num(dailyUsd))}/d)</span>
                 {/if}
             </span>
         </div>
@@ -830,7 +831,7 @@
         onkeydown={(e) => e.stopPropagation()}
         role="group"
     >
-        <div class="flex items-center bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+        <div class="flex items-center bg-[var(--bg-input)] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
             <input
                 type="number"
                 value={allocationPctDisplay}
@@ -863,7 +864,7 @@
             style="--shex:{hex};background:linear-gradient(to right,{hex} 0%,{hex} {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) {Math.min(100, Math.max(0, allocationPctNumeric))}%,rgba(255,255,255,0.08) 100%);"
         />
 
-        <div class="flex items-center gap-0.5 bg-[#080b10] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
+        <div class="flex items-center gap-0.5 bg-[var(--bg-input)] border border-white/[0.08] rounded px-1.5 py-0 h-[19px] shrink-0">
             <input
                 type="number"
                 value={_num(mappedHash).toFixed(2)}
@@ -903,7 +904,7 @@
                         type="text"
                         bind:value={draftName}
                         spellcheck="false"
-                        class="w-full bg-[#06080b] border border-white/12 focus:border-[#18C6A5] rounded-lg px-2.5 py-2 text-[11px] font-bold text-white uppercase tracking-wider outline-none"
+                        class="w-full bg-[var(--bg-canvas)] border border-white/12 focus:border-[#18C6A5] rounded-lg px-2.5 py-2 text-[11px] font-bold text-white uppercase tracking-wider outline-none"
                     />
                 </div>
 
@@ -919,7 +920,7 @@
                         type="text"
                         bind:value={draftPayoutAddr}
                         spellcheck="false"
-                        class="w-full bg-[#06080b] border border-white/12 focus:border-amber-500/60 rounded-lg px-2.5 py-2 text-[10px] text-amber-400 outline-none"
+                        class="w-full bg-[var(--bg-canvas)] border border-white/12 focus:border-amber-500/60 rounded-lg px-2.5 py-2 text-[10px] text-amber-400 outline-none"
                     />
                 </div>
             </div>
@@ -931,11 +932,11 @@
                         onclick={() =>
                             (pickerMode =
                                 pickerMode === 'replace_primary' ? 'closed' : 'replace_primary')}
-                        class="flex-1 bg-[#11161f] hover:bg-[#161d29] border border-white/12 hover:border-[#18C6A5]/50 rounded-lg px-3 py-2 flex items-center justify-between gap-2 cursor-pointer"
+                        class="flex-1 bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-white/12 hover:border-[#18C6A5]/50 rounded-lg px-3 py-2 flex items-center justify-between gap-2 cursor-pointer"
                     >
                         <div class="flex items-center gap-2 min-w-0">
                             <span
-                                class="w-5 h-5 rounded-full bg-[#06080b] border border-white/15 flex items-center justify-center text-[9px] font-black shrink-0"
+                                class="w-5 h-5 rounded-full bg-[var(--bg-canvas)] border border-white/15 flex items-center justify-center text-[9px] font-black shrink-0"
                                 style="color:{draftPrimaryAsset.theme?.hex || '#18C6A5'};"
                             >
                                 {draftPrimaryAsset.ticker === 'USD' ? '$' : draftPrimaryAsset.ticker[0]}
@@ -944,7 +945,7 @@
                                 {draftPrimaryAsset.ticker} — {draftPrimaryAsset.name}
                             </span>
                         </div>
-                        <span class="px-1.5 py-0.5 rounded bg-[#06080b] border border-white/10 text-[8px] font-bold uppercase text-neutral-400 shrink-0">
+                        <span class="px-1.5 py-0.5 rounded bg-[var(--bg-canvas)] border border-white/10 text-[8px] font-bold uppercase text-neutral-400 shrink-0">
                             {draftPrimaryAsset.assetClass} ▾
                         </span>
                     </button>
@@ -956,7 +957,7 @@
             {/if}
 
             {#if pickerMode !== 'closed'}
-                <div class="bg-[#06080b] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col gap-2">
+                <div class="bg-[var(--bg-canvas)] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col gap-2">
                     <div class="flex flex-wrap items-center gap-1.5">
                         <div class="relative flex-1 min-w-[170px] flex items-center">
                             <input
@@ -976,7 +977,7 @@
                                     }
                                 }}
                                 placeholder="SEARCH BTC, USDC, NVDA, NACHO, SILO..."
-                                class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5] rounded-lg pl-2.5 pr-7 py-1.5 text-[10px] text-white outline-none"
+                                class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5] rounded-lg pl-2.5 pr-7 py-1.5 text-[10px] text-white outline-none"
                             />
                             {#if pickerQuery}
                                 <button
@@ -1002,7 +1003,7 @@
                             <button
                                 type="button"
                                 onclick={() => (pickerCategory = cat.id as typeof pickerCategory)}
-                                class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[#11161f] text-neutral-400 hover:text-white border border-white/5'}"
+                                class="px-2 py-1 rounded-md text-[8px] font-black uppercase cursor-pointer {pickerCategory === cat.id ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/45' : 'bg-[var(--bg-elevated)] text-neutral-400 hover:text-white border border-white/5'}"
                             >
                                 {cat.label}
                             </button>
@@ -1038,7 +1039,7 @@
                                     discoveredInlineAssets = [];
                                     selectDraftAsset(asset);
                                 }}
-                                class="bg-[#11161f] hover:bg-[#161d29] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer"
+                                class="bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-white/8 hover:border-[#18C6A5]/50 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-left cursor-pointer"
                             >
                                 <div class="flex flex-col min-w-0">
                                     <span class="text-[10px] font-black text-white uppercase truncate">
@@ -1049,8 +1050,8 @@
                                     </span>
                                 </div>
                                 {#if !livePricingUnavailable && asset.spotPrice > 0}
-                                    <span class="text-[9px] font-bold text-[#18C6A5] tabular-nums shrink-0">
-                                        ${asset.spotPrice < 1 ? asset.spotPrice.toFixed(4) : asset.spotPrice.toFixed(2)}
+                                    <span class="text-[9px] font-bold text-[var(--accent-text)] tabular-nums shrink-0">
+                                        {i18n.formatSpotPrice(asset.spotPrice)}
                                     </span>
                                 {/if}
                             </button>
@@ -1063,18 +1064,18 @@
             <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <div class="flex flex-wrap items-center gap-2">
                     {#if !isDraftPlant && draftPrimaryAsset.ticker.toUpperCase() === 'KAS'}
-                        <div class="flex items-center gap-1 bg-[#06080b] border border-white/10 rounded-lg p-0.5">
+                        <div class="flex items-center gap-1 bg-[var(--bg-canvas)] border border-white/10 rounded-lg p-0.5">
                             <button
                                 type="button"
                                 onclick={() => (draftMode = 'epoch')}
-                                class="px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer {draftMode === 'epoch' ? 'bg-[#161d29] text-[#18C6A5]' : 'text-neutral-400'}"
+                                class="px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer {draftMode === 'epoch' ? 'bg-[var(--bg-hover)] text-[#18C6A5]' : 'text-neutral-400'}"
                             >
                                 22:00 UTC
                             </button>
                             <button
                                 type="button"
                                 onclick={() => (draftMode = 'threshold')}
-                                class="px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer {draftMode === 'threshold' ? 'bg-[#161d29] text-amber-400' : 'text-neutral-400'}"
+                                class="px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer {draftMode === 'threshold' ? 'bg-[var(--bg-hover)] text-amber-400' : 'text-neutral-400'}"
                             >
                                 {draftThreshold} KAS Min
                             </button>
@@ -1086,7 +1087,7 @@
                     <button
                         type="button"
                         onclick={cancelInlineEditor}
-                        class="px-3 py-1.5 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-bold uppercase tracking-wider text-neutral-400 hover:text-white cursor-pointer"
+                        class="px-3 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-white/10 text-[9px] font-bold uppercase tracking-wider text-neutral-400 hover:text-white cursor-pointer"
                     >
                         Cancel
                     </button>
@@ -1137,7 +1138,7 @@
         width: 11px !important;
         height: 11px !important;
         border-radius: 999px;
-        background: #0c1017;
+        background: var(--bg-card);
         border: 2px solid var(--shex, #18c6a5);
         cursor: pointer;
     }
@@ -1145,7 +1146,7 @@
         width: 11px;
         height: 11px;
         border-radius: 999px;
-        background: #0c1017;
+        background: var(--bg-card);
         border: 2px solid var(--shex, #18c6a5);
         cursor: pointer;
     }

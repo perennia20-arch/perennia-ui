@@ -4,12 +4,14 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
     import { getChainExplorerAddressUrl, getChainExplorerTxUrl } from '$lib/stores/transaction.svelte';
     import {
         LIVE_PRICING_UNAVAILABLE_MESSAGE,
         formatAtomicToDecimal,
         parseDecimalToAtomic,
+        safeFiniteNumber,
         type RegisterVaultLockPayload,
         type SettlementReceiptRecord,
         type VaultCancelPsktResponse,
@@ -284,12 +286,12 @@
         }
     }
 
-    let displayedWorkers = $derived(operations.workers || []);
+    let displayedWorkers = $derived(Array.isArray(operations.workers) ? operations.workers : []);
     let displayHashrate = $derived(
-        displayedWorkers.reduce((acc, w) => acc + (w.hashRate || 0), 0)
+        displayedWorkers.reduce((acc, w) => acc + safeFiniteNumber(w?.hashRate, 0), 0)
     );
     let totalShares = $derived(
-        displayedWorkers.reduce((acc, w) => acc + (w.sharesContributed || 0), 0)
+        displayedWorkers.reduce((acc, w) => acc + safeFiniteNumber(w?.sharesContributed, 0), 0)
     );
     let allocatedBps = $derived(computeTotalAllocatedBps(operations.sectors || []));
     let unallocatedBps = $derived(computeUnallocatedBps(operations.sectors || []));
@@ -638,12 +640,13 @@
             cfg.mode = 'epoch';
             cfg.payoutAddress = resolveChainAddressForTicker(primarySecondary.ticker);
         } else {
-            const single = normalized[0];
+            const single = normalized[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0);
+            const singleTick = String(single.ticker || 'KAS').toUpperCase();
             cfg.targetAsset = single;
-            cfg.plantWeights = { [single.ticker]: 100.0 };
-            cfg.plantPair = single.ticker;
-            cfg.payoutAddress = resolveChainAddressForTicker(single.ticker);
-            if (single.ticker !== 'KAS') {
+            cfg.plantWeights = { [singleTick]: 100.0 };
+            cfg.plantPair = singleTick;
+            cfg.payoutAddress = resolveChainAddressForTicker(singleTick);
+            if (singleTick !== 'KAS') {
                 cfg.mode = 'epoch';
             }
         }
@@ -1477,7 +1480,7 @@
         }> = [];
         const totalHash = displayHashrate;
         let currentOffset = 0;
-        operations.sectors.forEach((sec) => {
+        (operations.sectors || []).forEach((sec) => {
             const bps = readSectorAllocationBps(sec);
             if (bps > 0) {
                 const pct = bps / 100;
@@ -1558,7 +1561,7 @@
         role="button"
         tabindex="0"
         aria-label="Close menu"
-        class="fixed inset-0 z-30 cursor-default border-none bg-black/20"
+        class="fixed inset-0 z-30 cursor-default border-none bg-[var(--bg-overlay)]"
         onclick={() => {
             activeWorkerMenu = null;
             activeMinerTypePickerWorkerId = null;
@@ -1576,39 +1579,39 @@
 
 <div class="w-full h-full p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto bg-transparent" role="presentation">
     <!-- MOBILE STATUS + 3-TAB COLUMN SWITCHER (< 1024px ONLY) -->
-    <div class="lg:hidden bg-[#0a0d12] border border-white/10 rounded-xl p-2 flex flex-col gap-2 font-mono">
+    <div class="lg:hidden bg-[var(--bg-card)] border border-white/10 rounded-xl p-2 flex flex-col gap-2 font-mono">
         <div data-testid="mobile-kpi-ribbon" class="flex items-center justify-between gap-2 px-1.5 py-0.5 text-[10px]">
             <span class="font-bold text-white tabular-nums flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full {displayHashrate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span>
                 {displayHashrate.toFixed(2)} <span class="text-[#18C6A5]">TH/s</span>
             </span>
             {#if kasSpotVisible}
-                <span class="font-bold text-white tabular-nums flex items-center gap-1">
-                    ${kasAsset.spotPrice.toFixed(4)}
-                    <span class="text-[9px] {activePriceDeltaPct >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}">
+                <span class="font-bold text-[var(--text-primary)] tabular-nums flex items-center gap-1">
+                    {i18n.formatSpotPrice(kasAsset.spotPrice)}
+                    <span class="text-[9px] {activePriceDeltaPct >= 0 ? 'text-[var(--accent-text)]' : 'text-red-400'}">
                         {activePriceDeltaPct >= 0 ? '+' : ''}{activePriceDeltaPct.toFixed(1)}%
                     </span>
                 </span>
             {/if}
-            <span class="font-bold text-amber-400 tabular-nums">
+            <span class="font-bold text-amber-500 tabular-nums">
                 Next {operations.formatEpochCountdown()}
             </span>
         </div>
 
-        <div data-testid="mobile-column-switcher" class="grid grid-cols-3 gap-1 bg-[#06080b] border border-white/10 rounded-lg p-1">
+        <div data-testid="mobile-column-switcher" class="grid grid-cols-3 gap-1 bg-[var(--bg-canvas)] border border-[var(--border-subtle)] rounded-lg p-1">
             <button
                 type="button"
                 data-testid="mobile-col-tab-SPLITS"
                 onclick={() => (mobileMineTab = 'SPLITS')}
-                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'SPLITS' ? 'bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
+                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'SPLITS' ? 'bg-[var(--bg-elevated)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-transparent'}"
             >
-                SPLITS ({operations.sectors.length})
+                SPLITS ({(operations.sectors || []).length})
             </button>
             <button
                 type="button"
                 data-testid="mobile-col-tab-RIGS"
                 onclick={() => (mobileMineTab = 'RIGS')}
-                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'RIGS' ? 'bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
+                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'RIGS' ? 'bg-[var(--bg-elevated)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
             >
                 RIGS ({displayedWorkers.length})
             </button>
@@ -1616,7 +1619,7 @@
                 type="button"
                 data-testid="mobile-col-tab-REWARDS"
                 onclick={() => (mobileMineTab = 'REWARDS')}
-                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'REWARDS' ? 'bg-[#11161f] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
+                class="py-1.5 px-2 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer {mobileMineTab === 'REWARDS' ? 'bg-[var(--bg-elevated)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white border border-transparent'}"
             >
                 REWARDS
             </button>
@@ -1625,19 +1628,27 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 w-full max-w-[1720px] mx-auto pb-24 items-start mt-2 lg:mt-0">
         <div class="{mobileMineTab === 'RIGS' ? 'contents' : 'hidden lg:contents'}">
-            <WorkerFleetPanel
-                {displayedWorkers}
-                {displayHashrate}
-                {totalShares}
-                {unallocatedPercentage}
-                bind:activeWorkerMenu
-                bind:activeMinerTypePickerWorkerId
-                bind:minerTypeSearch
-                {shimmerTargetId}
-                onTriggerShimmer={triggerShimmer}
-                onSafeDispatch={safeDispatch}
-                onOpenSectorModal={() => openSectorModal('split')}
-            />
+            <svelte:boundary>
+                <WorkerFleetPanel
+                    {displayedWorkers}
+                    {displayHashrate}
+                    {totalShares}
+                    {unallocatedPercentage}
+                    bind:activeWorkerMenu
+                    bind:activeMinerTypePickerWorkerId
+                    bind:minerTypeSearch
+                    {shimmerTargetId}
+                    onTriggerShimmer={triggerShimmer}
+                    onSafeDispatch={safeDispatch}
+                    onOpenSectorModal={() => openSectorModal('split')}
+                />
+                {#snippet failed(_err, reset)}
+                    <div class="lg:col-span-3 xl:col-span-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 text-xs font-mono text-[var(--text-muted)] flex items-center justify-between">
+                        <span>Miners panel recovering...</span>
+                        <button type="button" onclick={reset} class="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] uppercase">Retry</button>
+                    </div>
+                {/snippet}
+            </svelte:boundary>
         </div>
 
         <!-- CENTER WORKSPACE -->
@@ -1649,7 +1660,7 @@
             {#if livePricingUnavailable}
                 <div
                     data-testid="live-pricing-unavailable-banner"
-                    class="bg-[#0a0d12] border border-amber-500/40 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 font-mono"
+                    class="bg-[var(--bg-card)] border border-amber-500/40 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 font-mono"
                     style="background-image: radial-gradient(ellipse at left, rgba(245, 158, 11, 0.10), transparent 70%);"
                 >
                     <div class="flex items-center gap-2.5">
@@ -1664,7 +1675,7 @@
             <!-- TELEMETRY CHARTS -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div
-                    class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
+                    class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
                     style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 60%);"
                 >
                     <div class="flex justify-between items-start gap-2 relative z-10">
@@ -1678,7 +1689,7 @@
                                 <span class="text-xs text-neutral-400 font-bold">TH/s</span>
                             </span>
                         </div>
-                        <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
+                        <div class="flex items-center gap-1 bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-1 pointer-events-auto">
                             {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
                                 <button
                                     type="button"
@@ -1687,7 +1698,7 @@
                                         hashChartTimeframe = tf as ChartTimeframe;
                                         loadHashChartHistory(tf as ChartTimeframe);
                                     }}
-                                    class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {hashChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                    class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {hashChartTimeframe === tf ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     {tf}
                                 </button>
@@ -1726,7 +1737,7 @@
                 </div>
 
                 <div
-                    class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
+                    class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-[24px] p-4 flex flex-col justify-between h-[230px] shadow-inner relative overflow-hidden group"
                     style="background-image: radial-gradient(ellipse at top right, rgba(59, 130, 246, 0.08), transparent 60%);"
                 >
                     <div class="flex justify-between items-start gap-2 relative z-10">
@@ -1737,22 +1748,22 @@
                             </span>
                             {#if kasSpotVisible}
                                 <div class="flex items-baseline gap-2 mt-0.5">
-                                    <span class="text-2xl font-mono font-light text-white tracking-tight tabular-nums">
-                                        ${kasAsset.spotPrice.toFixed(4)}
+                                    <span class="text-2xl font-mono font-light text-[var(--text-primary)] tracking-tight tabular-nums">
+                                        {i18n.formatSpotPrice(kasAsset.spotPrice)}
                                     </span>
                                     <span
-                                        class="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-[#11161f] border {activePriceDeltaPct >= 0 ? 'text-[#10b981] border-emerald-900/30' : 'text-[#ef4444] border-red-900/30'}"
+                                        class="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border {activePriceDeltaPct >= 0 ? 'text-[#10b981] border-emerald-500/30' : 'text-[#ef4444] border-red-500/30'}"
                                     >
                                         {activePriceDeltaPct > 0 ? '+' : ''}{activePriceDeltaPct.toFixed(2)}%
                                     </span>
                                 </div>
                             {:else}
-                                <span class="text-sm font-mono font-bold text-amber-400 mt-1">
+                                <span class="text-sm font-mono font-bold text-amber-500 mt-1">
                                     Live pricing unavailable
                                 </span>
                             {/if}
                         </div>
-                        <div class="flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-xl p-1 pointer-events-auto">
+                        <div class="flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-1 pointer-events-auto">
                             {#each ['1H', '24H', '7D', '30D'] as tf (tf)}
                                 <button
                                     type="button"
@@ -1761,7 +1772,7 @@
                                         priceChartTimeframe = tf as ChartTimeframe;
                                         loadPriceChartHistory(tf as ChartTimeframe);
                                     }}
-                                    class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {priceChartTimeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                    class="px-2 py-0.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {priceChartTimeframe === tf ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                                 >
                                     {tf}
                                 </button>
@@ -1769,9 +1780,9 @@
                         </div>
                     </div>
                     <div class="absolute inset-0 pointer-events-none p-4 z-0">
-                        <div class="w-full h-full border-l border-b border-white/5 relative">
-                            <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[8px] tracking-widest uppercase font-mono text-neutral-500">
-                                USD
+                        <div class="w-full h-full border-l border-b border-[var(--border-subtle)] relative">
+                            <span class="absolute -left-3 top-4 -rotate-90 origin-left text-[8px] tracking-widest uppercase font-mono text-[var(--text-muted)]">
+                                {i18n.currency}
                             </span>
                             <span class="absolute bottom-1 right-2 text-[8px] tracking-widest uppercase font-mono text-neutral-500">
                                 {priceChartTimeframe} →
@@ -1807,7 +1818,7 @@
 
             <!-- PAYOUT SPLITS CANVAS -->
             <div
-                class="flex flex-col gap-5 border border-white/10 rounded-[32px] bg-[#0a0d12] p-5 sm:p-6 min-h-[240px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
+                class="flex flex-col gap-5 border border-white/10 rounded-[32px] bg-[var(--bg-card)] p-5 sm:p-6 min-h-[240px] shadow-2xl relative overflow-hidden tactical-grid-canvas"
                 style="background-image: radial-gradient(ellipse at 50% 0%, rgba(24, 198, 165, 0.06), transparent 60%), linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px); background-size: 100% 100%, 30px 30px, 30px 30px;"
             >
                 <div
@@ -1834,10 +1845,10 @@
                     </button>
                 </div>
 
-                {#if operations.sectors.length === 0}
+                {#if (operations.sectors || []).length === 0}
                     <div class="relative z-10 flex flex-col items-center justify-center text-center py-8 px-4">
-                        <h2 class="text-3xl md:text-5xl font-light uppercase tracking-[0.1em] text-white/30 mb-6 text-center">
-                            <span class="text-[#18C6A5]/50">Token Splits</span>
+                        <h2 class="text-3xl md:text-5xl font-light uppercase tracking-[0.1em] text-[var(--text-muted)] mb-6 text-center">
+                            <span class="text-[var(--accent-text)] opacity-60">Token Splits</span>
                         </h2>
                         <div class="relative w-20 h-20 rounded-full bg-[#18C6A5]/5 border border-[#18C6A5]/20 flex items-center justify-center shadow-inner">
                             <svg
@@ -1958,15 +1969,24 @@
         </div>
 
         <div class="{mobileMineTab === 'REWARDS' ? 'contents' : 'hidden lg:contents'}">
-            <PoolDistributionSidebar
-                {displayHashrate}
-                {effortData}
-                {displayedBuckets}
-            />
+            <svelte:boundary>
+                <PoolDistributionSidebar
+                    {displayHashrate}
+                    {effortData}
+                    {displayedBuckets}
+                />
+                {#snippet failed(_err, reset)}
+                    <div class="lg:col-span-3 xl:col-span-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl p-4 text-xs font-mono text-[var(--text-muted)] flex items-center justify-between">
+                        <span>Pending splits recovering...</span>
+                        <button type="button" onclick={reset} class="px-2 py-1 rounded border border-[var(--border-subtle)] text-[10px] uppercase">Retry</button>
+                    </div>
+                {/snippet}
+            </svelte:boundary>
         </div>
     </div>
 </div>
 
+<svelte:boundary>
 <SectorConfigModals
     bind:isSectorModalOpen
     {sectorModalMode}
@@ -2018,6 +2038,13 @@
     }}
     onThermostatSaved={syncSovereignOperationsState}
 />
+    {#snippet failed(_err, reset)}
+        <div class="fixed bottom-4 right-4 z-[9990] bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 text-xs font-mono text-[var(--text-primary)] flex items-center gap-2">
+            <span>Modal reset</span>
+            <button type="button" onclick={reset} class="px-2 py-1 rounded border border-[var(--border-subtle)]">Retry</button>
+        </div>
+    {/snippet}
+</svelte:boundary>
 
 <style>
     .hide-scrollbar::-webkit-scrollbar {
@@ -2031,9 +2058,9 @@
         -webkit-appearance: none;
         appearance: none;
         height: 6px;
-        background: #11161f;
+        background: var(--bg-elevated);
         border-radius: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--border-subtle);
         outline: none;
     }
     :global(.custom-range-slider::-webkit-slider-thumb) {
@@ -2042,7 +2069,7 @@
         height: 18px;
         width: 18px;
         border-radius: 50%;
-        background: #e4e4e7;
+        background: var(--bg-card);
         cursor: pointer;
         border: 2px solid #18c6a5;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);

@@ -7,6 +7,7 @@
     import { ui, SANDBOX_TAX_EVENTS } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import {
         MASTER_ADMIN_ADDRESS,
         getIsCorporateAdmin
@@ -984,7 +985,7 @@
         <div
             data-testid="non-cpa-disclaimer-banner"
             transition:slide={{ duration: 160 }}
-            class="bg-[#11161f] border border-amber-500/45 rounded-2xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl"
+            class="bg-[var(--bg-elevated)] border border-amber-500/45 rounded-2xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl"
             style="background-image: radial-gradient(ellipse at left, rgba(245, 158, 11, 0.12), transparent 65%);"
         >
             <div class="flex items-start sm:items-center gap-3">
@@ -1022,11 +1023,11 @@
     {/if}
 
     <div
-        class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0a0d12] border border-white/10 rounded-2xl px-4 sm:px-5 py-3.5 relative"
+        class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[var(--bg-card)] border border-white/10 rounded-2xl px-4 sm:px-5 py-3.5 relative"
     >
         {#if ui.microBadges['tax_profile_saved'] || ui.microBadges['tax_export_btn']}
             <div
-                class="micro-confirm-badge absolute -top-3 right-4 z-40 px-3 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
+                class="micro-confirm-badge absolute -top-3 right-4 z-40 px-3 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase"
             >
                 {(
                     ui.microBadges['tax_profile_saved'] ||
@@ -1036,16 +1037,24 @@
         {/if}
 
         <div class="flex items-center gap-2 flex-wrap min-w-0">
+            <button
+                type="button"
+                data-testid="tax-back-to-wallet-btn"
+                onclick={() => (ui.activeTab = 'TREASURY')}
+                class="tactile-btn px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] text-[9px] font-black uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
+            >
+                ← {i18n.t('nav.wallet')}
+            </button>
             <span class="w-2 h-2 rounded-full bg-[#18C6A5] shrink-0"></span>
-            <h1 class="text-sm font-black uppercase tracking-[0.18em] text-white mr-1">
-                Taxes
+            <h1 class="text-sm font-black uppercase tracking-[0.18em] text-[var(--text-primary)] mr-1">
+                {i18n.t('nav.tax_fortress')}
             </h1>
-            <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase whitespace-nowrap">
+            <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-black uppercase whitespace-nowrap">
                 {rateCalculation.jurisdictionCode} • {entityType}
             </span>
             <span
                 data-testid="state-tax-rate-badge"
-                class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 text-[9px] font-bold text-neutral-300 uppercase whitespace-nowrap tabular-nums"
+                class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/10 text-[9px] font-bold text-neutral-300 uppercase whitespace-nowrap tabular-nums"
             >
                 {rateCalculation.stateComponentPct.toFixed(1)}% STATE ({stateRegion})
             </span>
@@ -1054,7 +1063,7 @@
                 <button
                     type="button"
                     onclick={() => (showNonCpaNoticeDrawer = !showNonCpaNoticeDrawer)}
-                    class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-white/10 hover:border-amber-500/40 text-neutral-400 hover:text-amber-400 text-[9px] font-bold uppercase cursor-pointer transition-colors whitespace-nowrap"
+                    class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-white/10 hover:border-amber-500/40 text-neutral-400 hover:text-amber-400 text-[9px] font-bold uppercase cursor-pointer transition-colors whitespace-nowrap"
                     title="Protocol Notice"
                 >
                     Notice
@@ -1097,7 +1106,7 @@
             data-testid="jurisdiction-config-form"
             onsubmit={handleSaveJurisdictionProfile}
             transition:slide={{ duration: 180 }}
-            class="bg-[#0a0d12] border border-[#18C6A5]/40 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5"
+            class="bg-[var(--bg-card)] border border-[#18C6A5]/40 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
         >
             <div
@@ -1113,7 +1122,7 @@
                     
                 </div>
                 <span
-                    class="px-3 py-1 rounded-xl bg-[#11161f] border border-[#18C6A5]/40 text-xs font-black text-[#18C6A5]"
+                    class="px-3 py-1 rounded-xl bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-xs font-black text-[#18C6A5]"
                 >
                     Composite Rate: {rateCalculation.effectiveRatePct.toFixed(
                         2
@@ -1132,7 +1141,7 @@
                         id="taxCountrySelect"
                         data-testid="tax-country-select"
                         bind:value={countryCode}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                     >
                         {#each COUNTRY_TAX_MATRIX as c (c.code)}
                             <option value={c.code}>{c.code} — {c.name}</option>
@@ -1151,7 +1160,7 @@
                         data-testid="tax-state-select"
                         bind:value={stateRegion}
                         disabled={countryCode !== 'US'}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none disabled:opacity-40"
+                        class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none disabled:opacity-40"
                     >
                         {#each US_STATE_TAX_MATRIX as st (st.code)}
                             <option value={st.code}>
@@ -1171,7 +1180,7 @@
                         id="taxEntitySelect"
                         data-testid="tax-entity-select"
                         bind:value={entityType}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                     >
                         {#each ENTITY_STRUCTURE_OPTIONS as ent (ent.id)}
                             <option value={ent.id}>{ent.label}</option>
@@ -1189,7 +1198,7 @@
                         id="taxFilingSelect"
                         data-testid="tax-filing-select"
                         bind:value={filingStatus}
-                        class="bg-[#11161f] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        class="bg-[var(--bg-elevated)] border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                     >
                         {#each FILING_STATUS_OPTIONS as fs (fs.id)}
                             <option value={fs.id}>{fs.label}</option>
@@ -1198,7 +1207,7 @@
                 </div>
             </div>
             <div
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
             >
                 <div class="flex items-center gap-3">
                     <input
@@ -1236,7 +1245,7 @@
                 {/if}
             </div>
             <div
-                class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#11161f] border border-amber-500/30 rounded-2xl p-4"
+                class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[var(--bg-elevated)] border border-amber-500/30 rounded-2xl p-4"
             >
                 <div class="flex flex-col gap-1">
                     <label
@@ -1250,7 +1259,7 @@
                         type="text"
                         bind:value={legalName}
                         placeholder="Perennia Mining Holdings, LLC"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                        class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                     />
                 </div>
                 <div class="flex flex-col gap-1">
@@ -1265,7 +1274,7 @@
                         type="text"
                         bind:value={tinEin}
                         placeholder="XX-XXXXXXX"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                        class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                     />
                 </div>
                 <div class="flex flex-col gap-1">
@@ -1280,7 +1289,7 @@
                         type="text"
                         bind:value={businessAddress}
                         placeholder="Richardson, TX 75080"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                        class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                     />
                 </div>
             </div>
@@ -1307,7 +1316,7 @@
     {/if}
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
+        <div class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
             <div class="h-5 flex items-center justify-between gap-2">
                 <span class="text-[9px] font-bold uppercase tracking-widest text-neutral-400">
                     Proceeds (YTD)
@@ -1315,21 +1324,21 @@
             </div>
             <span
                 data-testid="gross-taxable-proceeds-display"
-                class="text-2xl font-black text-white tabular-nums leading-none"
+                class="text-2xl font-black text-[var(--text-primary)] tabular-nums leading-none"
             >
-                ${grossTaxableProceedsUsd.toFixed(2)}
+                {i18n.formatFiat(grossTaxableProceedsUsd)}
             </span>
             <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-500 tabular-nums">
                 {displayedEvents.length} SETTLED EVENTS
             </span>
         </div>
 
-        <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
+        <div class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
             <div class="h-5 flex items-center justify-between gap-2">
                 <span class="text-[9px] font-bold uppercase tracking-widest text-blue-400">
                     Cost Basis
                 </span>
-                <span class="px-2 py-0.5 rounded bg-[#11161f] border border-blue-500/35 text-[8px] font-bold text-blue-400 uppercase">
+                <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-blue-500/35 text-[8px] font-bold text-blue-400 uppercase">
                     HIFO
                 </span>
             </div>
@@ -1344,13 +1353,13 @@
             </span>
         </div>
 
-        <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
+        <div class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px]">
             <div class="h-5 flex items-center justify-between gap-2">
                 <span class="text-[9px] font-bold uppercase tracking-widest text-[#18C6A5] truncate">
                     Tax Rate ({rateCalculation.jurisdictionCode})
                 </span>
                 {#if rateCalculation.qbiDiscountApplied}
-                    <span class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold shrink-0">
+                    <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/35 text-[8px] text-[#18C6A5] font-bold shrink-0">
                         20% QBI
                     </span>
                 {/if}
@@ -1366,9 +1375,9 @@
             </span>
         </div>
 
-        <div class="tactile-card bg-[#0a0d12] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px] relative">
+        <div class="tactile-card bg-[var(--bg-card)] border {taxEscrowEnabled ? 'border-[#18C6A5]/50' : 'border-white/10'} rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-2.5 min-h-[118px] relative">
             {#if ui.microBadges['tax_escrow_card']}
-                <div class="micro-confirm-badge absolute -top-3 right-3 px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase">
+                <div class="micro-confirm-badge absolute -top-3 right-3 px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-black uppercase">
                     {ui.microBadges['tax_escrow_card'].label}
                 </div>
             {/if}
@@ -1380,7 +1389,7 @@
                     <button
                         type="button"
                         onclick={() => (showEscrowModal = true)}
-                        class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 hover:border-amber-500/45 text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer whitespace-nowrap"
+                        class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-white/10 hover:border-amber-500/45 text-[8px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer whitespace-nowrap"
                     >
                         {escrowReserveMode === 'USDC_RESERVE' ? 'USDC ▾' : '50/50 LP ▾'}
                     </button>
@@ -1389,7 +1398,7 @@
                         data-testid="toggle-tax-escrow-btn"
                         aria-label="Toggle Tax Escrow Reserve"
                         onclick={handleToggleTaxEscrow}
-                        class="w-9 h-5 rounded-full border transition-colors relative cursor-pointer shrink-0 {taxEscrowEnabled ? 'bg-[#18C6A5]/25 border-[#18C6A5]' : 'bg-[#11161f] border-white/15'}"
+                        class="w-9 h-5 rounded-full border transition-colors relative cursor-pointer shrink-0 {taxEscrowEnabled ? 'bg-[#18C6A5]/25 border-[#18C6A5]' : 'bg-[var(--bg-elevated)] border-white/15'}"
                     >
                         <span
                             class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all {taxEscrowEnabled ? 'bg-[#18C6A5] left-[18px]' : 'bg-neutral-500 left-1'}"
@@ -1427,7 +1436,7 @@
     </div>
 
     <div
-        class="bg-[#0a0d12] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col gap-4"
+        class="bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col gap-4"
     >
         <div
             class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3"
@@ -1498,7 +1507,7 @@
                     <tbody class="divide-y divide-white/5 text-[11px]">
                         {#each displayedEvents as ev (ev.id)}
                             <tr
-                                class="hover:bg-[#11161f]/60 transition-colors"
+                                class="hover:bg-[var(--bg-elevated)] transition-colors"
                             >
                                 <td class="py-3 px-3 text-neutral-300"
                                     >{ev.timestamp}</td
@@ -1587,7 +1596,7 @@
                     <tbody class="divide-y divide-white/5 text-[11px]">
                         {#each hifoBundle.lots as lot (lot.lotId)}
                             <tr
-                                class="hover:bg-[#11161f]/60 transition-colors"
+                                class="hover:bg-[var(--bg-elevated)] transition-colors"
                             >
                                 <td class="py-3 px-3 font-bold text-blue-400">
                                     HIFO-{lot.lotId}
@@ -1620,7 +1629,7 @@
                                 </td>
                                 <td class="py-3 px-3 text-right">
                                     <span
-                                        class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/35 text-[9px] font-bold text-[#18C6A5]"
+                                        class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/35 text-[9px] font-bold text-[#18C6A5]"
                                     >
                                         {lot.status}
                                     </span>
@@ -1662,7 +1671,7 @@
                     <tbody class="divide-y divide-white/5 text-[11px]">
                         {#each hifoBundle.disposalMatches as match (match.matchId)}
                             <tr
-                                class="hover:bg-[#11161f]/60 transition-colors"
+                                class="hover:bg-[var(--bg-elevated)] transition-colors"
                             >
                                 <td class="py-3 px-3 font-bold text-amber-400">
                                     {match.matchId}
@@ -1727,7 +1736,7 @@
             <!-- EXTERNAL L1 DEPOSIT COST-BASIS REGISTRATION -->
             <div
                 data-testid="external-cost-basis-card"
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-6 max-w-2xl flex flex-col gap-4"
+                class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-6 max-w-2xl flex flex-col gap-4"
             >
                 <div class="flex flex-col gap-1 border-b border-white/10 pb-3">
                     <h3
@@ -1742,7 +1751,7 @@
 
                 {#if extBasisFeedback}
                     <div
-                        class="p-3 rounded-xl border text-[10px] font-bold {extBasisFeedback.type === 'success' ? 'bg-[#0a0d12] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-red-950/30 border-red-500/45 text-red-400'}"
+                        class="p-3 rounded-xl border text-[10px] font-bold {extBasisFeedback.type === 'success' ? 'bg-[var(--bg-card)] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-[var(--bg-danger-subtle)] border-red-500/45 text-red-400'}"
                     >
                         {extBasisFeedback.message}
                     </div>
@@ -1761,7 +1770,7 @@
                             data-testid="ext-basis-ticker-input"
                             type="text"
                             bind:value={extAssetTicker}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white uppercase outline-none"
+                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white uppercase outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
@@ -1779,7 +1788,7 @@
                             step="any"
                             bind:value={extAmountTokens}
                             placeholder="0.50"
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                         />
                     </div>
                 </div>
@@ -1800,7 +1809,7 @@
                             step="any"
                             bind:value={extTotalCostBasisUsd}
                             placeholder="42500.00"
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
@@ -1814,7 +1823,7 @@
                             id="extDateInput"
                             type="date"
                             bind:value={extAcquiredDate}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                         />
                     </div>
                 </div>
@@ -1831,7 +1840,7 @@
                         type="text"
                         bind:value={extSourceTxHash}
                         placeholder="0x... or Kaspa / BTC TXID"
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                        class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
                     />
                 </div>
 
@@ -1856,7 +1865,7 @@
                 class="flex flex-col gap-4"
             >
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3.5 flex flex-col">
                         <span class="text-[8px] text-neutral-400 uppercase"
                             >LLC Gross Earned Revenue</span
                         >
@@ -1864,7 +1873,7 @@
                             ${grossBusinessIncomeUsd.toFixed(2)} USD
                         </span>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3.5 flex flex-col">
                         <span class="text-[8px] text-neutral-400 uppercase"
                             >Deductible OPEX (Schedule C/1120)</span
                         >
@@ -1872,7 +1881,7 @@
                             -$${totalDeductibleOpexUsd.toFixed(2)} USD
                         </span>
                     </div>
-                    <div class="bg-[#11161f] border border-[#18C6A5]/40 rounded-xl p-3.5 flex flex-col">
+                    <div class="bg-[var(--bg-elevated)] border border-[#18C6A5]/40 rounded-xl p-3.5 flex flex-col">
                         <span class="text-[8px] text-[#18C6A5] uppercase"
                             >Net Taxable LLC Income</span
                         >
@@ -1883,7 +1892,7 @@
                             ${netTaxableBusinessIncomeUsd.toFixed(2)} USD
                         </span>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3.5 flex flex-col">
                         <span class="text-[8px] text-neutral-400 uppercase"
                             >Owner's Draws &amp; Tax Escrow</span
                         >
@@ -1897,14 +1906,14 @@
 
                 {#if corpVoucherFeedback}
                     <div
-                        class="p-3 rounded-xl border text-[10px] font-bold {corpVoucherFeedback.type === 'success' ? 'bg-[#0a0d12] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-red-950/30 border-red-500/45 text-red-400'}"
+                        class="p-3 rounded-xl border text-[10px] font-bold {corpVoucherFeedback.type === 'success' ? 'bg-[var(--bg-card)] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-[var(--bg-danger-subtle)] border-red-500/45 text-red-400'}"
                     >
                         {corpVoucherFeedback.message}
                     </div>
                 {/if}
 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                    <div class="lg:col-span-6 bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col gap-3.5">
+                    <div class="lg:col-span-6 bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-5 flex flex-col gap-3.5">
                         <span class="text-xs font-black uppercase tracking-widest text-amber-400">
                             Log Corporate Outflow Voucher (Schedule C / Form 1120)
                         </span>
@@ -1929,8 +1938,8 @@
                                         (corpCategory = cat.id as any)}
                                     class="py-2 px-2.5 rounded-xl text-[9px] font-black uppercase border cursor-pointer {corpCategory ===
                                     cat.id
-                                        ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]'
-                                        : 'bg-[#0a0d12] text-neutral-400 border-white/10'}"
+                                        ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]'
+                                        : 'bg-[var(--bg-card)] text-neutral-400 border-white/10'}"
                                 >
                                     {cat.label}
                                 </button>
@@ -1947,7 +1956,7 @@
                                     min="1"
                                     step="any"
                                     bind:value={corpAmountUsd}
-                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                                 />
                             </div>
                             <div class="flex flex-col gap-1">
@@ -1956,7 +1965,7 @@
                                 </span>
                                 <select
                                     bind:value={corpAsset}
-                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
                                 >
                                     <option value="USDC"
                                         >USDC (Treasury Fee Vault)</option
@@ -1975,7 +1984,7 @@
                             <input
                                 type="text"
                                 bind:value={corpVendor}
-                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                                class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                             />
                         </div>
 
@@ -1986,7 +1995,7 @@
                             <input
                                 type="text"
                                 bind:value={corpMemo}
-                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
+                                class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
                             />
                         </div>
 
@@ -2003,13 +2012,13 @@
                         </button>
                     </div>
 
-                    <div class="lg:col-span-6 bg-[#11161f] border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
+                    <div class="lg:col-span-6 bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
                         <span class="text-xs font-black uppercase tracking-widest text-white">
                             Perennia Holdings, LLC — Corporate Vouchers
                         </span>
                         <div class="flex flex-col gap-2 max-h-80 overflow-y-auto hide-scrollbar">
                             {#each corpOutflows as v (v.outflow_id)}
-                                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                                <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
                                     <div class="flex flex-col">
                                         <span class="font-bold text-white">
                                             {v.outflow_category} • {v.vendor_or_beneficiary}
@@ -2052,11 +2061,11 @@
 
 {#if showEscrowModal}
     <div
-        class="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono"
+        class="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[var(--bg-overlay)] font-mono"
         transition:fade={{ duration: 150 }}
     >
         <div
-            class="w-full max-w-[580px] max-h-[90dvh] overflow-y-auto bg-[#0a0d12] border-t sm:border border-[#18C6A5]/50 rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 shadow-2xl flex flex-col gap-4"
+            class="w-full max-w-[580px] max-h-[90dvh] overflow-y-auto bg-[var(--bg-card)] border-t sm:border border-[#18C6A5]/50 rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 shadow-2xl flex flex-col gap-4"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 65%);"
         >
             <div
@@ -2085,8 +2094,8 @@
                     onclick={() => (escrowReserveMode = 'USDC_RESERVE')}
                     class="p-4 rounded-2xl text-left border transition-all cursor-pointer flex flex-col gap-1.5 {escrowReserveMode ===
                     'USDC_RESERVE'
-                        ? 'bg-[#161d29] border-[#18C6A5] text-white shadow-lg'
-                        : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                        ? 'bg-[var(--bg-hover)] border-[#18C6A5] text-white shadow-lg'
+                        : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                 >
                     <div class="flex items-center justify-between">
                         <span
@@ -2094,7 +2103,7 @@
                             >MODE A • DEFAULT</span
                         >
                         <span
-                            class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-bold"
+                            class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-bold"
                         >
                             ZERO IL RISK
                         </span>
@@ -2110,8 +2119,8 @@
                     onclick={() => (escrowReserveMode = 'KAS_USDC_LP')}
                     class="p-4 rounded-2xl text-left border transition-all cursor-pointer flex flex-col gap-1.5 {escrowReserveMode ===
                     'KAS_USDC_LP'
-                        ? 'bg-[#161d29] border-amber-500 text-white shadow-lg'
-                        : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                        ? 'bg-[var(--bg-hover)] border-amber-500 text-white shadow-lg'
+                        : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                 >
                     <div class="flex items-center justify-between">
                         <span
@@ -2119,7 +2128,7 @@
                             >MODE B • YIELD-BEARING</span
                         >
                         <span
-                            class="px-2 py-0.5 rounded bg-[#0a0d12] border border-amber-500/40 text-amber-400 text-[8px] font-bold"
+                            class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-amber-500/40 text-amber-400 text-[8px] font-bold"
                         >
                             IL &amp; VOLATILITY RISK
                         </span>
@@ -2133,7 +2142,7 @@
             {#if escrowReserveMode === 'KAS_USDC_LP'}
                 <div
                     transition:slide={{ duration: 150 }}
-                    class="bg-amber-950/25 border border-amber-500/45 rounded-xl p-3.5 flex flex-col gap-2.5 text-[10px]"
+                    class="bg-[var(--bg-warn-subtle)] border border-amber-500/45 rounded-xl p-3.5 flex flex-col gap-2.5 text-[10px]"
                 >
                     <span
                         class="font-black uppercase tracking-wider text-amber-400"
@@ -2156,7 +2165,7 @@
                 </div>
             {/if}
             <div
-                class="bg-[#11161f] border border-white/10 rounded-xl p-3 text-[8px] font-bold uppercase tracking-wider text-neutral-400 leading-relaxed"
+                class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 text-[8px] font-bold uppercase tracking-wider text-neutral-400 leading-relaxed"
             >
                 {NON_CPA_PROTOCOL_DISCLAIMER}
             </div>

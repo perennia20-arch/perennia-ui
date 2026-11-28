@@ -3,6 +3,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { copyToClipboard } from '$lib/utils/clipboard';
     import {
         USD_MICROS_DECIMALS,
@@ -427,15 +428,15 @@
 
 <div class="flex flex-col gap-3">
     {#if !isReady}
-        <div class="bg-[#11161f] border border-white/10 rounded-xl p-4 flex items-center justify-between gap-3">
-            <span class="text-[10px] text-neutral-300 uppercase tracking-wider font-bold">
+        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-4 flex items-center justify-between gap-3">
+            <span class="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider font-bold">
                 Wallet locked
             </span>
             <button
                 type="button"
                 data-testid="agent-unlock-btn"
                 onclick={() => onRequestUnlock?.()}
-                class="tactile-btn px-3.5 py-2 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer shrink-0"
+                class="tactile-btn px-3.5 py-2 rounded-xl border-[#18C6A5]/50 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer shrink-0"
             >
                 Unlock
             </button>
@@ -444,7 +445,7 @@
         {#if errorMsg}
             <div
                 data-testid="agent-error-banner"
-                class="px-3 py-2 rounded-xl bg-[#1a080a] border border-red-500/45 text-[10px] text-red-400 uppercase"
+                class="px-3 py-2 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/45 text-[10px] text-red-500 uppercase"
             >
                 {errorMsg}
             </div>
@@ -453,18 +454,18 @@
         {#if readyMandate}
             <div
                 data-testid="agent-ready-card"
-                class="bg-[#06080b] border border-[#18C6A5]/60 rounded-xl p-3 flex flex-col gap-2"
+                class="bg-[var(--bg-input)] border border-[#18C6A5]/60 rounded-xl p-3 flex flex-col gap-2"
                 style="background-image: radial-gradient(ellipse at top right, rgba(24, 198, 165, 0.12), transparent 65%);"
             >
                 <div class="flex items-center justify-between gap-2 min-w-0">
                     <div class="flex items-center gap-2 min-w-0">
                         <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5] shrink-0"></span>
-                        <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5] truncate">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] truncate">
                             {readyMandate.label} · READY
                         </span>
                     </div>
-                    <span class="text-[9px] font-bold uppercase text-neutral-400 tabular-nums truncate shrink-0">
-                        ${readyMandate.dailyUsd} · {readyMandate.scopes.join(' · ')}
+                    <span class="text-[9px] font-bold uppercase text-[var(--text-muted)] tabular-nums truncate shrink-0">
+                        {i18n.formatFiat(Number(readyMandate.dailyUsd) || 0, { decimals: 0 })} · {readyMandate.scopes.join(' · ')}
                     </span>
                 </div>
 
@@ -472,7 +473,7 @@
                     type="button"
                     data-testid="agent-copy-ai-btn"
                     onclick={() => readyMandate && handleCopy('ai', buildAiPrompt(readyMandate))}
-                    class="tactile-btn w-full py-2.5 px-3 rounded-xl border-[#18C6A5]/60 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                    class="tactile-btn w-full py-2.5 px-3 rounded-xl border-[#18C6A5]/60 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 72%);"
                 >
                     {copiedTarget === 'ai' ? 'COPY FOR AI ✓' : 'COPY FOR AI'}
@@ -483,7 +484,7 @@
                         type="button"
                         data-testid="agent-copy-mcp-btn"
                         onclick={() => readyMandate && handleCopy('mcp', buildMcpJson(readyMandate.token))}
-                        class="tactile-btn py-1.5 px-2 rounded-lg border-white/15 hover:border-[#18C6A5]/50 text-white text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                        class="tactile-btn py-1.5 px-2 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
                     >
                         {copiedTarget === 'mcp' ? 'MCP ✓' : 'MCP'}
                     </button>
@@ -491,7 +492,7 @@
                         type="button"
                         data-testid="agent-copy-key-btn"
                         onclick={() => readyMandate && handleCopy('key', readyMandate.token)}
-                        class="tactile-btn py-1.5 px-2 rounded-lg border-white/15 hover:border-[#18C6A5]/50 text-white text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                        class="tactile-btn py-1.5 px-2 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
                     >
                         {copiedTarget === 'key' ? 'KEY ✓' : 'KEY'}
                     </button>
@@ -500,7 +501,7 @@
                         href="/llms.txt"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="tactile-btn py-1.5 px-1.5 rounded-lg border-white/15 hover:border-[#18C6A5]/50 text-neutral-200 hover:text-[#18C6A5] text-[9px] font-black uppercase tracking-wider text-center flex items-center justify-center whitespace-nowrap"
+                        class="tactile-btn py-1.5 px-1.5 rounded-lg border-[var(--border-strong)] hover:border-[#18C6A5]/50 text-[var(--text-secondary)] hover:text-[var(--accent-text)] text-[9px] font-black uppercase tracking-wider text-center flex items-center justify-center whitespace-nowrap"
                     >
                         LLMS.TXT ↗
                     </a>
@@ -511,7 +512,7 @@
                             readyMandate = null;
                             copiedTarget = null;
                         }}
-                        class="tactile-btn py-1.5 px-2 rounded-lg border-white/10 text-neutral-400 hover:text-white text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                        class="tactile-btn py-1.5 px-2 rounded-lg border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
                     >
                         DONE
                     </button>
@@ -521,13 +522,13 @@
 
         <div
             data-testid="agent-configure-grid"
-            class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5"
+            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2.5"
         >
             <div class="grid grid-cols-12 gap-2 items-end">
                 <div class="col-span-4 flex flex-col gap-1">
                     <label
                         for="agent-name-input"
-                        class="text-[8px] font-bold uppercase tracking-widest text-neutral-500"
+                        class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]"
                     >
                         NAME
                     </label>
@@ -538,16 +539,16 @@
                         maxlength="32"
                         bind:value={nameInput}
                         placeholder="Bot 1"
-                        class="w-full bg-[#06080b] border border-white/10 focus:border-[#18C6A5] rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+                        class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[#18C6A5] rounded-lg px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none"
                     />
                 </div>
 
                 <div class="col-span-3 flex flex-col gap-1">
                     <label
                         for="agent-limit-input"
-                        class="text-[8px] font-bold uppercase tracking-widest text-neutral-500"
+                        class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]"
                     >
-                        DAILY ($)
+                        DAILY (USD)
                     </label>
                     <input
                         id="agent-limit-input"
@@ -560,12 +561,12 @@
                         }}
                         disabled={!hasSpendScope}
                         placeholder="100"
-                        class="w-full bg-[#06080b] border border-white/10 focus:border-[#18C6A5] rounded-lg px-2 py-1.5 text-xs outline-none tabular-nums transition-opacity {hasSpendScope ? 'text-white' : 'text-neutral-500 opacity-45'}"
+                        class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[#18C6A5] rounded-lg px-2 py-1.5 text-xs outline-none tabular-nums transition-opacity {hasSpendScope ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] opacity-45'}"
                     />
                 </div>
 
                 <div class="col-span-5 flex flex-col gap-1">
-                    <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
+                    <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                         SLIP
                     </span>
                     <div class="grid grid-cols-3 gap-1">
@@ -575,7 +576,7 @@
                                 data-testid="agent-slip-{opt.bps}"
                                 aria-pressed={maxSlippageBps === opt.bps}
                                 onclick={() => (maxSlippageBps = opt.bps)}
-                                class="py-1.5 px-1 rounded-lg border text-[9px] font-black uppercase tabular-nums cursor-pointer transition-colors {maxSlippageBps === opt.bps ? 'bg-[#06080b] border-[#18C6A5] text-[#18C6A5]' : 'bg-[#0a0d12] border-white/10 text-neutral-500 hover:text-white'}"
+                                class="py-1.5 px-1 rounded-lg border text-[9px] font-black uppercase tabular-nums cursor-pointer transition-colors {maxSlippageBps === opt.bps ? 'bg-[var(--bg-input)] border-[#18C6A5] text-[var(--accent-text)]' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                             >
                                 {opt.label}
                             </button>
@@ -591,7 +592,7 @@
                         data-testid="agent-scope-{scope}"
                         aria-pressed={selectedScopes.includes(scope)}
                         onclick={() => toggleScope(scope)}
-                        class="py-1.5 px-1 rounded-lg border text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors {selectedScopes.includes(scope) ? 'bg-[#06080b] border-[#18C6A5] text-[#18C6A5]' : 'bg-[#0a0d12] border-white/10 text-neutral-500 hover:text-white'}"
+                        class="py-1.5 px-1 rounded-lg border text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors {selectedScopes.includes(scope) ? 'bg-[var(--bg-input)] border-[#18C6A5] text-[var(--accent-text)]' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                     >
                         {scope}
                     </button>
@@ -599,7 +600,7 @@
             </div>
 
             <div class="flex flex-col gap-1">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
+                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                     ASSETS
                 </span>
                 <div class="flex flex-wrap items-center gap-1.5">
@@ -608,7 +609,7 @@
                         data-testid="agent-asset-ALL"
                         aria-pressed={isAllPresetsSelected}
                         onclick={toggleAllAssets}
-                        class="px-2 py-1 rounded-lg border text-[9px] font-black uppercase cursor-pointer transition-colors {isAllPresetsSelected ? 'bg-[#06080b] border-[#18C6A5] text-[#18C6A5]' : 'bg-[#0a0d12] border-white/10 text-neutral-400 hover:text-white'}"
+                        class="px-2 py-1 rounded-lg border text-[9px] font-black uppercase cursor-pointer transition-colors {isAllPresetsSelected ? 'bg-[var(--bg-input)] border-[#18C6A5] text-[var(--accent-text)]' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                     >
                         ALL
                     </button>
@@ -618,7 +619,7 @@
                             data-testid="agent-asset-{tick}"
                             aria-pressed={selectedAssets.includes(tick)}
                             onclick={() => toggleAsset(tick)}
-                            class="px-2 py-1 rounded-lg border text-[9px] font-black uppercase cursor-pointer transition-colors {selectedAssets.includes(tick) ? 'bg-[#06080b] border-[#18C6A5] text-[#18C6A5]' : 'bg-[#0a0d12] border-white/10 text-neutral-500 hover:text-white'}"
+                            class="px-2 py-1 rounded-lg border text-[9px] font-black uppercase cursor-pointer transition-colors {selectedAssets.includes(tick) ? 'bg-[var(--bg-input)] border-[#18C6A5] text-[var(--accent-text)]' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                         >
                             {tick}
                         </button>
@@ -628,12 +629,12 @@
                             type="button"
                             data-testid="agent-asset-{extra}"
                             onclick={() => toggleAsset(extra)}
-                            class="px-2 py-1 rounded-lg border bg-[#06080b] border-[#18C6A5] text-[#18C6A5] text-[9px] font-black uppercase cursor-pointer"
+                            class="px-2 py-1 rounded-lg border bg-[var(--bg-input)] border-[#18C6A5] text-[var(--accent-text)] text-[9px] font-black uppercase cursor-pointer"
                         >
                             {extra} ✕
                         </button>
                     {/each}
-                    <div class="inline-flex items-center rounded-lg bg-[#06080b] border border-white/10 focus-within:border-[#18C6A5] overflow-hidden">
+                    <div class="inline-flex items-center rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] focus-within:border-[#18C6A5] overflow-hidden">
                         <input
                             bind:this={customTickerInputEl}
                             data-testid="agent-custom-ticker-input"
@@ -647,7 +648,7 @@
                                 }
                             }}
                             placeholder="TICKER"
-                            class="w-14 bg-transparent px-2 py-1 text-[9px] uppercase text-white placeholder-neutral-600 outline-none"
+                            class="w-14 bg-transparent px-2 py-1 text-[9px] uppercase text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
                         />
                         <button
                             type="button"
@@ -656,7 +657,7 @@
                                 customAsset.trim()
                                     ? addCustomAsset()
                                     : customTickerInputEl?.focus()}
-                            class="px-2 py-1 border-l border-white/10 text-[10px] font-black text-[#18C6A5] hover:bg-[#11161f] cursor-pointer"
+                            class="px-2 py-1 border-l border-[var(--border-subtle)] text-[10px] font-black text-[var(--accent-text)] hover:bg-[var(--bg-hover)] cursor-pointer"
                         >
                             +
                         </button>
@@ -669,7 +670,7 @@
                 data-testid="agent-create-btn"
                 onclick={createKey}
                 disabled={isCreating}
-                class="tactile-btn w-full py-2 rounded-xl border-[#18C6A5]/55 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                class="tactile-btn w-full py-2 rounded-xl border-[#18C6A5]/55 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                 style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
             >
                 {isCreating ? '...' : 'CREATE'}
@@ -678,19 +679,19 @@
 
         {#if activeKeys.length > 0}
             <div data-testid="agent-active-list" class="flex flex-col gap-1.5">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 px-0.5">
+                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)] px-0.5">
                     ACTIVE ({activeKeys.length})
                 </span>
                 {#each activeKeys as k (k.keyId)}
                     <div
                         data-testid="agent-key-row-{k.keyId}"
-                        class="bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between gap-2"
+                        class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 flex items-center justify-between gap-2"
                     >
                         <span
                             data-testid="agent-key-summary-{k.keyId}"
-                            class="text-[9px] font-bold text-neutral-200 uppercase truncate tabular-nums min-w-0"
+                            class="text-[9px] font-bold text-[var(--text-secondary)] uppercase truncate tabular-nums min-w-0"
                         >
-                            {k.label.toUpperCase()} · ${formatUsdMicros(k.spent24hUsdMicros)}/${formatUsdMicros(resolveDisplayCapMicros(k))} · {resolveRowScopes(k).join(' · ')} · {k.whitelistedAssets.join(', ')}
+                            {k.label.toUpperCase()} · {i18n.formatFiatFromUsdMicros(k.spent24hUsdMicros)}/{i18n.formatFiatFromUsdMicros(resolveDisplayCapMicros(k))} · {resolveRowScopes(k).join(' · ')} · {k.whitelistedAssets.join(', ')}
                         </span>
 
                         <button
@@ -698,7 +699,7 @@
                             data-testid="agent-revoke-{k.keyId}"
                             onclick={() => revokeKey(k.keyId)}
                             disabled={revokingId === k.keyId}
-                            class="px-2.5 py-1 rounded-lg bg-[#1a080a] border border-red-500/45 hover:border-red-400 text-red-400 hover:text-red-200 text-[9px] font-black uppercase tracking-wider cursor-pointer shrink-0 disabled:opacity-40"
+                            class="px-2.5 py-1 rounded-lg bg-[var(--bg-danger-subtle)] border border-red-500/45 hover:border-red-400 text-red-500 text-[9px] font-black uppercase tracking-wider cursor-pointer shrink-0 disabled:opacity-40"
                         >
                             {revokingId === k.keyId ? '...' : 'REVOKE'}
                         </button>
@@ -706,7 +707,7 @@
                 {/each}
             </div>
         {:else if isLoading}
-            <div class="text-center text-[9px] text-neutral-500 uppercase py-1">
+            <div class="text-center text-[9px] text-[var(--text-muted)] uppercase py-1">
                 ...
             </div>
         {/if}

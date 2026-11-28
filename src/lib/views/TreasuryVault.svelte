@@ -9,6 +9,7 @@
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { MASTER_ADMIN_ADDRESS } from '$lib/stores/kaspaStore.svelte';
     import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
     import {
@@ -1997,7 +1998,7 @@
 
 
     {#if !identity.isWalletConnected}
-        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#06080b]/95 p-6 text-center gap-4">
+        <div class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[var(--bg-overlay)] p-6 text-center gap-4">
             <h2 class="text-2xl md:text-4xl font-black uppercase tracking-[0.2em] text-neutral-400">
                 Log In Required
             </h2>
@@ -2016,19 +2017,19 @@
     >
         {#if identity.isCorporateAdmin}
             <div
-                class="tactile-card bg-[#0a0d12] border border-white/15 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
+                class="tactile-card bg-[var(--bg-card)] border border-white/15 rounded-[28px] p-6 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
                 style="background-image: radial-gradient(ellipse at top right, rgba(245, 158, 11, 0.12), rgba(24, 198, 165, 0.08) 45%, transparent 70%);"
             >
                 {#if ui.microBadges['corp_reconcile_sync']}
                     <div
-                        class="micro-confirm-badge absolute top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
+                        class="micro-confirm-badge absolute top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
                     >
                         {ui.microBadges['corp_reconcile_sync'].label}
                     </div>
                 {/if}
                 <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
                     <div class="flex items-center gap-3">
-                        <div class="w-9 h-9 rounded-xl bg-[#11161f] border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs">
+                        <div class="w-9 h-9 rounded-xl bg-[var(--bg-elevated)] border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs">
                             MT
                         </div>
                         <div class="flex flex-col">
@@ -2076,7 +2077,7 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             <div
                                 data-testid="master-treasury-earned-revenue-card"
-                                class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col justify-between"
+                                class="bg-[var(--bg-elevated)] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col justify-between"
                             >
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-[#18C6A5]">
                                     Earned Fee Revenue (Perennia Net)
@@ -2093,7 +2094,7 @@
 
                             <div
                                 data-testid="master-treasury-custodial-miner-card"
-                                class="bg-[#11161f] border border-amber-500/35 rounded-2xl p-4 flex flex-col justify-between"
+                                class="bg-[var(--bg-elevated)] border border-amber-500/35 rounded-2xl p-4 flex flex-col justify-between"
                             >
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-amber-400">
                                     Custodial Miner Rewards (22:00 UTC)
@@ -2108,7 +2109,7 @@
                                 </div>
                             </div>
 
-                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                            <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
                                     Hot Dispatcher Balance / Cap
                                 </span>
@@ -2125,7 +2126,7 @@
                                 </div>
                             </div>
 
-                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
+                            <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col justify-between">
                                 <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
                                     Pool Netting Queue &amp; Runway
                                 </span>
@@ -2141,20 +2142,20 @@
                             </div>
                         </div>
 
-                        <div class="flex flex-wrap items-center justify-between gap-2 bg-[#11161f] p-1.5 rounded-2xl border border-white/10">
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-[var(--bg-elevated)] p-1.5 rounded-2xl border border-white/10">
                             <div class="flex flex-wrap items-center gap-1.5">
                                 <button
                                     type="button"
                                     onclick={() =>
                                         (activeDirectorTab = 'reconciliation')}
-                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'reconciliation' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'reconciliation' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     Order-Book Reconciliation
                                 </button>
                                 <button
                                     type="button"
                                     onclick={() => (activeDirectorTab = 'fees')}
-                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'fees' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'fees' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     Protocol Fees by Asset
                                 </button>
@@ -2162,7 +2163,7 @@
                                     type="button"
                                     onclick={() =>
                                         (activeDirectorTab = 'buckets')}
-                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'buckets' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'buckets' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     Global Pool Buckets
                                 </button>
@@ -2170,7 +2171,7 @@
                                     type="button"
                                     onclick={() =>
                                         (activeDirectorTab = 'organization')}
-                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'organization' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'organization' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/35' : 'text-neutral-400 hover:text-white'}"
                                 >
                                     Ceilings &amp; Network Order
                                 </button>
@@ -2179,7 +2180,7 @@
                                     data-testid="vault-tab-corporate-btn"
                                     onclick={() =>
                                         (activeDirectorTab = 'corporate_sweep')}
-                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'corporate_sweep' ? 'bg-[#161d29] text-amber-400 border border-amber-500/45' : 'text-amber-400/80 hover:text-amber-300'}"
+                                    class="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors {activeDirectorTab === 'corporate_sweep' ? 'bg-[var(--bg-hover)] text-amber-400 border border-amber-500/45' : 'text-amber-400/80 hover:text-amber-300'}"
                                 >
                                     LLC Bank Sweep &amp; Phase 2 ACH
                                 </button>
@@ -2190,7 +2191,7 @@
                         </div>
 
                         {#if activeDirectorTab === 'reconciliation'}
-                            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+                            <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                                 <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
                                     <span class="text-[10px] font-black uppercase tracking-widest text-white">
                                         Live Netting Queue &amp; Block Reward Accounting
@@ -2220,7 +2221,7 @@
                                             </thead>
                                             <tbody>
                                                 {#each corporateReconciliation.recentNettingOrders as ord}
-                                                    <tr class="border-b border-white/5 hover:bg-[#0a0d12]/60">
+                                                    <tr class="border-b border-white/5 hover:bg-[var(--bg-card)]">
                                                         <td class="py-2 px-3 text-neutral-300">
                                                             {String(
                                                                 ord.wallet || ''
@@ -2257,7 +2258,7 @@
                                         </table>
                                     </div>
                                 {:else}
-                                    <div class="py-6 text-center text-[10px] font-mono text-neutral-400 border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/50">
+                                    <div class="py-6 text-center text-[10px] font-mono text-neutral-400 border border-dashed border-white/10 rounded-xl bg-[var(--bg-card)]/50">
                                         Netting queue is currently clear.
                                     </div>
                                 {/if}
@@ -2268,7 +2269,7 @@
                                     <span class="text-[9px] font-mono text-neutral-400 uppercase">
                                         Oracle-Verified Protocol Fee Vaults
                                     </span>
-                                    <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-mono font-bold">
+                                    <span class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-mono font-bold">
                                         Auto-2.5x LP @ ≥$5
                                     </span>
                                 </div>
@@ -2281,7 +2282,7 @@
                                                 (sym === 'USDC' || sym === 'USDT'
                                                     ? 1
                                                     : 0))}
-                                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+                                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
                                             <div class="flex items-center justify-between">
                                                 <span class="text-[10px] font-black text-white"
                                                     >{sym}</span
@@ -2303,17 +2304,17 @@
                         {:else if activeDirectorTab === 'buckets'}
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 {#each operations.allGlobalPoolBuckets as bucket (bucket.asset)}
-                                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2">
+                                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2">
                                         <div class="flex items-center justify-between">
                                             <span class="text-xs font-black text-white">
                                                 KAS / {bucket.asset} Bucket
                                             </span>
-                                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[8px] font-mono text-[#18C6A5] uppercase">
+                                            <span class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-white/10 text-[8px] font-mono text-[#18C6A5] uppercase">
                                                 {bucket.status}
                                             </span>
                                         </div>
                                         <div class="grid grid-cols-3 gap-2 text-[9px] font-mono">
-                                            <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
+                                            <div class="bg-[var(--bg-card)] p-2 rounded-lg border border-white/5">
                                                 <span class="text-[8px] text-neutral-500 block uppercase"
                                                     >Weight</span
                                                 >
@@ -2323,7 +2324,7 @@
                                                     )}%</span
                                                 >
                                             </div>
-                                            <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
+                                            <div class="bg-[var(--bg-card)] p-2 rounded-lg border border-white/5">
                                                 <span class="text-[8px] text-neutral-500 block uppercase"
                                                     >LP Coverage</span
                                                 >
@@ -2333,7 +2334,7 @@
                                                     )}%</span
                                                 >
                                             </div>
-                                            <div class="bg-[#0a0d12] p-2 rounded-lg border border-white/5">
+                                            <div class="bg-[var(--bg-card)] p-2 rounded-lg border border-white/5">
                                                 <span class="text-[8px] text-neutral-500 block uppercase"
                                                     >Spread Floor</span
                                                 >
@@ -2362,7 +2363,7 @@
                                 {/each}
                             </div>
                         {:else if activeDirectorTab === 'organization'}
-                            <div class="flex flex-col gap-4 bg-[#11161f] border border-white/10 rounded-2xl p-4">
+                            <div class="flex flex-col gap-4 bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4">
                                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[10px] font-mono">
                                     <div class="flex flex-col gap-1">
                                         <label
@@ -2376,7 +2377,7 @@
                                             type="number"
                                             min="50"
                                             bind:value={adminHotCeilingKas}
-                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
                                         />
                                     </div>
                                     <div class="flex flex-col gap-1">
@@ -2391,7 +2392,7 @@
                                             type="number"
                                             min="0"
                                             bind:value={adminMinRunwayKas}
-                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
                                         />
                                     </div>
                                     <div class="flex flex-col gap-1">
@@ -2406,7 +2407,7 @@
                                             type="number"
                                             min="1"
                                             bind:value={adminFppsMaxFloatKas}
-                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
                                         />
                                     </div>
                                     <div class="flex flex-col gap-1">
@@ -2423,7 +2424,7 @@
                                             min="0"
                                             max="25"
                                             bind:value={adminPoolFeePct}
-                                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-[#18C6A5] font-bold outline-none"
+                                            class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-[#18C6A5] font-bold outline-none"
                                         />
                                     </div>
                                 </div>
@@ -2505,7 +2506,7 @@
                             >
                                 <div
                                     data-testid="phase2-ach-reserve-card"
-                                    class="bg-[#11161f] border border-[#18C6A5]/40 rounded-2xl p-4 flex flex-col gap-2.5"
+                                    class="bg-[var(--bg-elevated)] border border-[#18C6A5]/40 rounded-2xl p-4 flex flex-col gap-2.5"
                                 >
                                     <div class="flex flex-wrap items-center justify-between gap-2">
                                         <div class="flex flex-col">
@@ -2513,7 +2514,7 @@
                                                 Phase 2 Direct Sovereign ACH Reserve ($250,000 USDC Target)
                                             </span>
                                         </div>
-                                        <span class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-[#18C6A5]/45 text-[10px] font-black text-[#18C6A5]">
+                                        <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-card)] border border-[#18C6A5]/45 text-[10px] font-black text-[#18C6A5]">
                                             ${Number(
                                                 phase2.currentUsdcReserve || 0
                                             ).toLocaleString(undefined, {
@@ -2523,7 +2524,7 @@
                                             ).toFixed(2)}%)
                                         </span>
                                     </div>
-                                    <div class="w-full h-2 rounded-full bg-[#0a0d12] border border-white/10 overflow-hidden">
+                                    <div class="w-full h-2 rounded-full bg-[var(--bg-card)] border border-white/10 overflow-hidden">
                                         <div
                                             class="h-full bg-[#18C6A5] transition-all duration-300"
                                             style="width: {Math.max(
@@ -2540,12 +2541,12 @@
                                 </div>
 
                                 {#if corpSweepError}
-                                    <div class="bg-red-950/30 border border-red-500/45 rounded-xl p-3 text-center text-[10px] font-bold text-red-400">
+                                    <div class="bg-[var(--bg-danger-subtle)] border border-red-500/45 rounded-xl p-3 text-center text-[10px] font-bold text-red-400">
                                         ⚠ {corpSweepError}
                                     </div>
                                 {/if}
                                 {#if corpSweepBanner}
-                                    <div class="bg-[#0a0d12] border border-[#18C6A5]/45 rounded-xl p-3 text-center text-[10px] font-bold text-[#18C6A5]">
+                                    <div class="bg-[var(--bg-card)] border border-[#18C6A5]/45 rounded-xl p-3 text-center text-[10px] font-bold text-[#18C6A5]">
                                         {corpSweepBanner}
                                     </div>
                                 {/if}
@@ -2553,7 +2554,7 @@
                                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
                                     <div
                                         data-testid="corporate-solvency-gate-card"
-                                        class="lg:col-span-5 bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-3"
+                                        class="lg:col-span-5 bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-3"
                                     >
                                         <div class="flex flex-col gap-0.5 border-b border-white/10 pb-2">
                                             <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">
@@ -2561,7 +2562,7 @@
                                             </span>
                                         </div>
                                         <div class="flex flex-col gap-2 text-[10px]">
-                                            <div class="flex items-center justify-between bg-[#0a0d12] p-2.5 rounded-lg border border-white/5">
+                                            <div class="flex items-center justify-between bg-[var(--bg-card)] p-2.5 rounded-lg border border-white/5">
                                                 <span class="text-neutral-400"
                                                     >Total Earned Fee Revenue</span
                                                 >
@@ -2572,7 +2573,7 @@
                                                     ).toFixed(2)} USD
                                                 </span>
                                             </div>
-                                            <div class="flex items-center justify-between bg-[#0a0d12] p-2.5 rounded-lg border border-white/5">
+                                            <div class="flex items-center justify-between bg-[var(--bg-card)] p-2.5 rounded-lg border border-white/5">
                                                 <span class="text-neutral-400"
                                                     >Less: Working Float Floor</span
                                                 >
@@ -2583,7 +2584,7 @@
                                                     ).toFixed(2)} USD
                                                 </span>
                                             </div>
-                                            <div class="flex items-center justify-between bg-[#161d29] p-3 rounded-xl border border-[#18C6A5]/45">
+                                            <div class="flex items-center justify-between bg-[var(--bg-hover)] p-3 rounded-xl border border-[#18C6A5]/45">
                                                 <span class="font-black uppercase text-[#18C6A5]">
                                                     Sweepable Corporate USD
                                                 </span>
@@ -2600,7 +2601,7 @@
                                         </div>
                                     </div>
 
-                                    <div class="lg:col-span-7 bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+                                    <div class="lg:col-span-7 bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
                                         <span class="text-[10px] font-black uppercase tracking-widest text-white">
                                             1-Click Corporate Bank Sweep &amp; AP / Owner's Draw Voucher
                                         </span>
@@ -2627,8 +2628,8 @@
                                                             cat.id as any)}
                                                     class="py-2 px-2.5 rounded-xl text-[8px] font-black uppercase border cursor-pointer {corpOutflowCategory ===
                                                     cat.id
-                                                        ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]'
-                                                        : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                                                        ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]'
+                                                        : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
                                                 >
                                                     {cat.label}
                                                 </button>
@@ -2642,7 +2643,7 @@
                                                 </span>
                                                 <select
                                                     bind:value={corpSourceAsset}
-                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-2.5 py-2 text-xs text-white outline-none"
+                                                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-2.5 py-2 text-xs text-white outline-none"
                                                 >
                                                     <option value="USDC">USDC</option>
                                                     <option value="KAS">KAS</option>
@@ -2662,7 +2663,7 @@
                                                     min="1"
                                                     step="any"
                                                     bind:value={corpSweepAmountUsd}
-                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-black text-white outline-none"
+                                                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs font-black text-white outline-none"
                                                 />
                                             </div>
                                         </div>
@@ -2680,7 +2681,7 @@
                                                     data-testid="corporate-vendor-input"
                                                     type="text"
                                                     bind:value={corpVendorOrBeneficiary}
-                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
                                                 />
                                             </div>
                                             <div class="flex flex-col gap-1">
@@ -2695,7 +2696,7 @@
                                                     data-testid="corporate-memo-input"
                                                     type="text"
                                                     bind:value={corpInvoiceOrMemo}
-                                                    class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
                                                 />
                                             </div>
                                         </div>
@@ -2727,13 +2728,13 @@
                                 </div>
 
                                 {#if outflows.length > 0}
-                                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
+                                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
                                         <span class="text-[10px] font-black uppercase tracking-widest text-white">
                                             Corporate Outflow Ledger &amp; Vouchers
                                         </span>
                                         <div class="flex flex-col gap-2 max-h-56 overflow-y-auto hide-scrollbar">
                                             {#each outflows as item (item.outflow_id)}
-                                                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                                                <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
                                                     <div class="flex flex-col">
                                                         <span class="font-bold text-white">
                                                             {item.outflow_category} • {item.vendor_or_beneficiary}
@@ -2774,7 +2775,7 @@
 
                 <!-- TOTAL VAULT VALUE CARD -->
         <div
-            class="tactile-card bg-[#0a0d12] border border-white/10 rounded-[24px] sm:rounded-[28px] shadow-2xl relative overflow-hidden group"
+            class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-[24px] sm:rounded-[28px] shadow-2xl relative overflow-hidden group"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 60%);"
         >
             <div class="relative z-10 p-4 sm:p-7 lg:p-9 flex flex-col gap-4 sm:gap-6">
@@ -2786,63 +2787,68 @@
                         </span>
                         <span
                             data-testid="vault-total-usd-value"
-                            class="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tighter text-white tabular-nums truncate max-w-full"
+                            class="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tighter text-[var(--text-primary)] tabular-nums truncate max-w-full"
                         >
-                            ${treasury.totalVaultValue.toLocaleString('en-US', {
-                                minimumFractionDigits: settingsStore.fiatDecimals,
-                                maximumFractionDigits: settingsStore.fiatDecimals
-                            })}
+                            {i18n.formatFiat(treasury.totalVaultValue)}
                         </span>
                         <span
                             data-testid="vault-value-timeframe-delta"
-                            class="text-xs sm:text-sm font-mono font-bold tabular-nums mt-1 {vaultTimeframeDelta.isPositive ? 'text-[#18C6A5]' : 'text-red-400'}"
+                            class="text-xs sm:text-sm font-mono font-bold tabular-nums mt-1 {vaultTimeframeDelta.isPositive ? 'text-[var(--accent-text)]' : 'text-red-400'}"
                         >
                             {vaultTimeframeDelta.label}
                         </span>
                         {#if identity.isCorporateAdmin}
                             <div class="flex flex-wrap items-center gap-2 mt-2 text-[9px] font-mono">
-                                <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
-                                    Earned Fees: ${totalAccumulatedFeesUsd.toFixed(2)}
+                                <span class="px-2 py-0.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-active)] text-[var(--accent-text)] font-bold">
+                                    Earned Fees: {i18n.formatFiat(totalAccumulatedFeesUsd)}
                                 </span>
-                                <span class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-amber-500/40 text-amber-400 font-bold">
-                                    Miner Escrow: ${custodialMinerLiabilityUsd.toFixed(2)} ({custodialMinerLiabilityKas.toFixed(1)} KAS)
+                                <span class="px-2 py-0.5 rounded-lg bg-[var(--bg-elevated)] border border-amber-500/40 text-amber-500 font-bold">
+                                    Miner Escrow: {i18n.formatFiat(custodialMinerLiabilityUsd)} ({custodialMinerLiabilityKas.toFixed(1)} KAS)
                                 </span>
                             </div>
                         {/if}
                     </div>
 
                     <div class="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto relative z-20">
-                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0 overflow-x-auto hide-scrollbar">
+                        <button
+                            type="button"
+                            data-testid="wallet-ledger-csv-link"
+                            onclick={() => (ui.activeTab = 'TAX FORTRESS')}
+                            class="tactile-btn px-3 py-1.5 rounded-xl border border-[var(--border-active)] text-[var(--accent-text)] hover:text-[var(--text-primary)] text-[9px] font-mono font-black uppercase tracking-wider cursor-pointer shrink-0 whitespace-nowrap"
+                        >
+                            {i18n.t('wallet.ledger_csv')}
+                        </button>
+                        <div class="flex items-center bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-1 shrink-0 overflow-x-auto hide-scrollbar">
                             {#each ['1H', '24H', '7D', '30D', '1Y', 'ALL'] as tf}
-                                <button type="button" data-testid="vault-tf-{tf}" onclick={() => (timeframe = tf as any)} class="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {timeframe === tf ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">{tf}</button>
+                                <button type="button" data-testid="vault-tf-{tf}" onclick={() => (timeframe = tf as any)} class="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {timeframe === tf ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">{tf}</button>
                             {/each}
                         </div>
-                        <div class="flex items-center bg-[#11161f] border border-white/10 rounded-xl p-1 shrink-0">
-                            <button type="button" data-testid="vault-unit-token" onclick={() => (displayUnit = 'token')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">Token</button>
-                            <button type="button" data-testid="vault-unit-usd" onclick={() => (displayUnit = 'usd')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-500 hover:text-white'}">USD</button>
+                        <div class="flex items-center bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-1 shrink-0">
+                            <button type="button" data-testid="vault-unit-token" onclick={() => (displayUnit = 'token')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'token' ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">Token</button>
+                            <button type="button" data-testid="vault-unit-usd" onclick={() => (displayUnit = 'usd')} class="px-2.5 py-1 sm:py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer {displayUnit === 'usd' ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">{i18n.currency}</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-2 sm:gap-3 border-t border-white/10 pt-4">
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
-                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-neutral-400">In Wallet</span>
-                        <span class="text-[11px] sm:text-xs font-mono font-black text-[#18C6A5] tabular-nums truncate">${totalOnChainUsd.toLocaleString(undefined, { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}</span>
+                <div class="grid grid-cols-3 gap-2 sm:gap-3 border-t border-[var(--border-subtle)] pt-4">
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
+                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)]">In Wallet</span>
+                        <span class="text-[11px] sm:text-xs font-mono font-black text-[var(--accent-text)] tabular-nums truncate">{i18n.formatFiat(totalOnChainUsd)}</span>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
-                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-neutral-400">Pending</span>
-                        <span class="text-[11px] sm:text-xs font-mono font-black text-amber-400 tabular-nums truncate">${totalBatchQueueUsd.toLocaleString(undefined, { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}</span>
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
+                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Pending</span>
+                        <span class="text-[11px] sm:text-xs font-mono font-black text-amber-500 tabular-nums truncate">{i18n.formatFiat(totalBatchQueueUsd)}</span>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
-                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-neutral-400">In Pools</span>
-                        <span class="text-[11px] sm:text-xs font-mono font-black text-blue-400 tabular-nums truncate">${totalStakedLpUsd.toLocaleString(undefined, { minimumFractionDigits: settingsStore.fiatDecimals, maximumFractionDigits: settingsStore.fiatDecimals })}</span>
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
+                        <span class="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)]">In Pools</span>
+                        <span class="text-[11px] sm:text-xs font-mono font-black text-blue-400 tabular-nums truncate">{i18n.formatFiat(totalStakedLpUsd)}</span>
                     </div>
                 </div>
             </div>
 
             <div class="absolute right-[-40px] top-[-40px] w-64 h-64 opacity-30 pointer-events-none hidden lg:block">
                 <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
-                    <circle cx="18" cy="18" r="15.915" fill="none" stroke="#161d29" stroke-width="2.5"></circle>
+                    <circle cx="18" cy="18" r="15.915" fill="none" stroke="var(--border-strong)" stroke-width="2.5"></circle>
                     {#each ringSegments as segment}
                         <circle cx="18" cy="18" r="15.915" fill="none" stroke={segment.theme.hex} stroke-width={activeHoverSegment === segment.ticker ? '4' : '2.5'} stroke-dasharray={segment.dasharray} stroke-dashoffset={segment.dashoffset} class="transition-all duration-300"></circle>
                     {/each}
@@ -2852,10 +2858,10 @@
 
         <!-- FULL-WIDTH SEARCH BAR -->
         <div class="flex flex-col gap-3 sm:gap-4 w-full relative">
-            <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] shadow-xl w-full p-3.5 sm:p-4 lg:p-5 flex items-center">
+            <div class="bg-[var(--bg-card)] border border-white/10 rounded-[24px] shadow-xl w-full p-3.5 sm:p-4 lg:p-5 flex items-center">
                 <div class="relative w-full min-w-0">
                     {#if ui.microBadges['treasury_search']}
-                        <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">{ui.microBadges['treasury_search'].label}</div>
+                        <div class="micro-confirm-badge absolute -top-6 right-2 z-50 px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase">{ui.microBadges['treasury_search'].label}</div>
                     {/if}
                     <input
                         type="text"
@@ -2863,16 +2869,16 @@
                         bind:value={networkSearchQuery}
                         oninput={() => { if (networkSearchQuery.trim().length > 0) isAllNetworksDrawerOpen = true; handleLiveSearch(); }}
                         placeholder="Search or add token..."
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-4 text-xs font-mono text-white placeholder-neutral-500 outline-none transition-colors"
+                        class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-2.5 pl-9 pr-4 text-xs font-mono text-white placeholder-neutral-500 outline-none transition-colors"
                     />
                     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     {#if searchResults.length > 0}
-                        <div transition:slide={{ duration: 200 }} class="absolute top-[112%] left-0 w-full bg-[#0a0d12] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col">
+                        <div transition:slide={{ duration: 200 }} class="absolute top-[112%] left-0 w-full bg-[var(--bg-card)] border border-white/15 rounded-[20px] shadow-2xl z-[100] overflow-hidden max-h-[360px] overflow-y-auto flex flex-col">
                             {#each searchResults as result}
-                                <div class="flex flex-col gap-2 p-3.5 hover:bg-[#11161f] transition-colors border-b border-white/5 last:border-0 text-left">
+                                <div class="flex flex-col gap-2 p-3.5 hover:bg-[var(--bg-elevated)] transition-colors border-b border-white/5 last:border-0 text-left">
                                     <div class="flex items-center justify-between gap-2">
                                         <div class="flex items-center gap-3 min-w-0">
-                                            <div class="w-8 h-8 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                                            <div class="w-8 h-8 rounded-lg bg-[var(--bg-elevated)] border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
                                                 {#if result.imgUrl}
                                                     <img src={result.imgUrl} class="w-5 h-5 object-contain" alt={result.symbol} onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
                                                 {:else}
@@ -2880,7 +2886,7 @@
                                                 {/if}
                                             </div>
                                             <div class="flex flex-col min-w-0">
-                                                <span class="text-xs font-bold text-white flex items-center gap-2">{result.symbol}<span class="text-[8px] bg-[#161d29] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{result.network}</span></span>
+                                                <span class="text-xs font-bold text-white flex items-center gap-2">{result.symbol}<span class="text-[8px] bg-[var(--bg-hover)] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase">{result.network}</span></span>
                                                 <span class="text-[9px] font-mono text-neutral-500 truncate max-w-[200px]">{result.name}</span>
                                             </div>
                                         </div>
@@ -2901,7 +2907,7 @@
             </div>
 
             {#if networkSearchQuery.trim().length > 1 && !isGlobalSearching}
-                <div class="py-3.5 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
+                <div class="py-3.5 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-3 border border-dashed border-white/10 rounded-2xl bg-[var(--bg-card)]">
                     <span class="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Find "{networkSearchQuery.toUpperCase()}" on global indexers</span>
                     <button type="button" onclick={executeGlobalMasterSearch} disabled={isGlobalSearching} class="tactile-btn px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] rounded-xl text-[9px] uppercase tracking-widest font-bold cursor-pointer">Search Indexer</button>
                     {#if globalSearchError}<span class="text-amber-400 text-[9px]">{globalSearchError}</span>{/if}

@@ -14,6 +14,8 @@ import {
     normalizeAllocationBps,
     parseDecimalToAtomic,
     parseU128Str,
+    safeFiniteNumber,
+    safeParseU128,
     type EpochPayoutOutboxItem,
     type MatureAccrualSnapshot,
     type SolvencyProofSnapshot,
@@ -172,6 +174,7 @@ class OperationsStore {
 
     // Sovereign L1 & Fail-Closed Oracle State
     kasOracleUsdE8 = $state<U128Str | null>(null);
+    lastGoodKasOracleUsdE8 = $state<U128Str | null>(null);
     oracleOnline = $state<boolean>(false);
     livePricingUnavailable = $derived(!this.oracleOnline || !this.kasOracleUsdE8);
     pricingStatusMessage = $derived(
@@ -199,16 +202,13 @@ class OperationsStore {
             this.oracleOnline = false;
             return;
         }
-        try {
-            const parsed = parseU128Str(e8, 'kasOracleUsdE8');
-            if (parsed > 0n) {
-                this.kasOracleUsdE8 = parsed.toString();
-                this.oracleOnline = true;
-            } else {
-                this.kasOracleUsdE8 = null;
-                this.oracleOnline = false;
-            }
-        } catch {
+        const parsed = safeParseU128(e8, 0n);
+        if (parsed > 0n) {
+            const str = parsed.toString();
+            this.kasOracleUsdE8 = str;
+            this.lastGoodKasOracleUsdE8 = str;
+            this.oracleOnline = true;
+        } else {
             this.kasOracleUsdE8 = null;
             this.oracleOnline = false;
         }
@@ -350,10 +350,26 @@ class OperationsStore {
             ...ALL_18_POOL_BUCKET_ASSETS,
             ...Object.keys(bucketsMap)
         ]);
-        const liveKasE8 = this.kasOracleUsdE8 ? parseU128Str(this.kasOracleUsdE8) : null;
+        const liveKasE8 = this.kasOracleUsdE8 ? safeParseU128(this.kasOracleUsdE8, 0n) || null : null;
         return Array.from(tickers).map((ticker): AssetBucketTelemetry => {
             const existing = bucketsMap[ticker];
-            if (existing) return existing;
+            if (existing) {
+                const dynFallback = computeDynamicProfitableThresholdFromE8(ticker, liveKasE8);
+                return {
+                    ...existing,
+                    asset: String(existing.asset || ticker).toUpperCase(),
+                    pendingKas: Math.max(0, safeFiniteNumber(existing.pendingKas, 0)),
+                    pendingUsd: Math.max(0, safeFiniteNumber(existing.pendingUsd, 0)),
+                    minProfitableKas: Math.max(0, safeFiniteNumber(existing.minProfitableKas, dynFallback.minProfitableKas)),
+                    minProfitableUsd: Math.max(0, safeFiniteNumber(existing.minProfitableUsd, dynFallback.minProfitableUsd)),
+                    weightPct: Math.max(0, Math.min(100, safeFiniteNumber(existing.weightPct, 0))),
+                    participantCount: Math.max(0, Math.round(safeFiniteNumber(existing.participantCount, 0))),
+                    lpAvailableKasCapacity: Math.max(0, safeFiniteNumber(existing.lpAvailableKasCapacity, 0)),
+                    lpCoveragePct: Math.max(0, safeFiniteNumber(existing.lpCoveragePct, 0)),
+                    effectiveSpreadFloorPct: safeFiniteNumber(existing.effectiveSpreadFloorPct, 0.1),
+                    railCostUsd: Math.max(0, safeFiniteNumber(existing.railCostUsd, dynFallback.railCostUsd))
+                };
+            }
             const dyn = computeDynamicProfitableThresholdFromE8(ticker, liveKasE8);
             return {
                 asset: ticker,
@@ -390,16 +406,14 @@ class OperationsStore {
             } catch {
                 bps = 0;
             }
-            const secPendingKas = Math.max(0, Number(sec.pendingKaspa || 0));
+            const secPendingKas = Math.max(0, safeFiniteNumber(sec.pendingKaspa, 0));
             const reserve = sec.settlementConfig?.pairReserve;
             if (reserve?.status === 'QUEUED') {
                 const partnerTick = String(reserve.partnerTicker || '').trim().toUpperCase();
                 if (partnerTick && partnerTick !== 'KAS') {
-                    const queuedAtomic = parseU128Str(reserve.queuedBaseAtomic || '0');
+                    const queuedAtomic = safeParseU128(reserve.queuedBaseAtomic || '0', 0n);
                     const queuedBaseFloat =
-                        reserve.baseTicker === 'KAS'
-                            ? Number(formatAtomicToDecimal(queuedAtomic, KAS_DECIMALS, 6, true))
-                            : Number(formatAtomicToDecimal(queuedAtomic, KAS_DECIMALS, 6, true));
+                        Number(formatAtomicToDecimal(queuedAtomic, KAS_DECIMALS, 6, true)) || 0;
                     userPendingByAsset.set(
                         partnerTick,
                         (userPendingByAsset.get(partnerTick) || 0) + queuedBaseFloat
@@ -437,7 +451,7 @@ class OperationsStore {
         const globalMap = new Map(
             this.allGlobalPoolBuckets.map((b) => [b.asset.toUpperCase(), b])
         );
-        const liveKasE8 = this.kasOracleUsdE8 ? parseU128Str(this.kasOracleUsdE8) : null;
+        const liveKasE8 = this.kasOracleUsdE8 ? safeParseU128(this.kasOracleUsdE8, 0n) || null : null;
         const result: AssetBucketTelemetry[] = [];
         for (const [ticker, userPendingKas] of userPendingByAsset.entries()) {
             const globalBucket = globalMap.get(ticker);
@@ -604,9 +618,9 @@ class OperationsStore {
         this.sectors = this.sectors.map((sec) => {
             const reserve = sec.settlementConfig?.pairReserve;
             if (!reserve || reserve.status !== 'QUEUED') return sec;
-            const targetAtomic = parseU128Str(reserve.targetPartnerAtomic || '0');
+            const targetAtomic = safeParseU128(reserve.targetPartnerAtomic || '0', 0n);
             if (targetAtomic <= 0n) return sec;
-            const walletAtomic = parseU128Str(getAssetOnChainAtomic(reserve.partnerTicker) || '0');
+            const walletAtomic = safeParseU128(getAssetOnChainAtomic(reserve.partnerTicker) || '0', 0n);
             const globalBucket = this.allGlobalPoolBuckets.find(
                 (b) => b.asset.toUpperCase() === reserve.partnerTicker.toUpperCase()
             );

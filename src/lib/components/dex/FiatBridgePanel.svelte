@@ -6,6 +6,7 @@
     import QRCode from 'qrcode';
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import {
         treasury,
         DEFAULT_ECOSYSTEM_TICKER,
@@ -196,13 +197,7 @@
     }
 
     function formatSpotDisplay(price: number): string {
-        if (!Number.isFinite(price) || price <= 0) return '$0.00';
-        if (price < 0.01) return `$${price.toFixed(6)}`;
-        if (price < 1) return `$${price.toFixed(4)}`;
-        return `$${price.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        })}`;
+        return i18n.formatSpotPrice(price);
     }
 
     function handleTokenSearchInput(raw: string) {
@@ -1036,14 +1031,14 @@
 
 <div
     data-testid="fiat-bridge-panel"
-    class="w-full max-w-[660px] mx-auto bg-[#0a0d12] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-4 transition-all duration-300"
+    class="w-full max-w-[660px] mx-auto bg-[var(--bg-card)] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-4 transition-all duration-300"
     style="
         border-color: {activeThemeHex}45;
         background-image:
             radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 58%),
             radial-gradient(ellipse at bottom right, {activeThemeHex}22, transparent 65%);
         box-shadow:
-            0 20px 60px -15px rgba(0, 0, 0, 0.85),
+            0 20px 60px -15px rgba(0, 0, 0, 0.28),
             0 0 40px -15px {activeThemeHex}26;
     "
     in:fade={{ duration: 150 }}
@@ -1061,12 +1056,12 @@
                 
             </div>
             {#if savedBankLast4}
-                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[8px] font-mono font-bold uppercase">
+                <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/35 text-[#18C6A5] text-[8px] font-mono font-bold uppercase">
                     ✓ Bank *{savedBankLast4}
                 </span>
             {/if}
         </div>
-        <div class="grid grid-cols-2 gap-2 bg-[#11161f] p-1.5 rounded-2xl border border-white/10">
+        <div class="grid grid-cols-2 gap-2 bg-[var(--bg-elevated)] p-1.5 rounded-2xl border border-white/10">
             <button
                 type="button"
                 data-testid="fiat-onramp-tab-btn"
@@ -1125,7 +1120,7 @@
                 {/each}
             </div>
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/35"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/35"
                 style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.10), transparent 65%);"
             >
                 <div class="flex items-center justify-between flex-wrap gap-2">
@@ -1151,7 +1146,7 @@
                         />
                     </div>
                     <div
-                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[#0a0d12] border border-[#18C6A5]/40"
+                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] border border-[#18C6A5]/40"
                     >
                         <div class="w-6 h-6 rounded-full bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-[10px] font-black">
                             $
@@ -1162,7 +1157,7 @@
                     </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-white/10 text-[9px] font-mono">
-                    <div class="bg-[#0a0d12] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
+                    <div class="bg-[var(--bg-card)] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
                         <span class="text-neutral-500 uppercase text-[7px]">
                             Fee ({onrampCostPlusQuote.protocolFeeFloorPct.toFixed(
                                 2
@@ -1172,7 +1167,7 @@
                             ${onrampCostPlusQuote.perenniaFeeUsd.toFixed(2)} USD
                         </span>
                     </div>
-                    <div class="bg-[#0a0d12] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
+                    <div class="bg-[var(--bg-card)] border border-white/5 rounded-xl px-2.5 py-1.5 flex flex-col">
                         
                         <span class="text-neutral-300 font-bold">
                             ${onrampCostPlusQuote.stripeGatewayFeeUsd.toFixed(
@@ -1180,7 +1175,7 @@
                             )} USD
                         </span>
                     </div>
-                    <div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-2.5 py-1.5 flex flex-col">
+                    <div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-xl px-2.5 py-1.5 flex flex-col">
                         <span class="text-[#18C6A5] uppercase text-[7px] font-bold">
                             Total
                         </span>
@@ -1198,7 +1193,7 @@
 
             <div class="flex items-center justify-center -my-4 z-20 pointer-events-none">
                 <div
-                    class="w-9 h-9 rounded-xl bg-[#0a0d12] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
+                    class="w-9 h-9 rounded-xl bg-[var(--bg-card)] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
                     style="border-color: {activeThemeHex}55; color: {activeThemeHex};"
                 >
                     ↓
@@ -1210,9 +1205,9 @@
 
         <div
             data-testid="fiat-step2-destination-card"
-            class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
+            class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
         >
-            <div class="grid grid-cols-2 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5"><button type="button" data-testid="onramp-dest-self-custody-card" onclick={() => { onrampUseColdStorage = false; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!onrampUseColdStorage ? 'bg-[#161d29] text-white border border-white/15' : 'text-neutral-400 hover:text-white'}">Wallet</button><button type="button" data-testid="onramp-dest-cold-storage-btn" onclick={() => { onrampUseColdStorage = true; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampUseColdStorage ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}">Cold Storage</button></div>{#if onrampUseColdStorage}<div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[#18C6A5]">Cold Storage Destination Wallet</span><input type="text" bind:value={onrampColdAddress} placeholder={onrampTargetTicker === 'KAS' || onrampTargetTicker === 'SILO' ? 'kaspa:q...' : onrampTargetTicker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white outline-none focus:border-[#18C6A5]/60" /></div>{/if}
+            <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-card)] p-1 rounded-xl border border-white/5"><button type="button" data-testid="onramp-dest-self-custody-card" onclick={() => { onrampUseColdStorage = false; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!onrampUseColdStorage ? 'bg-[var(--bg-hover)] text-white border border-white/15' : 'text-neutral-400 hover:text-white'}">Wallet</button><button type="button" data-testid="onramp-dest-cold-storage-btn" onclick={() => { onrampUseColdStorage = true; onrampSettlementTarget = 'L1_KAS'; onrampAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {onrampUseColdStorage ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}">Cold Storage</button></div>{#if onrampUseColdStorage}<div class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[#18C6A5]">Cold Storage Destination Wallet</span><input type="text" bind:value={onrampColdAddress} placeholder={onrampTargetTicker === 'KAS' || onrampTargetTicker === 'SILO' ? 'kaspa:q...' : onrampTargetTicker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white outline-none focus:border-[#18C6A5]/60" /></div>{/if}
             
 
             <!-- Card vs. ACH Selector (Auto-Defaults to ACH @ $625+ / Hard-Gated to Wire @ $100,000+) -->
@@ -1229,8 +1224,8 @@
                         class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {onrampGatewayMethod ===
                             'ach' &&
                         !onrampCostPlusQuote.requiresInstitutionalWire
-                            ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45'
-                            : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                            ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]/45'
+                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
                     >
                         Bank
                     </button>
@@ -1245,8 +1240,8 @@
                         class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {onrampGatewayMethod ===
                             'card' &&
                         !onrampCostPlusQuote.requiresInstitutionalWire
-                            ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45'
-                            : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                            ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]/45'
+                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
                     >
                         Card
                     </button>
@@ -1260,8 +1255,8 @@
                         class="px-2.5 py-1.5 rounded-lg font-bold uppercase border cursor-pointer transition-colors {onrampGatewayMethod ===
                             'wire' ||
                         onrampCostPlusQuote.requiresInstitutionalWire
-                            ? 'bg-[#161d29] text-amber-400 border-amber-500/45'
-                            : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                            ? 'bg-[var(--bg-hover)] text-amber-400 border-amber-500/45'
+                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
                     >
                         Wire
                     </button>
@@ -1289,18 +1284,18 @@
                 <div
                     data-testid="fiat-mercury-wire-instructions-card"
                     transition:slide={{ duration: 150 }}
-                    class="bg-[#0a0d12] border border-amber-500/45 rounded-xl p-3.5 flex flex-col gap-2.5 text-[9px] font-mono"
+                    class="bg-[var(--bg-card)] border border-amber-500/45 rounded-xl p-3.5 flex flex-col gap-2.5 text-[9px] font-mono"
                 >
                     <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2">
                         <span class="text-amber-400 font-black uppercase tracking-wider">
                             Wire Instructions
                         </span>
-                        <span class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
+                        <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] font-bold">
                             
                         </span>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
+                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
                             <span class="text-[7px] text-neutral-500 uppercase">
                                 Recipient
                             </span>
@@ -1308,7 +1303,7 @@
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.beneficiaryName} ({MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountDescriptor})
                             </span>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
+                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
                             <span class="text-[7px] text-neutral-500 uppercase">
                                 Receiving Bank
                             </span>
@@ -1316,7 +1311,7 @@
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankName}
                             </span>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
+                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
                             <span class="text-[7px] text-neutral-500 uppercase">
                                 Routing Number
                             </span>
@@ -1324,7 +1319,7 @@
                                 {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
                             </span>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
+                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col gap-0.5">
                             <span class="text-[7px] text-neutral-500 uppercase">
                                 Account Number
                             </span>
@@ -1333,7 +1328,7 @@
                             </span>
                         </div>
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-lg p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div class="flex flex-col">
                             <span class="text-[7px] text-neutral-500 uppercase">
                                 Bank Address
@@ -1352,10 +1347,10 @@
                         </div>
                     </div>
                 </div>
-            {:else if onrampGatewayMethod === 'card'}<div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-neutral-300">Credit / Debit Card</span><span class="text-[8px] font-mono text-neutral-500">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'panel', onState: (st) => { onrampCardError = st.error; } }} class="bg-[#11161f] border border-white/10 focus-within:border-[#18C6A5]/60 rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if onrampCardError}<span class="text-[8px] font-mono font-bold text-red-400">{onrampCardError}</span>{/if}</div>{:else if onrampGatewayMethod === 'ach' && (showOnrampBankLinker || !savedBankLast4)}
+            {:else if onrampGatewayMethod === 'card'}<div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-neutral-300">Credit / Debit Card</span><span class="text-[8px] font-mono text-neutral-500">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'panel', onState: (st) => { onrampCardError = st.error; } }} class="bg-[var(--bg-elevated)] border border-white/10 focus-within:border-[#18C6A5]/60 rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if onrampCardError}<span class="text-[8px] font-mono font-bold text-red-400">{onrampCardError}</span>{/if}</div>{:else if onrampGatewayMethod === 'ach' && (showOnrampBankLinker || !savedBankLast4)}
                 <div
                     transition:slide={{ duration: 150 }}
-                    class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5"
+                    class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5"
                 >
                     <div class="flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase text-neutral-300">
@@ -1377,7 +1372,7 @@
                                 maxlength="9"
                                 bind:value={offrampRoutingNumber}
                                 placeholder="111000614"
-                                class="bg-[#11161f] border {abaTelemetry.isComplete ? (abaTelemetry.checksumValid ? 'border-[#18C6A5]/60' : 'border-red-500/60') : 'border-white/10'} rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
+                                class="bg-[var(--bg-elevated)] border {abaTelemetry.isComplete ? (abaTelemetry.checksumValid ? 'border-[#18C6A5]/60' : 'border-red-500/60') : 'border-white/10'} rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
                             />
                             {#if abaTelemetry.cleanDigits.length > 0}
                                 <span
@@ -1404,7 +1399,7 @@
                                 type="password"
                                 bind:value={offrampAccountNumber}
                                 placeholder="Account Number"
-                                class="bg-[#11161f] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
+                                class="bg-[var(--bg-elevated)] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
                             />
                         </div>
                     </div>
@@ -1426,7 +1421,7 @@
             <div class="relative pt-1">
                 {#if ui.microBadges['dex_fiat_btn']}
                     <div
-                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase whitespace-nowrap"
+                        class="micro-confirm-badge absolute -top-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase whitespace-nowrap"
                     >
                         {ui.microBadges['dex_fiat_btn'].label}
                     </div>
@@ -1484,7 +1479,7 @@
         {#if onrampLivePricingUnavailable}
             <div
                 data-testid="fiat-onramp-live-pricing-unavailable"
-                class="bg-[#0a0d12] border border-amber-500/45 p-3.5 rounded-xl text-center"
+                class="bg-[var(--bg-card)] border border-amber-500/45 p-3.5 rounded-xl text-center"
             >
                 <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300">
                     {LIVE_PRICING_UNAVAILABLE_MESSAGE}
@@ -1493,7 +1488,7 @@
         {:else if onrampError || onrampCostPlusQuote.circuitBreakerTripped}
             <div
                 data-testid="fiat-circuit-breaker-banner"
-                class="bg-red-950/25 border border-red-500/40 p-3.5 rounded-xl text-center"
+                class="bg-[var(--bg-danger-subtle)] border border-red-500/40 p-3.5 rounded-xl text-center"
             >
                 <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-red-400">
                     {onrampError || onrampCostPlusQuote.circuitBreakerReason}
@@ -1506,7 +1501,7 @@
             {@const passStageIdx = getPayoutStageIndex(activePass.status)}
             <div
                 data-testid="fiat-settlement-pass-card"
-                class="bg-[#11161f] border border-[#18C6A5]/45 p-4 rounded-2xl flex flex-col gap-3"
+                class="bg-[var(--bg-elevated)] border border-[#18C6A5]/45 p-4 rounded-2xl flex flex-col gap-3"
             >
                 <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2.5">
                     <div class="flex flex-col">
@@ -1607,7 +1602,7 @@
                 {/each}
             </div>
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border relative transition-all duration-300"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border relative transition-all duration-300"
                 style="
                     border-color: {activeThemeHex}55;
                     background-image: radial-gradient(ellipse at top left, {activeThemeHex}22, transparent 68%);
@@ -1662,7 +1657,7 @@
                         type="button"
                         onclick={() =>
                             (isOfframpDropdownOpen = !isOfframpDropdownOpen)}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer transition-all duration-300"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] cursor-pointer transition-all duration-300"
                         style="border-color: {activeThemeHex}60;"
                     >
                         <div
@@ -1730,7 +1725,7 @@
                 </div>
                 {#if isOfframpDropdownOpen}
                     <div
-                        class="absolute top-full right-0 mt-2 w-72 bg-[#0a0d12] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
+                        class="absolute top-full right-0 mt-2 w-72 bg-[var(--bg-card)] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
                     >
                         <input
                             type="text"
@@ -1740,7 +1735,7 @@
                                     (e.currentTarget as HTMLInputElement).value
                                 )}
                             placeholder="Search ticker or paste contract..."
-                            class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white outline-none"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white outline-none"
                         />
                         {#each filteredOnrampAssets as assetItem (assetItem.ticker)}
                             {@const itemHex = assetItem.theme?.hex || '#18C6A5'}
@@ -1750,7 +1745,7 @@
                                     offrampAssetTicker = assetItem.ticker;
                                     isOfframpDropdownOpen = false;
                                 }}
-                                class="w-full text-left px-2.5 py-2 rounded-xl hover:bg-[#161d29] flex items-center justify-between text-[10px] cursor-pointer"
+                                class="w-full text-left px-2.5 py-2 rounded-xl hover:bg-[var(--bg-hover)] flex items-center justify-between text-[10px] cursor-pointer"
                             >
                                 <div class="flex items-center gap-2 min-w-0">
                                     <span
@@ -1776,13 +1771,13 @@
             </div>
             <div class="flex items-center justify-center -my-4 z-20 pointer-events-none">
                 <div
-                    class="w-9 h-9 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-xs font-black shadow-xl"
+                    class="w-9 h-9 rounded-xl bg-[var(--bg-card)] border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-xs font-black shadow-xl"
                 >
                     ↓
                 </div>
             </div>
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/45"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/45"
                 style="background-image: radial-gradient(ellipse at bottom right, rgba(24, 198, 165, 0.14), transparent 65%);"
             >
                 <div class="flex items-center justify-between">
@@ -1805,13 +1800,13 @@
                     >
                         ${offrampCostPlusQuote.guestNetUsd.toFixed(2)} USD
                     </span>
-                    <span class="px-3 py-1.5 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/35 text-[9px] font-mono font-bold text-[#18C6A5] uppercase">
+                    <span class="px-3 py-1.5 rounded-xl bg-[var(--bg-card)] border border-[#18C6A5]/35 text-[9px] font-mono font-bold text-[#18C6A5] uppercase">
                         {payoutMethod.toUpperCase()}
                     </span>
                 </div>
                 <div
                     data-testid="fiat-offramp-savings-badge"
-                    class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl px-3 py-2 flex items-center justify-between text-[9px] font-mono"
+                    class="bg-[var(--bg-card)] border border-[#18C6A5]/35 rounded-xl px-3 py-2 flex items-center justify-between text-[9px] font-mono"
                 >
                     
                     
@@ -1820,15 +1815,15 @@
         </div>
         <div
             data-testid="fiat-offramp-step2-card"
-            class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
+            class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3"
         >
-            <div class="grid grid-cols-2 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5">
+            <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-card)] p-1 rounded-xl border border-white/5">
                 <button
                     type="button"
                     onclick={() => (offrampSourceMode = 'onchain_kas')}
                     class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {offrampSourceMode ===
                     'onchain_kas'
-                        ? 'bg-[#161d29] text-white border border-white/15'
+                        ? 'bg-[var(--bg-hover)] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
                     Self-Custody Wallet ({treasury
@@ -1840,7 +1835,7 @@
                     onclick={() => (offrampSourceMode = 'direct_wholesale_deposit')}
                     class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {offrampSourceMode ===
                     'direct_wholesale_deposit'
-                        ? 'bg-[#161d29] text-white border border-white/15'
+                        ? 'bg-[var(--bg-hover)] text-white border border-white/15'
                         : 'text-neutral-400 hover:text-white'}"
                 >
                     External Wallet Deposit
@@ -1854,8 +1849,8 @@
                         onclick={() => (payoutMethod = 'ach')}
                         class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {payoutMethod ===
                         'ach'
-                            ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
-                            : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                            ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]/40'
+                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
                     >
                         Bank
                     </button>
@@ -1872,8 +1867,8 @@
                         }}
                         class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {payoutMethod ===
                         'wire'
-                            ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
-                            : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                            ? 'bg-[var(--bg-hover)] text-[#18C6A5] border-[#18C6A5]/40'
+                            : 'bg-[var(--bg-card)] text-neutral-400 border-white/10 hover:text-white'}"
                     >
                         Wire
                     </button>
@@ -1893,7 +1888,7 @@
                 {/if}
             </div>
             {#if !savedBankLast4 || isEditingBankRail}
-                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5">
+                <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5">
                     <div class="flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase text-neutral-300">
                             Payout Bank Account
@@ -1915,12 +1910,12 @@
                                 maxlength="9"
                                 bind:value={offrampRoutingNumber}
                                 placeholder="111000614"
-                                class="w-full bg-[#11161f] border {abaTelemetry.isComplete ? (abaTelemetry.checksumValid ? 'border-[#18C6A5]/60' : 'border-red-500/60') : 'border-white/10'} rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
+                                class="w-full bg-[var(--bg-elevated)] border {abaTelemetry.isComplete ? (abaTelemetry.checksumValid ? 'border-[#18C6A5]/60' : 'border-red-500/60') : 'border-white/10'} rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
                             />
                             {#if abaTelemetry.cleanDigits.length > 0}
                                 <div
                                     data-testid="aba-recognition-badge"
-                                    class="px-2 py-1 rounded border text-[8px] font-mono font-bold flex items-center justify-between {abaTelemetry.isComplete && abaTelemetry.checksumValid ? 'bg-[#11161f] border-[#18C6A5]/45 text-[#18C6A5]' : abaTelemetry.isComplete ? 'bg-red-950/25 border-red-500/45 text-red-400' : 'bg-[#11161f] border-white/10 text-neutral-400'}"
+                                    class="px-2 py-1 rounded border text-[8px] font-mono font-bold flex items-center justify-between {abaTelemetry.isComplete && abaTelemetry.checksumValid ? 'bg-[var(--bg-elevated)] border-[#18C6A5]/45 text-[#18C6A5]' : abaTelemetry.isComplete ? 'bg-[var(--bg-danger-subtle)] border-red-500/45 text-red-400' : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-muted)]'}"
                                 >
                                     {#if abaTelemetry.isComplete && abaTelemetry.checksumValid}
                                         <span>✓ {abaTelemetry.institutionName}</span>
@@ -1950,7 +1945,7 @@
                                 type="password"
                                 bind:value={offrampAccountNumber}
                                 placeholder="Account Number"
-                                class="w-full bg-[#11161f] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
+                                class="w-full bg-[var(--bg-elevated)] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
                             />
                         </div>
                     </div>
@@ -1972,14 +1967,14 @@
             {#if offrampLivePricingUnavailable || onrampLivePricingUnavailable}
                 <div
                     data-testid="fiat-live-pricing-unavailable"
-                    class="bg-[#0a0d12] border border-amber-500/45 p-3 rounded-xl text-center"
+                    class="bg-[var(--bg-card)] border border-amber-500/45 p-3 rounded-xl text-center"
                 >
                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300">
                         {LIVE_PRICING_UNAVAILABLE_MESSAGE}
                     </span>
                 </div>
             {:else if offrampError || offrampCostPlusQuote.circuitBreakerTripped}
-                <div class="bg-red-950/25 border border-red-500/40 p-3 rounded-xl text-center">
+                <div class="bg-[var(--bg-danger-subtle)] border border-red-500/40 p-3 rounded-xl text-center">
                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-red-400">
                         {offrampError ||
                             offrampCostPlusQuote.circuitBreakerReason}
@@ -1987,7 +1982,7 @@
                 </div>
             {/if}
             {#if offrampSuccessBanner}
-                <div class="bg-[#0a0d12] border border-[#18C6A5]/45 p-3 rounded-xl text-center">
+                <div class="bg-[var(--bg-card)] border border-[#18C6A5]/45 p-3 rounded-xl text-center">
                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#18C6A5]">
                         {offrampSuccessBanner}
                     </span>
@@ -2017,7 +2012,7 @@
             {@const stageIdx = getPayoutStageIndex(pass.status)}
             <div
                 data-testid="fiat-offramp-settlement-pass-card"
-                class="bg-[#11161f] border border-[#18C6A5]/45 p-4 rounded-2xl flex flex-col gap-3"
+                class="bg-[var(--bg-elevated)] border border-[#18C6A5]/45 p-4 rounded-2xl flex flex-col gap-3"
             >
                 <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2.5">
                     <div class="flex flex-col">
@@ -2061,7 +2056,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3">
+                <div class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3">
                     <div class="flex flex-col gap-1 min-w-0 flex-1">
                         <span class="text-[8px] font-bold uppercase text-neutral-400">
                             Deposit Address ({pass.sourceAsset})
@@ -2133,7 +2128,7 @@
             <div class="flex flex-col gap-2 max-h-[200px] overflow-y-auto hide-scrollbar">
                 {#each recentOfframpPayouts as p (p.payout_id)}
                     {@const stageIdx = getPayoutStageIndex(p.status)}
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[10px]">
                         <div class="flex items-center justify-between gap-2">
                             <span class="font-bold text-white">
                                 {Number(p.amount_crypto || 0).toFixed(2)}

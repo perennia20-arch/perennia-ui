@@ -434,19 +434,19 @@
 <div class="flex flex-col gap-6" in:fade={{ duration: 150 }}>
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div
-            class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
+            class="lg:col-span-6 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
         >
-            <div class="flex items-center justify-between border-b border-white/10 pb-4">
+            <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-4">
                 <div class="flex flex-col">
-                    <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-white">
+                    <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Mode 02 • KRC-20 Minter &amp; Inspector
                     </h2>
-                    <span class="text-[10px] text-neutral-400 mt-0.5">
+                    <span class="text-[10px] text-[var(--text-muted)] mt-0.5">
                         Inspect live Kasplex supply, verify `kaspa:p...` SilverScript Proof-of-Lock vesting vaults, and mint tokens directly to your vault.
                     </span>
                 </div>
-                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[9px] font-bold uppercase">
+                <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/35 text-[var(--accent-text)] text-[9px] font-bold uppercase">
                     KASPLEX LIVE
                 </span>
             </div>
@@ -454,7 +454,7 @@
             <div class="flex flex-col gap-2">
                 <label
                     for="krc20MintSearch"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Query Deployed KRC-20 / KCC-20 Ticker
                 </label>
@@ -469,20 +469,20 @@
                             mintSearchTicker = mintSearchTicker.toUpperCase().replace(/[^A-Z]/g, '');
                         }}
                         placeholder="NACHO"
-                        class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-base font-mono font-black text-white uppercase tracking-widest outline-none"
+                        class="flex-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-base font-mono font-black text-[var(--text-primary)] uppercase tracking-widest outline-none"
                     />
                     <button
                         type="button"
                         data-testid="krc20-mint-inspect-btn"
                         onclick={inspectKrc20TokenForMint}
                         disabled={isInspectingToken || !mintSearchTicker.trim()}
-                        class="tactile-btn px-5 py-3 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 shrink-0"
+                        class="tactile-btn px-5 py-3 rounded-xl border-[#18C6A5]/40 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 shrink-0"
                     >
                         {isInspectingToken ? 'Querying Indexer...' : 'Inspect On-Chain Supply'}
                     </button>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span class="text-[9px] text-neutral-400 uppercase mr-1">Quick Select:</span>
+                    <span class="text-[9px] text-[var(--text-muted)] uppercase mr-1">Quick Select:</span>
                     {#each ['NACHO', 'SILO', 'PERX', 'BEDRCK'] as preset}
                         <button
                             type="button"
@@ -490,7 +490,7 @@
                                 mintSearchTicker = preset;
                                 inspectKrc20TokenForMint();
                             }}
-                            class="tactile-btn px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer"
+                            class="tactile-btn px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                         >
                             {preset}
                         </button>
@@ -499,7 +499,7 @@
             </div>
 
             {#if inspectError}
-                <div class="p-3.5 rounded-xl bg-red-950/25 border border-red-500/40 text-red-400 text-[10px] font-mono">
+                <div class="p-3.5 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/40 text-red-400 text-[10px] font-mono">
                     ✕ {inspectError}
                 </div>
             {/if}
@@ -507,7 +507,7 @@
             <div class="flex flex-col gap-1.5">
                 <label
                     for="mintRecipient"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Destination Sovereign Vault Address (Supports `kaspa:q...` P2PK &amp; `kaspa:p...` P2SH)
                 </label>
@@ -516,7 +516,7 @@
                     type="text"
                     bind:value={mintRecipientAddress}
                     placeholder={identity.activeAddress || 'kaspa:qp... or kaspa:p...'}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-xs font-mono text-[var(--text-primary)] outline-none"
                 />
             </div>
 
@@ -531,7 +531,7 @@
                             inspectedToken
                         })}
                     disabled={isForging || !mintSearchTicker.trim() || mintSearchTicker.trim().length < 4}
-                    class="tactile-btn flex-1 py-4 rounded-2xl border-[#18C6A5]/45 text-[#18C6A5] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+                    class="tactile-btn flex-1 py-4 rounded-2xl border-[#18C6A5]/45 text-[var(--accent-text)] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
                     style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
                 >
                     {isForging
@@ -551,16 +551,16 @@
 
         <div
             data-testid="krc20-inspector-card"
-            class="lg:col-span-6 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
+            class="lg:col-span-6 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
             style="background-image: radial-gradient(ellipse at top right, rgba(24, 198, 165, 0.10), transparent 65%);"
         >
-            <div class="flex items-center justify-between border-b border-white/10 pb-4">
-                <span class="text-xs font-black uppercase tracking-widest text-white">
+            <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-4">
+                <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                     Kasplex On-Chain Telemetry &amp; Proof-of-Lock Gauge
                 </span>
                 {#if inspectedToken}
                     <span
-                        class="px-2.5 py-0.5 rounded bg-[#11161f] border text-[9px] font-black uppercase {inspectedToken.state === 'deployed' ? 'border-[#18C6A5]/40 text-[#18C6A5]' : 'border-amber-500/40 text-amber-400'}"
+                        class="px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border text-[9px] font-black uppercase {inspectedToken.state === 'deployed' ? 'border-[#18C6A5]/40 text-[var(--accent-text)]' : 'border-amber-500/40 text-amber-400'}"
                     >
                         {inspectedToken.state.toUpperCase()}
                     </span>
@@ -572,17 +572,17 @@
                 {@const mintedHuman = parseKasplexUnits(inspectedToken.minted, inspectedToken.dec)}
                 {@const limHuman = parseKasplexUnits(inspectedToken.lim, inspectedToken.dec)}
                 <div class="flex flex-col gap-4">
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2">
                         <div class="flex items-center justify-between text-xs">
-                            <span class="font-black text-white text-base">
+                            <span class="font-black text-[var(--text-primary)] text-base">
                                 {inspectedToken.tick}
                             </span>
-                            <span class="text-[#18C6A5] font-bold tabular-nums">
+                            <span class="text-[var(--accent-text)] font-bold tabular-nums">
                                 {inspectedMintProgressPct.toFixed(2)}% Minted
                             </span>
                         </div>
                         <div
-                            class="w-full h-2.5 bg-[#0a0d12] rounded-full overflow-hidden border border-white/10"
+                            class="w-full h-2.5 bg-[var(--bg-card)] rounded-full overflow-hidden border border-[var(--border-subtle)]"
                             data-testid="krc20-mint-progress-bar"
                         >
                             <div
@@ -590,28 +590,28 @@
                                 style="width: {inspectedMintProgressPct}%;"
                             ></div>
                         </div>
-                        <div class="flex justify-between text-[10px] text-neutral-400 tabular-nums">
+                        <div class="flex justify-between text-[10px] text-[var(--text-muted)] tabular-nums">
                             <span>Minted: {mintedHuman.toLocaleString()}</span>
                             <span>Max Supply: {maxHuman.toLocaleString()}</span>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[10px]">
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Per-Mint Limit</span>
-                            <span class="text-white font-bold text-xs tabular-nums">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Per-Mint Limit</span>
+                            <span class="text-[var(--text-primary)] font-bold text-xs tabular-nums">
                                 {limHuman.toLocaleString()} {inspectedToken.tick}
                             </span>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Total Holders</span>
-                            <span class="text-[#18C6A5] font-bold text-xs tabular-nums">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Total Holders</span>
+                            <span class="text-[var(--accent-text)] font-bold text-xs tabular-nums">
                                 {inspectedToken.holderTotal.toLocaleString()}
                             </span>
                         </div>
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Total Mints</span>
-                            <span class="text-white font-bold text-xs tabular-nums">
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Total Mints</span>
+                            <span class="text-[var(--text-primary)] font-bold text-xs tabular-nums">
                                 {inspectedToken.mintTotal.toLocaleString()}
                             </span>
                         </div>
@@ -619,17 +619,17 @@
 
                     <div
                         data-testid="proof-of-lock-supply-gauge"
-                        class="bg-[#11161f] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3"
+                        class="bg-[var(--bg-elevated)] border border-[#18C6A5]/35 rounded-2xl p-4 flex flex-col gap-3"
                     >
                         <div class="flex items-center justify-between">
-                            <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                                 🔒 Proof-of-Lock Supply Gauge
                             </span>
-                            <span class="text-[8px] font-mono text-neutral-400 uppercase">
+                            <span class="text-[8px] font-mono text-[var(--text-muted)] uppercase">
                                 22:00 UTC Daily Release: +{supplyGaugeMetrics.dailyUnlock.toLocaleString(undefined, { maximumFractionDigits: 2 })} {inspectedToken.tick}/d
                             </span>
                         </div>
-                        <div class="w-full h-3 bg-[#0a0d12] rounded-full overflow-hidden border border-white/10 flex">
+                        <div class="w-full h-3 bg-[var(--bg-card)] rounded-full overflow-hidden border border-[var(--border-subtle)] flex">
                             <div
                                 class="h-full bg-[#18C6A5] transition-all duration-500"
                                 style="width: {supplyGaugeMetrics.circulatingPct}%;"
@@ -647,19 +647,19 @@
                             ></div>
                         </div>
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[9px] font-mono">
-                            <div class="bg-[#0a0d12] border border-white/5 rounded-lg p-2">
-                                <span class="text-[7px] text-neutral-500 block uppercase">Total Supply</span>
-                                <span class="text-white font-bold tabular-nums">
+                            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2">
+                                <span class="text-[7px] text-[var(--text-muted)] block uppercase">Total Supply</span>
+                                <span class="text-[var(--text-primary)] font-bold tabular-nums">
                                     {supplyGaugeMetrics.totalMax.toLocaleString()}
                                 </span>
                             </div>
-                            <div class="bg-[#0a0d12] border border-white/5 rounded-lg p-2">
-                                <span class="text-[7px] text-[#18C6A5] block uppercase">Circulating</span>
-                                <span class="text-[#18C6A5] font-bold tabular-nums">
+                            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2">
+                                <span class="text-[7px] text-[var(--accent-text)] block uppercase">Circulating</span>
+                                <span class="text-[var(--accent-text)] font-bold tabular-nums">
                                     {supplyGaugeMetrics.circulatingUnlocked.toLocaleString()}
                                 </span>
                             </div>
-                            <div class="bg-[#0a0d12] border border-white/5 rounded-lg p-2">
+                            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2">
                                 <span class="text-[7px] text-blue-400 block uppercase">Locked Vesting</span>
                                 <span
                                     data-testid="proof-of-lock-locked-amount"
@@ -668,7 +668,7 @@
                                     {supplyGaugeMetrics.totalLocked.toLocaleString()}
                                 </span>
                             </div>
-                            <div class="bg-[#0a0d12] border border-white/5 rounded-lg p-2">
+                            <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2">
                                 <span class="text-[7px] text-amber-400 block uppercase">Burned (`...kx9awp4e`)</span>
                                 <span
                                     data-testid="proof-of-lock-burned-amount"
@@ -680,8 +680,8 @@
                         </div>
 
                         {#if tokenomicsBundle?.vestingSchedules && tokenomicsBundle.vestingSchedules.length > 0}
-                            <div class="border-t border-white/10 pt-2.5 flex flex-col gap-1.5">
-                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+                            <div class="border-t border-[var(--border-subtle)] pt-2.5 flex flex-col gap-1.5">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                                     Active 22:00 UTC SilverScript Vesting Covenants ({tokenomicsBundle.vestingSchedules.length})
                                 </span>
                                 <div class="flex flex-col gap-2 max-h-[210px] overflow-y-auto pr-1 hide-scrollbar">
@@ -690,19 +690,19 @@
                                         {@const isSilExpanded = Boolean(expandedVestingSilRows[vs.vestingId])}
                                         <div
                                             data-testid="vesting-covenant-row"
-                                            class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2.5 flex flex-col gap-1.5 text-[9px] font-mono"
+                                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-3 py-2.5 flex flex-col gap-1.5 text-[9px] font-mono"
                                         >
                                             <div class="flex items-center justify-between gap-2">
                                                 <div class="flex flex-col">
                                                     <div class="flex items-center gap-1.5">
-                                                        <span class="font-bold text-white">
+                                                        <span class="font-bold text-[var(--text-primary)]">
                                                             {vs.label} ({vs.cliffDays}D Cliff / {vs.linearDays}D Linear)
                                                         </span>
-                                                        <span class="px-1.5 py-0.5 rounded bg-[#11161f] border border-blue-500/35 text-[7px] text-blue-400 uppercase font-bold">
+                                                        <span class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-blue-500/35 text-[7px] text-blue-400 uppercase font-bold">
                                                             {covDetails.tokenStandard}
                                                         </span>
                                                     </div>
-                                                    <span class="text-[8px] text-neutral-400">
+                                                    <span class="text-[8px] text-[var(--text-muted)]">
                                                         Beneficiary: {String(vs.beneficiaryAddress || '').slice(0, 22)}...
                                                     </span>
                                                 </div>
@@ -710,15 +710,15 @@
                                                     <span class="text-blue-400 font-bold">
                                                         {Number(vs.remainingLocked ?? vs.totalAllocated ?? 0).toLocaleString()} Locked
                                                     </span>
-                                                    <span class="text-[8px] text-[#18C6A5]">
+                                                    <span class="text-[8px] text-[var(--accent-text)]">
                                                         +{Number(vs.dailyUnlockRate || 0).toFixed(1)}/d @ 22:00 UTC
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5 text-[8px]">
+                                            <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)] text-[8px]">
                                                 <span
                                                     data-testid="vesting-covenant-p2sh-address"
-                                                    class="text-[#18C6A5] truncate max-w-[240px] select-all"
+                                                    class="text-[var(--accent-text)] truncate max-w-[240px] select-all"
                                                     title={covDetails.covenantAddress}
                                                 >
                                                     Vault: {covDetails.covenantAddress.slice(0, 26)}...
@@ -726,7 +726,7 @@
                                                 <div class="flex items-center gap-2">
                                                     <span
                                                         data-testid="vesting-covenant-kcc20-root"
-                                                        class="text-neutral-400"
+                                                        class="text-[var(--text-muted)]"
                                                         title={covDetails.kcc20StateCommitment}
                                                     >
                                                         KCC-20 Root: {covDetails.kcc20StateCommitment.slice(0, 10)}...
@@ -734,7 +734,7 @@
                                                     <button
                                                         type="button"
                                                         onclick={() => toggleVestingSilDrawer(vs.vestingId)}
-                                                        class="px-1.5 py-0.5 rounded bg-[#11161f] border border-blue-500/40 text-blue-400 font-bold uppercase cursor-pointer"
+                                                        class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-blue-500/40 text-blue-400 font-bold uppercase cursor-pointer"
                                                     >
                                                         {isSilExpanded ? '[Hide .sil]' : '[View .sil]'}
                                                     </button>
@@ -743,7 +743,7 @@
                                             {#if isSilExpanded}
                                                 <pre
                                                     transition:slide={{ duration: 140 }}
-                                                    class="mt-1 bg-[#11161f] border border-white/10 rounded p-2 text-[8px] text-[#18C6A5] overflow-x-auto select-all"
+                                                    class="mt-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded p-2 text-[8px] text-[var(--accent-text)] overflow-x-auto select-all"
                                                 >{covDetails.silverscriptSource}</pre>
                                             {/if}
                                         </div>
@@ -754,13 +754,13 @@
                     </div>
 
                     {#if inspectedToken.hashRev}
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex items-center justify-between gap-2 text-[10px]">
-                            <span class="text-neutral-400 uppercase">Genesis Reveal TX:</span>
+                        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3.5 flex items-center justify-between gap-2 text-[10px]">
+                            <span class="text-[var(--text-muted)] uppercase">Genesis Reveal TX:</span>
                             <a
                                 href="https://kas.fyi/transaction/{inspectedToken.hashRev}"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                class="text-[#18C6A5] hover:underline font-bold truncate max-w-[260px]"
+                                class="text-[var(--accent-text)] hover:underline font-bold truncate max-w-[260px]"
                             >
                                 {inspectedToken.hashRev.slice(0, 18)}... ↗
                             </a>
@@ -768,11 +768,11 @@
                     {/if}
                 </div>
             {:else}
-                <div class="py-14 text-center border border-dashed border-white/10 rounded-2xl bg-[#11161f]/40 flex flex-col items-center gap-2">
-                    <span class="text-xs font-bold uppercase tracking-widest text-neutral-400">
+                <div class="py-14 text-center border border-dashed border-[var(--border-subtle)] rounded-2xl bg-[var(--bg-elevated)] flex flex-col items-center gap-2">
+                    <span class="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
                         Enter a Ticker &amp; Click [Inspect On-Chain Supply]
                     </span>
-                    <span class="text-[10px] text-neutral-500 max-w-sm">
+                    <span class="text-[10px] text-[var(--text-muted)] max-w-sm">
                         Live supply progress, `kaspa:p...` SilverScript Proof-of-Lock vesting covenants, KCC-20 state roots, and daily 22:00 UTC unlock schedules will populate here.
                     </span>
                 </div>
@@ -784,22 +784,22 @@
         <div
             data-testid="retroactive-upgrade-foundry-card"
             transition:slide={{ duration: 180 }}
-            class="bg-[#0a0d12] border border-amber-500/40 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
+            class="bg-[var(--bg-card)] border border-amber-500/40 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
             style="background-image: radial-gradient(ellipse at top left, rgba(245, 158, 11, 0.12), transparent 68%);"
         >
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-4">
                 <div class="flex flex-col">
                     <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">
                         Retroactive KRC-20 / KCC-20 SilverScript Ecosystem Upgrade
                     </span>
-                    <h3 class="text-sm md:text-base font-black uppercase tracking-wider text-white mt-0.5">
+                    <h3 class="text-sm md:text-base font-black uppercase tracking-wider text-[var(--text-primary)] mt-0.5">
                         Upgrade Existing Mainnet Ticker ({inspectedToken?.tick || mintSearchTicker || 'NACHO'})
                     </h3>
-                    <span class="text-[10px] text-neutral-400">
+                    <span class="text-[10px] text-[var(--text-muted)]">
                         Attach a 22:00 UTC Buyback-and-Burn Sink, `kaspa:p...` SilverScript Proof-of-Lock Team Vesting Covenant, or Proof-of-Hashrate Mining Vault to an already-deployed community.
                     </span>
                 </div>
-                <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold uppercase">
+                <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[var(--accent-text)] text-[9px] font-bold uppercase">
                     1.50 KAS PROTOCOL FEE FIREWALL
                 </span>
             </div>
@@ -807,18 +807,18 @@
             {#if retroStatusBanner}
                 <div
                     data-testid="retro-upgrade-status-banner"
-                    class="p-3.5 rounded-xl border text-[10px] font-mono font-bold {retroStatusBanner.type === 'success' ? 'bg-[#11161f] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-red-950/25 border-red-500/45 text-red-400'}"
+                    class="p-3.5 rounded-xl border text-[10px] font-mono font-bold {retroStatusBanner.type === 'success' ? 'bg-[var(--bg-elevated)] border-[#18C6A5]/45 text-[var(--accent-text)]' : 'bg-[var(--bg-danger-subtle)] border-red-500/45 text-red-400'}"
                 >
                     {retroStatusBanner.message}
                 </div>
             {/if}
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
+                <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2.5">
                     <span class="text-[10px] font-black uppercase tracking-widest text-amber-400">
                         1. 22:00 UTC Buyback &amp; Burn Vault
                     </span>
-                    <label for="retroBurnBps" class="text-[9px] text-neutral-400 uppercase">
+                    <label for="retroBurnBps" class="text-[9px] text-[var(--text-muted)] uppercase">
                         Auto-Burn Rate (bps of DEX Volume)
                     </label>
                     <input
@@ -828,14 +828,14 @@
                         min="0"
                         max="1000"
                         bind:value={retroBurnRateBps}
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none"
+                        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                     />
-                    <span class="text-[8px] font-mono text-neutral-500 break-all">
+                    <span class="text-[8px] font-mono text-[var(--text-muted)] break-all">
                         Burn Target: {KASPA_UNSPENDABLE_BURN_ADDRESS.slice(0, 32)}...
                     </span>
                 </div>
 
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
+                <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2.5">
                     <div class="flex items-center justify-between">
                         <span class="text-[10px] font-black uppercase tracking-widest text-blue-400">
                             2. SilverScript Vesting Covenant
@@ -843,65 +843,65 @@
                         <button
                             type="button"
                             onclick={() => (showRetroSilPreview = !showRetroSilPreview)}
-                            class="text-[8px] font-mono text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                            class="text-[8px] font-mono text-[var(--accent-text)] hover:underline uppercase cursor-pointer"
                         >
                             {showRetroSilPreview ? '[Hide .sil]' : '[View .sil]'}
                         </button>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Amount to Lock</span>
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Amount to Lock</span>
                             <input
                                 type="number"
                                 data-testid="retro-vesting-amount-input"
                                 bind:value={retroVestingAmount}
-                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-white outline-none"
+                                class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                             />
                         </div>
                         <div class="flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Cliff / Linear Days</span>
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Cliff / Linear Days</span>
                             <div class="flex items-center gap-1">
                                 <input
                                     type="number"
                                     data-testid="retro-cliff-days-input"
                                     bind:value={retroCliffDays}
-                                    class="w-1/2 bg-[#0a0d12] border border-white/10 rounded-lg px-2 py-2 text-xs font-mono text-amber-400 outline-none text-center"
+                                    class="w-1/2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2 py-2 text-xs font-mono text-amber-400 outline-none text-center"
                                 />
                                 <input
                                     type="number"
                                     data-testid="retro-linear-days-input"
                                     bind:value={retroLinearDays}
-                                    class="w-1/2 bg-[#0a0d12] border border-white/10 rounded-lg px-2 py-2 text-xs font-mono text-blue-400 outline-none text-center"
+                                    class="w-1/2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2 py-2 text-xs font-mono text-blue-400 outline-none text-center"
                                 />
                             </div>
                         </div>
                     </div>
-                    <span class="text-[8px] font-mono text-[#18C6A5] truncate" title={retroCompiledVault.covenantAddress}>
+                    <span class="text-[8px] font-mono text-[var(--accent-text)] truncate" title={retroCompiledVault.covenantAddress}>
                         P2SH Vault: {retroCompiledVault.covenantAddress.slice(0, 28)}...
                     </span>
                 </div>
 
-                <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
-                    <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2.5">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                         3. Proof-of-Hashrate Mining Vault
                     </span>
                     <div class="grid grid-cols-2 gap-2">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Vault Reserve</span>
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Vault Reserve</span>
                             <input
                                 type="number"
                                 data-testid="retro-mineable-funded-input"
                                 bind:value={retroMineableFunded}
-                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-white outline-none"
+                                class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                             />
                         </div>
                         <div class="flex flex-col gap-1">
-                            <span class="text-[8px] text-neutral-400 uppercase">Daily Emission</span>
+                            <span class="text-[8px] text-[var(--text-muted)] uppercase">Daily Emission</span>
                             <input
                                 type="number"
                                 data-testid="retro-mineable-daily-input"
                                 bind:value={retroMineableDaily}
-                                class="bg-[#0a0d12] border border-white/10 rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-[#18C6A5] outline-none"
+                                class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-[var(--accent-text)] outline-none"
                             />
                         </div>
                     </div>
@@ -911,7 +911,7 @@
             {#if showRetroSilPreview}
                 <pre
                     transition:slide={{ duration: 150 }}
-                    class="bg-[#11161f] border border-blue-500/35 rounded-2xl p-3.5 text-[9px] font-mono text-[#18C6A5] overflow-x-auto select-all"
+                    class="bg-[var(--bg-elevated)] border border-blue-500/35 rounded-2xl p-3.5 text-[9px] font-mono text-[var(--accent-text)] overflow-x-auto select-all"
                 >{retroCompiledVault.silverscriptSource}</pre>
             {/if}
 

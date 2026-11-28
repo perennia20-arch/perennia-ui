@@ -594,44 +594,44 @@
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" in:fade={{ duration: 150 }}>
     <!-- LEFT COLUMN: KRC-20 / KCC-20 DEPLOYER, MULTI-WALLET CAP TABLE & SILVERSCRIPT PROOF-OF-LOCK -->
     <div
-        class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-6"
+        class="lg:col-span-7 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-6"
         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
     >
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-4">
             <div class="flex flex-col">
-                <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-white">
+                <h2 class="text-sm md:text-base font-black uppercase tracking-widest text-[var(--text-primary)]">
                     Mode 01 • KRC-20 Deploy &amp; Tokenomics Studio
                 </h2>
-                <span class="text-[10px] text-neutral-400 mt-0.5">
+                <span class="text-[10px] text-[var(--text-muted)] mt-0.5">
                     Configure genesis supply, multi-wallet allocations, SilverScript `.sil` Proof-of-Lock vesting covenants, and deflationary burn sinks.
                 </span>
             </div>
-            <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] text-[9px] font-bold uppercase">
+            <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/35 text-[var(--accent-text)] text-[9px] font-bold uppercase">
                 KAS-ONLY FEE FIREWALL
             </span>
         </div>
 
         <!-- TOKEN STANDARD SELECTOR: KRC-20 VS KCC-20 SILVERSCRIPT COVENANT -->
         <div class="flex flex-col gap-2">
-            <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-300">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]">
                 L1 Token &amp; Covenant Standard
             </span>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-[#11161f] p-1.5 rounded-2xl border border-white/10">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-[var(--bg-elevated)] p-1.5 rounded-2xl border border-[var(--border-subtle)]">
                 <button
                     type="button"
                     data-testid="token-standard-krc20-btn"
                     onclick={() => setTokenStandard('KRC-20')}
-                    class="p-3 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-0.5 border {tokenStandard === 'KRC-20' ? 'bg-[#161d29] border-[#18C6A5]/45 text-white shadow-md' : 'bg-[#0a0d12]/60 border-white/5 text-neutral-400 hover:text-white'}"
+                    class="p-3 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-0.5 border {tokenStandard === 'KRC-20' ? 'bg-[var(--bg-hover)] border-[#18C6A5]/45 text-[var(--text-primary)] shadow-md' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-black uppercase tracking-wider text-white">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-[var(--text-primary)]">
                             Standard KRC-20 Inscription
                         </span>
-                        <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[#18C6A5]">
+                        <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/35 text-[var(--accent-text)]">
                             KASPLEX L1
                         </span>
                     </div>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Kasplex envelope + Proof-of-Lock P2SH vault routing
                     </span>
                 </button>
@@ -639,17 +639,17 @@
                     type="button"
                     data-testid="token-standard-kcc20-btn"
                     onclick={() => setTokenStandard('KCC-20')}
-                    class="p-3 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-0.5 border {tokenStandard === 'KCC-20' ? 'bg-[#161d29] border-blue-500/45 text-white shadow-md' : 'bg-[#0a0d12]/60 border-white/5 text-neutral-400 hover:text-white'}"
+                    class="p-3 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-0.5 border {tokenStandard === 'KCC-20' ? 'bg-[var(--bg-hover)] border-blue-500/45 text-[var(--text-primary)] shadow-md' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-black uppercase tracking-wider text-white">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-[var(--text-primary)]">
                             KCC-20 + SilverScript Covenant
                         </span>
-                        <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[#0a0d12] border border-blue-500/40 text-blue-400">
+                        <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-card)] border border-blue-500/40 text-blue-400">
                             SILVERSCRIPT v1
                         </span>
                     </div>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Fixed-width KCC20State commitment + `kaspa:p...` P2SH vaults
                     </span>
                 </button>
@@ -660,7 +660,7 @@
         <div class="flex flex-col gap-2">
             <label
                 for="krc20DeployTicker"
-                class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
             >
                 Token Ticker Symbol (4 to 6 Letters)
             </label>
@@ -678,14 +678,14 @@
                         }
                     }}
                     placeholder="SILO"
-                    class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-base font-mono font-black text-white uppercase tracking-widest outline-none"
+                    class="flex-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-base font-mono font-black text-[var(--text-primary)] uppercase tracking-widest outline-none"
                 />
                 <button
                     type="button"
                     data-testid="krc20-check-ticker-btn"
                     onclick={checkDeployTickerAvailability}
                     disabled={isCheckingTicker || !deployTicker.trim()}
-                    class="tactile-btn px-5 py-3 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 shrink-0"
+                    class="tactile-btn px-5 py-3 rounded-xl border-[#18C6A5]/40 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 shrink-0"
                 >
                     {isCheckingTicker ? 'Checking Kasplex...' : 'Verify Ticker Availability'}
                 </button>
@@ -693,7 +693,7 @@
             {#if tickerAvailability}
                 <div
                     data-testid="krc20-ticker-status-badge"
-                    class="mt-1 p-3.5 rounded-xl border text-[10px] font-mono flex flex-col gap-1.5 {tickerAvailability.error ? 'bg-red-950/25 border-red-500/40 text-red-400' : tickerAvailability.available ? 'bg-[#11161f] border-[#18C6A5]/45 text-[#18C6A5]' : 'bg-amber-950/20 border-amber-500/45 text-amber-400'}"
+                    class="mt-1 p-3.5 rounded-xl border text-[10px] font-mono flex flex-col gap-1.5 {tickerAvailability.error ? 'bg-[var(--bg-danger-subtle)] border-red-500/40 text-red-400' : tickerAvailability.available ? 'bg-[var(--bg-elevated)] border-[#18C6A5]/45 text-[var(--accent-text)]' : 'bg-[var(--bg-warn-subtle)] border-amber-500/45 text-amber-400'}"
                 >
                     {#if tickerAvailability.error}
                         <span class="font-bold">✕ {tickerAvailability.error}</span>
@@ -702,7 +702,7 @@
                             <span class="font-black uppercase tracking-wider">
                                 ✓ TICKER "{tickerAvailability.checkedTicker}" IS AVAILABLE FOR DEPLOYMENT
                             </span>
-                            <span class="text-[8px] px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40">
+                            <span class="text-[8px] px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/40">
                                 UNCLAIMED ON DAG
                             </span>
                         </div>
@@ -718,12 +718,12 @@
                                         tickerAvailability?.checkedTicker || '',
                                         tickerAvailability?.existingToken
                                     )}
-                                class="tactile-btn px-2.5 py-1 rounded text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                                class="tactile-btn px-2.5 py-1 rounded text-[8px] font-black uppercase text-[var(--accent-text)] border-[#18C6A5]/40 cursor-pointer"
                             >
                                 [Inspect / Upgrade in Mode 02 →]
                             </button>
                         </div>
-                        <span class="text-[9px] text-neutral-300">
+                        <span class="text-[9px] text-[var(--text-secondary)]">
                             State: {tickerAvailability.existingToken.state.toUpperCase()} • Holders: {tickerAvailability.existingToken.holderTotal.toLocaleString()} • Max Supply: {parseKasplexUnits(tickerAvailability.existingToken.max, tickerAvailability.existingToken.dec).toLocaleString()}
                         </span>
                     {/if}
@@ -736,7 +736,7 @@
             <div class="flex flex-col gap-1.5">
                 <label
                     for="deployMaxSupply"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Max Token Supply (Whole Tokens)
                 </label>
@@ -746,13 +746,13 @@
                     type="number"
                     min="1"
                     bind:value={deployMaxSupply}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
             <div class="flex flex-col gap-1.5">
                 <label
                     for="deployMintLimit"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Per-Mint Limit (Tokens per TX)
                 </label>
@@ -762,13 +762,13 @@
                     type="number"
                     min="1"
                     bind:value={deployMintLimit}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
             <div class="flex flex-col gap-1.5">
                 <label
                     for="deployDecimals"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Decimals (Default 8)
                 </label>
@@ -778,13 +778,13 @@
                     min="0"
                     max="18"
                     bind:value={deployDecimals}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-white outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
             <div class="flex flex-col gap-1.5">
                 <label
                     for="deployPreAlloc"
-                    class="text-[10px] font-bold uppercase tracking-widest text-neutral-300"
+                    class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]"
                 >
                     Genesis Pre-Allocation (Cap Table + Vaults)
                 </label>
@@ -793,22 +793,22 @@
                     type="number"
                     min="0"
                     bind:value={deployPreAllocation}
-                    class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-[#18C6A5] outline-none"
+                    class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-[#18C6A5]/50 rounded-xl px-4 py-3 text-sm font-mono font-bold text-[var(--accent-text)] outline-none"
                 />
             </div>
         </div>
 
         <!-- UNLIMITED MULTI-WALLET GENESIS CAP TABLE & SILVERSCRIPT PROOF-OF-LOCK -->
         <div
-            class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-4"
+            class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-4"
             data-testid="genesis-cap-table-builder"
         >
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
                 <div class="flex flex-col">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
+                    <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Genesis Multi-Wallet Cap Table &amp; SilverScript Covenants
                     </span>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Automated `kaspa:p...` P2SH vault derivation with 22:00 UTC linear vesting unlocks &amp; inspectable `.sil` source
                     </span>
                 </div>
@@ -833,7 +833,7 @@
                         type="button"
                         data-testid="cap-table-add-row-btn"
                         onclick={() => addCapTableRow()}
-                        class="tactile-btn px-3 py-1.5 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                        class="tactile-btn px-3 py-1.5 rounded-lg text-[8px] font-black uppercase text-[var(--accent-text)] border-[#18C6A5]/45 cursor-pointer"
                     >
                         [+ Add Recipient Row]
                     </button>
@@ -843,7 +843,7 @@
             {#if showCsvImportDrawer}
                 <div
                     transition:slide={{ duration: 150 }}
-                    class="bg-[#0a0d12] border border-blue-500/35 rounded-xl p-3.5 flex flex-col gap-2.5"
+                    class="bg-[var(--bg-card)] border border-blue-500/35 rounded-xl p-3.5 flex flex-col gap-2.5"
                 >
                     <div class="flex items-center justify-between">
                         <span class="text-[9px] font-bold uppercase tracking-widest text-blue-400">
@@ -852,7 +852,7 @@
                         <button
                             type="button"
                             onclick={() => csvFileInputRef?.click()}
-                            class="text-[8px] font-mono text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                            class="text-[8px] font-mono text-[var(--accent-text)] hover:underline uppercase cursor-pointer"
                         >
                             [Upload .CSV File ↑]
                         </button>
@@ -862,12 +862,12 @@
                         data-testid="cap-table-csv-textarea"
                         bind:value={csvRawText}
                         placeholder="kaspa:qp...,2100000,Founders Vault,180,365"
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-blue-500/50 rounded-lg p-2.5 text-[10px] font-mono text-white outline-none resize-none"
+                        class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] focus:border-blue-500/50 rounded-lg p-2.5 text-[10px] font-mono text-[var(--text-primary)] outline-none resize-none"
                     ></textarea>
                     {#if csvImportFeedback}
                         <div
                             data-testid="cap-table-csv-feedback"
-                            class="p-2 rounded-lg border text-[9px] font-mono {csvImportFeedback.type === 'success' ? 'border-[#18C6A5]/40 text-[#18C6A5] bg-[#11161f]' : 'border-red-500/40 text-red-400 bg-red-950/20'}"
+                            class="p-2 rounded-lg border text-[9px] font-mono {csvImportFeedback.type === 'success' ? 'border-[#18C6A5]/40 text-[var(--accent-text)] bg-[var(--bg-elevated)]' : 'border-red-500/40 text-red-400 bg-[var(--bg-danger-subtle)]'}"
                         >
                             {csvImportFeedback.message}
                         </div>
@@ -877,7 +877,7 @@
                             type="button"
                             data-testid="cap-table-csv-import-btn"
                             onclick={handleImportCsvText}
-                            class="tactile-btn px-4 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                            class="tactile-btn px-4 py-1.5 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border-[#18C6A5]/40 cursor-pointer"
                         >
                             Validate Bech32m Checksums &amp; Import CSV →
                         </button>
@@ -886,11 +886,11 @@
             {/if}
 
             {#if capTable.length === 0}
-                <div class="py-6 text-center border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/60 flex flex-col items-center gap-1.5">
-                    <span class="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                <div class="py-6 text-center border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-card)] flex flex-col items-center gap-1.5">
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                         0 Pre-Allocation Cap Table Rows (100% Public Fair Launch)
                     </span>
-                    <span class="text-[9px] text-neutral-500">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Click [+ Add Recipient Row] or [⚡ Load 4-Tranche Template] to configure multi-wallet allocations &amp; SilverScript Proof-of-Lock vesting covenants.
                     </span>
                 </div>
@@ -901,7 +901,7 @@
                         {@const isSilOpen = Boolean(expandedSilDrawers[row.id])}
                         <div
                             data-testid="cap-table-row-{idx}"
-                            class="bg-[#0a0d12] border {row.checksumValid ? 'border-white/10' : 'border-red-500/50'} rounded-xl p-3 flex flex-col gap-2"
+                            class="bg-[var(--bg-card)] border {row.checksumValid ? 'border-[var(--border-subtle)]' : 'border-red-500/50'} rounded-xl p-3 flex flex-col gap-2"
                         >
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <input
@@ -913,7 +913,7 @@
                                         );
                                     }}
                                     placeholder="Tranche Label (e.g. Founders / Treasury)"
-                                    class="bg-transparent text-xs font-bold text-white outline-none border-b border-transparent focus:border-[#18C6A5]/50 w-48"
+                                    class="bg-transparent text-xs font-bold text-[var(--text-primary)] outline-none border-b border-transparent focus:border-[#18C6A5]/50 w-48"
                                 />
                                 <div class="flex flex-wrap items-center gap-1.5">
                                     {#if row.checksumValid && (isTimelockedRow || tokenStandard === 'KCC-20')}
@@ -930,7 +930,7 @@
                                     {/if}
                                     <span
                                         data-testid="cap-table-checksum-badge-{idx}"
-                                        class="px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase border {row.checksumValid ? 'border-[#18C6A5]/40 text-[#18C6A5] bg-[#11161f]' : 'border-red-500/40 text-red-400 bg-red-950/20'}"
+                                        class="px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase border {row.checksumValid ? 'border-[#18C6A5]/40 text-[var(--accent-text)] bg-[var(--bg-elevated)]' : 'border-red-500/40 text-red-400 bg-[var(--bg-danger-subtle)]'}"
                                     >
                                         {row.checksumValid
                                             ? isTimelockedRow
@@ -941,7 +941,7 @@
                                     <button
                                         type="button"
                                         onclick={() => removeCapTableRow(row.id)}
-                                        class="text-neutral-500 hover:text-red-400 text-xs cursor-pointer"
+                                        class="text-[var(--text-muted)] hover:text-red-400 text-xs cursor-pointer"
                                     >
                                         ✕
                                     </button>
@@ -961,10 +961,10 @@
                                             )}
                                         placeholder="kaspa:qp... or kaspa:p..."
                                         spellcheck="false"
-                                        class="w-full bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-white outline-none"
+                                        class="w-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-[var(--text-primary)] outline-none"
                                     />
                                 </div>
-                                <div class="sm:col-span-3 flex items-center gap-1 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1.5">
+                                <div class="sm:col-span-3 flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5">
                                     <input
                                         type="number"
                                         data-testid="cap-table-amount-input-{idx}"
@@ -974,11 +974,11 @@
                                                 idx,
                                                 (e.currentTarget as HTMLInputElement).value
                                             )}
-                                        class="w-full bg-transparent text-[10px] font-mono font-bold text-white outline-none"
+                                        class="w-full bg-transparent text-[10px] font-mono font-bold text-[var(--text-primary)] outline-none"
                                     />
-                                    <span class="text-[8px] text-neutral-400">{deployTicker}</span>
+                                    <span class="text-[8px] text-[var(--text-muted)]">{deployTicker}</span>
                                 </div>
-                                <div class="sm:col-span-2 flex items-center gap-0.5 bg-[#11161f] border border-white/10 rounded-lg px-2 py-1.5">
+                                <div class="sm:col-span-2 flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5">
                                     <input
                                         type="number"
                                         step="0.5"
@@ -989,11 +989,11 @@
                                                 idx,
                                                 (e.currentTarget as HTMLInputElement).value
                                             )}
-                                        class="w-full bg-transparent text-[10px] font-mono text-[#18C6A5] font-bold outline-none"
+                                        class="w-full bg-transparent text-[10px] font-mono text-[var(--accent-text)] font-bold outline-none"
                                     />
-                                    <span class="text-[8px] text-neutral-400">%</span>
+                                    <span class="text-[8px] text-[var(--text-muted)]">%</span>
                                 </div>
-                                <div class="sm:col-span-1 flex items-center gap-0.5 bg-[#11161f] border border-white/10 rounded-lg px-1.5 py-1.5" title="Cliff Days">
+                                <div class="sm:col-span-1 flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-1.5 py-1.5" title="Cliff Days">
                                     <input
                                         type="number"
                                         min="0"
@@ -1007,9 +1007,9 @@
                                             )}
                                         class="w-full bg-transparent text-[9px] font-mono text-amber-400 outline-none text-center"
                                     />
-                                    <span class="text-[7px] text-neutral-500">CLF</span>
+                                    <span class="text-[7px] text-[var(--text-muted)]">CLF</span>
                                 </div>
-                                <div class="sm:col-span-1 flex items-center gap-0.5 bg-[#11161f] border border-white/10 rounded-lg px-1.5 py-1.5" title="Linear Vesting Days">
+                                <div class="sm:col-span-1 flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg px-1.5 py-1.5" title="Linear Vesting Days">
                                     <input
                                         type="number"
                                         min="0"
@@ -1023,17 +1023,17 @@
                                             )}
                                         class="w-full bg-transparent text-[9px] font-mono text-blue-400 outline-none text-center"
                                     />
-                                    <span class="text-[7px] text-neutral-500">LIN</span>
+                                    <span class="text-[7px] text-[var(--text-muted)]">LIN</span>
                                 </div>
                             </div>
 
                             {#if row.checksumValid && (isTimelockedRow || tokenStandard === 'KCC-20') && row.covenantAddress}
                                 <div
                                     data-testid="cap-table-covenant-vault-{idx}"
-                                    class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/5 text-[8px] font-mono"
+                                    class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-[var(--border-subtle)] text-[8px] font-mono"
                                 >
-                                    <span class="text-neutral-400 truncate max-w-[330px]">
-                                        SilverScript P2SH Vault: <strong class="text-[#18C6A5] select-all">{row.covenantAddress}</strong>
+                                    <span class="text-[var(--text-muted)] truncate max-w-[330px]">
+                                        SilverScript P2SH Vault: <strong class="text-[var(--accent-text)] select-all">{row.covenantAddress}</strong>
                                     </span>
                                     <span class="text-blue-400 truncate max-w-[200px]">
                                         KCC-20 Root: {String(row.kcc20StateCommitment || '').slice(0, 14)}...
@@ -1045,30 +1045,30 @@
                                 <div
                                     data-testid="sil-contract-drawer-{idx}"
                                     transition:slide={{ duration: 150 }}
-                                    class="mt-1 bg-[#11161f] border border-blue-500/35 rounded-xl p-3 flex flex-col gap-2"
+                                    class="mt-1 bg-[var(--bg-elevated)] border border-blue-500/35 rounded-xl p-3 flex flex-col gap-2"
                                 >
                                     <div class="flex flex-wrap items-center justify-between gap-2 text-[8px] font-mono">
                                         <span class="text-blue-400 font-bold uppercase tracking-wider">
                                             Compiled SilverScript v1 Contract (`ProofOfLockVault.sil`)
                                         </span>
-                                        <span class="text-neutral-400">
+                                        <span class="text-[var(--text-muted)]">
                                             P2SH SPK: `a9{String(row.redeemScriptHex || '').slice(0, 12)}...87`
                                         </span>
                                     </div>
                                     <pre
                                         data-testid="sil-contract-source-{idx}"
-                                        class="bg-[#0a0d12] border border-white/10 rounded-lg p-2.5 text-[9px] font-mono text-[#18C6A5] overflow-x-auto leading-relaxed select-all"
+                                        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2.5 text-[9px] font-mono text-[var(--accent-text)] overflow-x-auto leading-relaxed select-all"
                                     >{row.silverscriptSource}</pre>
                                 </div>
                             {/if}
                         </div>
                     {/each}
                 </div>
-                <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-[9px] font-mono">
-                    <span class="text-neutral-400">
-                        Cap Table Total: <strong class="text-white">{totalCapTableTokens.toLocaleString()} {deployTicker}</strong> ({totalCapTablePct.toFixed(2)}% of Max Supply)
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--border-subtle)] text-[9px] font-mono">
+                    <span class="text-[var(--text-muted)]">
+                        Cap Table Total: <strong class="text-[var(--text-primary)]">{totalCapTableTokens.toLocaleString()} {deployTicker}</strong> ({totalCapTablePct.toFixed(2)}% of Max Supply)
                     </span>
-                    <span class="text-[#18C6A5]">
+                    <span class="text-[var(--accent-text)]">
                         Locked in SilverScript Vaults: <strong>{lockedCovenantTokens.toLocaleString()} {deployTicker}</strong>
                     </span>
                 </div>
@@ -1080,7 +1080,7 @@
             data-testid="krc20-deploy-submit-btn"
             onclick={submitTokenomicsDeploy}
             disabled={isForging || !deployTicker.trim() || deployTicker.trim().length < 4 || !allCapRowsValid}
-            class="tactile-btn w-full py-4 rounded-2xl border-[#18C6A5]/45 text-[#18C6A5] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
+            class="tactile-btn w-full py-4 rounded-2xl border-[#18C6A5]/45 text-[var(--accent-text)] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40"
             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.2), transparent 70%);"
         >
             {#if isForging}
@@ -1094,23 +1094,23 @@
     </div>
 
     <div
-        class="lg:col-span-5 bg-[#0a0d12] border border-white/10 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
+        class="lg:col-span-5 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5"
         style="background-image: radial-gradient(ellipse at bottom right, rgba(24, 198, 165, 0.08), transparent 65%);"
     >
-        <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
-            <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
+        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3.5">
+            <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5">
                 <div class="flex flex-col">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
+                    <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Immutable Monetary Policy Charter
                     </span>
-                    <span class="text-[8px] font-mono text-neutral-400">
+                    <span class="text-[8px] font-mono text-[var(--text-muted)]">
                         22:00 UTC Auto-Burn Sink &amp; Chromatic Halving Emissions
                     </span>
                 </div>
                 <button
                     type="button"
                     onclick={() => (enableMonetaryCharter = !enableMonetaryCharter)}
-                    class="px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase border cursor-pointer {enableMonetaryCharter ? 'border-[#18C6A5]/45 text-[#18C6A5] bg-[#0a0d12]' : 'border-white/10 text-neutral-500 bg-[#0a0d12]'}"
+                    class="px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase border cursor-pointer {enableMonetaryCharter ? 'border-[#18C6A5]/45 text-[var(--accent-text)] bg-[var(--bg-card)]' : 'border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-card)]'}"
                 >
                     {enableMonetaryCharter ? '✓ CHARTER ARMED' : 'DISABLED'}
                 </button>
@@ -1129,9 +1129,9 @@
                             max="1000"
                             step="5"
                             bind:value={burnRateBps}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                         />
-                        <span class="text-[8px] text-neutral-500">
+                        <span class="text-[8px] text-[var(--text-muted)]">
                             {(burnRateBps / 100).toFixed(2)}% burned to `...kx9awp4e`
                         </span>
                     </div>
@@ -1143,18 +1143,18 @@
                             id="emissionTypeSelect"
                             data-testid="monetary-emission-type-select"
                             bind:value={emissionScheduleType}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-2.5 py-2 text-[10px] font-mono font-bold text-white outline-none cursor-pointer"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-2.5 py-2 text-[10px] font-mono font-bold text-[var(--text-primary)] outline-none cursor-pointer"
                         >
                             <option value="CHROMATIC_HALVING">Chromatic Halving</option>
                             <option value="PERIODIC_HALVING">Periodic Step Halving</option>
                             <option value="FLAT_TAIL">Flat Daily Tail-Emission</option>
                         </select>
-                        <span class="text-[8px] text-neutral-500">
+                        <span class="text-[8px] text-[var(--text-muted)]">
                             Halving Cycle: {halvingIntervalDays} Days
                         </span>
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="dailyEmitInput" class="text-[8px] font-bold uppercase text-neutral-400">
+                        <label for="dailyEmitInput" class="text-[8px] font-bold uppercase text-[var(--text-muted)]">
                             Daily 22:00 UTC Emission ({deployTicker})
                         </label>
                         <input
@@ -1163,11 +1163,11 @@
                             type="number"
                             min="0"
                             bind:value={dailyEmissionRate}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="reserveLockInput" class="text-[8px] font-bold uppercase text-neutral-400">
+                        <label for="reserveLockInput" class="text-[8px] font-bold uppercase text-[var(--text-muted)]">
                             Chronos Emission Vault ({deployTicker})
                         </label>
                         <input
@@ -1176,17 +1176,17 @@
                             type="number"
                             min="0"
                             bind:value={reserveLockedTokens}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                         />
                     </div>
                 </div>
-                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2">
+                <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2">
                     <div class="flex items-center justify-between text-[8px] font-mono">
-                        <span class="text-neutral-300 font-bold uppercase">
+                        <span class="text-[var(--text-secondary)] font-bold uppercase">
                             Interactive 5-Year Supply &amp; Deflationary Burn Curve
                         </span>
                         <div class="flex items-center gap-2">
-                            <span class="text-[#18C6A5]">● Net Circulating</span>
+                            <span class="text-[var(--accent-text)]">● Net Circulating</span>
                             <span class="text-blue-400">● Gross Emitted</span>
                             <span class="text-amber-400">● Burned</span>
                         </div>
@@ -1194,7 +1194,7 @@
                     <svg
                         data-testid="supply-curve-svg"
                         viewBox="0 0 520 160"
-                        class="w-full h-32 bg-[#11161f]/60 rounded-lg border border-white/5 overflow-visible"
+                        class="w-full h-32 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-subtle)] overflow-visible"
                     >
                         <line x1="0" y1="40" x2="520" y2="40" stroke="rgba(255,255,255,0.05)" stroke-dasharray="3 3" />
                         <line x1="0" y1="80" x2="520" y2="80" stroke="rgba(255,255,255,0.05)" stroke-dasharray="3 3" />
@@ -1219,7 +1219,7 @@
                             stroke-width="1.8"
                         />
                     </svg>
-                    <div class="flex justify-between text-[8px] font-mono text-neutral-400">
+                    <div class="flex justify-between text-[8px] font-mono text-[var(--text-muted)]">
                         <span>5Y Projected Emitted: +{supplyCurveTelemetry.year5Emitted.toLocaleString()} {deployTicker}</span>
                         <span class="text-amber-400">5Y Provably Burned: -{supplyCurveTelemetry.year5Burned.toLocaleString()} {deployTicker}</span>
                     </div>
@@ -1227,19 +1227,19 @@
             {/if}
         </div>
 
-        <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
             <div class="flex items-center justify-between">
                 <div class="flex flex-col">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
+                    <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Zero-Rug 365-Day (2.5x) LP Bootstrapper
                     </span>
-                    <span class="text-[8px] font-mono text-neutral-400">
+                    <span class="text-[8px] font-mono text-[var(--text-muted)]">
                         Auto-locks 80%–100% of public mint KAS into a 365D `KAS / {deployTicker || 'TOKEN'}` Liquidity Plant
                     </span>
                 </div>
                 <span
                     data-testid="zero-rug-lp-badge"
-                    class="px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[8px] font-mono font-black"
+                    class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/40 text-[var(--accent-text)] text-[8px] font-mono font-black"
                 >
                     {zeroRugLpPct}% KAS → 365D 2.5x LP
                 </span>
@@ -1253,20 +1253,20 @@
                 bind:value={zeroRugLpPct}
                 class="w-full custom-range-slider cursor-pointer"
             />
-            <div class="flex justify-between text-[8px] font-mono text-neutral-400">
+            <div class="flex justify-between text-[8px] font-mono text-[var(--text-muted)]">
                 <span>80% Mint KAS Floor</span>
                 <span>90% Balanced</span>
                 <span>100% Full Zero-Rug Lock</span>
             </div>
         </div>
 
-        <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+        <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
             <div class="flex items-center justify-between">
                 <div class="flex flex-col">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
+                    <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Proof-of-Hashrate Mineable KRC-20 Vault
                     </span>
-                    <span class="text-[8px] font-mono text-neutral-400">
+                    <span class="text-[8px] font-mono text-[var(--text-muted)]">
                         Allow ASIC miners on `:3332–:3334` to mine `{deployTicker || 'TOKEN'}` pro-rata at the 22:00 UTC Global Settlement
                     </span>
                 </div>
@@ -1274,7 +1274,7 @@
                     type="button"
                     data-testid="mineable-vault-toggle"
                     onclick={() => (enableMineableVault = !enableMineableVault)}
-                    class="px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase border cursor-pointer {enableMineableVault ? 'border-[#18C6A5]/45 text-[#18C6A5] bg-[#0a0d12]' : 'border-white/10 text-neutral-400 bg-[#0a0d12]'}"
+                    class="px-2.5 py-1 rounded-lg text-[8px] font-mono font-black uppercase border cursor-pointer {enableMineableVault ? 'border-[#18C6A5]/45 text-[var(--accent-text)] bg-[var(--bg-card)]' : 'border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-card)]'}"
                 >
                     {enableMineableVault ? '✓ MINING VAULT ACTIVE' : '[Enable Mining Vault]'}
                 </button>
@@ -1282,7 +1282,7 @@
             {#if enableMineableVault}
                 <div class="grid grid-cols-2 gap-3 pt-1">
                     <div class="flex flex-col gap-1">
-                        <label for="mineVaultFunded" class="text-[8px] font-bold uppercase text-neutral-400">
+                        <label for="mineVaultFunded" class="text-[8px] font-bold uppercase text-[var(--text-muted)]">
                             Vault Reserve ({deployTicker})
                         </label>
                         <input
@@ -1291,11 +1291,11 @@
                             type="number"
                             min="1"
                             bind:value={mineableFundedTokens}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="mineVaultDaily" class="text-[8px] font-bold uppercase text-neutral-400">
+                        <label for="mineVaultDaily" class="text-[8px] font-bold uppercase text-[var(--text-muted)]">
                             Daily 22:00 UTC Miner Payout
                         </label>
                         <input
@@ -1304,7 +1304,7 @@
                             type="number"
                             min="1"
                             bind:value={mineableDailyEmission}
-                            class="bg-[#0a0d12] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-[#18C6A5] outline-none"
+                            class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs font-mono font-bold text-[var(--accent-text)] outline-none"
                         />
                     </div>
                 </div>
@@ -1313,18 +1313,18 @@
 
         <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between text-[9px] font-mono">
-                <span class="font-bold uppercase tracking-widest text-neutral-400">
+                <span class="font-bold uppercase tracking-widest text-[var(--text-muted)]">
                     Canonical L1 Deploy &amp; Charter Hash ({tokenStandard})
                 </span>
                 <span
                     data-testid="charter-sha256-badge"
-                    class="text-[#18C6A5] truncate max-w-[210px]"
+                    class="text-[var(--accent-text)] truncate max-w-[210px]"
                     title={charterSha256}
                 >
                     SHA-256: {charterSha256 ? `${charterSha256.slice(0, 16)}...` : 'Computing...'}
                 </span>
             </div>
-            <pre class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 text-[10px] text-[#18C6A5] overflow-x-auto">{JSON.stringify(
+            <pre class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-3.5 text-[10px] text-[var(--accent-text)] overflow-x-auto">{JSON.stringify(
                 {
                     p: tokenStandard === 'KCC-20' ? 'kcc-20' : 'krc-20',
                     op: 'deploy',

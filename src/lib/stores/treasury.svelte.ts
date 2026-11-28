@@ -10,6 +10,8 @@ import {
     formatAtomicToDecimal,
     parseDecimalToAtomic,
     parseU128Str,
+    safeDecimalToAtomic,
+    safeParseU128,
     type U128Str
 } from '$lib/crypto/atomicMath';
 
@@ -34,6 +36,7 @@ export const SUPPORTED_RWA_TICKERS = [
 export const SUPPORTED_ASSETS = [
     'KAS',
     DEFAULT_ECOSYSTEM_TICKER,
+    'NACHO',
     'USD',
     'USDC',
     'USDT',
@@ -134,20 +137,20 @@ export class UnifiedAsset {
         this.contract = init.contract;
         if (init.address !== undefined) this.address = init.address;
         if (init.spotPriceE8 !== undefined) {
-            const e8 = parseU128Str(init.spotPriceE8, 'spotPriceE8');
+            const e8 = safeParseU128(init.spotPriceE8, 0n);
             this.spotPriceE8 = e8.toString();
             this.spotPrice = Number(formatAtomicToDecimal(e8, ORACLE_E8_DECIMALS));
         } else if (init.spotPrice !== undefined && Number.isFinite(init.spotPrice) && init.spotPrice > 0) {
-            const e8 = parseDecimalToAtomic(init.spotPrice, ORACLE_E8_DECIMALS, 'floor');
+            const e8 = safeDecimalToAtomic(init.spotPrice, ORACLE_E8_DECIMALS, 0n, 'floor');
             this.spotPriceE8 = e8.toString();
             this.spotPrice = Number(formatAtomicToDecimal(e8, ORACLE_E8_DECIMALS));
         }
         if (init.onChainAtomic !== undefined) {
-            const atomic = parseU128Str(init.onChainAtomic, 'onChainAtomic');
+            const atomic = safeParseU128(init.onChainAtomic, 0n);
             this.onChainAtomic = atomic.toString();
             this.onChain = Number(formatAtomicToDecimal(atomic, this.decimals));
         } else if (init.onChain !== undefined && Number.isFinite(init.onChain) && init.onChain >= 0) {
-            const atomic = parseDecimalToAtomic(init.onChain, this.decimals, 'floor');
+            const atomic = safeDecimalToAtomic(init.onChain, this.decimals, 0n, 'floor');
             this.onChainAtomic = atomic.toString();
             this.onChain = Number(formatAtomicToDecimal(atomic, this.decimals));
         }
@@ -175,7 +178,7 @@ export class UnifiedAsset {
         return this.onChain;
     }
     get pendingBalance() {
-        const p = parseU128Str(this.pendingAtomic || '0');
+        const p = safeParseU128(this.pendingAtomic || '0', 0n);
         return Number(formatAtomicToDecimal(p, this.decimals, 6, true));
     }
     get ledgerBalance() {
@@ -249,9 +252,9 @@ class TreasuryStore {
         if (this.livePricingUnavailable) return 0;
         let usdMicros = 0n;
         for (const asset of this.registry) {
-            const atomic = parseU128Str(asset.pendingAtomic || '0');
+            const atomic = safeParseU128(asset.pendingAtomic || '0', 0n);
             if (atomic <= 0n) continue;
-            const e8 = parseU128Str(asset.spotPriceE8 || '0');
+            const e8 = safeParseU128(asset.spotPriceE8 || '0', 0n);
             if (e8 <= 0n) continue;
             usdMicros += atomicToUsdMicrosFloor(atomic, asset.decimals, e8);
         }
@@ -262,9 +265,9 @@ class TreasuryStore {
         if (this.livePricingUnavailable) return 0;
         let usdMicros = 0n;
         for (const asset of this.registry) {
-            const atomic = parseU128Str(asset.lpStakedAtomic || '0');
+            const atomic = safeParseU128(asset.lpStakedAtomic || '0', 0n);
             if (atomic <= 0n) continue;
-            const e8 = parseU128Str(asset.spotPriceE8 || '0');
+            const e8 = safeParseU128(asset.spotPriceE8 || '0', 0n);
             if (e8 <= 0n) continue;
             usdMicros += atomicToUsdMicrosFloor(atomic, asset.decimals, e8);
         }
@@ -276,20 +279,21 @@ class TreasuryStore {
         const pooledMap = new Map<string, bigint>();
 
         for (const sec of sectors || []) {
+            if (!sec || typeof sec !== 'object') continue;
             const reserve = sec.settlementConfig?.pairReserve;
             if (reserve) {
                 const baseTick = String(reserve.baseTicker || '').trim().toUpperCase();
                 const partnerTick = String(reserve.partnerTicker || '').trim().toUpperCase();
                 if (reserve.status === 'QUEUED') {
-                    const held = parseU128Str(reserve.heldBaseAtomic || '0');
-                    const queued = parseU128Str(reserve.queuedBaseAtomic || '0');
+                    const held = safeParseU128(reserve.heldBaseAtomic || '0', 0n);
+                    const queued = safeParseU128(reserve.queuedBaseAtomic || '0', 0n);
                     const sumBase = held + queued;
                     if (baseTick && sumBase > 0n) {
                         pendingMap.set(baseTick, (pendingMap.get(baseTick) || 0n) + sumBase);
                     }
                 } else if (reserve.status === 'ACTIVE') {
-                    const baseBal = parseU128Str(reserve.baseBalanceAtomic || '0');
-                    const partnerBal = parseU128Str(reserve.partnerBalanceAtomic || '0');
+                    const baseBal = safeParseU128(reserve.baseBalanceAtomic || '0', 0n);
+                    const partnerBal = safeParseU128(reserve.partnerBalanceAtomic || '0', 0n);
                     if (baseTick && baseBal > 0n) {
                         pooledMap.set(baseTick, (pooledMap.get(baseTick) || 0n) + baseBal);
                     }
@@ -302,9 +306,11 @@ class TreasuryStore {
                 }
             } else {
                 const pendingKas = sec.pendingKaspa ?? 0;
-                if (pendingKas > 0) {
-                    const sompi = parseDecimalToAtomic(String(pendingKas), KAS_DECIMALS, 'floor');
-                    pendingMap.set('KAS', (pendingMap.get('KAS') || 0n) + sompi);
+                if (typeof pendingKas === 'number' && Number.isFinite(pendingKas) && pendingKas > 0) {
+                    const sompi = safeDecimalToAtomic(pendingKas, KAS_DECIMALS, 0n, 'floor');
+                    if (sompi > 0n) {
+                        pendingMap.set('KAS', (pendingMap.get('KAS') || 0n) + sompi);
+                    }
                 }
             }
         }
@@ -692,6 +698,15 @@ class TreasuryStore {
                 spotPrice: 0,
                 contract: DEFAULT_ECOSYSTEM_TICKER,
                 theme: { hex: '#18C6A5', pastel: '#99f6e4' }
+            }),
+            new UnifiedAsset({
+                ticker: 'NACHO',
+                name: 'Nacho the Kat (KRC-20)',
+                assetClass: 'Ecosystem',
+                network: 'KAS',
+                spotPrice: 0,
+                contract: 'NACHO',
+                theme: { hex: '#F59E0B', pastel: '#fde68a' }
             }),
             new UnifiedAsset({
                 ticker: 'USD',

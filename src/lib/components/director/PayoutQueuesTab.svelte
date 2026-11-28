@@ -3,6 +3,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     let {
         fiatOnrampOrders = [],
         fiatOfframpQueue = [],
@@ -47,63 +48,63 @@
 >
     <div
         data-testid="director-global-18-buckets-card"
-        class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl"
+        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl"
     >
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
             <div class="flex flex-col">
-                <span class="text-xs font-black uppercase tracking-widest text-[#18C6A5]">
+                <span class="text-xs font-black uppercase tracking-widest text-[var(--accent-text)]">
                     00. Master Pool Batch Buckets &amp; 18 Global Settlement Queues ({allGlobalBuckets.length})
                 </span>
-                <span class="text-[9px] text-neutral-400">
+                <span class="text-[9px] text-[var(--text-muted)]">
                     Global pool-wide pending KAS volume, LP capacity coverage, and 22:00 UTC batch readiness across all 18 pool buckets
                 </span>
             </div>
-            <span class="px-2.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/40 text-[9px] font-mono font-bold text-[#18C6A5]">
+            <span class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[9px] font-mono font-bold text-[var(--accent-text)]">
                 22:00 UTC BELL IN {operations.formatEpochCountdown()}
             </span>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-0.5">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3.5 flex flex-col gap-0.5">
+                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                     Master Pool Queues
                 </span>
-                <span class="text-base font-black text-white tabular-nums">
+                <span class="text-base font-black text-[var(--text-primary)] tabular-nums">
                     {allGlobalBuckets.length} Global Buckets
                 </span>
-                <span class="text-[8px] text-[#18C6A5]">
+                <span class="text-[8px] text-[var(--accent-text)]">
                     {readyGlobalBucketCount} Armed • {fillingGlobalBucketCount} Filling
                 </span>
             </div>
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-0.5">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3.5 flex flex-col gap-0.5">
+                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                     Global Queued KAS
                 </span>
-                <span class="text-base font-black text-[#18C6A5] tabular-nums">
+                <span class="text-base font-black text-[var(--accent-text)] tabular-nums">
                     {totalGlobalPendingKas.toFixed(2)} KAS
                 </span>
-                <span class="text-[8px] text-neutral-400">
-                    ≈ ${totalGlobalPendingUsd.toFixed(2)} USD Pending
+                <span class="text-[8px] text-[var(--text-muted)]">
+                    ≈ {i18n.formatFiat(totalGlobalPendingUsd, { includeCode: true })} Pending
                 </span>
             </div>
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-0.5">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3.5 flex flex-col gap-0.5">
+                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                     Pending Fiat Orders
                 </span>
-                <span class="text-base font-black text-white tabular-nums">
+                <span class="text-base font-black text-[var(--text-primary)] tabular-nums">
                     {fiatOnrampOrders.length} Buy / {fiatOfframpQueue.length} Sell
                 </span>
                 <span class="text-[8px] text-blue-400">
                     ACH &amp; FedWire Queue
                 </span>
             </div>
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-0.5">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3.5 flex flex-col gap-0.5">
+                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                     Multi-Chain L1 Queue
                 </span>
                 <span class="text-base font-black text-amber-400 tabular-nums">
                     {l1PayoutQueue.length} L1 Payouts
                 </span>
-                <span class="text-[8px] text-neutral-400">
+                <span class="text-[8px] text-[var(--text-muted)]">
                     Direct On-Chain Dispatch
                 </span>
             </div>
@@ -127,7 +128,7 @@
                 )}
                 <div
                     data-testid="director-master-bucket-{bucket.asset}"
-                    class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2"
+                    class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2"
                 >
                     <div class="flex items-center justify-between gap-1">
                         <div class="flex items-center gap-1.5 min-w-0">
@@ -135,19 +136,19 @@
                                 class="w-2 h-2 rounded-full shrink-0"
                                 style="background-color: {assetTheme};"
                             ></span>
-                            <span class="text-xs font-bold font-mono text-white truncate">
+                            <span class="text-xs font-bold font-mono text-[var(--text-primary)] truncate">
                                 {bucket.asset}
                             </span>
                         </div>
                         <span
                             class="text-[9px] font-mono font-black tabular-nums {isReady
-                                ? 'text-[#18C6A5]'
-                                : 'text-neutral-300'}"
+                                ? 'text-[var(--accent-text)]'
+                                : 'text-[var(--text-secondary)]'}"
                         >
                             {bucket.weightPct.toFixed(1)}%
                         </span>
                     </div>
-                    <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10">
+                    <div class="w-full bg-[var(--bg-card)] rounded-full h-1.5 overflow-hidden border border-[var(--border-subtle)]">
                         <div
                             class="h-full transition-all duration-500"
                             style="width: {barWidth}%; background-color: {isReady
@@ -155,14 +156,14 @@
                                 : assetTheme};"
                         ></div>
                     </div>
-                    <div class="flex items-center justify-between text-[8px] font-mono text-neutral-400">
+                    <div class="flex items-center justify-between text-[8px] font-mono text-[var(--text-muted)]">
                         <span class="tabular-nums truncate">
                             {bucket.pendingKas.toFixed(1)} / {minKas.toFixed(1)} KAS
                         </span>
                         <span
                             class="uppercase font-bold {isReady
-                                ? 'text-[#18C6A5]'
-                                : 'text-neutral-500'}"
+                                ? 'text-[var(--accent-text)]'
+                                : 'text-[var(--text-muted)]'}"
                         >
                             {isReady ? 'READY' : 'QUEUE'}
                         </span>
@@ -172,7 +173,7 @@
                             type="button"
                             onclick={() =>
                                 ui.triggerBucketBoost(bucket.asset, neededKas)}
-                            class="tactile-btn w-full py-1 rounded-lg text-[8px] font-mono font-bold uppercase text-[#18C6A5] hover:text-white cursor-pointer"
+                            class="tactile-btn w-full py-1 rounded-lg text-[8px] font-mono font-bold uppercase text-[var(--accent-text)] hover:text-[var(--text-primary)] cursor-pointer"
                         >
                             [Boost +{neededKas.toFixed(1)} KAS]
                         </button>
@@ -181,13 +182,13 @@
             {/each}
         </div>
     </div>
-    <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-white/10 pb-3">
+    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
             <div class="flex flex-col">
-                <span class="text-xs font-black uppercase tracking-widest text-[#18C6A5]">
+                <span class="text-xs font-black uppercase tracking-widest text-[var(--accent-text)]">
                     01. Incoming Wire / ACH On-Ramp Orders ({fiatOnrampOrders.length})
                 </span>
-                <span class="text-[9px] text-neutral-400">
+                <span class="text-[9px] text-[var(--text-muted)]">
                     Verify incoming bank wire memo and release KAS / Token conversion legs to the user's wallet
                 </span>
             </div>
@@ -195,7 +196,7 @@
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs font-mono">
                 <thead>
-                    <tr class="border-b border-white/10 text-[9px] uppercase tracking-widest text-neutral-400">
+                    <tr class="border-b border-[var(--border-subtle)] text-[9px] uppercase tracking-widest text-[var(--text-muted)]">
                         <th class="py-2.5 px-3">Order / Memo</th>
                         <th class="py-2.5 px-3">Wallet</th>
                         <th class="py-2.5 px-3">Fiat USD</th>
@@ -205,19 +206,19 @@
                         <th class="py-2.5 px-3 text-right">Reconcile</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5 text-[11px]">
+                <tbody class="divide-y divide-[var(--border-subtle)] text-[11px]">
                     {#each fiatOnrampOrders as ord (ord.order_id)}
-                        <tr class="hover:bg-[#11161f]/60 transition-colors">
-                            <td class="py-2.5 px-3 font-bold text-white">
+                        <tr class="hover:bg-[var(--bg-elevated)] transition-colors">
+                            <td class="py-2.5 px-3 font-bold text-[var(--text-primary)]">
                                 {ord.wire_memo || ord.order_id}
                             </td>
-                            <td class="py-2.5 px-3 text-neutral-300 max-w-[200px] truncate">
+                            <td class="py-2.5 px-3 text-[var(--text-secondary)] max-w-[200px] truncate">
                                 {ord.wallet_address}
                             </td>
-                            <td class="py-2.5 px-3 text-[#18C6A5] font-bold">
-                                ${Number(ord.fiat_amount_usd || 0).toFixed(2)}
+                            <td class="py-2.5 px-3 text-[var(--accent-text)] font-bold">
+                                {i18n.formatFiat(Number(ord.fiat_amount_usd || 0))}
                             </td>
-                            <td class="py-2.5 px-3 text-white">
+                            <td class="py-2.5 px-3 text-[var(--text-primary)]">
                                 {Number(
                                     ord.estimated_tokens ?? ord.estimated_kas ?? 0
                                 ).toFixed(4)}
@@ -227,7 +228,7 @@
                                 {ord.settlement_target || 'L1_KAS'}
                             </td>
                             <td class="py-2.5 px-3">
-                                <span class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] uppercase text-amber-400">
+                                <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] uppercase text-amber-400">
                                     {ord.status}
                                 </span>
                             </td>
@@ -237,14 +238,14 @@
                                         type="button"
                                         disabled={isProcessingOrderId === ord.order_id}
                                         onclick={() => onConfirmWireOnramp(ord.order_id)}
-                                        class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
+                                        class="tactile-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
                                     >
                                         {isProcessingOrderId === ord.order_id
                                             ? 'Crediting...'
                                             : 'Confirm Wire & Credit ✓'}
                                     </button>
                                 {:else}
-                                    <span class="text-[9px] text-[#18C6A5] font-bold">
+                                    <span class="text-[9px] text-[var(--accent-text)] font-bold">
                                         SETTLED ✓
                                     </span>
                                 {/if}
@@ -253,7 +254,7 @@
                     {/each}
                     {#if fiatOnrampOrders.length === 0}
                         <tr>
-                            <td colspan="7" class="py-6 text-center text-neutral-500 text-[10px] uppercase tracking-widest">
+                            <td colspan="7" class="py-6 text-center text-[var(--text-muted)] text-[10px] uppercase tracking-widest">
                                 No pending Fiat On-Ramp orders.
                             </td>
                         </tr>
@@ -262,13 +263,13 @@
             </table>
         </div>
     </div>
-    <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-white/10 pb-3">
+    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
             <div class="flex flex-col">
                 <span class="text-xs font-black uppercase tracking-widest text-blue-400">
                     02. Outgoing Fiat Off-Ramp ACH / Wire Treasury Queue ({fiatOfframpQueue.length})
                 </span>
-                <span class="text-[9px] text-neutral-400">
+                <span class="text-[9px] text-[var(--text-muted)]">
                     Attach commercial bank ACH / FedWire trace numbers to advance payouts to Stage 4 Dispatched
                 </span>
             </div>
@@ -276,7 +277,7 @@
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs font-mono">
                 <thead>
-                    <tr class="border-b border-white/10 text-[9px] uppercase tracking-widest text-neutral-400">
+                    <tr class="border-b border-[var(--border-subtle)] text-[9px] uppercase tracking-widest text-[var(--text-muted)]">
                         <th class="py-2.5 px-3">Payout ID</th>
                         <th class="py-2.5 px-3">Source Asset</th>
                         <th class="py-2.5 px-3">Net Fiat USD</th>
@@ -285,17 +286,17 @@
                         <th class="py-2.5 px-3 text-right">Bank Trace &amp; Dispatch</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5 text-[11px]">
+                <tbody class="divide-y divide-[var(--border-subtle)] text-[11px]">
                     {#each fiatOfframpQueue as p (p.payout_id)}
-                        <tr class="hover:bg-[#11161f]/60 transition-colors">
-                            <td class="py-2.5 px-3 font-bold text-white">{p.payout_id}</td>
-                            <td class="py-2.5 px-3 text-neutral-300">
+                        <tr class="hover:bg-[var(--bg-elevated)] transition-colors">
+                            <td class="py-2.5 px-3 font-bold text-[var(--text-primary)]">{p.payout_id}</td>
+                            <td class="py-2.5 px-3 text-[var(--text-secondary)]">
                                 {Number(p.amount_crypto || 0).toFixed(4)} {p.source_asset}
                             </td>
-                            <td class="py-2.5 px-3 text-[#18C6A5] font-bold">
-                                ${Number(p.net_fiat_usd || 0).toFixed(2)}
+                            <td class="py-2.5 px-3 text-[var(--accent-text)] font-bold">
+                                {i18n.formatFiat(Number(p.net_fiat_usd || 0))}
                             </td>
-                            <td class="py-2.5 px-3 text-white">
+                            <td class="py-2.5 px-3 text-[var(--text-primary)]">
                                 {p.payout_method} *{p.bank_last4}
                             </td>
                             <td class="py-2.5 px-3 text-amber-400">{p.status}</td>
@@ -306,7 +307,7 @@
                                             type="text"
                                             bind:value={traceInputs[p.payout_id]}
                                             placeholder="ACH/Wire Trace #"
-                                            class="bg-[#11161f] border border-white/15 rounded-lg px-2.5 py-1 text-[10px] text-white outline-none w-36"
+                                            class="bg-[var(--bg-elevated)] border border-[var(--border-strong)] rounded-lg px-2.5 py-1 text-[10px] text-[var(--text-primary)] outline-none w-36"
                                         />
                                         <button
                                             type="button"
@@ -317,13 +318,13 @@
                                                     traceInputs[p.payout_id] ||
                                                         `FED-${Date.now()}`
                                                 )}
-                                            class="tactile-btn px-3 py-1 rounded-lg text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer"
+                                            class="tactile-btn px-3 py-1 rounded-lg text-[9px] font-black uppercase text-[var(--accent-text)] border-[#18C6A5]/45 cursor-pointer"
                                         >
                                             Dispatch ✓
                                         </button>
                                     </div>
                                 {:else}
-                                    <span class="text-[9px] text-[#18C6A5]">
+                                    <span class="text-[9px] text-[var(--accent-text)]">
                                         Trace: {p.trace_id || 'CONFIRMED'}
                                     </span>
                                 {/if}
@@ -332,7 +333,7 @@
                     {/each}
                     {#if fiatOfframpQueue.length === 0}
                         <tr>
-                            <td colspan="6" class="py-6 text-center text-neutral-500 text-[10px] uppercase tracking-widest">
+                            <td colspan="6" class="py-6 text-center text-[var(--text-muted)] text-[10px] uppercase tracking-widest">
                                 No pending Fiat Off-Ramp payouts.
                             </td>
                         </tr>
@@ -341,8 +342,8 @@
             </table>
         </div>
     </div>
-    <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-white/10 pb-3">
+    <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
             <span class="text-xs font-black uppercase tracking-widest text-amber-400">
                 03. Multi-Chain L1 Payout Queue ({l1PayoutQueue.length})
             </span>
@@ -350,7 +351,7 @@
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs font-mono">
                 <thead>
-                    <tr class="border-b border-white/10 text-[9px] uppercase tracking-widest text-neutral-400">
+                    <tr class="border-b border-[var(--border-subtle)] text-[9px] uppercase tracking-widest text-[var(--text-muted)]">
                         <th class="py-2.5 px-3">Payout ID</th>
                         <th class="py-2.5 px-3">Asset / Net</th>
                         <th class="py-2.5 px-3">Destination</th>
@@ -359,17 +360,17 @@
                         <th class="py-2.5 px-3 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5 text-[11px]">
+                <tbody class="divide-y divide-[var(--border-subtle)] text-[11px]">
                     {#each l1PayoutQueue as l1 (l1.payout_id)}
-                        <tr class="hover:bg-[#11161f]/60 transition-colors">
-                            <td class="py-2.5 px-3 font-bold text-white">{l1.payout_id}</td>
-                            <td class="py-2.5 px-3 text-[#18C6A5] font-bold">
+                        <tr class="hover:bg-[var(--bg-elevated)] transition-colors">
+                            <td class="py-2.5 px-3 font-bold text-[var(--text-primary)]">{l1.payout_id}</td>
+                            <td class="py-2.5 px-3 text-[var(--accent-text)] font-bold">
                                 {l1.asset_ticker} ({l1.network})
                             </td>
-                            <td class="py-2.5 px-3 text-neutral-300 max-w-[220px] truncate">
+                            <td class="py-2.5 px-3 text-[var(--text-secondary)] max-w-[220px] truncate">
                                 {l1.destination_address}
                             </td>
-                            <td class="py-2.5 px-3 text-white">
+                            <td class="py-2.5 px-3 text-[var(--text-primary)]">
                                 {Number(l1.amount_tokens || 0).toFixed(6)}
                             </td>
                             <td class="py-2.5 px-3 text-amber-400">{l1.status}</td>
@@ -378,7 +379,7 @@
                                     type="button"
                                     disabled={isProcessingOrderId === l1.payout_id}
                                     onclick={() => onRetryL1Payout(l1.payout_id)}
-                                    class="tactile-btn px-3 py-1 rounded-lg text-[9px] font-bold uppercase text-white border-white/15 cursor-pointer"
+                                    class="tactile-btn px-3 py-1 rounded-lg text-[9px] font-bold uppercase text-[var(--text-primary)] border-[var(--border-strong)] cursor-pointer"
                                 >
                                     Re-Broadcast ↻
                                 </button>
@@ -387,7 +388,7 @@
                     {/each}
                     {#if l1PayoutQueue.length === 0}
                         <tr>
-                            <td colspan="6" class="py-6 text-center text-neutral-500 text-[10px] uppercase tracking-widest">
+                            <td colspan="6" class="py-6 text-center text-[var(--text-muted)] text-[10px] uppercase tracking-widest">
                                 L1 Payout Queue is clear.
                             </td>
                         </tr>

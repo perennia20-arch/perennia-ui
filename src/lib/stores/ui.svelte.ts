@@ -75,6 +75,8 @@ class UiStore {
     showAgentModal = $state(false);
     activeAgentCount = $state(0);
     showFiatModal = $state(false);
+    showLocaleCurrencyModal = $state(false);
+    showHeaderWalletMenu = $state(false);
     openBuyAfterAuth = $state(false);
     fiatModalTargetTicker = $state('KAS');
     fiatModalAutoStakeSilo = $state(false);
@@ -142,6 +144,8 @@ class UiStore {
             this.fiatModalTargetTicker === 'SILO' ? Boolean(autoStakeSilo) : false;
         this.fiatModalDefaultUsd = String(defaultUsd || '');
         this.showAgentModal = false;
+        this.showLocaleCurrencyModal = false;
+        this.showHeaderWalletMenu = false;
         this.showFiatModal = true;
     }
 

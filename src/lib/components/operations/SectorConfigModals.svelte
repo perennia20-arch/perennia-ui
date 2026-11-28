@@ -1,6 +1,7 @@
 <script lang="ts">
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { txState, getChainExplorerTxUrl } from '$lib/stores/transaction.svelte';
     import { fade } from 'svelte/transition';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
@@ -199,7 +200,7 @@
     // Pair & Split modal state
     let pairPayAssetChoices = $derived.by(() => {
         const defaults = ['KAS', 'USDC', 'USDT', 'BTC', 'ETH', 'SOL'];
-        const withBalances = (treasury.assets || [])
+        const withBalances = (treasury.registry || [])
             .filter((a) => (a.onChain || 0) > 0 || defaults.includes(a.ticker))
             .map((a) => a.ticker);
         return Array.from(new Set([...withBalances, ...defaults])).slice(0, 16);
@@ -232,8 +233,6 @@
 
     $effect(() => () => {
         clearTimeout(assetDiscoverTimer);
-        clearTimeout(pairSwapQuoteTimer);
-        clearTimeout(createSwapQuoteTimer);
     });
     $effect(() => {
         if (!isAssetPickerOpen) {
@@ -515,12 +514,12 @@
 
 {#if isSectorModalOpen}
     <div
-        class="fixed inset-0 z-[9990] flex items-center justify-center px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-12 bg-[#06080b]/95"
+        class="fixed inset-0 z-[9990] flex items-center justify-center px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-12 bg-[var(--bg-overlay)]"
         transition:fade={{ duration: 150 }}
     >
         <div class="absolute inset-0 w-full h-full cursor-default border-none"></div>
-        <div class="relative z-10 w-full max-w-[540px] bg-[#0a0d12] border border-white/15 rounded-2xl sm:rounded-[24px] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col">
-            <div class="px-5 py-4 border-b border-white/10 bg-[#11161f] flex justify-between items-center shrink-0">
+        <div class="relative z-10 w-full max-w-[540px] bg-[var(--bg-card)] border border-white/15 rounded-2xl sm:rounded-[24px] overflow-hidden shadow-2xl flex flex-col">
+            <div class="px-5 py-4 border-b border-white/10 bg-[var(--bg-elevated)] flex justify-between items-center shrink-0">
                 <div class="flex items-center gap-2.5 min-w-0">
                     <h2 class="text-white font-black uppercase tracking-widest text-sm sm:text-base leading-none">
                         {isPairFlow ? 'PAIR' : 'SPLIT'}
@@ -528,7 +527,7 @@
                     {#if !isPairFlow}
                         <span
                             data-testid="split-auto-title-badge"
-                            class="px-2 py-0.5 rounded-md bg-[#0a0d12] border border-white/15 text-[10px] font-mono font-bold text-[#18C6A5] truncate"
+                            class="px-2 py-0.5 rounded-md bg-[var(--bg-card)] border border-white/15 text-[10px] font-mono font-bold text-[#18C6A5] truncate"
                         >
                             {autoSplitTitle}
                         </span>
@@ -538,7 +537,7 @@
                     type="button"
                     aria-label="Close"
                     onclick={() => (isSectorModalOpen = false)}
-                    class="w-8 h-8 rounded-full bg-[#161d29] hover:bg-white/10 border border-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                    class="w-8 h-8 rounded-full bg-[var(--bg-hover)] hover:bg-white/10 border border-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
                 >
                     ✕
                 </button>
@@ -563,12 +562,12 @@
                 {:else}
                     <!-- STREAMLINED + SPLIT FLOW -->
                     <!-- TOP: TARGET TOKEN PICKER -->
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] font-mono font-black uppercase tracking-widest text-neutral-300">
                                 Token
                             </span>
-                            <span class="px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-[9px] font-mono text-[#18C6A5]">
+                            <span class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-white/10 text-[9px] font-mono text-[#18C6A5]">
                                 {draftMineableVaultInfo ? 'Mineable Vault' : '100% Target'}
                             </span>
                         </div>
@@ -582,11 +581,11 @@
                                 assetSearchQuery = '';
                                 assetCategoryFilter = 'ALL';
                             }}
-                            class="w-full bg-[#0a0d12] hover:bg-[#161d29] border border-[#18C6A5]/40 rounded-xl px-3.5 py-3 flex items-center justify-between transition-colors cursor-pointer"
+                            class="w-full bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[#18C6A5]/40 rounded-xl px-3.5 py-3 flex items-center justify-between transition-colors cursor-pointer"
                         >
                             <div class="flex items-center gap-3 min-w-0">
                                 <div
-                                    class="w-7 h-7 rounded-full bg-[#11161f] border border-white/15 flex items-center justify-center text-xs font-black shrink-0"
+                                    class="w-7 h-7 rounded-full bg-[var(--bg-elevated)] border border-white/15 flex items-center justify-center text-xs font-black shrink-0"
                                     style="color: {draftSettlementConfig.targetAsset.theme?.hex || '#18C6A5'};"
                                 >
                                     {draftSettlementConfig.targetAsset.ticker === 'USD'
@@ -603,7 +602,7 @@
                                             : livePricingUnavailable
                                               ? LIVE_PRICING_UNAVAILABLE_MESSAGE
                                               : draftSettlementConfig.targetAsset.spotPrice > 0
-                                                ? `$${draftSettlementConfig.targetAsset.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                                                ? i18n.formatSpotPrice(draftSettlementConfig.targetAsset.spotPrice)
                                                 : 'Choose Token'}
                                     </span>
                                 </div>
@@ -614,7 +613,7 @@
                         {#if draftMineableVaultInfo}
                             <div
                                 data-testid="mineable-syndicate-banner"
-                                class="bg-[#0a0d12] border border-amber-500/40 rounded-xl p-2.5 flex items-center justify-between gap-2 text-[9px] font-mono"
+                                class="bg-[var(--bg-card)] border border-amber-500/40 rounded-xl p-2.5 flex items-center justify-between gap-2 text-[9px] font-mono"
                             >
                                 <span class="text-amber-400 font-black uppercase">
                                     Syndicate Hashpower Pledge Active
@@ -623,7 +622,7 @@
                                     type="button"
                                     data-testid="syndicate-sector-toggle"
                                     onclick={() => (draftIsSyndicateSector = !draftIsSyndicateSector)}
-                                    class="px-2.5 py-1 rounded bg-[#11161f] border {draftIsSyndicateSector ? 'border-[#18C6A5]/50 text-[#18C6A5]' : 'border-white/10 text-neutral-400'} font-black uppercase shrink-0 cursor-pointer"
+                                    class="px-2.5 py-1 rounded bg-[var(--bg-elevated)] border {draftIsSyndicateSector ? 'border-[#18C6A5]/50 text-[#18C6A5]' : 'border-white/10 text-neutral-400'} font-black uppercase shrink-0 cursor-pointer"
                                 >
                                     {draftIsSyndicateSector ? '✓ SYNDICATE PLEDGED' : 'SOLO SPLIT'}
                                 </button>
@@ -631,25 +630,25 @@
                         {/if}
 
                         {#if draftSettlementConfig.targetAsset.ticker === 'USD'}
-                            <div class="bg-[#0a0d12] border {savedBankRailLast4 ? 'border-[#18C6A5]/40' : 'border-amber-500/40'} rounded-xl px-3 py-2 flex items-center justify-between text-[10px] font-mono">
+                            <div class="bg-[var(--bg-card)] border {savedBankRailLast4 ? 'border-[#18C6A5]/40' : 'border-amber-500/40'} rounded-xl px-3 py-2 flex items-center justify-between text-[10px] font-mono">
                                 <span class="font-black uppercase tracking-wider {savedBankRailLast4 ? 'text-[#18C6A5]' : 'text-amber-400'}">
                                     {savedBankRailLast4
                                         ? `✓ Bank Rail: *${savedBankRailLast4} (${savedBankRailMethod})`
                                         : '⚠ Bank Rail Unlinked'}
                                 </span>
-                                <span class="text-[9px] text-neutral-400">$25 Min</span>
+                                <span class="text-[9px] text-neutral-400">{i18n.formatFiat(25, { decimals: 0 })} Min</span>
                             </div>
                         {/if}
                     </div>
 
                     <!-- MIDDLE: HASHRATE % -->
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5 font-mono">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5 font-mono">
                         <div class="flex justify-between items-center gap-2">
                             <span class="text-[10px] font-black text-neutral-300 uppercase tracking-widest">
                                 Hashrate %
                             </span>
                             <div class="flex items-center gap-2">
-                                <div class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1">
+                                <div class="flex items-center gap-1 bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1">
                                     <input
                                         type="number"
                                         value={draftSectorPct}
@@ -658,7 +657,7 @@
                                     />
                                     <span class="text-neutral-400 text-xs font-bold">%</span>
                                 </div>
-                                <div class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1">
+                                <div class="flex items-center gap-1 bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1">
                                     <input
                                         type="number"
                                         value={(displayHashrate * (draftSectorPct / 100)).toFixed(2)}
@@ -689,7 +688,7 @@
                                             draftSectorMax,
                                             pct
                                         ))}
-                                    class="py-2 rounded-lg bg-[#0a0d12] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    class="py-2 rounded-lg bg-[var(--bg-card)] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     {pct === 100 ? 'MAX' : `${pct}%`}
                                 </button>
@@ -703,7 +702,7 @@
                             type="button"
                             data-testid="split-wallet-boost-toggle"
                             onclick={() => (splitWalletBoostOpen = !splitWalletBoostOpen)}
-                            class="w-full py-2 px-3 rounded-xl border text-[10px] font-bold uppercase tracking-wider flex items-center justify-between cursor-pointer transition-colors {splitWalletBoostOpen ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                            class="w-full py-2 px-3 rounded-xl border text-[10px] font-bold uppercase tracking-wider flex items-center justify-between cursor-pointer transition-colors {splitWalletBoostOpen ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                         >
                             <span>+ WALLET</span>
                             <span>{splitWalletBoostOpen ? '▴' : '▾'}</span>
@@ -712,7 +711,7 @@
                         {#if splitWalletBoostOpen}
                             <div
                                 data-testid="split-wallet-boost-panel"
-                                class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2"
+                                class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-2"
                             >
                                 <div class="flex items-center justify-between text-[10px]">
                                     <span class="text-neutral-400 uppercase font-bold">Pay</span>
@@ -724,7 +723,7 @@
                                     <select
                                         aria-label="Pay Token"
                                         bind:value={initialPairSwapPayTicker}
-                                        class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-2 text-xs font-bold text-white outline-none"
+                                        class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-2 text-xs font-bold text-white outline-none"
                                     >
                                         {#each splitPayAssetChoices as tick}
                                             <option value={tick}>{tick}</option>
@@ -737,7 +736,7 @@
                                         bind:value={initialPairSwapAmount}
                                         placeholder="0.00"
                                         disabled={livePricingUnavailable}
-                                        class="flex-1 bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2 text-xs font-bold text-white outline-none disabled:opacity-40"
+                                        class="flex-1 bg-[var(--bg-card)] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2 text-xs font-bold text-white outline-none disabled:opacity-40"
                                     />
                                 </div>
                                 <div class="grid grid-cols-4 gap-1.5">
@@ -754,7 +753,7 @@
                                                     pct
                                                 );
                                             }}
-                                            class="py-1.5 rounded-lg bg-[#0a0d12] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                            class="py-1.5 rounded-lg bg-[var(--bg-card)] border border-white/10 hover:border-[#18C6A5]/50 text-[10px] font-bold text-neutral-300 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                         >
                                             {pct === 100 ? 'MAX' : `${pct}%`}
                                         </button>
@@ -771,7 +770,7 @@
                 {/if}
             </div>
             {#if !isPairFlow}
-                <div class="flex gap-3 px-5 py-3 bg-[#11161f] border-t border-white/10 shrink-0">
+                <div class="flex gap-3 px-5 py-3 bg-[var(--bg-elevated)] border-t border-white/10 shrink-0">
                     <button
                         type="button"
                         onclick={() => (isSectorModalOpen = false)}
@@ -797,7 +796,7 @@
 
 {#if isAssetPickerOpen}
     <div
-        class="fixed inset-0 z-[9995] flex items-start sm:items-center justify-center px-3 pt-3 pb-6 sm:p-4 bg-[#06080b]/95 overflow-y-auto"
+        class="fixed inset-0 z-[9995] flex items-start sm:items-center justify-center px-3 pt-3 pb-6 sm:p-4 bg-[var(--bg-overlay)] overflow-y-auto"
         transition:fade={{ duration: 150 }}
     >
         <button
@@ -810,8 +809,8 @@
             }}
             class="fixed inset-0 w-full h-full cursor-default border-none bg-transparent"
         ></button>
-        <div class="relative z-10 w-full max-w-[490px] bg-[#0a0d12] border border-white/15 rounded-[24px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden max-h-[82dvh] sm:h-[560px]">
-            <div class="p-4 border-b border-white/10 flex items-center justify-between bg-[#11161f]">
+        <div class="relative z-10 w-full max-w-[490px] bg-[var(--bg-card)] border border-white/15 rounded-[24px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden max-h-[82dvh] sm:h-[560px]">
+            <div class="p-4 border-b border-white/10 flex items-center justify-between bg-[var(--bg-elevated)]">
                 <button
                     type="button"
                     aria-label="Back"
@@ -840,7 +839,7 @@
                 </div>
                 <div class="w-8"></div>
             </div>
-            <div class="p-3 border-b border-white/10 bg-[#0a0d12] flex flex-col gap-2">
+            <div class="p-3 border-b border-white/10 bg-[var(--bg-card)] flex flex-col gap-2">
                 <div class="relative flex items-center">
                     <input
                         aria-label="Asset Search"
@@ -866,7 +865,7 @@
                             }
                         }}
                         placeholder="Search BTC, USDC, NVDA, NACHO, SILO, XAU..."
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/60 rounded-xl pl-4 pr-9 py-2.5 text-xs font-mono text-white outline-none transition-colors"
+                        class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/60 rounded-xl pl-4 pr-9 py-2.5 text-xs font-mono text-white outline-none transition-colors"
                     />
                     {#if assetSearchQuery}
                         <button
@@ -895,14 +894,14 @@
                             type="button"
                             data-testid="asset-cat-{cat.id}"
                             onclick={() => (assetCategoryFilter = cat.id as typeof assetCategoryFilter)}
-                            class="py-1.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {assetCategoryFilter === cat.id ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'bg-[#11161f] text-neutral-400 hover:text-white'}"
+                            class="py-1.5 rounded-lg text-[8px] font-mono font-bold uppercase cursor-pointer transition-colors {assetCategoryFilter === cat.id ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'bg-[var(--bg-elevated)] text-neutral-400 hover:text-white'}"
                         >
                             {cat.label}
                         </button>
                     {/each}
                 </div>
             </div>
-            <div class="flex-1 overflow-y-auto p-2 bg-[#0a0d12] hide-scrollbar">
+            <div class="flex-1 overflow-y-auto p-2 bg-[var(--bg-card)] hide-scrollbar">
                 <div class="flex flex-col gap-1">
                     {#if filteredAssets.length === 0}
                         <div class="py-8 px-4 text-center flex flex-col items-center gap-3 font-mono">
@@ -936,11 +935,11 @@
                                 isAssetPickerOpen = false;
                                 assetSearchQuery = '';
                             }}
-                            class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#11161f] transition-colors cursor-pointer group border border-transparent hover:border-white/10"
+                            class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer group border border-transparent hover:border-white/10"
                         >
                             <div class="flex items-center gap-3 pointer-events-none">
                                 <div
-                                    class="w-8 h-8 rounded-full bg-[#11161f] border border-white/10 flex items-center justify-center text-xs font-black overflow-hidden"
+                                    class="w-8 h-8 rounded-full bg-[var(--bg-elevated)] border border-white/10 flex items-center justify-center text-xs font-black overflow-hidden"
                                     style="color: {asset.theme?.hex || '#ffffff'};"
                                 >
                                     {#if asset.imgUrl}
@@ -982,17 +981,14 @@
                                     </span>
                                 {:else if asset.spotPrice > 0}
                                     <span class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums">
-                                        ${asset.spotPrice.toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 4
-                                        })}
+                                        {i18n.formatSpotPrice(asset.spotPrice)}
                                     </span>
                                 {:else if vaultInfo}
                                     <span class="text-[9px] font-mono font-bold text-[#18C6A5] tabular-nums">
                                         {vaultInfo.remainingVaultTokens.toLocaleString()} Rem
                                     </span>
                                 {/if}
-                                <span class="text-[9px] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-[#11161f] text-neutral-400 border border-white/10 mt-0.5">
+                                <span class="text-[9px] font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-[var(--bg-elevated)] text-neutral-400 border border-white/10 mt-0.5">
                                     {vaultInfo ? 'Mineable KRC-20' : asset.assetClass}
                                 </span>
                             </div>
@@ -1008,25 +1004,25 @@
 {#if isVaultModalOpen}
     <div
         data-testid="register-vault-lock-modal"
-        class="fixed inset-0 z-[9992] flex items-center justify-center px-3 pt-4 pb-20 sm:p-4 bg-[#06080b]/95"
+        class="fixed inset-0 z-[9992] flex items-center justify-center px-3 pt-4 pb-20 sm:p-4 bg-[var(--bg-overlay)]"
         transition:fade={{ duration: 140 }}
     >
-        <div class="w-full max-w-[520px] bg-[#0a0d12] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
-            <div class="p-5 border-b border-white/10 bg-[#11161f] flex items-center justify-between">
+        <div class="w-full max-w-[520px] bg-[var(--bg-card)] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
+            <div class="p-5 border-b border-white/10 bg-[var(--bg-elevated)] flex items-center justify-between">
                 <h2 class="text-sm font-black uppercase tracking-widest text-white">
                     Vault Lock
                 </h2>
                 <button
                     type="button"
                     onclick={() => (isVaultModalOpen = false)}
-                    class="w-8 h-8 rounded-full bg-[#161d29] border border-white/10 text-neutral-400 hover:text-white cursor-pointer"
+                    class="w-8 h-8 rounded-full bg-[var(--bg-hover)] border border-white/10 text-neutral-400 hover:text-white cursor-pointer"
                 >
                     ✕
                 </button>
             </div>
             <div class="p-5 flex flex-col gap-3 max-h-[70dvh] overflow-y-auto">
                 {#if vaultLockError}
-                    <div class="p-3 rounded-xl bg-red-950/30 border border-red-500/40 text-red-300 text-[10px]">
+                    <div class="p-3 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/40 text-red-300 text-[10px]">
                         {vaultLockError}
                     </div>
                 {/if}
@@ -1035,7 +1031,7 @@
                         <button
                             type="button"
                             onclick={() => (vaultKindInput = kind)}
-                            class="py-2 px-2 rounded-xl border text-[9px] font-bold uppercase cursor-pointer {vaultKindInput === kind ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[#11161f] border-white/10 text-neutral-400 hover:text-white'}"
+                            class="py-2 px-2 rounded-xl border text-[9px] font-bold uppercase cursor-pointer {vaultKindInput === kind ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[var(--bg-elevated)] border-white/10 text-neutral-400 hover:text-white'}"
                         >
                             {formatVaultKindLabel(kind)}
                         </button>
@@ -1053,7 +1049,7 @@
                             oninput={() => {
                                 vaultTargetNetworkInput = resolveTargetNetworkForAsset(vaultTargetAssetInput);
                             }}
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white uppercase outline-none"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white uppercase outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
@@ -1064,7 +1060,7 @@
                             id="vaultNetworkInput"
                             type="text"
                             bind:value={vaultTargetNetworkInput}
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white uppercase outline-none"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white uppercase outline-none"
                         />
                     </div>
                 </div>
@@ -1077,7 +1073,7 @@
                         type="text"
                         bind:value={vaultDestAddressInput}
                         spellcheck="false"
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-[#18C6A5] outline-none"
+                        class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-[#18C6A5] outline-none"
                     />
                 </div>
                 <div class="flex flex-col gap-1">
@@ -1089,7 +1085,7 @@
                         type="text"
                         bind:value={vaultRefundAddressInput}
                         spellcheck="false"
-                        class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                        class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white outline-none"
                     />
                 </div>
                 <div class="grid grid-cols-2 gap-3">
@@ -1101,7 +1097,7 @@
                             id="vaultThresholdInput"
                             type="text"
                             bind:value={vaultThresholdKasInput}
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white tabular-nums outline-none"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white tabular-nums outline-none"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
@@ -1113,12 +1109,12 @@
                             type="text"
                             bind:value={vaultTokenTickerInput}
                             placeholder="SILO"
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white uppercase outline-none"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2 text-xs text-white uppercase outline-none"
                         />
                     </div>
                 </div>
             </div>
-            <div class="p-4 border-t border-white/10 bg-[#11161f] flex gap-3">
+            <div class="p-4 border-t border-white/10 bg-[var(--bg-elevated)] flex gap-3">
                 <button
                     type="button"
                     onclick={() => (isVaultModalOpen = false)}
@@ -1145,11 +1141,11 @@
 {#if cancelVaultTarget && cancelVaultPreview}
     <div
         data-testid="vault-cancel-modal"
-        class="fixed inset-0 z-[9993] flex items-center justify-center px-3 pt-4 pb-20 sm:p-4 bg-[#06080b]/95"
+        class="fixed inset-0 z-[9993] flex items-center justify-center px-3 pt-4 pb-20 sm:p-4 bg-[var(--bg-overlay)]"
         transition:fade={{ duration: 140 }}
     >
-        <div class="w-full max-w-[480px] bg-[#0a0d12] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
-            <div class="p-5 border-b border-white/10 bg-[#11161f] flex items-center justify-between">
+        <div class="w-full max-w-[480px] bg-[var(--bg-card)] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
+            <div class="p-5 border-b border-white/10 bg-[var(--bg-elevated)] flex items-center justify-between">
                 <h2 class="text-sm font-black uppercase tracking-widest text-white">
                     Withdraw
                 </h2>
@@ -1159,13 +1155,13 @@
                         cancelVaultTarget = null;
                         cancelVaultPreview = null;
                     }}
-                    class="w-8 h-8 rounded-full bg-[#161d29] border border-white/10 text-neutral-400 hover:text-white cursor-pointer"
+                    class="w-8 h-8 rounded-full bg-[var(--bg-hover)] border border-white/10 text-neutral-400 hover:text-white cursor-pointer"
                 >
                     ✕
                 </button>
             </div>
             <div class="p-5 flex flex-col gap-3 text-xs">
-                <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2">
+                <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2">
                     <div class="flex justify-between">
                         <span class="text-neutral-400">Vault Balance</span>
                         <span class="text-white font-bold tabular-nums">
@@ -1200,19 +1196,19 @@
                             type="password"
                             bind:value={cancelVaultPassword}
                             placeholder=""
-                            class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2.5 text-xs text-white outline-none"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl px-3 py-2.5 text-xs text-white outline-none"
                         />
                     </div>
                 {/if}
 
                 {#if cancelVaultError}
-                    <div class="p-3 rounded-xl bg-red-950/30 border border-red-500/40 text-red-300 text-[10px]">
+                    <div class="p-3 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/40 text-red-300 text-[10px]">
                         {cancelVaultError}
                     </div>
                 {/if}
 
                 {#if cancelVaultTxId}
-                    <div class="p-3 rounded-xl bg-[#11161f] border border-[#18C6A5]/45 text-[#18C6A5] text-[10px] flex flex-col gap-1">
+                    <div class="p-3 rounded-xl bg-[var(--bg-elevated)] border border-[#18C6A5]/45 text-[#18C6A5] text-[10px] flex flex-col gap-1">
                         <span class="font-bold">Returned to Wallet</span>
                         <a
                             href={getChainExplorerTxUrl('KAS', cancelVaultTxId)}
@@ -1225,7 +1221,7 @@
                     </div>
                 {/if}
             </div>
-            <div class="p-4 border-t border-white/10 bg-[#11161f] flex gap-3">
+            <div class="p-4 border-t border-white/10 bg-[var(--bg-elevated)] flex gap-3">
                 <button
                     type="button"
                     onclick={() => {
@@ -1257,30 +1253,30 @@
 {#if isThermostatModalOpen}
     <div
         data-testid="thermostat-valves-modal"
-        class="fixed inset-0 z-[9992] flex items-center justify-center px-3 pt-4 pb-20 sm:p-4 bg-[#06080b]/95"
+        class="fixed inset-0 z-[9992] flex items-center justify-center px-3 pt-4 pb-20 sm:p-4 bg-[var(--bg-overlay)]"
         transition:fade={{ duration: 140 }}
     >
-        <div class="w-full max-w-[680px] bg-[#0a0d12] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
-            <div class="p-5 border-b border-white/10 bg-[#11161f] flex items-center justify-between">
+        <div class="w-full max-w-[680px] bg-[var(--bg-card)] border border-white/15 rounded-2xl overflow-hidden flex flex-col font-mono">
+            <div class="p-5 border-b border-white/10 bg-[var(--bg-elevated)] flex items-center justify-between">
                 <h2 class="text-sm font-black uppercase tracking-widest text-white">
                     Thermostat
                 </h2>
                 <button
                     type="button"
                     onclick={() => (isThermostatModalOpen = false)}
-                    class="w-8 h-8 rounded-full bg-[#161d29] border border-white/10 text-neutral-400 hover:text-white cursor-pointer"
+                    class="w-8 h-8 rounded-full bg-[var(--bg-hover)] border border-white/10 text-neutral-400 hover:text-white cursor-pointer"
                 >
                     ✕
                 </button>
             </div>
             <div class="p-4 sm:p-5 flex flex-col gap-3 max-h-[68dvh] overflow-y-auto">
                 {#if thermostatError}
-                    <div class="p-3 rounded-xl bg-red-950/30 border border-red-500/40 text-red-300 text-[10px]">
+                    <div class="p-3 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/40 text-red-300 text-[10px]">
                         {thermostatError}
                     </div>
                 {/if}
                 {#each thermostatDrafts as valve, idx (valve.priorityOrder)}
-                    <div class="bg-[#11161f] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2.5">
+                    <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3.5 flex flex-col gap-2.5">
                         <div class="flex items-center justify-between gap-2">
                             <span class="text-xs font-black text-white">
                                 {valve.priorityOrder} — {valve.title}
@@ -1290,7 +1286,7 @@
                                 onclick={() => {
                                     thermostatDrafts[idx].isEnabled = !thermostatDrafts[idx].isEnabled;
                                 }}
-                                class="px-2.5 py-1 rounded-lg border text-[9px] font-bold uppercase cursor-pointer {valve.isEnabled ? 'bg-[#161d29] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[#0a0d12] border-white/10 text-neutral-400'}"
+                                class="px-2.5 py-1 rounded-lg border text-[9px] font-bold uppercase cursor-pointer {valve.isEnabled ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-[var(--bg-card)] border-white/10 text-neutral-400'}"
                             >
                                 {valve.isEnabled ? 'Enabled' : 'Paused'}
                             </button>
@@ -1306,7 +1302,7 @@
                                             thermostatDrafts[idx].targetAsset
                                         );
                                     }}
-                                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white uppercase outline-none"
+                                    class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white uppercase outline-none"
                                 />
                             </div>
                             <div class="flex flex-col gap-1">
@@ -1314,15 +1310,15 @@
                                 <input
                                     type="text"
                                     bind:value={thermostatDrafts[idx].targetCapKas}
-                                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white tabular-nums outline-none"
+                                    class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white tabular-nums outline-none"
                                 />
                             </div>
                             <div class="flex flex-col gap-1">
-                                <span class="text-[8px] uppercase text-neutral-400">Cycle Cap (USD)</span>
+                                <span class="text-[8px] uppercase text-neutral-400">Cycle Cap ({i18n.currency})</span>
                                 <input
                                     type="text"
                                     bind:value={thermostatDrafts[idx].targetCapUsd}
-                                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white tabular-nums outline-none"
+                                    class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white tabular-nums outline-none"
                                 />
                             </div>
                         </div>
@@ -1332,7 +1328,7 @@
                                 type="text"
                                 bind:value={thermostatDrafts[idx].destinationAddress}
                                 spellcheck="false"
-                                class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-[#18C6A5] outline-none"
+                                class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-[#18C6A5] outline-none"
                             />
                         </div>
                         {#if valve.priorityOrder === 1}
@@ -1343,7 +1339,7 @@
                                         type="text"
                                         bind:value={thermostatDrafts[idx].externalRailRef}
                                         placeholder=""
-                                        class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-white outline-none"
+                                        class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-white outline-none"
                                     />
                                 </div>
                                 <div class="flex flex-col gap-1">
@@ -1352,7 +1348,7 @@
                                         type="text"
                                         bind:value={thermostatDrafts[idx].zktlsBillerCommitmentHex}
                                         placeholder=""
-                                        class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-neutral-300 outline-none"
+                                        class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-neutral-300 outline-none"
                                     />
                                 </div>
                             </div>
@@ -1360,7 +1356,7 @@
                     </div>
                 {/each}
             </div>
-            <div class="p-4 border-t border-white/10 bg-[#11161f] flex gap-3">
+            <div class="p-4 border-t border-white/10 bg-[var(--bg-elevated)] flex gap-3">
                 <button
                     type="button"
                     onclick={() => (isThermostatModalOpen = false)}

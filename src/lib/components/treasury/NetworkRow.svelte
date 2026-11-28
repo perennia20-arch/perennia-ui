@@ -6,6 +6,7 @@
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury, DEFAULT_ECOSYSTEM_TICKER } from '$lib/stores/treasury.svelte';
     import { ui } from '$lib/stores/ui.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import { formatAtomicToDecimal } from '$lib/crypto/atomicMath';
     import {
         txState,
@@ -987,7 +988,7 @@
 </script>
 
 <div
-    class="tactile-card rounded-[24px] flex flex-col relative overflow-hidden group bg-[#0a0d12] border border-white/10"
+    class="tactile-card rounded-[24px] flex flex-col relative overflow-hidden group bg-[var(--bg-card)] border border-white/10"
     data-testid="network-row-{asset.ticker || asset.symbol}"
     style="
         background-image: radial-gradient(ellipse at left top, {asset.hex}16, transparent 55%);
@@ -999,7 +1000,7 @@
 >
     {#if ui.microBadges[`asset_${asset.ticker}`]}
         <div
-            class="micro-confirm-badge absolute top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[#11161f] border text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
+            class="micro-confirm-badge absolute top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
             style="border-color: {ui.microBadges[`asset_${asset.ticker}`].accentHex}60; color: {ui.microBadges[`asset_${asset.ticker}`].accentHex};"
         >
             {ui.microBadges[`asset_${asset.ticker}`].label}
@@ -1021,7 +1022,7 @@
         }}
         role="button"
         tabindex="0"
-        class="w-full p-3.5 sm:p-4 md:p-5 grid grid-cols-[minmax(0,1fr)_auto] lg:flex lg:flex-wrap lg:items-center lg:justify-between gap-x-3 gap-y-3 transition-colors {isManagingNetworks || isOrganizing ? '' : 'cursor-pointer hover:bg-[#11161f]/60'} focus:outline-none text-left border-none select-none relative z-10"
+        class="w-full p-3.5 sm:p-4 md:p-5 grid grid-cols-[minmax(0,1fr)_auto] lg:flex lg:flex-wrap lg:items-center lg:justify-between gap-x-3 gap-y-3 transition-colors {isManagingNetworks || isOrganizing ? '' : 'cursor-pointer hover:bg-[var(--bg-elevated)]'} focus:outline-none text-left border-none select-none relative z-10"
     >
         <div class="flex items-center gap-3 md:gap-4 min-w-0">
             {#if isOrganizing && isNetworkSelected}
@@ -1031,7 +1032,7 @@
                     <div class="w-1 h-1 rounded-full bg-neutral-600"></div>
                 </div>
             {/if}
-            <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-[#11161f] border border-white/10 flex items-center justify-center p-2 md:p-2.5 shrink-0 shadow-inner relative overflow-hidden">
+            <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-[var(--bg-elevated)] border border-white/10 flex items-center justify-center p-2 md:p-2.5 shrink-0 shadow-inner relative overflow-hidden">
                 <div class="absolute inset-0 opacity-[0.14]" style="background-color: {asset.hex}"></div>
                 {#if (asset.icon && (asset.icon.startsWith('/') || asset.icon.startsWith('http'))) || (asset.imgUrl && (asset.imgUrl.startsWith('/') || asset.imgUrl.startsWith('http')))}
                     <img src={asset.icon || asset.imgUrl} alt="{asset.symbol || asset.ticker} logo" class="w-full h-full object-contain relative z-10" style="filter: drop-shadow(0 0 4px {asset.hex}40);" />
@@ -1043,20 +1044,20 @@
                 <div class="flex items-center gap-2 min-w-0">
                     <span class="text-sm md:text-base font-bold uppercase tracking-wider text-white truncate">{asset.name}</span>
                     {#if rootTokenColdRule?.autoSweepEnabled && rootTokenColdRule?.coldDestinationAddress}
-                        <span data-testid="cold-vault-active-badge-{asset.ticker || asset.symbol}" class="text-[8px] font-mono font-bold uppercase bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded-md shrink-0">COLD &ge;{rootTokenColdRule.overflowCeiling}</span>
+                        <span data-testid="cold-vault-active-badge-{asset.ticker || asset.symbol}" class="text-[8px] font-mono font-bold uppercase bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded-md shrink-0">COLD &ge;{rootTokenColdRule.overflowCeiling}</span>
                     {/if}
                 </div>
                 <div class="flex items-center gap-2.5 min-w-0">
-                    <span class="text-[10px] font-mono text-neutral-400 tracking-wider flex items-center gap-1.5 tabular-nums truncate">
-                        ${(asset.spotPrice || 0).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}
-                        <span class={(asset.delta || 0) >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}>{(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(asset.delta || 0).toFixed(2)}%</span>
+                    <span class="text-[10px] font-mono text-[var(--text-muted)] tracking-wider flex items-center gap-1.5 tabular-nums truncate">
+                        {i18n.formatSpotPrice(asset.spotPrice || 0)}
+                        <span class={(asset.delta || 0) >= 0 ? 'text-[var(--accent-text)]' : 'text-red-400'}>{(asset.delta || 0) >= 0 ? '▲' : '▼'} {Math.abs(asset.delta || 0).toFixed(2)}%</span>
                     </span>
                     {#if asset.ticker === 'KAS'}
                         <button
                             type="button"
                             onclick={initiateCompoundKasUtxos}
                             disabled={isCompoundingUtxos || utxoCount < 2}
-                            class="sm:hidden px-1.5 py-0.5 rounded bg-[#11161f] border text-[8px] font-mono font-bold uppercase whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-400 border-white/10'}"
+                            class="sm:hidden px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border text-[8px] font-mono font-bold uppercase whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 {utxoCount >= 2 ? 'text-[#18C6A5] border-[#18C6A5]/40' : 'text-neutral-400 border-white/10'}"
                         >
                             {isCompoundingUtxos ? '...' : `UTXOs (${utxoCount})`}
                         </button>
@@ -1081,15 +1082,15 @@
                             <span class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase" data-testid="batch-queue-badge-{asset.ticker || asset.symbol}">+{asset.synthetic.toLocaleString(undefined, { maximumFractionDigits: 4 })} pending</span>
                         {/if}
                         {#if asset.stakedBalance > 0}<span class="text-blue-400">({asset.stakedBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} LP)</span>{/if}
-                        <span>${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}</span>
+                        <span>{i18n.formatFiat((asset.onChain || 0) * (asset.spotPrice || 0))}</span>
                     </span>
                 {:else}
-                    <span class="text-sm sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[#18C6A5]" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
-                        ${((asset.onChain || 0) * (asset.spotPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: fiatDecimals, maximumFractionDigits: fiatDecimals })}
+                    <span class="text-sm sm:text-lg md:text-xl font-bold tabular-nums leading-none tracking-tight text-[var(--accent-text)]" data-testid="onchain-primary-balance-{asset.ticker || asset.symbol}">
+                        {i18n.formatFiat((asset.onChain || 0) * (asset.spotPrice || 0))}
                     </span>
-                    <span class="text-[10px] font-mono text-neutral-400 tabular-nums flex flex-wrap items-center justify-end gap-1.5">
+                    <span class="text-[10px] font-mono text-[var(--text-muted)] tabular-nums flex flex-wrap items-center justify-end gap-1.5">
                         {#if asset.synthetic > 0}
-                            <span class="text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase" data-testid="batch-queue-badge-{asset.ticker || asset.symbol}">+${((asset.synthetic || 0) * (asset.spotPrice || 0)).toFixed(2)} pending</span>
+                            <span class="text-amber-500 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase" data-testid="batch-queue-badge-{asset.ticker || asset.symbol}">+{i18n.formatFiat((asset.synthetic || 0) * (asset.spotPrice || 0))} pending</span>
                         {/if}
                         <span>{(asset.onChain || 0).toLocaleString(undefined, { minimumFractionDigits: tokenDecimals, maximumFractionDigits: tokenDecimals })} {asset.symbol || asset.ticker}</span>
                     </span>
@@ -1133,7 +1134,7 @@
                             onRemoveChain();
                         }
                     }}
-                    class="w-7 h-7 flex items-center justify-center rounded-lg bg-[#11161f] border border-white/10 hover:border-red-500/40 text-neutral-400 hover:text-red-400 text-[10px] font-bold cursor-pointer shrink-0"
+                    class="w-7 h-7 flex items-center justify-center rounded-lg bg-[var(--bg-elevated)] border border-white/10 hover:border-red-500/40 text-neutral-400 hover:text-red-400 text-[10px] font-bold cursor-pointer shrink-0"
                 >
                     ✕
                 </button>
@@ -1225,7 +1226,7 @@
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.stopPropagation()}
             role="alert"
-            class="mx-4 mb-3 bg-[#11161f] border border-amber-500/45 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono"
+            class="mx-4 mb-3 bg-[var(--bg-elevated)] border border-amber-500/45 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono"
         >
             <span class="text-amber-300 font-bold">
                 Balance detected on {asset.symbol || asset.ticker}. Hide anyway?
@@ -1234,7 +1235,7 @@
                 <button
                     type="button"
                     onclick={() => (confirmHideChain = false)}
-                    class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-white/10 text-neutral-300 hover:text-white uppercase font-bold cursor-pointer"
+                    class="px-2.5 py-1 rounded-lg bg-[var(--bg-card)] border border-white/10 text-neutral-300 hover:text-white uppercase font-bold cursor-pointer"
                 >
                     Cancel
                 </button>
@@ -1245,7 +1246,7 @@
                         confirmHideChain = false;
                         onRemoveChain();
                     }}
-                    class="px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-500/50 text-red-300 hover:text-white uppercase font-bold cursor-pointer"
+                    class="px-2.5 py-1 rounded-lg bg-[var(--bg-danger-subtle)] border border-red-500/50 text-red-300 hover:text-white uppercase font-bold cursor-pointer"
                 >
                     Hide Chain
                 </button>
@@ -1259,7 +1260,7 @@
         >
             {#if withdrawalFeedback && activeRoutingTab === 'none'}
                 <div
-                    class="mb-3 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-teal-950/20 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/25 border-red-500/40 text-red-400'}"
+                    class="mb-3 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-[var(--bg-teal-subtle)] border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[var(--bg-danger-subtle)] border-red-500/40 text-red-400'}"
                 >
                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest break-all">
                         {withdrawalFeedback.message}
@@ -1280,7 +1281,7 @@
             {#if activeRoutingTab !== 'none'}
                 <div
                     transition:slide
-                    class="bg-[#11161f] border border-white/10 rounded-[20px] p-5 flex flex-col shadow-inner w-full gap-5 mb-3 mt-1"
+                    class="bg-[var(--bg-elevated)] border border-white/10 rounded-[20px] p-5 flex flex-col shadow-inner w-full gap-5 mb-3 mt-1"
                 >
                     <div class="flex items-center justify-between border-b border-white/10 pb-3">
                         <div class="flex flex-wrap gap-5">
@@ -1346,7 +1347,7 @@
                     {#if activeRoutingTab === 'deposit'}
                         <div class="flex flex-col md:flex-row items-center justify-between gap-6">
                             <div class="flex flex-col justify-center w-full md:w-2/3">
-                                <span class="text-xs md:text-sm font-mono break-all leading-relaxed mb-5 select-all bg-[#0a0d12] p-3.5 rounded-xl border border-white/10"
+                                <span class="text-xs md:text-sm font-mono break-all leading-relaxed mb-5 select-all bg-[var(--bg-card)] p-3.5 rounded-xl border border-white/10"
                                     style="color: {asset.hex}"
                                 >
                                     {asset.address}
@@ -1375,7 +1376,7 @@
                                     </a>
                                 </div>
                             </div>
-                            <div class="w-[160px] h-[160px] bg-[#0a0d12] border border-white/10 rounded-2xl p-3 flex items-center justify-center shrink-0 shadow-xl">
+                            <div class="w-[160px] h-[160px] bg-[var(--bg-card)] border border-white/10 rounded-2xl p-3 flex items-center justify-center shrink-0 shadow-xl">
                                 {#if qrCodeUrl && !asset.address.includes('Awaiting')}
                                     <img
                                         src={qrCodeUrl}
@@ -1405,7 +1406,7 @@
                                         Select Asset on {asset.name} ({asset.ticker})
                                         Network
                                     </span>
-                                    <div class="flex flex-wrap gap-2 bg-[#0a0d12] p-1.5 rounded-xl border border-white/10">
+                                    <div class="flex flex-wrap gap-2 bg-[var(--bg-card)] p-1.5 rounded-xl border border-white/10">
                                         <button
                                             type="button"
                                             onclick={() =>
@@ -1414,7 +1415,7 @@
                                                     asset.symbol ||
                                                     'KAS'
                                                 ).toUpperCase())}
-                                            class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === (asset.ticker || asset.symbol || 'KAS').toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                            class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === (asset.ticker || asset.symbol || 'KAS').toUpperCase() ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
                                         >
                                             {asset.ticker} (Native L1)
                                         </button>
@@ -1426,7 +1427,7 @@
                                                         String(
                                                             sub.symbol
                                                         ).toUpperCase())}
-                                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === String(sub.symbol).toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === String(sub.symbol).toUpperCase() ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
                                             >
                                                 {sub.symbol} ({standardLabel ||
                                                     'Token'})
@@ -1440,12 +1441,12 @@
                                     {activeSendAssetObj.ticker} Transfer / Settlement
                                     Source
                                 </span>
-                                <div class="grid grid-cols-3 gap-2 bg-[#0a0d12] p-1 rounded-xl border border-white/10">
+                                <div class="grid grid-cols-3 gap-2 bg-[var(--bg-card)] p-1 rounded-xl border border-white/10">
                                     <button
                                         type="button"
                                         onclick={() =>
                                             (withdrawalSourceMode = 'auto')}
-                                        class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'auto' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-400 hover:text-white'}"
+                                        class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'auto' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-400 hover:text-white'}"
                                     >
                                         Auto Route
                                     </button>
@@ -1453,7 +1454,7 @@
                                         type="button"
                                         onclick={() =>
                                             (withdrawalSourceMode = 'onchain')}
-                                        class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'onchain' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-400 hover:text-white'}"
+                                        class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'onchain' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/30' : 'text-neutral-400 hover:text-white'}"
                                     >
                                         On-Chain L1 ({activeSendAssetObj.onChain.toFixed(
                                             4
@@ -1463,7 +1464,7 @@
                                         type="button"
                                         onclick={() =>
                                             (withdrawalSourceMode = 'ledger')}
-                                        class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'ledger' ? 'bg-[#161d29] text-amber-400 border border-amber-500/30' : 'text-neutral-400 hover:text-white'}"
+                                        class="py-2 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors cursor-pointer {withdrawalSourceMode === 'ledger' ? 'bg-[var(--bg-hover)] text-amber-400 border border-amber-500/30' : 'text-neutral-400 hover:text-white'}"
                                     >
                                         Batch Queue ({activeSendAssetObj.synthetic.toFixed(
                                             4
@@ -1474,7 +1475,7 @@
                             {#if withdrawalFeedback}
                                 <div
                                     data-testid="withdrawal-feedback-{asset.ticker || asset.symbol}"
-                                    class="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-teal-950/20 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/20 border-red-500/40 text-red-400'}"
+                                    class="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-[var(--bg-teal-subtle)] border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[var(--bg-danger-subtle)] border-red-500/40 text-red-400'}"
                                 >
                                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest break-all">
                                         {withdrawalFeedback.message}
@@ -1509,7 +1510,7 @@
                                         activeSendAssetObj.network
                                     )}
                                     spellcheck="false"
-                                    class="w-full bg-[#0a0d12] border border-white/10 focus:border-white/25 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none transition-colors"
+                                    class="w-full bg-[var(--bg-card)] border border-white/10 focus:border-white/25 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none transition-colors"
                                 />
                             </div>
                             <div class="flex flex-col gap-1.5">
@@ -1526,7 +1527,7 @@
                                         type="number"
                                         bind:value={sendAmount}
                                         placeholder="0.00"
-                                        class="w-full bg-[#0a0d12] border border-white/10 focus:border-white/25 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none transition-colors"
+                                        class="w-full bg-[var(--bg-card)] border border-white/10 focus:border-white/25 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none transition-colors"
                                     />
                                     <button
                                         type="button"
@@ -1609,7 +1610,7 @@
                                     <span class="text-[9px] uppercase tracking-widest font-bold text-neutral-400">
                                         Configure Cold Sweep for Asset on {asset.name}
                                     </span>
-                                    <div class="flex flex-wrap gap-2 bg-[#0a0d12] p-1.5 rounded-xl border border-white/10">
+                                    <div class="flex flex-wrap gap-2 bg-[var(--bg-card)] p-1.5 rounded-xl border border-white/10">
                                         <button
                                             type="button"
                                             onclick={() =>
@@ -1618,7 +1619,7 @@
                                                     asset.symbol ||
                                                     'KAS'
                                                 ).toUpperCase())}
-                                            class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === (asset.ticker || asset.symbol || 'KAS').toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                            class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === (asset.ticker || asset.symbol || 'KAS').toUpperCase() ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
                                         >
                                             {asset.ticker} (Native L1)
                                         </button>
@@ -1630,7 +1631,7 @@
                                                         String(
                                                             sub.symbol
                                                         ).toUpperCase())}
-                                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === String(sub.symbol).toUpperCase() ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
+                                                class="px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-pointer transition-colors {selectedSendTokenTicker === String(sub.symbol).toUpperCase() ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}"
                                             >
                                                 {sub.symbol} ({standardLabel ||
                                                     'Token'})
@@ -1643,7 +1644,7 @@
                             {#if withdrawalFeedback}
                                 <div
                                     data-testid="cold-vault-feedback-{activeSendAssetObj.ticker}"
-                                    class="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-teal-950/20 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/20 border-red-500/40 text-red-400'}"
+                                    class="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 {withdrawalFeedback.type === 'success' ? 'bg-[var(--bg-teal-subtle)] border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-[var(--bg-danger-subtle)] border-red-500/40 text-red-400'}"
                                 >
                                     <span class="text-[10px] font-mono font-bold uppercase tracking-widest break-all">
                                         {withdrawalFeedback.message}
@@ -1662,7 +1663,7 @@
                             {/if}
 
                             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                                <div class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
+                                <div class="lg:col-span-7 bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
                                     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
                                         <div class="flex flex-col">
                                             <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
@@ -1688,7 +1689,7 @@
                                     </div>
 
                                     {#if isCameraScanningColdQr}
-                                        <div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-3 flex flex-col items-center gap-2">
+                                        <div class="bg-[var(--bg-elevated)] border border-[#18C6A5]/45 rounded-xl p-3 flex flex-col items-center gap-2">
                                             <div class="flex items-center justify-between w-full text-[9px] font-mono">
                                                 <span class="text-[#18C6A5] font-bold uppercase">
                                                     ● Scanning {activeSendAssetObj.ticker} Cold Vault QR...
@@ -1703,7 +1704,7 @@
                                             </div>
                                             <video
                                                 bind:this={coldQrVideoElement}
-                                                class="w-full max-w-[300px] h-[200px] object-cover rounded-lg border border-white/15 bg-black"
+                                                class="w-full max-w-[300px] h-[200px] object-cover rounded-lg border border-white/15 bg-[var(--bg-input)]"
                                                 playsinline
                                             ></video>
                                         </div>
@@ -1757,7 +1758,7 @@
                                                 activeSendAssetObj.network
                                             )}
                                             spellcheck="false"
-                                            class="w-full bg-[#11161f] border {coldDestinationInput.trim() ? (coldAddressValidation.valid ? 'border-[#18C6A5]/50' : 'border-red-500/50') : 'border-white/10'} rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
+                                            class="w-full bg-[var(--bg-elevated)] border {coldDestinationInput.trim() ? (coldAddressValidation.valid ? 'border-[#18C6A5]/50' : 'border-red-500/50') : 'border-white/10'} rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
                                         />
                                         {#if coldDestinationInput.trim() && !coldAddressValidation.valid}
                                             <span class="text-[8px] font-mono text-red-400">
@@ -1784,7 +1785,7 @@
                                                 type="text"
                                                 bind:value={coldVaultLabelInput}
                                                 placeholder="Perennia Cold Vault"
-                                                class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
+                                                class="w-full bg-[var(--bg-elevated)] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
                                             />
                                         </div>
                                         <div class="flex flex-col gap-1">
@@ -1801,12 +1802,12 @@
                                                 min="0.0001"
                                                 step="any"
                                                 bind:value={coldOverflowCeilingInput}
-                                                class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-[#18C6A5] outline-none"
+                                                class="w-full bg-[var(--bg-elevated)] border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-[#18C6A5] outline-none"
                                             />
                                         </div>
                                     </div>
 
-                                    <div class="flex items-center justify-between bg-[#11161f] border border-white/10 rounded-xl p-3">
+                                    <div class="flex items-center justify-between bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3">
                                         <div class="flex flex-col">
                                             <span class="text-[10px] font-bold uppercase text-white">
                                                 Auto-Sweep Above {coldOverflowCeilingInput} {activeSendAssetObj.ticker}
@@ -1819,7 +1820,7 @@
                                             onclick={() =>
                                                 (coldAutoSweepEnabled =
                                                     !coldAutoSweepEnabled)}
-                                            class="w-10 h-5 rounded-full border transition-colors relative cursor-pointer {coldAutoSweepEnabled ? 'bg-[#18C6A5]/20 border-[#18C6A5]/60' : 'bg-[#0a0d12] border-white/15'}"
+                                            class="w-10 h-5 rounded-full border transition-colors relative cursor-pointer {coldAutoSweepEnabled ? 'bg-[#18C6A5]/20 border-[#18C6A5]/60' : 'bg-[var(--bg-card)] border-white/15'}"
                                         >
                                             <div
                                                 class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full transition-all {coldAutoSweepEnabled ? 'bg-[#18C6A5] left-[20px]' : 'bg-neutral-500 left-[3px]'}"
@@ -1842,7 +1843,7 @@
                                     </button>
                                 </div>
 
-                                <div class="lg:col-span-5 bg-[#0a0d12] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
+                                <div class="lg:col-span-5 bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
                                     <span class="text-[10px] font-black uppercase tracking-widest text-white border-b border-white/10 pb-2.5">
                                         Immediate Cold Sweep ({activeSendAssetObj.ticker})
                                     </span>
@@ -1896,7 +1897,7 @@
                                         data-testid="cold-vault-sweep-amount-input-{activeSendAssetObj.ticker}"
                                         bind:value={coldSweepNowAmount}
                                         placeholder="100.00"
-                                        class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none"
+                                        class="w-full bg-[var(--bg-elevated)] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-white outline-none"
                                     />
                                     <button
                                         type="button"
@@ -1955,7 +1956,7 @@
                                 </div>
                             </div>
                             {#if filteredLedgerHistory.length === 0 && l1Transactions.length === 0}
-                                <div class="py-8 text-center border border-dashed border-white/10 rounded-xl bg-[#0a0d12]/60">
+                                <div class="py-8 text-center border border-dashed border-white/10 rounded-xl bg-[var(--bg-card)]">
                                     <span class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">
                                         No recorded {asset.ticker} settlements or
                                         L1 payouts yet.
@@ -1981,11 +1982,11 @@
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             data-testid="settled-payout-explorer-link"
-                                            class="bg-[#0a0d12] hover:bg-[#161d29] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3 transition-colors"
+                                            class="bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3 transition-colors"
                                         >
                                             <div class="flex flex-col">
                                                 <div class="flex items-center gap-2">
-                                                    <span class="px-2 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/30 text-[#18C6A5] text-[8px] font-mono font-bold uppercase">
+                                                    <span class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-[#18C6A5]/30 text-[#18C6A5] text-[8px] font-mono font-bold uppercase">
                                                         {ev.type}
                                                     </span>
                                                     <span class="text-[9px] font-mono text-neutral-400">
@@ -2020,12 +2021,12 @@
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 data-testid="settled-payout-explorer-link"
-                                                class="bg-[#0a0d12] hover:bg-[#161d29] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3 transition-colors"
+                                                class="bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3 transition-colors"
                                             >
                                                 <div class="flex flex-col">
                                                     <div class="flex items-center gap-2">
                                                         <span
-                                                            class="px-2 py-0.5 rounded bg-[#11161f] border text-[8px] font-mono font-bold uppercase {tx.direction === 'INBOUND' ? 'border-[#18C6A5]/35 text-[#18C6A5]' : 'border-amber-500/35 text-amber-400'}"
+                                                            class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border text-[8px] font-mono font-bold uppercase {tx.direction === 'INBOUND' ? 'border-[#18C6A5]/35 text-[#18C6A5]' : 'border-amber-500/35 text-amber-400'}"
                                                         >
                                                             L1 {tx.direction}
                                                         </span>
@@ -2072,7 +2073,7 @@
                         {@const subBal = Number(token.onChain ?? token.balance ?? 0)}
                         {@const subSyn = Number(token.synthetic ?? 0)}
                         {@const subUsd = (subBal + subSyn) * Number(token.price || 0)}
-                        <div class="bg-[#11161f] hover:bg-[#161d29] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-0 sm:ml-6 md:ml-10">
+                        <div class="bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 ml-0 sm:ml-6 md:ml-10">
                             <div
                                 class="grid grid-cols-[minmax(0,1fr)_auto] sm:flex sm:flex-wrap items-center justify-between p-3 sm:p-3.5 cursor-pointer select-none gap-x-2 gap-y-2.5 sm:gap-3"
                                 onclick={() => { expandedSubToken = expandedSubToken === token.symbol ? null : token.symbol; }}
@@ -2080,7 +2081,7 @@
                                 tabindex="0"
                             >
                                 <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                                    <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[#0a0d12] border border-white/10 flex items-center justify-center text-xs font-black shrink-0" style="color: {token.hex};">
+                                    <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[var(--bg-card)] border border-white/10 flex items-center justify-center text-xs font-black shrink-0" style="color: {token.hex};">
                                         {#if token.imgUrl}
                                             <img src={token.imgUrl} class="w-4 h-4 sm:w-5 sm:h-5 object-contain" alt={token.symbol} onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")} />
                                         {:else}
@@ -2090,10 +2091,10 @@
                                     <div class="flex items-center gap-1.5 min-w-0">
                                         <span class="text-xs font-bold tracking-wider text-white shrink-0">{token.symbol}</span>
                                         {#if token.badge}
-                                            <span class="text-[7px] sm:text-[8px] bg-[#0a0d12] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase truncate">{token.badge}</span>
+                                            <span class="text-[7px] sm:text-[8px] bg-[var(--bg-card)] border border-white/10 text-neutral-400 px-1.5 py-0.5 rounded uppercase truncate">{token.badge}</span>
                                         {/if}
                                         {#if subColdRule?.autoSweepEnabled && subColdRule?.coldDestinationAddress}
-                                            <span class="hidden sm:inline text-[8px] bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold shrink-0">COLD &ge;{subColdRule.overflowCeiling}</span>
+                                            <span class="hidden sm:inline text-[8px] bg-[var(--bg-card)] border border-[#18C6A5]/40 text-[#18C6A5] px-1.5 py-0.5 rounded uppercase font-bold shrink-0">COLD &ge;{subColdRule.overflowCeiling}</span>
                                         {/if}
                                     </div>
                                 </div>

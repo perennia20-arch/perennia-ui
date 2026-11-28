@@ -4,6 +4,7 @@
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import { getChainExplorerTxUrl } from '$lib/stores/transaction.svelte';
+    import { safeFiniteNumber } from '$lib/crypto/atomicMath';
     import type { AssetBucketTelemetry } from '$lib/stores/type';
     import {
         computeFlushProgressBps,
@@ -91,7 +92,7 @@
 </script>
 
 <div
-    class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2 min-w-0 bg-[#0a0d12] border border-white/10 rounded-[32px] p-4 shadow-2xl pb-8 w-full relative z-10"
+    class="flex flex-col gap-3 lg:col-span-3 xl:col-span-2 min-w-0 bg-[var(--bg-card)] border border-white/10 rounded-[32px] p-4 shadow-2xl pb-8 w-full relative z-10"
     data-tour="bell-telemetry"
 >
     {#if identity.isWalletConnected || ui.isTutorialActive}
@@ -109,7 +110,7 @@
                             cy="50"
                             r="42"
                             fill="transparent"
-                            stroke="#161d29"
+                            stroke="var(--bg-elevated)"
                             stroke-width="6"
                         ></circle>
                         {#if effortData.segments.length === 0}
@@ -118,7 +119,7 @@
                                 cy="50"
                                 r="42"
                                 fill="transparent"
-                                stroke="#262f40"
+                                stroke="var(--border-strong)"
                                 stroke-width="6"
                                 stroke-dasharray="263.89 0"
                             ></circle>
@@ -139,10 +140,10 @@
                         {/each}
                     </svg>
                     <div class="absolute inset-0 flex flex-col items-center justify-center">
-                        <span class="text-xl font-mono font-light text-white leading-none tabular-nums">
-                            {displayHashrate.toFixed(2)}
+                        <span class="text-xl font-mono font-light text-[var(--text-primary)] leading-none tabular-nums">
+                            {safeFiniteNumber(displayHashrate, 0).toFixed(2)}
                         </span>
-                        <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-400 mt-0.5">
+                        <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)] mt-0.5">
                             TH/s
                         </span>
                     </div>
@@ -151,7 +152,7 @@
                     <div class="flex flex-col gap-1.5 w-full">
                         {#each effortData.segments as seg}
                             <div class="flex items-stretch gap-1.5 w-full group">
-                                <div class="flex-1 bg-[#11161f] hover:bg-[#161d29] border border-white/10 rounded-xl p-2 flex justify-between items-center transition-colors min-w-0">
+                                <div class="flex-1 bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-white/10 rounded-xl p-2 flex justify-between items-center transition-colors min-w-0">
                                     <div class="flex items-center gap-2 min-w-0">
                                         <div
                                             class="w-2 h-2 rounded-full shrink-0"
@@ -180,7 +181,7 @@
         <div class="w-full flex flex-col gap-2.5 border-t border-white/10 pt-3 mb-2">
             <!-- NEXT PAYOUT + RESERVE PROOF -->
             <div
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-3 shadow-inner flex flex-col gap-1"
+                class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-3 shadow-inner flex flex-col gap-1"
                 style="background-image: radial-gradient(ellipse at top, rgba(24, 198, 165, 0.08), transparent 70%);"
             >
                 <div class="flex items-center justify-between gap-1">
@@ -197,7 +198,7 @@
             <!-- MATURE ACCRUAL & DIRECT PAYOUT QUEUE -->
             <div
                 data-testid="sidebar-mature-accrual-card"
-                class="bg-[#11161f] border border-white/10 rounded-2xl p-3 flex flex-col gap-2 font-mono"
+                class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-3 flex flex-col gap-2 font-mono"
             >
                 <div class="flex items-center justify-between gap-1">
                     <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-300 truncate">
@@ -207,7 +208,7 @@
                         {flushProgressPctDisplay}%
                     </span>
                 </div>
-                <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10">
+                <div class="w-full bg-[var(--bg-card)] rounded-full h-1.5 overflow-hidden border border-white/10">
                     <div
                         class="h-full transition-all duration-500 bg-[#18C6A5]"
                         style="width: {Math.min(100, flushProgressBps / 100)}%;"
@@ -249,7 +250,7 @@
                             Recent Payout Queue
                         </span>
                         {#each outboxItems as item (item.outboxKey)}
-                            <div class="bg-[#0a0d12] border border-white/10 rounded-lg px-2 py-1.5 flex items-center justify-between gap-1.5 text-[8px]">
+                            <div class="bg-[var(--bg-card)] border border-white/10 rounded-lg px-2 py-1.5 flex items-center justify-between gap-1.5 text-[8px]">
                                 <div class="flex flex-col min-w-0">
                                     <span class="text-white font-bold tabular-nums truncate">
                                         {formatSompiToKasDisplay(item.payoutSompi, 4, true)} KAS
@@ -286,7 +287,7 @@
                 </div>
                 <div data-testid="pool-buckets-scroll-container" class="flex flex-col gap-2.5 pr-0.5">
                     {#if userActiveBuckets.length === 0}
-                        <div class="bg-[#11161f]/60 border border-dashed border-white/10 rounded-xl p-3 text-center flex flex-col gap-1">
+                        <div class="bg-[var(--bg-elevated)] border border-dashed border-white/10 rounded-xl p-3 text-center flex flex-col gap-1">
                             <span class="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
                                 No pending splits
                             </span>
@@ -310,10 +311,10 @@
                             {@const bucketBadge = ui.microBadges[`bucket_${bucket.asset}`]}
                             <div
                                 data-testid="bucket-card-{bucket.asset}"
-                                class="tactile-card bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-2 relative"
+                                class="tactile-card bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-3 flex flex-col gap-2 relative"
                             >
                                 {#if bucketBadge}
-                                    <div class="micro-confirm-badge absolute top-2 right-2 z-30 px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase">
+                                    <div class="micro-confirm-badge absolute top-2 right-2 z-30 px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase">
                                         {bucketBadge.label}
                                     </div>
                                 {/if}
@@ -328,27 +329,27 @@
                                         </span>
                                     </div>
                                     <span
-                                        class="text-[10px] font-mono font-black whitespace-nowrap shrink-0 tabular-nums {pricingBlocked ? 'text-amber-400' : isReady ? 'text-[#18C6A5]' : 'text-neutral-300'}"
+                                        class="text-[10px] font-mono font-black whitespace-nowrap shrink-0 tabular-nums {pricingBlocked ? 'text-amber-500' : isReady ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'}"
                                     >
-                                        {pricingBlocked ? '--' : `${bucket.weightPct.toFixed(1)}%`}
+                                        {pricingBlocked ? '--' : `${safeFiniteNumber(bucket.weightPct, 0).toFixed(1)}%`}
                                     </span>
                                 </div>
-                                <div class="w-full bg-[#0a0d12] rounded-full h-1.5 overflow-hidden border border-white/10">
+                                <div class="w-full bg-[var(--bg-card)] rounded-full h-1.5 overflow-hidden border border-[var(--border-subtle)]">
                                     <div
                                         class="h-full transition-all duration-500"
                                         style="width: {barWidth}%; background-color: {isReady ? '#18C6A5' : assetTheme};"
                                     ></div>
                                 </div>
                                 {#if pricingBlocked}
-                                    <div class="text-[8px] font-mono text-amber-400 uppercase tracking-wider">
+                                    <div class="text-[8px] font-mono text-amber-500 uppercase tracking-wider">
                                         Live pricing unavailable
                                     </div>
                                 {:else}
-                                    <div class="flex justify-between items-center gap-1 text-[9px] font-mono text-neutral-400">
+                                    <div class="flex justify-between items-center gap-1 text-[9px] font-mono text-[var(--text-muted)]">
                                         <span class="tabular-nums truncate">
-                                            {bucket.pendingKas.toFixed(1)} / {minKas.toFixed(1)} KAS
+                                            {safeFiniteNumber(bucket.pendingKas, 0).toFixed(1)} / {safeFiniteNumber(minKas, 0).toFixed(1)} KAS
                                         </span>
-                                        <span class="uppercase font-bold shrink-0 {isReady ? 'text-[#18C6A5]' : 'text-neutral-300'}">
+                                        <span class="uppercase font-bold shrink-0 {isReady ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'}">
                                             {isReady ? 'READY' : 'FILLING'}
                                         </span>
                                     </div>
@@ -357,9 +358,9 @@
                                             type="button"
                                             disabled={operations.livePricingUnavailable}
                                             onclick={() => ui.triggerBucketBoost(bucket.asset, neededKas)}
-                                            class="tactile-btn mobile-touch-target w-full py-2.5 lg:py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[#18C6A5] hover:text-white cursor-pointer disabled:opacity-40"
+                                            class="tactile-btn mobile-touch-target w-full py-2.5 lg:py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--accent-text)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-40"
                                         >
-                                            Boost +{neededKas.toFixed(1)} KAS
+                                            Boost +{safeFiniteNumber(neededKas, 0).toFixed(1)} KAS
                                         </button>
                                     {/if}
                                 {/if}

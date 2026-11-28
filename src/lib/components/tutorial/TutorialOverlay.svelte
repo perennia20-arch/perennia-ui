@@ -5,6 +5,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { ops } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
     import {
         TUTORIAL_STEPS,
         TUTORIAL_WIRE_PREVIEW,
@@ -163,14 +164,14 @@
 {#if isTutorialActive}
     <div
         data-testid="tutorial-overlay-root"
-        class="fixed inset-0 z-[120] pointer-events-auto font-mono text-white"
+        class="fixed inset-0 z-[120] pointer-events-auto font-mono text-[var(--text-primary)]"
         transition:fade={{ duration: 150 }}
     >
         <!-- BACKDROP DIMMER -->
         <div
             role="presentation"
             onclick={() => handleCloseTutorial(true)}
-            class="fixed inset-0 bg-[#06080b]/85 transition-opacity duration-300"
+            class="fixed inset-0 bg-[var(--bg-overlay)] transition-opacity duration-300"
         ></div>
 
         <!-- DYNAMIC DOM SPOTLIGHT RING -->
@@ -184,12 +185,12 @@
                     width: {spotlightRect.width}px;
                     height: {spotlightRect.height}px;
                     box-shadow:
-                        0 0 0 9999px rgba(5, 7, 11, 0.72),
+                        0 0 0 9999px var(--bg-overlay),
                         0 0 35px rgba(24, 198, 165, 0.45),
                         inset 0 0 20px rgba(24, 198, 165, 0.20);
                 "
             >
-                <div class="absolute -top-3 left-4 px-2.5 py-0.5 rounded-full bg-[#0a0d12] border border-[#18C6A5] text-[#18C6A5] text-[8px] font-black uppercase tracking-widest">
+                <div class="absolute -top-3 left-4 px-2.5 py-0.5 rounded-full bg-[var(--bg-card)] border border-[#18C6A5] text-[var(--accent-text)] text-[8px] font-black uppercase tracking-widest">
                     {activeStep.chapter}
                 </div>
             </div>
@@ -199,7 +200,7 @@
         <div
             data-testid="tutorial-controller-card"
             in:scale={{ duration: 160, start: 0.96 }}
-            class="fixed z-[122] w-[calc(100vw-2rem)] max-w-[500px] bg-[#0a0d12] border border-[#18C6A5]/55 rounded-[28px] p-6 shadow-2xl flex flex-col gap-4 {activeStep.cardPosition ===
+            class="fixed z-[122] w-[calc(100vw-2rem)] max-w-[500px] bg-[var(--bg-card)] border border-[#18C6A5]/55 rounded-[28px] p-6 shadow-2xl flex flex-col gap-4 {activeStep.cardPosition ===
             'bottom-left'
                 ? 'bottom-5 left-5'
                 : activeStep.cardPosition === 'top-right'
@@ -207,26 +208,26 @@
                   : 'bottom-5 right-5'}"
             style="
                 background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 65%);
-                box-shadow: 0 25px 70px -15px rgba(0, 0, 0, 0.92), 0 0 40px -12px rgba(24, 198, 165, 0.35);
+                box-shadow: 0 25px 70px -15px rgba(0, 0, 0, 0.28), 0 0 40px -12px rgba(24, 198, 165, 0.35);
             "
         >
             <!-- TOP CHAPTER & PROGRESS HEADER -->
-            <div class="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div class="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-[#18C6A5] animate-pulse"></span>
-                    <span class="text-[9px] font-black uppercase tracking-[0.2em] text-[#18C6A5]">
+                    <span class="text-[9px] font-black uppercase tracking-[0.2em] text-[var(--accent-text)]">
                         {activeStep.chapter}
                     </span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-[9px] text-neutral-400 font-bold">
+                    <span class="text-[9px] text-[var(--text-muted)] font-bold">
                         Step {currentStepIndex + 1} of {TUTORIAL_STEPS.length}
                     </span>
                     <button
                         type="button"
                         data-testid="tutorial-close-btn"
                         onclick={() => handleCloseTutorial(true)}
-                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 hover:border-white/30 text-[9px] text-neutral-400 hover:text-white cursor-pointer"
+                        class="px-2 py-0.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[9px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                     >
                         [Skip ✕]
                     </button>
@@ -234,7 +235,7 @@
             </div>
 
             <!-- STEP PROGRESS BAR -->
-            <div class="w-full h-1.5 rounded-full bg-[#11161f] border border-white/10 overflow-hidden">
+            <div class="w-full h-1.5 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] overflow-hidden">
                 <div
                     class="h-full bg-[#18C6A5] transition-all duration-300 rounded-full"
                     style="width: {progressPct}%;"
@@ -243,22 +244,22 @@
 
             <!-- STEP TITLE & DESCRIPTION -->
             <div class="flex flex-col gap-1.5">
-                <h3 class="text-sm md:text-base font-black uppercase tracking-wider text-white">
+                <h3 class="text-sm md:text-base font-black uppercase tracking-wider text-[var(--text-primary)]">
                     {activeStep.title}
                 </h3>
-                <span class="text-[10px] font-bold text-[#18C6A5]">
+                <span class="text-[10px] font-bold text-[var(--accent-text)]">
                     {activeStep.subtitle}
                 </span>
-                <p class="text-[11px] text-neutral-300 leading-relaxed pt-1">
+                <p class="text-[11px] text-[var(--text-secondary)] leading-relaxed pt-1">
                     {activeStep.description}
                 </p>
             </div>
 
             <!-- KEY ARCHITECTURAL BULLETS -->
-            <ul class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2 text-[10px] text-neutral-200">
+            <ul class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-3.5 flex flex-col gap-2 text-[10px] text-[var(--text-primary)]">
                 {#each activeStep.bullets as bullet}
                     <li class="flex items-start gap-2 leading-relaxed">
-                        <span class="text-[#18C6A5] font-black shrink-0">✓</span>
+                        <span class="text-[var(--accent-text)] font-black shrink-0">✓</span>
                         <span>{bullet}</span>
                     </li>
                 {/each}
@@ -266,43 +267,44 @@
 
             <!-- CONTEXTUAL LIVE TELEMETRY PREVIEW PER STEP -->
             {#if activeStep.id === 'dynamic-buckets-and-dex-boost'}
-                <div class="bg-[#11161f] border border-[#18C6A5]/35 rounded-xl p-3 flex items-center justify-between text-[9px]">
+                <div class="bg-[var(--bg-elevated)] border border-[#18C6A5]/35 rounded-xl p-3 flex items-center justify-between text-[9px]">
                     <div class="flex flex-col">
-                        <span class="font-black uppercase text-[#18C6A5]">
+                        <span class="font-black uppercase text-[var(--accent-text)]">
                             Live USDC Bucket Threshold
                         </span>
-                        <span class="text-neutral-300">
+                        <span class="text-[var(--text-secondary)]">
                             Min Profitable: {(
                                 sampleUsdcBucket?.minProfitableKas || 47.4
-                            ).toFixed(1)} KAS (≈${(
+                            ).toFixed(1)} KAS (≈{i18n.formatFiat(
                                 sampleUsdcBucket?.minProfitableUsd ||
                                 (sampleUsdcBucket?.minProfitableKas || 47.4) *
-                                    kasSpotUsd
-                            ).toFixed(2)} USD)
+                                    kasSpotUsd,
+                                { includeCode: true }
+                            )})
                         </span>
                     </div>
-                    <span class="px-2 py-1 rounded bg-[#0a0d12] border border-[#18C6A5]/45 text-[#18C6A5] font-black uppercase">
+                    <span class="px-2 py-1 rounded bg-[var(--bg-card)] border border-[#18C6A5]/45 text-[var(--accent-text)] font-black uppercase">
                         0.10% Floor
                     </span>
                 </div>
             {:else if activeStep.id === 'fiat-bridge-and-wholesale-floor'}
                 <div
                     data-testid="tutorial-wire-instructions-preview"
-                    class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1 text-[9px]"
+                    class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1 text-[9px]"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[8px] font-bold uppercase text-neutral-400">
+                        <span class="text-[8px] font-bold uppercase text-[var(--text-muted)]">
                             Beneficiary / Merchant Entity
                         </span>
-                        <span class="font-black text-[#18C6A5]">
+                        <span class="font-black text-[var(--accent-text)]">
                             {TUTORIAL_WIRE_PREVIEW.beneficiaryName}
                         </span>
                     </div>
                     <div class="flex items-center justify-between">
-                        <span class="text-[8px] font-bold uppercase text-neutral-400">
+                        <span class="text-[8px] font-bold uppercase text-[var(--text-muted)]">
                             Commercial Rail
                         </span>
-                        <span class="text-neutral-300">
+                        <span class="text-[var(--text-secondary)]">
                             {TUTORIAL_WIRE_PREVIEW.bankName}
                         </span>
                     </div>
@@ -310,7 +312,7 @@
             {/if}
 
             <!-- CHAPTER DOTS & NAVIGATION BUTTONS -->
-            <div class="flex items-center justify-between gap-3 pt-1 border-t border-white/10">
+            <div class="flex items-center justify-between gap-3 pt-1 border-t border-[var(--border-subtle)]">
                 <div class="flex items-center gap-1.5">
                     {#each TUTORIAL_STEPS as step, idx (step.id)}
                         <button
@@ -322,7 +324,7 @@
                                 ? 'w-6 bg-[#18C6A5]'
                                 : idx < currentStepIndex
                                   ? 'w-2 bg-[#18C6A5]/50'
-                                  : 'w-2 bg-white/15 hover:bg-white/30'}"
+                                  : 'w-2 bg-[var(--border-strong)] hover:bg-[var(--text-muted)]'}"
                         ></button>
                     {/each}
                 </div>
@@ -334,7 +336,7 @@
                             data-testid="tutorial-prev-btn"
                             onclick={handlePrevStep}
                             disabled={isTransitioning}
-                            class="tactile-btn px-3 py-2 rounded-xl bg-[#11161f] border border-white/15 text-neutral-300 hover:text-white text-[9px] font-bold uppercase cursor-pointer"
+                            class="tactile-btn px-3 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[9px] font-bold uppercase cursor-pointer"
                         >
                             ← Back
                         </button>
@@ -344,7 +346,7 @@
                         data-testid="tutorial-next-btn"
                         onclick={handleNextStep}
                         disabled={isTransitioning}
-                        class="tactile-btn px-4 py-2 rounded-xl bg-[#11161f] border border-[#18C6A5] text-[#18C6A5] hover:text-white text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                        class="tactile-btn px-4 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[#18C6A5] text-[var(--accent-text)] hover:text-[var(--text-primary)] text-[9px] font-black uppercase tracking-wider cursor-pointer"
                     >
                         {activeStep.ctaLabel ||
                             (currentStepIndex === TUTORIAL_STEPS.length - 1

@@ -16,7 +16,9 @@ export function mountStripeCard(node: HTMLElement, opts: { slot: string; onState
   let dead = false, card: any = null;
   getStripe().then((stripe) => {
     if (dead || !stripe) { if (!dead && !stripe) opts.onState?.({ error: 'Card gateway unavailable.' }); return; }
-    card = stripe.elements().create('card', { hidePostalCode: false, style: { base: { color: '#fff', fontFamily: 'ui-monospace, monospace', fontSize: '13px', iconColor: '#18C6A5', '::placeholder': { color: '#6b7280' } }, invalid: { color: '#f87171', iconColor: '#f87171' } } });
+    const computedText = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#0f172a';
+    const computedMuted = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#64748b';
+    card = stripe.elements().create('card', { hidePostalCode: false, style: { base: { color: computedText, fontFamily: 'ui-monospace, monospace', fontSize: '13px', iconColor: '#18C6A5', '::placeholder': { color: computedMuted } }, invalid: { color: '#ef4444', iconColor: '#ef4444' } } });
     card.mount(node); slots[opts.slot] = { stripe, card };
     card.on('change', (e: any) => !dead && opts.onState?.({ error: e.error?.message || null }));
   });

@@ -472,6 +472,72 @@ export function toU128Str(val: bigint | number | string, fieldName = 'value'): U
 }
 
 /**
+ * Fault-tolerant `parseU128Str` wrapper for UI telemetry boundaries; never throws.
+ */
+export function safeParseU128(val: unknown, fallback = 0n): bigint {
+    try {
+        if (val === undefined || val === null || val === '') return fallback;
+        return parseU128Str(val, 'safeParseU128');
+    } catch {
+        return fallback;
+    }
+}
+
+/**
+ * Normalizes finite numbers from telemetry / Redis strings; never returns NaN or Infinity.
+ */
+export function safeFiniteNumber(val: unknown, fallback = 0): number {
+    if (typeof val === 'number') {
+        return Number.isFinite(val) ? val : fallback;
+    }
+    if (typeof val === 'bigint') {
+        const n = Number(val);
+        return Number.isFinite(n) ? n : fallback;
+    }
+    if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (!trimmed) return fallback;
+        const parsed = Number(trimmed);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    return fallback;
+}
+
+/**
+ * Fault-tolerant decimal-to-atomic parser for UI boundaries (handles scientific notation like `5e-7`).
+ */
+export function safeDecimalToAtomic(
+    input: unknown,
+    decimals: number,
+    fallback = 0n,
+    mode: 'strict' | 'floor' | 'ceil' = 'floor'
+): bigint {
+    try {
+        if (input === undefined || input === null || input === '') return fallback;
+        if (typeof input === 'bigint') {
+            return parseDecimalToAtomic(input, decimals, mode);
+        }
+        if (typeof input === 'number') {
+            if (!Number.isFinite(input) || input <= 0) return fallback;
+            return parseDecimalToAtomic(input.toFixed(decimals), decimals, mode);
+        }
+        if (typeof input === 'string') {
+            const trimmed = input.trim();
+            if (!trimmed) return fallback;
+            if (/^[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) {
+                return parseDecimalToAtomic(trimmed, decimals, mode);
+            }
+            const num = Number(trimmed);
+            if (!Number.isFinite(num) || num <= 0) return fallback;
+            return parseDecimalToAtomic(num.toFixed(decimals), decimals, mode);
+        }
+        return fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+/**
  * Pure string-splitting fixed-point decimal parser into atomic `BigInt` units.
  * Avoids JS floating-point scaling math.
  */

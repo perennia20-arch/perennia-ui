@@ -297,20 +297,20 @@
     <!-- 1. MAINNET & FIAT GATEWAY READINESS CHECKLIST -->
     <div
         data-testid="director-mainnet-readiness-card"
-        class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 md:p-6 flex flex-col gap-4"
+        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 md:p-6 flex flex-col gap-4"
         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.10), transparent 65%);"
     >
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
             <div class="flex flex-col gap-1">
                 <div class="flex items-center gap-2.5">
                     <span
                         class="w-2.5 h-2.5 rounded-full {readinessReport?.summary.actionRequiredCount === 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-amber-400'}"
                     ></span>
-                    <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
+                    <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Mainnet &amp; Fiat Gateway Launch Readiness Matrix
                     </h3>
                 </div>
-                <span class="text-[9px] text-neutral-400">
+                <span class="text-[9px] text-[var(--text-muted)]">
                     Live verification of PostgreSQL, Redis, Rust Stratum (:8002), kaspad gRPC (:16110), 7-Node + Pyth + FX Oracles, and Fiat API Keys
                 </span>
             </div>
@@ -319,7 +319,7 @@
                 {#if readinessReport}
                     <span
                         data-testid="readiness-overall-badge"
-                        class="px-3 py-1 rounded-xl border text-[9px] font-black uppercase tracking-widest {readinessReport.summary.actionRequiredCount > 0 ? 'bg-red-950/30 border-red-500/45 text-red-400' : readinessReport.summary.onlineCount === readinessReport.summary.totalChecks ? 'bg-[#18C6A5]/15 border-[#18C6A5]/50 text-[#18C6A5]' : 'bg-amber-500/10 border-amber-500/40 text-amber-300'}"
+                        class="px-3 py-1 rounded-xl border text-[9px] font-black uppercase tracking-widest {readinessReport.summary.actionRequiredCount > 0 ? 'bg-[var(--bg-danger-subtle)] border-red-500/45 text-red-400' : readinessReport.summary.onlineCount === readinessReport.summary.totalChecks ? 'bg-[#18C6A5]/15 border-[#18C6A5]/50 text-[var(--accent-text)]' : 'bg-amber-500/10 border-amber-500/40 text-amber-300'}"
                     >
                         {readinessReport.summary.onlineCount}/{readinessReport.summary.totalChecks} LIVE • {readinessReport.summary.overallStatus}
                     </span>
@@ -329,7 +329,7 @@
                     data-testid="run-readiness-audit-btn"
                     onclick={runReadinessAudit}
                     disabled={isAuditingReadiness}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)] border-[#18C6A5]/45 cursor-pointer disabled:opacity-40"
                 >
                     {isAuditingReadiness ? 'Auditing...' : 'Run Readiness Audit ↻'}
                 </button>
@@ -346,13 +346,13 @@
         </div>
 
         {#if auditError}
-            <div class="p-3 rounded-xl bg-red-950/30 border border-red-500/40 text-red-400 text-[10px]">
+            <div class="p-3 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/40 text-red-400 text-[10px]">
                 ⚠ {auditError}
             </div>
         {/if}
 
         {#if bellStatusBanner}
-            <div class="p-2.5 rounded-xl bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold">
+            <div class="p-2.5 rounded-xl bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[var(--accent-text)] text-[9px] font-bold">
                 {bellStatusBanner}
             </div>
         {/if}
@@ -362,19 +362,19 @@
                 {#each readinessReport.checks as item (item.id)}
                     <div
                         data-testid="readiness-check-{item.id}"
-                        class="bg-[#11161f] border rounded-xl p-3.5 flex flex-col justify-between gap-2 {item.status === 'ONLINE' ? 'border-[#18C6A5]/35' : item.status === 'SANDBOX_READY' ? 'border-amber-500/35' : 'border-red-500/45'}"
+                        class="bg-[var(--bg-elevated)] border rounded-xl p-3.5 flex flex-col justify-between gap-2 {item.status === 'ONLINE' ? 'border-[#18C6A5]/35' : item.status === 'SANDBOX_READY' ? 'border-amber-500/35' : 'border-red-500/45'}"
                     >
                         <div class="flex items-start justify-between gap-2">
                             <div class="flex flex-col gap-0.5 min-w-0">
-                                <span class="text-[8px] font-bold uppercase tracking-widest text-neutral-500">
+                                <span class="text-[8px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                                     {item.category}
                                 </span>
-                                <span class="text-[10px] font-black text-white leading-snug">
+                                <span class="text-[10px] font-black text-[var(--text-primary)] leading-snug">
                                     {item.label}
                                 </span>
                             </div>
                             <span
-                                class="px-2 py-0.5 rounded text-[8px] font-black uppercase shrink-0 {item.status === 'ONLINE' ? 'bg-[#18C6A5]/15 text-[#18C6A5] border border-[#18C6A5]/40' : item.status === 'SANDBOX_READY' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40' : 'bg-red-950/40 text-red-400 border border-red-500/40'}"
+                                class="px-2 py-0.5 rounded text-[8px] font-black uppercase shrink-0 {item.status === 'ONLINE' ? 'bg-[#18C6A5]/15 text-[var(--accent-text)] border border-[#18C6A5]/40' : item.status === 'SANDBOX_READY' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40' : 'bg-[var(--bg-danger-subtle)] text-red-400 border border-red-500/40'}"
                             >
                                 {item.status === 'ONLINE'
                                     ? 'LIVE ✓'
@@ -384,13 +384,13 @@
                             </span>
                         </div>
 
-                        <p class="text-[9px] text-neutral-300 leading-relaxed">
+                        <p class="text-[9px] text-[var(--text-secondary)] leading-relaxed">
                             {item.detail}
                         </p>
 
-                        <div class="flex items-center justify-between pt-1 border-t border-white/5 text-[8px] text-neutral-500">
+                        <div class="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)] text-[8px] text-[var(--text-muted)]">
                             <span>ENV KEY</span>
-                            <span class="font-bold text-neutral-300 select-all">
+                            <span class="font-bold text-[var(--text-secondary)] select-all">
                                 {item.envVar}
                             </span>
                         </div>
@@ -403,14 +403,14 @@
     <!-- 2. SYSTEM TREASURY CEILINGS, COLD AIRLOCK & EMERGENCY OUTFLOW BREAKER -->
     <div
         data-testid="director-treasury-airlock-card"
-        class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 md:p-6 flex flex-col gap-4"
+        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 md:p-6 flex flex-col gap-4"
     >
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
             <div class="flex flex-col gap-0.5">
-                <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
+                <h3 class="text-xs md:text-sm font-black uppercase tracking-widest text-[var(--text-primary)]">
                     Node Hot/Cold Airlock, FPPS Float &amp; Multi-Chain Cold Vault Coordinates
                 </h3>
-                <span class="text-[9px] text-neutral-400">
+                <span class="text-[9px] text-[var(--text-muted)]">
                     Any hot dispatcher balance exceeding the Hot Ceiling automatically sweeps to your Master Cold Vault every 60 seconds
                 </span>
             </div>
@@ -419,7 +419,7 @@
                 type="button"
                 data-testid="director-outflow-breaker-btn"
                 onclick={handleToggleOutflowBreaker}
-                class="tactile-btn px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {outflowBreakerTripped ? 'text-red-400 border-red-500/55 bg-red-950/30' : 'text-[#18C6A5] border-[#18C6A5]/45'}"
+                class="tactile-btn px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer {outflowBreakerTripped ? 'text-red-400 border-red-500/55 bg-[var(--bg-danger-subtle)]' : 'text-[var(--accent-text)] border-[#18C6A5]/45'}"
             >
                 {outflowBreakerTripped
                     ? '🚨 L1 OUTFLOWS PAUSED — CLICK TO RESUME'
@@ -429,17 +429,17 @@
 
         {#if sysConfigBanner}
             <div
-                class="p-2.5 rounded-xl border text-[9px] font-bold {sysConfigBanner.type === 'success' ? 'bg-[#18C6A5]/10 border-[#18C6A5]/40 text-[#18C6A5]' : 'bg-red-950/30 border-red-500/40 text-red-400'}"
+                class="p-2.5 rounded-xl border text-[9px] font-bold {sysConfigBanner.type === 'success' ? 'bg-[#18C6A5]/10 border-[#18C6A5]/40 text-[var(--accent-text)]' : 'bg-[var(--bg-danger-subtle)] border-red-500/40 text-red-400'}"
             >
                 {sysConfigBanner.message}
             </div>
         {/if}
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysHotCeilingKas"
-                    class="text-[8px] font-bold uppercase text-neutral-400"
+                    class="text-[8px] font-bold uppercase text-[var(--text-muted)]"
                 >
                     Hot Wallet Ceiling (KAS)
                 </label>
@@ -448,14 +448,14 @@
                     type="number"
                     min="50"
                     bind:value={hotCeilingKas}
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
 
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysMinRunwayKas"
-                    class="text-[8px] font-bold uppercase text-neutral-400"
+                    class="text-[8px] font-bold uppercase text-[var(--text-muted)]"
                 >
                     Min Runway Alert (KAS)
                 </label>
@@ -464,14 +464,14 @@
                     type="number"
                     min="0"
                     bind:value={minRunwayKas}
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
 
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysFppsFloatKas"
-                    class="text-[8px] font-bold uppercase text-neutral-400"
+                    class="text-[8px] font-bold uppercase text-[var(--text-muted)]"
                 >
                     FPPS House Float Cap (KAS)
                 </label>
@@ -480,14 +480,14 @@
                     type="number"
                     min="1"
                     bind:value={fppsMaxFloatKas}
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] outline-none"
                 />
             </div>
 
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysPoolFeePct"
-                    class="text-[8px] font-bold uppercase text-neutral-400"
+                    class="text-[8px] font-bold uppercase text-[var(--text-muted)]"
                 >
                     Pool Fee Rate (%)
                 </label>
@@ -498,16 +498,16 @@
                     min="0"
                     max="10"
                     bind:value={poolFeeRatePct}
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-bold text-[#18C6A5] outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs font-bold text-[var(--accent-text)] outline-none"
                 />
             </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysColdKasAddr"
-                    class="text-[8px] font-bold uppercase text-[#18C6A5]"
+                    class="text-[8px] font-bold uppercase text-[var(--accent-text)]"
                 >
                     Master Kaspa Cold Vault Address (Tangem / Air-Gapped)
                 </label>
@@ -516,11 +516,11 @@
                     type="text"
                     bind:value={coldKasAddress}
                     placeholder="kaspa:qpra8t9ul8hd7n9pvw4td6ax3unlf2vyc2fz5t9p9yalhsnk7qkaknp24lpm7"
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2 text-[10px] text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[10px] text-[var(--text-primary)] outline-none"
                 />
             </div>
 
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysColdBtcAddr"
                     class="text-[8px] font-bold uppercase text-amber-400"
@@ -532,11 +532,11 @@
                     type="text"
                     bind:value={coldBtcAddress}
                     placeholder="bc1q..."
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2 text-[10px] text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[10px] text-[var(--text-primary)] outline-none"
                 />
             </div>
 
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysColdEthAddr"
                     class="text-[8px] font-bold uppercase text-blue-400"
@@ -548,11 +548,11 @@
                     type="text"
                     bind:value={coldEthAddress}
                     placeholder="0x..."
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2 text-[10px] text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[10px] text-[var(--text-primary)] outline-none"
                 />
             </div>
 
-            <div class="bg-[#11161f] border border-white/10 rounded-xl p-3 flex flex-col gap-1">
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-1">
                 <label
                     for="sysColdSolAddr"
                     class="text-[8px] font-bold uppercase text-purple-400"
@@ -564,16 +564,16 @@
                     type="text"
                     bind:value={coldSolAddress}
                     placeholder="Solana Base58 Address"
-                    class="bg-[#0a0d12] border border-white/10 rounded-lg px-3 py-2 text-[10px] text-white outline-none"
+                    class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[10px] text-[var(--text-primary)] outline-none"
                 />
             </div>
         </div>
 
         <div class="flex items-center justify-between flex-wrap gap-3 pt-1">
             {#if readinessReport?.fiatFloat}
-                <div class="text-[9px] text-neutral-400">
+                <div class="text-[9px] text-[var(--text-muted)]">
                     Bootstrap Fiat Float:
-                    <strong class="text-white">
+                    <strong class="text-[var(--text-primary)]">
                         {i18n.formatFiat(
                             Number(
                                 readinessReport.fiatFloat.combinedFloatUsd || 900
@@ -581,7 +581,7 @@
                         )}
                     </strong>
                     / Ratchet Target:
-                    <strong class="text-[#18C6A5]">
+                    <strong class="text-[var(--accent-text)]">
                         {i18n.formatFiat(
                             Number(
                                 readinessReport.fiatFloat
@@ -597,7 +597,7 @@
                 data-testid="save-system-treasury-config-btn"
                 onclick={saveSystemTreasuryConfig}
                 disabled={isSavingSysConfig}
-                class="tactile-btn px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/45 cursor-pointer ml-auto"
+                class="tactile-btn px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] border-[#18C6A5]/45 cursor-pointer ml-auto"
             >
                 {isSavingSysConfig
                     ? 'Saving Parameters...'
@@ -608,17 +608,17 @@
 
     <!-- 3. STRATUM 10-STRIKE DDOS SHIELD & WALLET WHITELIST -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3">
-            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-3">
+            <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
                 <div class="flex flex-col">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
+                    <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Stratum 10-Strike Ban Shield
                     </span>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Zero-DB in-memory IP ban hammer (:3331 / :3332 / :3333)
                     </span>
                 </div>
-                <span class="px-2.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] font-bold text-[#18C6A5]">
+                <span class="px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] font-bold text-[var(--accent-text)]">
                     {localBannedIps.length} Banned IPs
                 </span>
             </div>
@@ -628,7 +628,7 @@
                     type="text"
                     bind:value={manualIpInput}
                     placeholder="Enter IP to Ban / Unban..."
-                    class="flex-1 bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                    class="flex-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                 />
                 <button
                     type="button"
@@ -642,19 +642,19 @@
 
             <div class="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
                 {#if localBannedIps.length === 0}
-                    <div class="p-3 rounded-xl bg-[#11161f] border border-white/5 text-[9px] text-neutral-500 text-center">
+                    <div class="p-3 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] text-[var(--text-muted)] text-center">
                         0 IPs currently banned. All Stratum tiers nominal.
                     </div>
                 {:else}
                     {#each localBannedIps as item (item.ip)}
-                        <div class="p-2.5 rounded-xl bg-[#11161f] border border-red-500/30 flex items-center justify-between text-[10px]">
+                        <div class="p-2.5 rounded-xl bg-[var(--bg-elevated)] border border-red-500/30 flex items-center justify-between text-[10px]">
                             <span class="font-bold text-red-300">
                                 {item.ip} ({item.remainingSeconds}s remaining)
                             </span>
                             <button
                                 type="button"
                                 onclick={() => modifyShieldIp(item.ip, 'UNBAN')}
-                                class="text-[9px] font-black uppercase text-[#18C6A5] hover:underline cursor-pointer"
+                                class="text-[9px] font-black uppercase text-[var(--accent-text)] hover:underline cursor-pointer"
                             >
                                 [Unban]
                             </button>
@@ -664,17 +664,17 @@
             </div>
         </div>
 
-        <div class="bg-[#0a0d12] border border-white/10 rounded-[24px] p-5 flex flex-col gap-3">
-            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[24px] p-5 flex flex-col gap-3">
+            <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
                 <div class="flex flex-col">
-                    <span class="text-xs font-black uppercase tracking-widest text-white">
+                    <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
                         Authorized Miner &amp; Syndicate Whitelist
                     </span>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Manage wallets for Closed Beta or priority Stratum routing
                     </span>
                 </div>
-                <span class="px-2.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-[9px] font-bold text-[#18C6A5]">
+                <span class="px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[9px] font-bold text-[var(--accent-text)]">
                     {localWhitelist.length} Wallets
                 </span>
             </div>
@@ -684,19 +684,19 @@
                     type="text"
                     bind:value={newWhitelistWallet}
                     placeholder="kaspa:qp..."
-                    class="flex-1 bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                    class="flex-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                 />
                 <input
                     type="text"
                     bind:value={newWhitelistLabel}
                     placeholder="Label (e.g. Josh KS0 Pro)"
-                    class="sm:w-36 bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                    class="sm:w-36 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                 />
                 <button
                     type="button"
                     onclick={addWhitelistWallet}
                     disabled={isMutatingShield || !newWhitelistWallet.trim()}
-                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer disabled:opacity-40"
+                    class="tactile-btn px-3.5 py-2 rounded-xl text-[9px] font-black uppercase text-[var(--accent-text)] border-[#18C6A5]/40 cursor-pointer disabled:opacity-40"
                 >
                     + Add
                 </button>
@@ -704,16 +704,16 @@
 
             <div class="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
                 {#each localWhitelist as w (w.wallet_address)}
-                    <div class="p-2.5 rounded-xl bg-[#11161f] border border-white/5 flex items-center justify-between gap-2 text-[10px]">
+                    <div class="p-2.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] flex items-center justify-between gap-2 text-[10px]">
                         <div class="flex flex-col min-w-0">
-                            <span class="font-bold text-white truncate">
+                            <span class="font-bold text-[var(--text-primary)] truncate">
                                 {w.label || 'Sovereign Miner'}
                             </span>
-                            <span class="text-[9px] text-neutral-400 truncate select-all">
+                            <span class="text-[9px] text-[var(--text-muted)] truncate select-all">
                                 {w.wallet_address}
                             </span>
                         </div>
-                        <span class="text-[8px] font-bold text-[#18C6A5] uppercase shrink-0">
+                        <span class="text-[8px] font-bold text-[var(--accent-text)] uppercase shrink-0">
                             ACTIVE ✓
                         </span>
                     </div>

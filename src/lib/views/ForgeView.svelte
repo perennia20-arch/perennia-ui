@@ -388,36 +388,36 @@
 </script>
 
 <div
-    class="w-full min-h-[calc(100dvh-9rem)] bg-app text-neutral-300 font-mono p-4 md:p-8 pb-24 overflow-y-auto hide-scrollbar"
+    class="w-full min-h-[calc(100dvh-9rem)] bg-app text-[var(--text-secondary)] font-mono p-4 md:p-8 pb-24 overflow-y-auto hide-scrollbar"
     data-testid="forge-view"
 >
     <div class="max-w-[1440px] mx-auto flex flex-col gap-6">
         <div
-            class="tactile-card bg-[#0a0d12] border border-white/15 rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
+            class="tactile-card bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-[28px] p-6 md:p-8 shadow-2xl flex flex-col gap-5 relative overflow-hidden"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), rgba(59, 130, 246, 0.08) 50%, transparent 72%);"
         >
             {#if ui.microBadges['forge_header_badge']}
                 <div
-                    class="micro-confirm-badge absolute top-4 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
+                    class="micro-confirm-badge absolute top-4 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[var(--accent-text)] text-[9px] font-mono font-black uppercase tracking-widest shadow-xl"
                 >
                     {ui.microBadges['forge_header_badge'].label}
                 </div>
             {/if}
-            <div class="flex items-start sm:items-center gap-4 border-b border-white/10 pb-5">
-                <div class="w-12 h-12 rounded-2xl bg-[#11161f] border border-[#18C6A5]/40 flex items-center justify-center text-[#18C6A5] font-black text-base shrink-0">
+            <div class="flex items-start sm:items-center gap-4 border-b border-[var(--border-subtle)] pb-5">
+                <div class="w-12 h-12 rounded-2xl bg-[var(--bg-elevated)] border border-[#18C6A5]/40 flex items-center justify-center text-[var(--accent-text)] font-black text-base shrink-0">
                     FRG
                 </div>
                 <div class="flex flex-col">
-                    <h1 class="text-xl md:text-2xl font-black uppercase tracking-[0.18em] text-white">
+                    <h1 class="text-xl md:text-2xl font-black uppercase tracking-[0.18em] text-[var(--text-primary)]">
                         Sovereign Forge
                     </h1>
-                    <p class="text-xs text-neutral-400 mt-1">
+                    <p class="text-xs text-[var(--text-muted)] mt-1">
                         Deploy KRC-20 tokens with custom supply charters, or inspect and mint live tokens on the Kaspa network.
                     </p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 bg-[#11161f] p-2 rounded-2xl border border-white/10">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 bg-[var(--bg-elevated)] p-2 rounded-2xl border border-[var(--border-subtle)]">
                 <button
                     type="button"
                     data-testid="forge-mode-krc20_deploy"
@@ -425,20 +425,20 @@
                         activeMode = 'krc20_deploy';
                         resetForgeWorkspace();
                     }}
-                    class="p-3.5 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-1 border {activeMode === 'krc20_deploy' ? 'bg-[#161d29] border-[#18C6A5]/45 text-white shadow-lg' : 'bg-[#0a0d12]/60 border-white/5 text-neutral-400 hover:text-white'}"
+                    class="p-3.5 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-1 border {activeMode === 'krc20_deploy' ? 'bg-[var(--bg-hover)] border-[#18C6A5]/45 text-[var(--text-primary)] shadow-lg' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                             MODE 01
                         </span>
-                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[#18C6A5]">
+                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/35 text-[var(--accent-text)]">
                             ACTIVE
                         </span>
                     </div>
-                    <span class="text-xs font-black uppercase tracking-wider text-white">
+                    <span class="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">
                         KRC-20 Deploy &amp; Tokenomics Studio
                     </span>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Genesis Supply Charter, SilverScript &amp; Vesting
                     </span>
                 </button>
@@ -450,20 +450,20 @@
                         activeMode = 'krc20_mint';
                         resetForgeWorkspace();
                     }}
-                    class="p-3.5 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-1 border {activeMode === 'krc20_mint' ? 'bg-[#161d29] border-[#18C6A5]/45 text-white shadow-lg' : 'bg-[#0a0d12]/60 border-white/5 text-neutral-400 hover:text-white'}"
+                    class="p-3.5 rounded-xl text-left transition-all cursor-pointer flex flex-col gap-1 border {activeMode === 'krc20_mint' ? 'bg-[var(--bg-hover)] border-[#18C6A5]/45 text-[var(--text-primary)] shadow-lg' : 'bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                             MODE 02
                         </span>
-                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[#0a0d12] border border-[#18C6A5]/35 text-[#18C6A5]">
+                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[#18C6A5]/35 text-[var(--accent-text)]">
                             ACTIVE
                         </span>
                     </div>
-                    <span class="text-xs font-black uppercase tracking-wider text-white">
+                    <span class="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">
                         KRC-20 Minter &amp; Inspector
                     </span>
-                    <span class="text-[9px] text-neutral-400">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Live Supply Gauge, SilverScript Vaults &amp; Minting
                     </span>
                 </button>
@@ -472,20 +472,20 @@
                     type="button"
                     disabled
                     data-testid="forge-mode-rwa_wizard"
-                    class="p-3.5 rounded-xl text-left transition-all flex flex-col gap-1 border bg-[#0a0d12]/40 border-white/5 text-neutral-600 opacity-50 cursor-not-allowed"
+                    class="p-3.5 rounded-xl text-left transition-all flex flex-col gap-1 border bg-[var(--bg-card)] border-[var(--border-subtle)] text-neutral-600 opacity-50 cursor-not-allowed"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-black uppercase tracking-widest text-neutral-500">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)]">
                             MODE 03
                         </span>
-                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-neutral-500">
+                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
                             COMING SOON
                         </span>
                     </div>
-                    <span class="text-xs font-black uppercase tracking-wider text-neutral-400">
+                    <span class="text-xs font-black uppercase tracking-wider text-[var(--text-muted)]">
                         RWA LexCryptographic Foundry
                     </span>
-                    <span class="text-[9px] text-neutral-500">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         12-Class Institutional RWA Fractionalization
                     </span>
                 </button>
@@ -494,20 +494,20 @@
                     type="button"
                     disabled
                     data-testid="forge-mode-vprog_anchor"
-                    class="p-3.5 rounded-xl text-left transition-all flex flex-col gap-1 border bg-[#0a0d12]/40 border-white/5 text-neutral-600 opacity-50 cursor-not-allowed"
+                    class="p-3.5 rounded-xl text-left transition-all flex flex-col gap-1 border bg-[var(--bg-card)] border-[var(--border-subtle)] text-neutral-600 opacity-50 cursor-not-allowed"
                 >
                     <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-black uppercase tracking-widest text-neutral-500">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)]">
                             MODE 04
                         </span>
-                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[#0a0d12] border border-white/10 text-neutral-500">
+                        <span class="text-[8px] font-mono px-2 py-0.5 rounded bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
                             COMING SOON
                         </span>
                     </div>
-                    <span class="text-xs font-black uppercase tracking-wider text-neutral-400">
+                    <span class="text-xs font-black uppercase tracking-wider text-[var(--text-muted)]">
                         vProg &amp;ZK State Anchor
                     </span>
-                    <span class="text-[9px] text-neutral-500">
+                    <span class="text-[9px] text-[var(--text-muted)]">
                         Direct L1 Verifiable Compute State Roots
                     </span>
                 </button>
@@ -517,13 +517,13 @@
         {#if forgeError}
             <div
                 transition:fade={{ duration: 150 }}
-                class="bg-red-950/25 border border-red-500/45 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs font-mono text-red-400"
+                class="bg-[var(--bg-danger-subtle)] border border-red-500/45 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs font-mono text-red-400"
             >
                 <span>⚠ {forgeError}</span>
                 <button
                     type="button"
                     onclick={() => (forgeError = '')}
-                    class="text-neutral-400 hover:text-white cursor-pointer"
+                    class="text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
                     ✕
                 </button>
@@ -533,23 +533,23 @@
         {#if forgeSuccess && lastExecutedSummary}
             <div
                 data-testid="forge-receipt-card"
-                class="tactile-card bg-[#0a0d12] border border-[#18C6A5]/45 rounded-[28px] p-8 shadow-2xl flex flex-col gap-6 relative overflow-hidden"
+                class="tactile-card bg-[var(--bg-card)] border border-[#18C6A5]/45 rounded-[28px] p-8 shadow-2xl flex flex-col gap-6 relative overflow-hidden"
                 style="background-image: radial-gradient(ellipse at top center, rgba(24, 198, 165, 0.16), transparent 68%);"
                 in:fade={{ duration: 200 }}
             >
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-5">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-5">
                     <div class="flex items-center gap-4">
-                        <div class="w-14 h-14 rounded-2xl bg-[#11161f] border border-[#18C6A5]/50 flex items-center justify-center text-[#18C6A5] text-2xl font-black">
+                        <div class="w-14 h-14 rounded-2xl bg-[var(--bg-elevated)] border border-[#18C6A5]/50 flex items-center justify-center text-[var(--accent-text)] text-2xl font-black">
                             ✓
                         </div>
                         <div class="flex flex-col">
-                            <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                                 L1 Protocol Envelope Confirmed &amp; Broadcasted
                             </span>
-                            <h2 class="text-xl md:text-2xl font-black uppercase tracking-wider text-white mt-0.5">
+                            <h2 class="text-xl md:text-2xl font-black uppercase tracking-wider text-[var(--text-primary)] mt-0.5">
                                 {lastExecutedSummary.title}
                             </h2>
-                            <p class="text-xs text-neutral-300 mt-1">
+                            <p class="text-xs text-[var(--text-secondary)] mt-1">
                                 {lastExecutedSummary.subtitle}
                             </p>
                         </div>
@@ -560,7 +560,7 @@
                             target="_blank"
                             rel="noopener noreferrer"
                             data-testid="forge-confirmed-tx-link"
-                            class="tactile-btn px-5 py-3 rounded-xl border-[#18C6A5]/50 text-[#18C6A5] text-[10px] font-black uppercase tracking-widest"
+                            class="tactile-btn px-5 py-3 rounded-xl border-[#18C6A5]/50 text-[var(--accent-text)] text-[10px] font-black uppercase tracking-widest"
                             style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.22), transparent 70%);"
                         >
                             Verify TX on kas.fyi ↗
@@ -568,7 +568,7 @@
                         <button
                             type="button"
                             onclick={() => (ui.activeTab = 'TREASURY')}
-                            class="tactile-btn px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest text-neutral-200 hover:text-white cursor-pointer"
+                            class="tactile-btn px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                         >
                             Open Treasury Vault →
                         </button>
@@ -576,61 +576,61 @@
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-[10px] font-mono">
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
-                        <div class="flex justify-between items-center border-b border-white/5 pb-2">
-                            <span class="text-neutral-400 uppercase">Kaspa L1 Transaction ID</span>
-                            <span class="text-[#18C6A5] font-bold">Client-Signed ({lastExecutedSummary.tokenStandard})</span>
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2.5">
+                        <div class="flex justify-between items-center border-b border-[var(--border-subtle)] pb-2">
+                            <span class="text-[var(--text-muted)] uppercase">Kaspa L1 Transaction ID</span>
+                            <span class="text-[var(--accent-text)] font-bold">Client-Signed ({lastExecutedSummary.tokenStandard})</span>
                         </div>
                         <a
                             href={confirmedExplorerUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="text-white hover:text-[#18C6A5] break-all font-bold underline"
+                            class="text-[var(--text-primary)] hover:text-[var(--accent-text)] break-all font-bold underline"
                         >
                             {confirmedTxId}
                         </a>
                         {#if lastExecutedSummary.charterSha256}
-                            <div class="border-t border-white/5 pt-2 flex flex-col gap-1">
-                                <span class="text-neutral-400 uppercase">
+                            <div class="border-t border-[var(--border-subtle)] pt-2 flex flex-col gap-1">
+                                <span class="text-[var(--text-muted)] uppercase">
                                     Bound SHA-256 Charter Digest
                                 </span>
-                                <span class="text-[#18C6A5] break-all select-all">
+                                <span class="text-[var(--accent-text)] break-all select-all">
                                     {lastExecutedSummary.charterSha256}
                                 </span>
                             </div>
                         {/if}
                     </div>
-                    <div class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5">
-                        <div class="flex justify-between items-center border-b border-white/5 pb-2">
-                            <span class="text-neutral-400 uppercase">Inscribed Protocol Payload</span>
-                            <span class="text-neutral-300">
+                    <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2.5">
+                        <div class="flex justify-between items-center border-b border-[var(--border-subtle)] pb-2">
+                            <span class="text-[var(--text-muted)] uppercase">Inscribed Protocol Payload</span>
+                            <span class="text-[var(--text-secondary)]">
                                 Blake2b: {lastExecutedSummary.payloadBlake2bHex.slice(0, 14)}...
                             </span>
                         </div>
-                        <pre class="text-[10px] text-[#18C6A5] bg-[#0a0d12] border border-white/10 rounded-xl p-3 overflow-x-auto">{lastExecutedSummary.envelopeJson}</pre>
+                        <pre class="text-[10px] text-[var(--accent-text)] bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 overflow-x-auto">{lastExecutedSummary.envelopeJson}</pre>
                     </div>
                 </div>
 
                 {#if confirmedFanoutReceipts.length > 0}
                     <div
                         data-testid="forge-fanout-receipts-list"
-                        class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-2.5"
+                        class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-2.5"
                     >
-                        <span class="text-[10px] font-black uppercase tracking-widest text-[#18C6A5]">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)]">
                             Chained Cap-Table &amp; SilverScript Vault Fan-Out Inscriptions ({confirmedFanoutReceipts.length} Dispatched)
                         </span>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                             {#each confirmedFanoutReceipts as rec (rec.txId + rec.recipientAddress)}
-                                <div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex items-center justify-between text-[9px] font-mono">
+                                <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 flex items-center justify-between text-[9px] font-mono">
                                     <div class="flex flex-col gap-0.5">
-                                        <span class="font-bold text-white">
+                                        <span class="font-bold text-[var(--text-primary)]">
                                             {rec.label}: {rec.amountTokens.toLocaleString()} {lastExecutedSummary.tickerOrId}
                                         </span>
-                                        <span class="text-neutral-400">
+                                        <span class="text-[var(--text-muted)]">
                                             Beneficiary: {rec.recipientAddress.slice(0, 22)}...
                                         </span>
                                         {#if rec.covenantAddress}
-                                            <span class="text-[#18C6A5]">
+                                            <span class="text-[var(--accent-text)]">
                                                 P2SH Vault: {rec.covenantAddress.slice(0, 24)}...
                                             </span>
                                         {/if}
@@ -639,7 +639,7 @@
                                         href={rec.explorerUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        class="text-[#18C6A5] hover:underline font-bold"
+                                        class="text-[var(--accent-text)] hover:underline font-bold"
                                     >
                                         TX: {rec.txId.slice(0, 10)}... ↗
                                     </a>
@@ -653,7 +653,7 @@
                     <button
                         type="button"
                         onclick={resetForgeWorkspace}
-                        class="tactile-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-white border-white/15 cursor-pointer"
+                        class="tactile-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-[var(--text-primary)] border-[var(--border-strong)] cursor-pointer"
                     >
                         Forge Another Envelope →
                     </button>

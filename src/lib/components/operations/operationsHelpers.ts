@@ -1,5 +1,6 @@
 import { identity } from '$lib/stores/identity.svelte';
 import { operations } from '$lib/stores/operations.svelte';
+import { i18n } from '$lib/stores/i18n.svelte';
 import {
     atomicDecimalsForAsset,
     treasury,
@@ -28,6 +29,7 @@ import {
     parseKasDecimalToSompi,
     parseSompiU64,
     parseU128Str,
+    safeParseU128,
     type EpochPayoutOutboxItem,
     type MatureAccrualSnapshot,
     type RegisterVaultLockPayload,
@@ -372,22 +374,18 @@ export function formatSompiToUsdOrUnavailable(
     if (kasOracleUsdE8 === null || kasOracleUsdE8 === undefined || kasOracleUsdE8 === '') {
         return '';
     }
-    try {
-        const priceE8 = parseU128Str(kasOracleUsdE8, 'kasOracleUsdE8');
-        if (priceE8 <= 0n) return '';
-        const amountSompi =
-            sompi === null || sompi === undefined || sompi === ''
-                ? 0n
-                : parseU128Str(sompi, 'sompi');
-        const usdMicros = atomicToUsdMicrosFloor(amountSompi, KAS_DECIMALS, priceE8);
-        return `$${formatAtomicToDecimal(usdMicros, USD_MICROS_DECIMALS, 2, false)}`;
-    } catch {
-        return '';
-    }
+    const priceE8 = safeParseU128(kasOracleUsdE8, 0n);
+    if (priceE8 <= 0n) return '';
+    const amountSompi =
+        sompi === null || sompi === undefined || sompi === ''
+            ? 0n
+            : safeParseU128(sompi, 0n);
+    const usdMicros = atomicToUsdMicrosFloor(amountSompi, KAS_DECIMALS, priceE8);
+    return i18n.formatFiatFromUsdMicros(usdMicros);
 }
 
 /**
- * Formats daily split output cleanly: `~X KAS/d` plus live `$USD/d` when online, or `~X KAS/d` alone if offline.
+ * Formats daily split output cleanly: `~X KAS/d` plus live fiat/d when online, or `~X KAS/d` alone if offline.
  */
 export function formatSectorDailyYieldLabel(
     dailyKas: number,
@@ -401,7 +399,7 @@ export function formatSectorDailyYieldLabel(
     }
     return {
         kasLabel,
-        usdLabel: `$${Math.max(0, dailyUsd).toFixed(2)}/d`
+        usdLabel: `${i18n.formatFiat(Math.max(0, dailyUsd))}/d`
     };
 }
 
@@ -1180,10 +1178,13 @@ export function computeHashrateQuickFillPct(
 export function normalizePlantTargets(
     rawList: PlantAssetTarget[]
 ): PlantAssetTarget[] {
-    if (rawList.length <= 1) {
+    if (!Array.isArray(rawList) || rawList.length <= 1) {
+        const candidate = Array.isArray(rawList) ? rawList[0] : undefined;
         const first =
-            rawList[0] || toPlantTargetSpec(treasury.getAsset('KAS'), 100.0);
-        return [{ ...first, weightPct: 100.0 }];
+            candidate && String(candidate.ticker || '').trim()
+                ? candidate
+                : toPlantTargetSpec(treasury.getAsset('KAS'), 100.0);
+        return [{ ...first, ticker: String(first.ticker || 'KAS').trim().toUpperCase(), weightPct: 100.0 }];
     }
 
     const deduped: PlantAssetTarget[] = [];
@@ -1532,22 +1533,18 @@ export interface FormattedPairReserveDisplay {
 }
 
 export function formatPairReserveDisplay(reserve: PairReserveState): FormattedPairReserveDisplay {
-    const baseDec = atomicDecimalsForAsset(reserve.baseTicker);
-    const partnerDec = atomicDecimalsForAsset(reserve.partnerTicker);
-    const baseBalanceAtomic = parseU128Str(reserve.baseBalanceAtomic || '0', 'baseBalanceAtomic');
-    const partnerBalanceAtomic = parseU128Str(
-        reserve.partnerBalanceAtomic || '0',
-        'partnerBalanceAtomic'
-    );
-    const heldBaseAtomic = parseU128Str(reserve.heldBaseAtomic || '0', 'heldBaseAtomic');
-    const queuedBaseAtomic = parseU128Str(reserve.queuedBaseAtomic || '0', 'queuedBaseAtomic');
-    const accruedFeesMicros = parseU128Str(
-        reserve.accruedFeesUsdMicros || '0',
-        'accruedFeesUsdMicros'
-    );
+    const baseTicker = String(reserve?.baseTicker || 'KAS').trim().toUpperCase() || 'KAS';
+    const partnerTicker = String(reserve?.partnerTicker || 'SILO').trim().toUpperCase() || 'SILO';
+    const baseDec = atomicDecimalsForAsset(baseTicker);
+    const partnerDec = atomicDecimalsForAsset(partnerTicker);
+    const baseBalanceAtomic = safeParseU128(reserve?.baseBalanceAtomic || '0', 0n);
+    const partnerBalanceAtomic = safeParseU128(reserve?.partnerBalanceAtomic || '0', 0n);
+    const heldBaseAtomic = safeParseU128(reserve?.heldBaseAtomic || '0', 0n);
+    const queuedBaseAtomic = safeParseU128(reserve?.queuedBaseAtomic || '0', 0n);
+    const accruedFeesMicros = safeParseU128(reserve?.accruedFeesUsdMicros || '0', 0n);
 
-    const baseE8 = resolveKaspaAssetOracleE8(reserve.baseTicker);
-    const partnerE8 = resolveKaspaAssetOracleE8(reserve.partnerTicker);
+    const baseE8 = resolveKaspaAssetOracleE8(baseTicker);
+    const partnerE8 = resolveKaspaAssetOracleE8(partnerTicker);
     const pricingUnavailable = treasury.livePricingUnavailable || baseE8 <= 0n;
 
     let totalUsdMicros = 0n;
@@ -1564,8 +1561,8 @@ export function formatPairReserveDisplay(reserve: PairReserveState): FormattedPa
         partnerFormatted: formatAtomicToDecimal(partnerBalanceAtomic, partnerDec, 4, true),
         heldBaseFormatted: formatAtomicToDecimal(heldBaseAtomic, baseDec, 4, true),
         queuedBaseFormatted: formatAtomicToDecimal(queuedBaseAtomic, baseDec, 4, true),
-        totalUsdFormatted: `$${formatAtomicToDecimal(totalUsdMicros, USD_MICROS_DECIMALS, 2, false)}`,
-        accruedFeesUsdFormatted: `+$${formatAtomicToDecimal(accruedFeesMicros, USD_MICROS_DECIMALS, 2, false)}`,
+        totalUsdFormatted: i18n.formatFiatFromUsdMicros(totalUsdMicros),
+        accruedFeesUsdFormatted: `+${i18n.formatFiatFromUsdMicros(accruedFeesMicros)}`,
         livePricingUnavailable: pricingUnavailable
     };
 }
@@ -1626,7 +1623,7 @@ export async function executeSharedWalletPair(params: {
     });
     const fetchFn = params.fetchFn ?? fetch;
     const refundAddr = String(
-        params.refundKaspaAddress || params.targetWallet || identity.walletAddress || ''
+        params.refundKaspaAddress || params.targetWallet || identity.activeAddress || ''
     ).trim();
 
     let vaultId: string | null = null;
@@ -1718,7 +1715,7 @@ export async function cancelOrWithdrawPairSector(params: {
     if (reserve?.vaultId) {
         const previewRes = await requestVaultCancelPreview(
             reserve.vaultId,
-            params.targetWallet || identity.walletAddress,
+            params.targetWallet || identity.activeAddress || undefined,
             fetchFn
         );
         if (previewRes.ok && previewRes.preview && (params.vaultPassword || txState.decryptedPrivateKeyHex)) {

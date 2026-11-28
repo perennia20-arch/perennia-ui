@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import { ui } from '$lib/stores/ui.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
 
     interface RwaAsset {
         ticker: string;
@@ -288,7 +289,7 @@
                 type="text"
                 bind:value={rwaSearchQuery}
                 placeholder="Search Pyth Wall Street & Commodity Feeds (e.g. NVDA, SPY, AMD, XAU, USTB)..."
-                class="w-full bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-3 pl-10 pr-10 text-xs font-mono text-white outline-none transition-colors"
+                class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 rounded-xl py-3 pl-10 pr-10 text-xs font-mono text-white outline-none transition-colors"
             />
             <svg
                 class="absolute left-3.5 top-3.5 w-4 h-4 text-neutral-500 pointer-events-none"
@@ -335,7 +336,7 @@
                     if (!isManaging) rwaSearchQuery = '';
                 }}
                 class="w-10 h-5 rounded-full border transition-colors duration-300 relative cursor-pointer focus:outline-none shrink-0"
-                style="background-color: {isManaging ? '#18C6A520' : '#11161f'}; border-color: {isManaging ? '#18C6A550' : 'rgba(255,255,255,0.14)'};"
+                style="background-color: {isManaging ? 'var(--bg-teal-subtle)' : 'var(--bg-elevated)'}; border-color: {isManaging ? 'var(--border-active)' : 'var(--border-subtle)'};"
             >
                 <div
                     class="absolute top-[1px] w-4 h-4 rounded-full transition-all duration-300 shadow-sm"
@@ -348,7 +349,7 @@
     {#if error}
         <div
             data-testid="rwa-oracle-error-banner"
-            class="p-3.5 rounded-xl bg-red-950/25 border border-red-500/45 text-red-400 text-[10px] font-mono font-bold uppercase tracking-widest flex items-center justify-between"
+            class="p-3.5 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/45 text-red-400 text-[10px] font-mono font-bold uppercase tracking-widest flex items-center justify-between"
         >
             <span>⚠ {error}</span>
             <button
@@ -368,7 +369,7 @@
     {:else}
         <div class="flex flex-col gap-2">
             {#if filteredRwas.length === 0}
-                <div class="text-center py-6 flex flex-col items-center justify-center gap-4 border border-dashed border-white/10 rounded-2xl bg-[#0a0d12]">
+                <div class="text-center py-6 flex flex-col items-center justify-center gap-4 border border-dashed border-white/10 rounded-2xl bg-[var(--bg-card)]">
                     <span class="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">
                         No oracle feeds match "{rwaSearchQuery}"
                     </span>
@@ -391,7 +392,7 @@
             {#each filteredRwas as asset (asset.ticker)}
                 <div
                     data-testid="rwa-row-{asset.ticker}"
-                    class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl overflow-hidden transition-all duration-300"
+                    class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-2xl overflow-hidden transition-all duration-300"
                     style="background-image: radial-gradient(ellipse at top left, {asset.hex}14, transparent 65%);"
                 >
                     <div
@@ -402,7 +403,7 @@
                     >
                         <div class="flex items-center gap-3.5">
                             <div
-                                class="w-9 h-9 rounded-lg bg-[#11161f] border border-white/10 flex items-center justify-center text-xs shadow-inner font-black font-mono"
+                                class="w-9 h-9 rounded-lg bg-[var(--bg-elevated)] border border-white/10 flex items-center justify-center text-xs shadow-inner font-black font-mono"
                                 style="color: {asset.hex}; box-shadow: inset 0 0 10px {asset.hex}18;"
                             >
                                 {#if asset.imgUrl}
@@ -420,7 +421,7 @@
                                     <span class="text-xs font-bold tracking-wider text-white">
                                         {asset.name}
                                     </span>
-                                    <span class="px-1.5 py-0.5 rounded bg-[#11161f] border border-white/10 text-[8px] font-mono text-neutral-400 uppercase">
+                                    <span class="px-1.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-white/10 text-[8px] font-mono text-neutral-400 uppercase">
                                         {asset.network}
                                     </span>
                                 </div>
@@ -446,12 +447,9 @@
                                 {#if asset.price > 0}
                                     <span
                                         data-testid="rwa-price-{asset.ticker}"
-                                        class="text-xs font-mono font-bold text-[#18C6A5] tabular-nums"
+                                        class="text-xs font-mono font-bold text-[var(--accent-text)] tabular-nums"
                                     >
-                                        ${asset.price.toLocaleString(undefined, {
-                                            minimumFractionDigits: fiatDecimals,
-                                            maximumFractionDigits: fiatDecimals
-                                        })}
+                                        {i18n.formatSpotPrice(asset.price)}
                                     </span>
                                     <span
                                         class="text-[9px] font-mono tabular-nums {asset.change24h >= 0 ? 'text-[#18C6A5]' : 'text-red-400'}"
@@ -474,7 +472,7 @@
                                             toggleSelection(asset.ticker);
                                         }}
                                         class="w-10 h-5 rounded-full relative transition-colors border cursor-pointer focus:outline-none ml-2"
-                                        style="background-color: {selectedRwas.includes(asset.ticker) ? '#18C6A520' : '#11161f'}; border-color: {selectedRwas.includes(asset.ticker) ? '#18C6A550' : 'rgba(255,255,255,0.14)'};"
+                                        style="background-color: {selectedRwas.includes(asset.ticker) ? 'var(--bg-teal-subtle)' : 'var(--bg-elevated)'}; border-color: {selectedRwas.includes(asset.ticker) ? 'var(--border-active)' : 'var(--border-subtle)'};"
                                     >
                                         <div
                                             class="absolute top-[1px] w-4 h-4 rounded-full transition-all shadow-sm"

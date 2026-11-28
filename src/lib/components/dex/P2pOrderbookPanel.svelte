@@ -3,6 +3,7 @@
     import { fade } from 'svelte/transition';
     import { identity } from '$lib/stores/identity.svelte';
     import { treasury, type UnifiedAsset } from '$lib/stores/treasury.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
 
     let {
         p2pSellAmount = $bindable(''),
@@ -78,13 +79,7 @@
     });
 
     function formatSpotDisplay(price: number): string {
-        if (!Number.isFinite(price) || price <= 0) return '$0.00';
-        if (price < 0.01) return `$${price.toFixed(6)}`;
-        if (price < 1) return `$${price.toFixed(4)}`;
-        return `$${price.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        })}`;
+        return i18n.formatSpotPrice(price);
     }
 
     function setSellPercentage(pct: number) {
@@ -131,7 +126,7 @@
     {#if swapError}
         <div
             data-testid="p2p-error-banner"
-            class="bg-red-950/30 border border-red-500/45 rounded-2xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-red-400"
+            class="bg-[var(--bg-danger-subtle)] border border-red-500/45 rounded-2xl p-3 text-center text-[10px] font-bold uppercase tracking-wider text-red-400"
         >
             ⚠ {swapError}
         </div>
@@ -141,14 +136,14 @@
         <!-- LEFT COLUMN: DEPLOY P2P OFFER CARD -->
         <div
             data-testid="p2p-deploy-offer-card"
-            class="lg:col-span-5 bg-[#0a0d12] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
+            class="lg:col-span-5 bg-[var(--bg-card)] border rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-3.5 transition-all duration-300"
             style="
                 border-color: {buyHex}45;
                 background-image:
                     radial-gradient(ellipse at top left, {sellHex}18, transparent 58%),
                     radial-gradient(ellipse at bottom right, {buyHex}24, transparent 65%);
                 box-shadow:
-                    0 20px 60px -15px rgba(0, 0, 0, 0.85),
+                    0 20px 60px -15px rgba(0, 0, 0, 0.28),
                     0 0 40px -15px {sellHex}20,
                     0 0 40px -15px {buyHex}28;
             "
@@ -170,7 +165,7 @@
 
             <!-- YOU OFFER BOX -->
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-all duration-300"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-all duration-300"
                 style="
                     border-color: {sellHex}45;
                     background-image: radial-gradient(ellipse at top left, {sellHex}16, transparent 65%);
@@ -207,7 +202,7 @@
                         type="button"
                         data-testid="p2p-sell-token-selector"
                         onclick={() => onOpenTokenModal('p2pSell')}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer transition-all duration-300"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] cursor-pointer transition-all duration-300"
                         style="border-color: {sellHex}55;"
                     >
                         <div
@@ -250,10 +245,7 @@
 
                 <div class="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
                     <span>
-                        ≈ ${sellUsdValue.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        })}
+                        ≈ {i18n.formatFiat(sellUsdValue)}
                     </span>
                     <span>
                         Balance: {p2pSellToken.availableBalance.toLocaleString(
@@ -268,7 +260,7 @@
             <!-- CENTER ARROW DIVIDER -->
             <div class="flex items-center justify-center -my-4 z-20 pointer-events-none">
                 <div
-                    class="w-9 h-9 rounded-xl bg-[#0a0d12] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
+                    class="w-9 h-9 rounded-xl bg-[var(--bg-card)] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
                     style="border-color: {buyHex}55; color: {buyHex};"
                 >
                     ↓
@@ -277,7 +269,7 @@
 
             <!-- YOU REQUIRE BOX (SHADED IN SELECTED BUY TOKEN COLOR) -->
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-all duration-300"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border transition-all duration-300"
                 style="
                     border-color: {buyHex}55;
                     background-image: radial-gradient(ellipse at bottom right, {buyHex}24, transparent 68%);
@@ -314,7 +306,7 @@
                         type="button"
                         data-testid="p2p-buy-token-selector"
                         onclick={() => onOpenTokenModal('p2pBuy')}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer transition-all duration-300"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] cursor-pointer transition-all duration-300"
                         style="border-color: {buyHex}60;"
                     >
                         <div
@@ -357,10 +349,7 @@
 
                 <div class="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
                     <span>
-                        ≈ ${buyUsdValue.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        })}
+                        ≈ {i18n.formatFiat(buyUsdValue)}
                     </span>
                     <span>
                         Balance: {p2pBuyToken.availableBalance.toLocaleString(
@@ -397,7 +386,7 @@
         <!-- RIGHT COLUMN: OPEN P2P ORDERBOOK -->
         <div
             data-testid="p2p-orderbook-card"
-            class="lg:col-span-7 bg-[#0a0d12] border border-white/10 rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-4"
+            class="lg:col-span-7 bg-[var(--bg-card)] border border-white/10 rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 shadow-2xl flex flex-col gap-4"
             style="background-image: radial-gradient(ellipse at top right, {buyHex}14, transparent 65%);"
         >
             <div class="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
@@ -407,13 +396,13 @@
                         Open Offers
                     </h3>
                 </div>
-                <span class="px-2.5 py-1 rounded-xl bg-[#11161f] border border-white/10 text-[9px] font-bold text-neutral-300 uppercase">
+                <span class="px-2.5 py-1 rounded-xl bg-[var(--bg-elevated)] border border-white/10 text-[9px] font-bold text-neutral-300 uppercase">
                     {p2pOrders.length} Active
                 </span>
             </div>
 
             {#if p2pOrders.length === 0}
-                <div class="py-14 text-center border border-dashed border-white/10 rounded-2xl bg-[#11161f]/40 flex flex-col items-center gap-2">
+                <div class="py-14 text-center border border-dashed border-white/10 rounded-2xl bg-[var(--bg-elevated)] flex flex-col items-center gap-2">
                     <span class="text-xs font-bold uppercase tracking-widest text-neutral-400">
                         No Open Offers
                     </span>
@@ -432,7 +421,7 @@
                             orderBuyAsset.theme?.hex || '#3B82F6'}
                         <div
                             data-testid="p2p-order-row-{order.id}"
-                            class="tactile-card bg-[#11161f] rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all"
+                            class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all"
                             style="
                                 border-color: {orderBuyHex}40;
                                 background-image: radial-gradient(ellipse at right, {orderBuyHex}16, transparent 70%);

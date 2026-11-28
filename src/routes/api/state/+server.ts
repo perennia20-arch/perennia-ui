@@ -282,7 +282,14 @@ export const GET: RequestHandler = async ({ cookies, url }: RequestEvent) => {
             workers = workers.map((w) => {
                 const key = String(w.name || '').trim().toLowerCase();
                 const dbMatch = dbWorkersByName.get(key);
-                if (!dbMatch) return w;
+                if (!dbMatch) {
+                    return {
+                        ...w,
+                        hashRate: Number(w.hashRate) || 0,
+                        sharesContributed: Number(w.sharesContributed) || 0,
+                        blocksFound: Number(w.blocksFound) || 0
+                    };
+                }
                 seenNames.add(key);
                 const liveHashTh = Number(dbMatch.current_hashrate || 0) / 1e12;
                 const validShares = Number(dbMatch.valid_shares || 0);

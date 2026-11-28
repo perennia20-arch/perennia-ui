@@ -5,6 +5,7 @@
     import { operations } from '$lib/stores/operations.svelte';
     import { treasury } from '$lib/stores/treasury.svelte';
     import { ui } from '$lib/stores/ui.svelte';
+    import { i18n } from '$lib/stores/i18n.svelte';
 
     const CREATE_ASSETS = ['USDC', 'BTC', 'ETH', 'SOL', 'SILO', 'NVDA', 'SPY'] as const;
 
@@ -129,13 +130,13 @@
     });
 </script>
 
-<section data-testid="community-buckets-panel" class="bg-[#0a0d12] border border-white/10 rounded-[28px] p-4 sm:p-6 flex flex-col gap-4 font-mono text-white min-w-0 overflow-hidden">
+<section data-testid="community-buckets-panel" class="bg-[var(--bg-card)] border border-white/10 rounded-[28px] p-4 sm:p-6 flex flex-col gap-4 font-mono text-white min-w-0 overflow-hidden">
     <div class="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/10 pb-3.5">
         <div class="flex flex-col gap-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
                 <span class="w-2 h-2 rounded-full bg-[#18C6A5]"></span>
                 <h3 class="text-xs sm:text-sm font-black uppercase tracking-widest text-white">Community Settlement Buckets</h3>
-                <span data-testid="community-access-mode-badge" class="px-2 py-0.5 rounded-md bg-[#11161f] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold uppercase">
+                <span data-testid="community-access-mode-badge" class="px-2 py-0.5 rounded-md bg-[var(--bg-elevated)] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold uppercase">
                     {onlineMiners > 0 ? `${onlineMiners} Miner${onlineMiners === 1 ? '' : 's'} + Manual Top-Off` : '0 Miners Required • Open Community Fill'}
                 </span>
             </div>
@@ -148,22 +149,22 @@
     </div>
 
     {#if showCreateForm}
-        <div data-testid="bucket-create-drawer" class="bg-[#11161f] border border-[#18C6A5]/40 rounded-2xl p-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-end gap-3">
+        <div data-testid="bucket-create-drawer" class="bg-[var(--bg-elevated)] border border-[#18C6A5]/40 rounded-2xl p-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-end gap-3">
             <div class="flex flex-col gap-1 flex-1 min-w-[110px]">
                 <label for="newBucketAsset" class="text-[9px] font-bold uppercase text-neutral-400">Target Asset</label>
-                <select id="newBucketAsset" data-testid="new-bucket-asset-select" bind:value={newAsset} class="bg-[#0a0d12] border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                <select id="newBucketAsset" data-testid="new-bucket-asset-select" bind:value={newAsset} class="bg-[var(--bg-card)] border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none">
                     {#each CREATE_ASSETS as tk}<option value={tk}>{tk}</option>{/each}
                 </select>
             </div>
             <div class="flex flex-col gap-1 flex-1 min-w-[120px]">
                 <label for="newBucketTarget" class="text-[9px] font-bold uppercase text-neutral-400">Target KAS</label>
-                <input id="newBucketTarget" data-testid="new-bucket-target-input" type="number" min="25" step="25" bind:value={newTargetKas} class="bg-[#0a0d12] border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none tabular-nums" />
+                <input id="newBucketTarget" data-testid="new-bucket-target-input" type="number" min="25" step="25" bind:value={newTargetKas} class="bg-[var(--bg-card)] border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none tabular-nums" />
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-[9px] font-bold uppercase text-neutral-400">Access Mode</span>
-                <div class="grid grid-cols-2 gap-1 bg-[#0a0d12] p-1 rounded-xl border border-white/10">
-                    <button type="button" data-testid="new-bucket-vis-PUBLIC" onclick={() => (newVisibility = 'PUBLIC')} class="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase cursor-pointer {newVisibility === 'PUBLIC' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400'}">Public</button>
-                    <button type="button" data-testid="new-bucket-vis-PRIVATE" onclick={() => (newVisibility = 'PRIVATE')} class="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase cursor-pointer {newVisibility === 'PRIVATE' ? 'bg-[#161d29] text-amber-400 border border-amber-500/40' : 'text-neutral-400'}">Private</button>
+                <div class="grid grid-cols-2 gap-1 bg-[var(--bg-card)] p-1 rounded-xl border border-white/10">
+                    <button type="button" data-testid="new-bucket-vis-PUBLIC" onclick={() => (newVisibility = 'PUBLIC')} class="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase cursor-pointer {newVisibility === 'PUBLIC' ? 'bg-[var(--bg-hover)] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400'}">Public</button>
+                    <button type="button" data-testid="new-bucket-vis-PRIVATE" onclick={() => (newVisibility = 'PRIVATE')} class="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase cursor-pointer {newVisibility === 'PRIVATE' ? 'bg-[var(--bg-hover)] text-amber-400 border border-amber-500/40' : 'text-neutral-400'}">Private</button>
                 </div>
             </div>
             <button type="button" data-testid="new-bucket-submit-btn" onclick={handleCreateBucket} disabled={isMutating} class="tactile-btn px-4 py-2.5 rounded-xl border border-[#18C6A5] bg-[#18C6A5]/15 text-[#18C6A5] text-[10px] font-black uppercase tracking-wider cursor-pointer">Create Bucket</button>
@@ -171,11 +172,11 @@
     {/if}
 
     {#if errorMsg}
-        <div data-testid="bucket-error-banner" class="bg-red-950/30 border border-red-500/45 rounded-xl px-3.5 py-2.5 text-[10px] font-bold text-red-300">{errorMsg}</div>
+        <div data-testid="bucket-error-banner" class="bg-[var(--bg-danger-subtle)] border border-red-500/45 rounded-xl px-3.5 py-2.5 text-[10px] font-bold text-red-300">{errorMsg}</div>
     {/if}
 
     {#if dispersalReceipt}
-        <div data-testid="bucket-dispersal-receipt-banner" class="bg-[#11161f] border border-[#18C6A5] rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+        <div data-testid="bucket-dispersal-receipt-banner" class="bg-[var(--bg-elevated)] border border-[#18C6A5] rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-2 text-[10px]">
             <div class="flex flex-col gap-0.5">
                 <span class="text-[#18C6A5] font-black uppercase">✓ Bucket Target Reached &amp; Pro-Rata Payout Dispersed ({dispersalReceipt.settledCycleId})</span>
                 <span class="text-neutral-300 tabular-nums">Settled {dispersalReceipt.settledKas} KAS → {Number(dispersalReceipt.totalDispersedTokens).toFixed(4)} {dispersalReceipt.targetAsset} @ {Number(dispersalReceipt.swapRate).toFixed(6)} {dispersalReceipt.targetAsset}/KAS (TX: {dispersalReceipt.swapTxHash})</span>
@@ -188,10 +189,10 @@
         {#each buckets as bucket (bucket.bucketId)}
             {@const isContributing = activeContributeId === bucket.bucketId}
             {@const isDrawerOpen = expandedDrawerId === bucket.bucketId}
-            <div data-testid="community-bucket-card-{bucket.bucketId}" data-bucket-asset={bucket.targetAsset} class="bg-[#11161f] border border-white/10 rounded-2xl p-4 flex flex-col gap-3 min-w-0">
+            <div data-testid="community-bucket-card-{bucket.bucketId}" data-bucket-asset={bucket.targetAsset} class="bg-[var(--bg-elevated)] border border-white/10 rounded-2xl p-4 flex flex-col gap-3 min-w-0">
                 <div class="flex items-start justify-between gap-2 flex-wrap">
                     <div class="flex items-center gap-2.5 min-w-0">
-                        <div class="w-8 h-8 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/40 flex items-center justify-center text-xs font-black text-[#18C6A5] shrink-0">{bucket.targetAsset.slice(0, 3)}</div>
+                        <div class="w-8 h-8 rounded-xl bg-[var(--bg-card)] border border-[#18C6A5]/40 flex items-center justify-center text-xs font-black text-[#18C6A5] shrink-0">{bucket.targetAsset.slice(0, 3)}</div>
                         <div class="flex flex-col min-w-0">
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="text-xs font-black uppercase text-white truncate">{bucket.label}</span>
@@ -202,12 +203,12 @@
                             </span>
                         </div>
                     </div>
-                    <button type="button" data-testid="bucket-visibility-toggle-{bucket.bucketId}" onclick={() => handleToggleVisibility(bucket)} disabled={isMutating} class="px-2.5 py-1 rounded-lg bg-[#0a0d12] border border-white/15 hover:border-[#18C6A5]/50 text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer shrink-0">
+                    <button type="button" data-testid="bucket-visibility-toggle-{bucket.bucketId}" onclick={() => handleToggleVisibility(bucket)} disabled={isMutating} class="px-2.5 py-1 rounded-lg bg-[var(--bg-card)] border border-white/15 hover:border-[#18C6A5]/50 text-[9px] font-bold uppercase text-neutral-300 hover:text-white cursor-pointer shrink-0">
                         {bucket.visibility === 'PUBLIC' ? 'Set Private' : 'Set Public'}
                     </button>
                 </div>
 
-                <div class="flex flex-col gap-1.5 bg-[#0a0d12] border border-white/10 rounded-xl p-3">
+                <div class="flex flex-col gap-1.5 bg-[var(--bg-card)] border border-white/10 rounded-xl p-3">
                     <div class="flex items-center justify-between gap-2 text-[10px] flex-wrap">
                         <span data-testid="bucket-filled-target-{bucket.bucketId}" class="font-bold text-white tabular-nums">{bucket.filledKas.toLocaleString()} / {bucket.targetKas.toLocaleString()} KAS</span>
                         <div class="flex items-center gap-2 tabular-nums">
@@ -216,7 +217,7 @@
                             <span data-testid="bucket-remaining-kas-{bucket.bucketId}" class="text-neutral-300">{bucket.remainingKas.toLocaleString()} KAS Remaining</span>
                         </div>
                     </div>
-                    <div class="w-full h-2.5 bg-[#11161f] border border-white/10 rounded-full overflow-hidden flex">
+                    <div class="w-full h-2.5 bg-[var(--bg-elevated)] border border-white/10 rounded-full overflow-hidden flex">
                         <div data-testid="bucket-bar-mining-{bucket.bucketId}" class="h-full bg-blue-500 transition-all duration-300" style="width: {bucket.miningSegmentPct}%;"></div>
                         <div data-testid="bucket-bar-manual-{bucket.bucketId}" class="h-full bg-[#18C6A5] transition-all duration-300" style="width: {bucket.manualSegmentPct}%;"></div>
                     </div>
@@ -226,7 +227,7 @@
                     </div>
                 </div>
 
-                <div data-testid="bucket-position-{bucket.bucketId}" class="grid grid-cols-3 gap-2 bg-[#0a0d12] border border-white/10 rounded-xl p-2.5 text-[9px]">
+                <div data-testid="bucket-position-{bucket.bucketId}" class="grid grid-cols-3 gap-2 bg-[var(--bg-card)] border border-white/10 rounded-xl p-2.5 text-[9px]">
                     <div class="flex flex-col">
                         <span class="text-neutral-500 uppercase">Your Contribution</span>
                         <span data-testid="bucket-your-contribution-{bucket.bucketId}" class="text-white font-black text-[11px] tabular-nums">{bucket.yourPosition.yourContributionKas} KAS</span>
@@ -250,7 +251,7 @@
                 </div>
 
                 {#if isDrawerOpen}
-                    <div data-testid="bucket-stats-drawer-{bucket.bucketId}" class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[9px]">
+                    <div data-testid="bucket-stats-drawer-{bucket.bucketId}" class="bg-[var(--bg-card)] border border-white/10 rounded-xl p-3 flex flex-col gap-2 text-[9px]">
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             <div class="flex flex-col">
                                 <span class="text-neutral-500 uppercase">Completed Swaps</span>
@@ -258,7 +259,7 @@
                             </div>
                             <div class="flex flex-col">
                                 <span class="text-neutral-500 uppercase">Volume Settled</span>
-                                <span data-testid="bucket-stat-volume-{bucket.bucketId}" class="text-white font-bold tabular-nums">{bucket.stats.totalVolumeSettledKas} KAS (${bucket.stats.totalVolumeSettledUsd})</span>
+                                <span data-testid="bucket-stat-volume-{bucket.bucketId}" class="text-[var(--text-primary)] font-bold tabular-nums">{bucket.stats.totalVolumeSettledKas} KAS ({i18n.formatFiat(Number(bucket.stats.totalVolumeSettledUsd || 0))})</span>
                             </div>
                             <div class="flex flex-col col-span-2 sm:col-span-1">
                                 <span class="text-neutral-500 uppercase">Last Dispersal</span>
@@ -281,19 +282,19 @@
                 </div>
 
                 {#if isContributing}
-                    <div data-testid="bucket-contribute-drawer-{bucket.bucketId}" class="bg-[#0a0d12] border border-[#18C6A5]/45 rounded-xl p-3 flex flex-col gap-2">
+                    <div data-testid="bucket-contribute-drawer-{bucket.bucketId}" class="bg-[var(--bg-card)] border border-[#18C6A5]/45 rounded-xl p-3 flex flex-col gap-2">
                         <div class="flex items-center justify-between text-[9px] text-neutral-400">
                             <span class="uppercase font-bold">Custom KAS Contribution</span>
                             <div class="flex items-center gap-1">
                                 {#each [50, 100, 250] as preset}
                                     {#if preset <= bucket.remainingKas}
-                                        <button type="button" onclick={() => (contributeInputKas = String(preset))} class="px-2 py-0.5 rounded bg-[#11161f] border border-white/10 text-neutral-300 hover:text-white cursor-pointer tabular-nums">{preset}</button>
+                                        <button type="button" onclick={() => (contributeInputKas = String(preset))} class="px-2 py-0.5 rounded bg-[var(--bg-elevated)] border border-white/10 text-neutral-300 hover:text-white cursor-pointer tabular-nums">{preset}</button>
                                     {/if}
                                 {/each}
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
-                            <input type="number" min="1" max={bucket.remainingKas} step="any" data-testid="bucket-contribute-input-{bucket.bucketId}" bind:value={contributeInputKas} class="flex-1 bg-[#11161f] border border-white/15 focus:border-[#18C6A5] rounded-xl px-3 py-2 text-xs text-white font-bold outline-none tabular-nums" />
+                            <input type="number" min="1" max={bucket.remainingKas} step="any" data-testid="bucket-contribute-input-{bucket.bucketId}" bind:value={contributeInputKas} class="flex-1 bg-[var(--bg-elevated)] border border-white/15 focus:border-[#18C6A5] rounded-xl px-3 py-2 text-xs text-white font-bold outline-none tabular-nums" />
                             <button type="button" data-testid="bucket-submit-contribute-btn-{bucket.bucketId}" onclick={() => requestContributionSign(bucket, 'contribute')} class="tactile-btn px-4 py-2 rounded-xl border border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5] text-[10px] font-black uppercase tracking-wider cursor-pointer shrink-0">Sign &amp; Hold →</button>
                         </div>
                     </div>

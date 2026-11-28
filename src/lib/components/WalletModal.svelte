@@ -1517,7 +1517,7 @@
 
 {#if ui.showWalletModal}
     <div
-        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#06080b]/96 px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-16 font-mono"
+        class="fixed inset-0 z-[9999] flex items-center justify-center bg-[var(--bg-overlay)] px-3 pt-4 pb-24 sm:px-4 sm:pt-4 sm:pb-16 font-mono"
         transition:fade={{ duration: 150 }}
         onclick={handleBackdropClick}
         onkeydown={(e) => e.key === 'Escape' && handleBackdropClick()}
@@ -1525,7 +1525,7 @@
         tabindex="0"
     >
         <div
-            class="w-full {viewState === 'create_seed' || viewState === 'verify_seed' ? 'max-w-lg' : 'max-w-md'} max-h-[78dvh] sm:max-h-[85dvh] overflow-y-auto rounded-[28px] sm:rounded-[28px] border-t sm:border border-white/15 bg-[#0a0d12] shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 text-white transition-all duration-200 relative overflow-hidden"
+            class="w-full {viewState === 'create_seed' || viewState === 'verify_seed' ? 'max-w-lg' : 'max-w-md'} max-h-[78dvh] sm:max-h-[85dvh] overflow-y-auto rounded-[28px] sm:rounded-[28px] border-t sm:border border-white/15 bg-[var(--bg-card)] shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-6 text-white transition-all duration-200 relative overflow-hidden"
             style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 65%);"
             transition:fly={{ y: 10, duration: 200 }}
             onclick={(e) => e.stopPropagation()}
@@ -1567,7 +1567,7 @@
                     <div class="flex flex-col gap-3 items-center" in:fade={{ duration: 150 }}>
                         <div class="group relative flex items-center justify-center w-20 h-20 rounded-full mb-2 transition-all duration-700 pointer-events-none">
                             <div class="absolute inset-0 rounded-full border border-white/15 transition-all duration-700 {identity.isConnecting ? 'border-[#18C6A5] scale-110' : ''}"></div>
-                            <div class="relative w-14 h-14 rounded-full flex items-center justify-center overflow-hidden transition-all duration-700 shadow-inner z-10 bg-[#11161f] border border-white/10">
+                            <div class="relative w-14 h-14 rounded-full flex items-center justify-center overflow-hidden transition-all duration-700 shadow-inner z-10 bg-[var(--bg-elevated)] border border-white/10">
                                 {#if identity.isConnecting}
                                     <span class="text-[#18C6A5] font-black tracking-widest text-[8px] z-20 animate-pulse">SYNC</span>
                                 {:else}
@@ -1684,10 +1684,10 @@
                             Paste or scan any Kaspa address — $0.
                         </p>
                         {#if isScanningWatchQr}
-                            <div class="bg-[#11161f] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2">
+                            <div class="bg-[var(--bg-elevated)] border border-[#18C6A5]/45 rounded-xl p-2.5 flex flex-col items-center gap-2">
                                 <video
                                     bind:this={watchVideoEl}
-                                    class="w-full h-44 object-cover rounded-lg bg-black"
+                                    class="w-full h-44 object-cover rounded-lg bg-[var(--bg-input)]"
                                     playsinline
                                 ></video>
                                 <button
@@ -1706,7 +1706,7 @@
                                 bind:value={watchAddressInput}
                                 placeholder="kaspa:qp... or kaspa:qr..."
                                 spellcheck="false"
-                                class="flex-1 bg-[#11161f] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl font-mono outline-none"
+                                class="flex-1 bg-[var(--bg-elevated)] border border-white/10 focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl font-mono outline-none"
                             />
                             <button
                                 type="button"
@@ -1749,7 +1749,7 @@
                         {#if bioSupported}
                             <div
                                 data-testid="setup-auth-mode-picker"
-                                class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[#11161f] border border-white/10"
+                                class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[var(--bg-elevated)] border border-white/10"
                             >
                                 <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">
                                     Unlock Method
@@ -1761,7 +1761,7 @@
                                             data-testid="setup-mode-{m}"
                                             onclick={() =>
                                                 (setupAuthMode = m as VaultAuthMode)}
-                                            class="py-2 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all {setupAuthMode === m ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-400 hover:text-white'}"
+                                            class="py-2 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all {setupAuthMode === m ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[var(--bg-card)] text-neutral-400 hover:text-white'}"
                                         >
                                             {lbl}
                                         </button>
@@ -1778,7 +1778,7 @@
                             placeholder="PASTE YOUR 12 OR 24-WORD SEED PHRASE..."
                             rows="3"
                             disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-[#18C6A5] p-3 text-[10px] rounded-xl transition-colors resize-none disabled:opacity-50 uppercase placeholder-neutral-600 tracking-widest font-mono"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-[#18C6A5] p-3 text-[10px] rounded-xl transition-colors resize-none disabled:opacity-50 uppercase placeholder-neutral-600 tracking-widest font-mono"
                         ></textarea>
                         <div class="h-px w-full bg-white/10 my-0.5"></div>
                         <p class="text-[10px] text-neutral-400 leading-relaxed uppercase tracking-widest font-bold">
@@ -1789,14 +1789,14 @@
                             bind:value={password}
                             placeholder="NEW VAULT PASSWORD"
                             disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
                         />
                         <input
                             type="password"
                             bind:value={confirmPassword}
                             placeholder="CONFIRM PASSWORD"
                             disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
                         />
                         <div class="flex gap-2 mt-1">
                             <button
@@ -1836,7 +1836,7 @@
                         {#if bioSupported}
                             <div
                                 data-testid="setup-auth-mode-picker"
-                                class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[#11161f] border border-white/10"
+                                class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[var(--bg-elevated)] border border-white/10"
                             >
                                 <span class="text-[9px] font-bold uppercase tracking-wider text-neutral-400">
                                     Unlock Method
@@ -1848,7 +1848,7 @@
                                             data-testid="setup-mode-{m}"
                                             onclick={() =>
                                                 (setupAuthMode = m as VaultAuthMode)}
-                                            class="py-2 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all {setupAuthMode === m ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[#0a0d12] text-neutral-400 hover:text-white'}"
+                                            class="py-2 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all {setupAuthMode === m ? 'border-[#18C6A5] bg-[#18C6A5]/20 text-[#18C6A5]' : 'border-white/10 bg-[var(--bg-card)] text-neutral-400 hover:text-white'}"
                                         >
                                             {lbl}
                                         </button>
@@ -1865,14 +1865,14 @@
                             bind:value={password}
                             placeholder="VAULT PASSWORD"
                             disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
                         />
                         <input
                             type="password"
                             bind:value={confirmPassword}
                             placeholder="CONFIRM PASSWORD"
                             disabled={identity.isConnecting}
-                            class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                            class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
                         />
                         <div class="flex gap-2 mt-1">
                             <button
@@ -1901,7 +1901,7 @@
                     </form>
                 {:else if viewState === 'create_seed'}
                     <div class="flex flex-col gap-3.5" in:fade={{ duration: 150 }}>
-                        <div class="border border-amber-500/40 bg-amber-950/20 p-3.5 rounded-xl flex flex-col gap-1">
+                        <div class="border border-amber-500/40 bg-[var(--bg-warn-subtle)] p-3.5 rounded-xl flex flex-col gap-1">
                             <span class="text-[10px] text-amber-400 uppercase tracking-widest font-black">
                                 Save all 24 words in order
                             </span>
@@ -1911,10 +1911,10 @@
                         </div>
                         <div
                             data-tour-target="mod1-seed-grid"
-                            class="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-[#11161f] p-3.5 rounded-xl border border-white/10"
+                            class="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-[var(--bg-elevated)] p-3.5 rounded-xl border border-white/10"
                         >
                             {#each seedWords as word, i}
-                                <div class="flex items-center gap-1.5 bg-[#0a0d12] px-2 py-1.5 rounded-lg border border-white/5">
+                                <div class="flex items-center gap-1.5 bg-[var(--bg-card)] px-2 py-1.5 rounded-lg border border-white/5">
                                     <span class="text-[8px] text-neutral-500 w-4 text-right font-bold">
                                         {(i + 1).toString().padStart(2, '0')}
                                     </span>
@@ -1924,7 +1924,7 @@
                                 </div>
                             {/each}
                         </div>
-                        <div class="flex flex-col gap-1.5 bg-[#11161f] rounded-xl p-3 border border-white/10 shadow-inner">
+                        <div class="flex flex-col gap-1.5 bg-[var(--bg-elevated)] rounded-xl p-3 border border-white/10 shadow-inner">
                             <div class="flex flex-col">
                                 <span class="text-[8px] text-[#18C6A5] uppercase tracking-widest font-bold">
                                     Kaspa Public Address
@@ -1980,7 +1980,7 @@
                         in:fade={{ duration: 150 }}
                     >
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div class="flex flex-col gap-1.5 bg-[#11161f] p-3.5 rounded-xl border border-white/10">
+                            <div class="flex flex-col gap-1.5 bg-[var(--bg-elevated)] p-3.5 rounded-xl border border-white/10">
                                 <label
                                     for="verifyWord1"
                                     class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]"
@@ -1994,10 +1994,10 @@
                                     placeholder="Enter word #{verifyWordIndices[0] + 1}..."
                                     autocomplete="off"
                                     spellcheck="false"
-                                    class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2.5 text-xs font-mono text-white outline-none lowercase"
+                                    class="w-full bg-[var(--bg-card)] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2.5 text-xs font-mono text-white outline-none lowercase"
                                 />
                             </div>
-                            <div class="flex flex-col gap-1.5 bg-[#11161f] p-3.5 rounded-xl border border-white/10">
+                            <div class="flex flex-col gap-1.5 bg-[var(--bg-elevated)] p-3.5 rounded-xl border border-white/10">
                                 <label
                                     for="verifyWord2"
                                     class="text-[9px] font-black uppercase tracking-widest text-[#18C6A5]"
@@ -2011,7 +2011,7 @@
                                     placeholder="Enter word #{verifyWordIndices[1] + 1}..."
                                     autocomplete="off"
                                     spellcheck="false"
-                                    class="w-full bg-[#0a0d12] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2.5 text-xs font-mono text-white outline-none lowercase"
+                                    class="w-full bg-[var(--bg-card)] border border-white/10 focus:border-[#18C6A5]/50 rounded-lg px-3 py-2.5 text-xs font-mono text-white outline-none lowercase"
                                 />
                             </div>
                         </div>
@@ -2142,7 +2142,7 @@
                                 bind:value={password}
                                 placeholder="VAULT PASSWORD"
                                 disabled={identity.isConnecting}
-                                class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                                class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
                                 autofocus
                             />
 
@@ -2207,7 +2207,7 @@
                         class="flex flex-col gap-3.5"
                         in:fade={{ duration: 150 }}
                     >
-                        <div class="bg-[#11161f] border border-white/10 rounded-xl p-4 flex flex-col gap-2.5">
+                        <div class="bg-[var(--bg-elevated)] border border-white/10 rounded-xl p-4 flex flex-col gap-2.5">
                             <div class="flex justify-between border-b border-white/5 pb-2">
                                 <span class="text-[10px] text-neutral-400 uppercase tracking-widest font-bold">
                                     Action
@@ -2265,7 +2265,7 @@
 
                         {#if identity.isWatchOnly}
                             {#if airlockQrDataUrl}
-                                <div class="bg-[#11161f] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center">
+                                <div class="bg-[var(--bg-elevated)] border border-amber-500/40 rounded-2xl p-3.5 flex flex-col items-center gap-2 text-center">
                                     <span class="text-[9px] font-black uppercase tracking-widest text-amber-400">
                                         Scan QR to Sign
                                     </span>
@@ -2351,7 +2351,7 @@
                                 bind:value={password}
                                 placeholder="VAULT PASSWORD"
                                 disabled={identity.isConnecting}
-                                class="w-full bg-[#11161f] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
+                                class="w-full bg-[var(--bg-elevated)] border border-white/10 focus:outline-none focus:border-[#18C6A5]/50 text-white p-3.5 text-xs rounded-xl transition-colors disabled:opacity-50 placeholder-neutral-600 tracking-widest"
                                 autofocus
                             />
                             <div class="flex gap-2 mt-1">

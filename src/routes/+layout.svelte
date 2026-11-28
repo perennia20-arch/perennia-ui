@@ -13,7 +13,12 @@
         DEFAULT_ECOSYSTEM_TICKER
     } from '$lib/stores/treasury.svelte';
     import { settingsStore } from '$lib/stores/settings.svelte';
-    import { i18n } from '$lib/stores/i18n.svelte';
+    import {
+        i18n,
+        SUPPORTED_LOCALES,
+        SUPPORTED_CURRENCIES
+    } from '$lib/stores/i18n.svelte';
+    import { safeFiniteNumber } from '$lib/crypto/atomicMath';
     import type { Worker } from '$lib/stores/type';
     import {
         evaluateAbaRoutingNumber,
@@ -186,10 +191,6 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             return 1.0;
         }
         if (t.spotPrice > 0) return t.spotPrice;
-        const kasSpot = treasury.getAsset('KAS').spotPrice || 0;
-        if (t.ticker === DEFAULT_ECOSYSTEM_TICKER && kasSpot > 0) {
-            return Number((kasSpot / 23.809524).toFixed(6));
-        }
         return 0;
     });
 
@@ -228,10 +229,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
     );
 
     function formatGlobalSpotDisplay(price: number): string {
-        if (!Number.isFinite(price) || price <= 0) {
-            return i18n.formatFiat(0, { decimals: 2 });
-        }
-        return i18n.formatFiat(price, { adaptiveSmallPrice: true });
+        return i18n.formatSpotPrice(price);
     }
 
     function handleModalIconError(e: Event) {
@@ -951,10 +949,15 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     )
                                         return;
                                     if (incWallet === cleanTarget) {
-                                        operations.workers =
-                                            parsed.state.workers || [];
-                                        operations.sectors =
-                                            parsed.state.sectors || [];
+                                        operations.workers = Array.isArray(parsed.state.workers)
+                                            ? parsed.state.workers.map((w: any) => ({
+                                                  ...w,
+                                                  hashRate: safeFiniteNumber(w?.hashRate, 0)
+                                              }))
+                                            : [];
+                                        operations.sectors = Array.isArray(parsed.state.sectors)
+                                            ? parsed.state.sectors
+                                            : [];
                                         if (parsed.state.systemMode)
                                             ui.systemMode =
                                                 parsed.state.systemMode;
@@ -1327,19 +1330,21 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
 	// Mobile Hardware Back-Button & SPA History Stack Controller
     let activeOverlayKey = $derived(
-        ui.showAgentModal
-            ? 'AGENT'
-            : ui.showFiatModal
-              ? 'FIAT'
-              : ui.showWalletModal
-                ? 'WALLET'
-                : settingsStore.showSettingsModal
-                  ? 'SETTINGS'
-                  : pwa.showInstallModal
-                    ? 'INSTALL'
-                    : ui.subOverlayId
-                      ? `SUB:${ui.subOverlayId}`
-                      : null
+        ui.showLocaleCurrencyModal
+            ? 'LOCALE'
+            : ui.showAgentModal
+              ? 'AGENT'
+              : ui.showFiatModal
+                ? 'FIAT'
+                : ui.showWalletModal
+                  ? 'WALLET'
+                  : settingsStore.showSettingsModal
+                    ? 'SETTINGS'
+                    : pwa.showInstallModal
+                      ? 'INSTALL'
+                      : ui.subOverlayId
+                        ? `SUB:${ui.subOverlayId}`
+                        : null
     );
 
     let navHistoryReady = false;
@@ -1359,6 +1364,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             const targetTab = typeof st.tab === 'string' ? st.tab : 'OPERATIONS';
             const targetOverlay = typeof st.overlay === 'string' ? st.overlay : null;
 
+            ui.showLocaleCurrencyModal = targetOverlay === 'LOCALE';
             ui.showAgentModal = targetOverlay === 'AGENT';
             ui.showFiatModal = targetOverlay === 'FIAT';
             ui.showWalletModal = targetOverlay === 'WALLET';
@@ -1375,6 +1381,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             lastHistoryOverlay = targetOverlay;
         } else {
             if (
+                ui.showLocaleCurrencyModal ||
                 ui.showAgentModal ||
                 ui.showFiatModal ||
                 ui.showWalletModal ||
@@ -1382,6 +1389,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 pwa.showInstallModal ||
                 ui.subOverlayId
             ) {
+                ui.showLocaleCurrencyModal = false;
                 ui.showAgentModal = false;
                 ui.showFiatModal = false;
                 ui.showWalletModal = false;
@@ -1514,7 +1522,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             class="app-wrapper min-h-[100dvh]  w-full flex flex-col font-sans selection:bg-[#18C6A5]/30 overflow-x-clip {appAwakened ? 'glow-active' : 'dormant'}"
         >
             <header
-                class="min-h-[3.75rem] lg:h-20 bg-[#06080b] flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-white/10 pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
+                class="min-h-[3.75rem] lg:h-20 bg-[var(--bg-canvas)] flex items-center justify-center z-50 shrink-0 w-full sticky top-0 border-b border-[var(--border-subtle)] pt-[calc(0.375rem+env(safe-area-inset-top,0px))] pb-1.5 lg:py-0"
             >
                 <div
                     class="w-full max-w-[1720px] px-3 sm:px-5 lg:px-8 flex flex-wrap md:flex-nowrap justify-between md:justify-start items-center h-full gap-x-2 gap-y-2"
@@ -1522,25 +1530,23 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     <button
                         type="button"
                         class="flex items-center gap-2.5 md:gap-3 cursor-pointer shrink-0 bg-transparent border-none text-left group"
-                        onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'OPERATIONS'; }}
+                        onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.showHeaderWalletMenu = false; ui.activeTab = 'OPERATIONS'; }}
                     >
                         <div
-                            class="w-9 h-9 bg-[#11161f] rounded-xl flex items-center justify-center shrink-0 border border-white/10 group-hover:border-[#18C6A5]/45 transition-colors relative"
+                            class="w-9 h-9 bg-[var(--bg-elevated)] rounded-xl flex items-center justify-center shrink-0 border border-[var(--border-subtle)] group-hover:border-[var(--border-active)] transition-colors relative"
                         >
                             <span
-                                class="font-black text-[#18C6A5] text-lg leading-none"
+                                class="font-black text-[var(--accent-text)] text-lg leading-none"
                             >
                                 P
                             </span>
                             <span
-                                class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#06080b] {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'}"
+                                class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--bg-canvas)] {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-500'}"
                                 title="Node Status: {operations.globalNodeStatus.toUpperCase()}"
                             ></span>
                         </div>
-                        <div class="flex flex-col"><span class="font-black tracking-[0.14em] sm:tracking-[0.2em] text-xs sm:text-base md:text-lg uppercase text-white leading-none">PERENNIA</span><span class="hidden sm:block text-[8px] font-mono uppercase tracking-widest text-neutral-500 mt-0.5">
-                                {operations.globalNodeStatus === 'connected'
-                                    ? i18n.t('header.node_online')
-                                    : i18n.t('header.mining_settlement')}
+                        <div class="flex flex-col"><span class="font-black tracking-[0.14em] sm:tracking-[0.2em] text-xs sm:text-base md:text-lg uppercase text-[var(--text-primary)] leading-none">PERENNIA</span><span data-testid="header-brand-verbs" class="hidden sm:block text-[8px] font-mono uppercase tracking-widest text-[var(--text-muted)] mt-0.5">
+                                {i18n.t('header.brand_verbs')}
                             </span>
                         </div>
                     </button>
@@ -1549,12 +1555,12 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         class="hidden lg:flex lg:order-2 lg:mx-auto lg:w-auto items-center justify-center overflow-x-auto hide-scrollbar"
                     >
                         <div
-                            class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 p-1 rounded-2xl min-w-max shadow-inner"
+                            class="flex items-center gap-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] p-1 rounded-2xl min-w-max"
                         >
                             <div class="relative">
                                 {#if ui.microBadges['global_fiat_btn']}
                                     <div
-                                        class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-xl"
+                                        class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-active)] text-[var(--accent-text)] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-xl"
                                     >
                                         {ui.microBadges['global_fiat_btn'].label}
                                     </div>
@@ -1564,35 +1570,27 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     data-testid="header-buy-fiat-btn"
                                     onclick={() =>
                                         ui.openFiatModal('KAS', false, '')}
-                                    class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.showFiatModal ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-[#18C6A5] hover:text-white border border-transparent hover:border-[#18C6A5]/35'}"
-                                    title="Buy"
+                                    class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.showFiatModal ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--accent-text)] hover:text-[var(--text-primary)] border border-transparent hover:border-[var(--border-subtle)]'}"
+                                    title={i18n.t('nav.buy')}
                                 >
-                                    <span>{i18n.t('header.buy_crypto')}</span>
+                                    <span>{i18n.t('nav.buy')}</span>
                                 </button>
                             </div>
                             <button
                                 type="button"
                                 data-testid="header-nav-OPERATIONS"
-                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'OPERATIONS'; }}
-                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'OPERATIONS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.showHeaderWalletMenu = false; ui.activeTab = 'OPERATIONS'; }}
+                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'OPERATIONS' ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-transparent'}"
                             >
-                                {i18n.t('nav.operations')}
+                                {i18n.t('nav.mine')}
                             </button>
                             <button
                                 type="button"
                                 data-testid="header-nav-DEX"
-                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'DEX'; }}
-                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'DEX' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.showHeaderWalletMenu = false; ui.activeTab = 'DEX'; }}
+                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'DEX' ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-transparent'}"
                             >
-                                <span>{i18n.t('nav.exchange')}</span>
-                            </button>
-                            <button
-                                type="button"
-                                data-testid="header-nav-TAX-FORTRESS"
-                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'TAX FORTRESS'; }}
-                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'TAX FORTRESS' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
-                            >
-                                {i18n.t('nav.tax_fortress')}
+                                <span>{i18n.t('nav.swap')}</span>
                             </button>
                             <button
                                 type="button"
@@ -1600,33 +1598,25 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 onclick={() => {
                                     ui.showFiatModal = false;
                                     ui.showWalletModal = false;
+                                    ui.showLocaleCurrencyModal = false;
+                                    ui.showHeaderWalletMenu = false;
                                     settingsStore.showSettingsModal = false;
                                     ui.showAgentModal = true;
                                 }}
-                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap {ui.showAgentModal ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
-                                title="Agents"
+                                class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap {ui.showAgentModal ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-transparent'}"
+                                title={i18n.t('nav.bot')}
                             >
                                 {#if ui.activeAgentCount > 0}
                                     <span class="w-1.5 h-1.5 rounded-full bg-[#18C6A5]"></span>
                                 {/if}
-                                <span>Agents</span>
+                                <span>{i18n.t('nav.bot')}</span>
                             </button>
-                            {#if identity.canAccessForge}
-                                <button
-                                    type="button"
-                                    data-testid="header-nav-FORGE"
-                                    onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'FORGE'; }}
-                                    class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'FORGE' ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/45 shadow-sm' : 'text-neutral-400 hover:text-white border border-transparent'}"
-                                >
-                                    {i18n.t('nav.forge')}
-                                </button>
-                            {/if}
                             {#if identity.isCorporateAdmin}
                                 <button
                                     type="button"
                                     data-testid="header-nav-DIRECTOR"
-                                    onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'DIRECTOR'; }}
-                                    class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'DIRECTOR' ? 'bg-[#161d29] text-amber-400 border border-amber-500/45 shadow-sm' : 'text-amber-400/80 hover:text-amber-300 border border-transparent'}"
+                                    onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.showHeaderWalletMenu = false; ui.activeTab = 'DIRECTOR'; }}
+                                    class="px-3 md:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap {ui.activeTab === 'DIRECTOR' ? 'bg-[var(--bg-hover)] text-amber-500 border border-amber-500/45' : 'text-amber-500/80 hover:text-amber-500 border border-transparent'}"
                                 >
                                     {i18n.t('nav.director')}
                                 </button>
@@ -1644,7 +1634,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"
                                 ></span>
                                 <span
-                                    class="text-[8px] font-black uppercase tracking-wider text-amber-400"
+                                    class="text-[8px] font-black uppercase tracking-wider text-amber-500"
                                 >
                                     {ui.adminTargetWallet.slice(0, 12)}...
                                 </span>
@@ -1654,30 +1644,30 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                         ui.adminModeActive = false;
                                         ui.adminTargetWallet = '';
                                     }}
-                                    class="text-[8px] font-black text-neutral-300 hover:text-white cursor-pointer"
+                                    class="text-[8px] font-black text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                                     title="Exit Miner Impersonation"
                                 >
                                     ✕
                                 </button>
                             </div>
                         {/if}
-                        {#if !pwa.isStandalone}<button type="button" data-testid="header-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target px-2.5 sm:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-wider text-white border-white/15 hover:border-[#18C6A5]/50 flex items-center gap-1.5 whitespace-nowrap" title="Install Perennia Standalone App"><svg class="w-3.5 h-3.5 text-[#18C6A5] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" /></svg><span class="hidden sm:inline">Install App</span><span class="sm:hidden">App</span></button>{/if}
+                        {#if !pwa.isStandalone}<button type="button" data-testid="header-install-app-btn" onclick={() => pwa.handleInstallClick()} class="tactile-btn mobile-touch-target px-2.5 sm:px-3.5 py-2 rounded-xl text-[10px] font-mono font-black uppercase tracking-wider text-[var(--text-primary)] border-[var(--border-subtle)] hover:border-[var(--border-active)] flex items-center gap-1.5 whitespace-nowrap" title="Install Perennia Standalone App"><svg class="w-3.5 h-3.5 text-[var(--accent-text)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" /></svg><span class="hidden sm:inline">App</span><span class="sm:hidden">App</span></button>{/if}
                         <div class="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto md:ml-0">
                             <button
                                 type="button"
                                 data-testid="header-treasury-btn"
-                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.activeTab = 'TREASURY'; }}
-                                class="tactile-btn mobile-touch-target px-2.5 sm:px-3 py-1.5 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'TREASURY' ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/45 shadow-sm' : 'text-neutral-300 hover:text-white border-white/15'}"
+                                onclick={() => { ui.showFiatModal = false; ui.showWalletModal = false; ui.showHeaderWalletMenu = false; ui.activeTab = 'TREASURY'; }}
+                                class="tactile-btn mobile-touch-target px-2.5 sm:px-3 py-1.5 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 {ui.activeTab === 'TREASURY' ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'}"
                                 title={identity.isCorporateAdmin &&
                                 !ui.adminModeActive &&
                                 adminTreasuryAccounting
-                                    ? `Earned Fee Revenue: ${i18n.formatFiat(adminTreasuryAccounting.totalEarnedRevenueUsd, { decimals: settingsStore.fiatDecimals })} | Custodial Miner Rewards (22:00 UTC): ${i18n.formatFiat(adminTreasuryAccounting.custodialMinerLiabilityUsd, { decimals: settingsStore.fiatDecimals })}`
-                                    : 'Open Multi-Chain Wallet'}
+                                    ? `Earned Fee Revenue: ${i18n.formatFiat(adminTreasuryAccounting.totalEarnedRevenueUsd, { decimals: settingsStore.fiatDecimals })} | Miner Rewards (22:00 UTC): ${i18n.formatFiat(adminTreasuryAccounting.custodialMinerLiabilityUsd, { decimals: settingsStore.fiatDecimals })}`
+                                    : i18n.t('nav.wallet')}
                             >
-                                <span>{i18n.t('nav.treasury')}</span>
+                                <span>{i18n.t('nav.wallet')}</span>
                                 {#if identity.isCorporateAdmin && !ui.adminModeActive && adminTreasuryAccounting}
                                     <span
-                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/35 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
+                                        class="px-2 py-0.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-active)] text-[var(--accent-text)] font-mono font-bold text-[9px] tabular-nums"
                                     >
                                         Fee: {i18n.formatFiat(
                                             adminTreasuryAccounting.totalEarnedRevenueUsd,
@@ -1688,7 +1678,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                         )}
                                     </span>
                                     <span
-                                        class="hidden 2xl:inline px-2 py-0.5 rounded-lg bg-[#11161f] border border-amber-500/35 text-amber-400 font-mono font-bold text-[9px] tabular-nums"
+                                        class="hidden 2xl:inline px-2 py-0.5 rounded-lg bg-[var(--bg-card)] border border-amber-500/35 text-amber-500 font-mono font-bold text-[9px] tabular-nums"
                                     >
                                         Pool: {i18n.formatFiat(
                                             adminTreasuryAccounting.custodialMinerLiabilityUsd,
@@ -1700,14 +1690,11 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     </span>
                                 {:else}
                                     <span
-                                        class="px-2 py-0.5 rounded-lg bg-[#11161f] border border-white/10 text-[#18C6A5] font-mono font-bold text-[9px] tabular-nums"
+                                        data-testid="header-wallet-fiat-value"
+                                        class="px-2 py-0.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--accent-text)] font-mono font-bold text-[9px] tabular-nums"
                                     >
                                         {i18n.formatFiat(
-                                            treasury.totalVaultValue,
-                                            {
-                                                decimals:
-                                                    settingsStore.fiatDecimals
-                                            }
+                                            treasury.totalVaultValue
                                         )}
                                     </span>
                                 {/if}
@@ -1715,19 +1702,19 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             {#if !identity.isWalletConnected}
                                 <button
                                     type="button"
-                                    data-testid="header-unlock-vault-btn" onclick={() => (ui.showWalletModal = true)} class="tactile-btn px-2.5 sm:px-4 md:px-5 py-2 border-[#18C6A5]/40 text-[#18C6A5] hover:text-white text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
-                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.16), transparent 70%);"
+                                    data-testid="header-unlock-vault-btn" onclick={() => (ui.showWalletModal = true)} class="tactile-btn px-2.5 sm:px-4 md:px-5 py-2 border-[var(--border-active)] text-[var(--accent-text)] hover:text-[var(--text-primary)] text-[10px] font-mono font-black uppercase tracking-widest rounded-xl cursor-pointer whitespace-nowrap"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.14), transparent 70%);"
                                 >
                                     {i18n.t('header.unlock_vault')}
                                     <span class="sr-only">Log In</span>
                                 </button>
                             {:else}
                                 <div
-                                    class="flex items-center gap-1 bg-[#0a0d12] border border-white/10 rounded-xl p-1 pr-1.5 relative"
+                                    class="flex items-center gap-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-1 relative"
                                 >
                                     {#if ui.microBadges['header_wallet_pill']}
                                         <div
-                                            class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[#11161f] border border-[#18C6A5]/50 text-[#18C6A5] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-lg"
+                                            class="micro-confirm-badge absolute -bottom-7 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded bg-[var(--bg-elevated)] border border-[var(--border-active)] text-[var(--accent-text)] text-[8px] font-mono font-black uppercase tracking-widest whitespace-nowrap shadow-lg"
                                         >
                                             {ui.microBadges['header_wallet_pill']
                                                 .label}
@@ -1735,15 +1722,16 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     {/if}
                                     <button
                                         type="button"
-                                        onclick={copyHeaderWalletAddress}
+                                        data-testid="header-wallet-pill"
+                                        onclick={() => (ui.showHeaderWalletMenu = !ui.showHeaderWalletMenu)}
                                         class="tactile-btn {headerPillShimmer ? 'shimmer-flash' : ''} rounded-lg px-2.5 md:px-3 py-1.5 flex items-center gap-1.5 cursor-pointer group"
-                                        title="Click to copy Kaspa Address"
+                                        title="Wallet Controls"
                                     >
                                         <div
-                                            class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-600'} shrink-0"
+                                            class="w-2 h-2 rounded-full {operations.globalNodeStatus === 'connected' ? 'bg-[#18C6A5] animate-pulse' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'bg-neutral-500'} shrink-0"
                                         ></div>
                                         <span
-                                            class="{operations.globalNodeStatus === 'connected' ? 'text-[#18C6A5]' : operations.globalNodeStatus === 'unreachable' ? 'bg-amber-500' : 'text-neutral-400'} font-mono text-[10px] font-bold truncate max-w-[90px] md:max-w-none group-hover:text-white transition-colors"
+                                            class="{operations.globalNodeStatus === 'connected' ? 'text-[var(--accent-text)]' : operations.globalNodeStatus === 'unreachable' ? 'text-amber-500' : 'text-[var(--text-muted)]'} font-mono text-[10px] font-bold truncate max-w-[90px] md:max-w-none group-hover:text-[var(--text-primary)] transition-colors"
                                         >
                                             {identity.activeAddress?.substring(
                                                 0,
@@ -1752,62 +1740,103 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                                 identity.activeAddress.length - 4
                                             )}
                                         </span>
-                                        {#if identity.isWatchOnly}<span class="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[8px] font-black uppercase">WATCH</span>{/if}<span class="sr-only">UNLOCKED</span>
+                                        {#if identity.isWatchOnly}<span class="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-500 text-[8px] font-black uppercase">WATCH</span>{/if}
+                                        <span class="text-[9px] text-[var(--text-muted)]">▾</span>
+                                        <span class="sr-only">UNLOCKED</span>
                                     </button>
-                                    <button
-                                        type="button"
-                                        aria-label="Disconnect"
-                                        onclick={() => identity.disconnect()}
-                                        class="w-7 h-7 flex items-center justify-center text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer rounded-lg shrink-0"
-                                        title="Disconnect"
-                                    >
-                                        <svg
-                                            class="w-3.5 h-3.5"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
+                                    {#if ui.showHeaderWalletMenu}
+                                        <div
+                                            data-testid="header-wallet-menu"
+                                            class="absolute right-0 top-full mt-2 w-52 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-2xl p-1.5 shadow-2xl z-[120] flex flex-col gap-1 font-mono"
                                         >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                                            />
-                                        </svg>
-                                    </button>
+                                            <button
+                                                type="button"
+                                                data-testid="wallet-menu-copy-btn"
+                                                onclick={() => {
+                                                    copyHeaderWalletAddress();
+                                                    ui.showHeaderWalletMenu = false;
+                                                }}
+                                                class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer flex items-center justify-between"
+                                            >
+                                                <span>{i18n.t('wallet.copy')}</span>
+                                                <span class="text-[var(--accent-text)]">⧉</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                data-testid="wallet-menu-ledger-btn"
+                                                onclick={() => {
+                                                    ui.showHeaderWalletMenu = false;
+                                                    ui.showFiatModal = false;
+                                                    ui.activeTab = 'TAX FORTRESS';
+                                                }}
+                                                class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider text-[var(--accent-text)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                                            >
+                                                {i18n.t('wallet.ledger_csv')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                data-testid="wallet-menu-backup-btn"
+                                                onclick={() => {
+                                                    ui.showHeaderWalletMenu = false;
+                                                    ui.activeTab = 'TREASURY';
+                                                }}
+                                                class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                                            >
+                                                {i18n.t('wallet.vault_backup')}
+                                            </button>
+                                            <div class="border-t border-[var(--border-subtle)] my-0.5"></div>
+                                            <button
+                                                type="button"
+                                                data-testid="wallet-menu-disconnect-btn"
+                                                onclick={() => {
+                                                    ui.showHeaderWalletMenu = false;
+                                                    identity.disconnect();
+                                                }}
+                                                class="w-full text-left px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-[var(--bg-danger-subtle)] cursor-pointer"
+                                            >
+                                                {i18n.t('wallet.disconnect')}
+                                            </button>
+                                        </div>
+                                    {/if}
                                 </div>
                             {/if}
                         </div>
                     </div>
                     <div class="order-2 md:order-3 lg:order-4 ml-auto md:ml-0 flex items-center gap-1.5 sm:gap-2 shrink-0">
-					<button
+                        <button
                             type="button"
-                            aria-label="Settings"
-                            data-testid="header-settings-btn"
-                            onclick={() =>
-                                (settingsStore.showSettingsModal = true)}
-                            class="tactile-btn mobile-touch-target w-10 h-10 lg:w-9 lg:h-9 rounded-xl {settingsStore.showSettingsModal || ui.isTutorialActive ? 'text-[#18C6A5] border-[#18C6A5]/45' : 'text-neutral-400 hover:text-white'} flex items-center justify-center cursor-pointer shrink-0"
-                            title="System Parameters & Interactive Guide"
+                            data-testid="header-locale-currency-btn"
+                            onclick={() => {
+                                ui.showHeaderWalletMenu = false;
+                                ui.showLocaleCurrencyModal = true;
+                            }}
+                            class="tactile-btn mobile-touch-target h-9 px-2.5 sm:px-3 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--border-active)] text-[10px] font-mono font-black uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap"
+                            title="Language & Currency"
                         >
-                            <svg
-                                class="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                                />
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                                />
-                            </svg>
+                            <span>{i18n.locale}</span>
+                            <span class="text-[var(--text-muted)]">·</span>
+                            <span class="text-[var(--accent-text)]">{i18n.currency}</span>
+                        </button>
+                        <button
+                            type="button"
+                            aria-label="Toggle Light/Dark Theme"
+                            data-testid="header-theme-toggle-btn"
+                            onclick={() => {
+                                settingsStore.theme = settingsStore.theme === 'dark' ? 'light' : 'dark';
+                                settingsStore.save();
+                            }}
+                            class="tactile-btn mobile-touch-target w-9 h-9 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--border-active)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer shrink-0"
+                            title={settingsStore.theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                        >
+                            {#if settingsStore.theme === 'dark'}
+                                <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                            {:else}
+                                <svg class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                                </svg>
+                            {/if}
                         </button>
                     </div>
                 </div>
@@ -1824,7 +1853,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
 {#if ui.showFiatModal}
     <div
-        data-testid="global-fiat-modal" class="fixed inset-0 z-[9990] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#06080b]/92 font-mono overflow-y-auto"
+        data-testid="global-fiat-modal" class="fixed inset-0 z-[9990] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[var(--bg-overlay)] font-mono overflow-y-auto"
         transition:fade={{ duration: 150 }}
     >
         <button
@@ -1834,52 +1863,50 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             class="fixed inset-0 w-full h-full bg-transparent border-none cursor-default"
         ></button>
         <div
-            class="relative z-10 w-full max-w-[580px] max-h-[92dvh] overflow-y-auto bg-[#0a0d12] border-t sm:border rounded-t-[28px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] sm:pb-7 flex flex-col gap-3.5 sm:my-auto transition-all duration-300"
+            class="relative z-10 w-full max-w-[580px] max-h-[92dvh] overflow-y-auto bg-[var(--bg-card)] border-t sm:border rounded-t-[28px] sm:rounded-[28px] p-4 sm:p-6 md:p-7 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] sm:pb-7 flex flex-col gap-3.5 sm:my-auto transition-all duration-300"
             style="
                 border-color: {targetAssetHex}45;
                 background-image:
-                    radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.16), transparent 58%),
-                    radial-gradient(ellipse at bottom right, {targetAssetHex}24, transparent 65%);
-                box-shadow:
-                    0 24px 70px -15px rgba(0, 0, 0, 0.9),
-                    0 0 42px -15px {targetAssetHex}30;
+                    radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.14), transparent 58%),
+                    radial-gradient(ellipse at bottom right, {targetAssetHex}20, transparent 65%);
+                box-shadow: var(--shadow-card);
             "
         >
-            <div class="flex items-center justify-between gap-3 pb-2 border-b border-white/10">
+            <div class="flex items-center justify-between gap-3 pb-2 border-b border-[var(--border-subtle)]">
                 <div class="flex items-center gap-2.5 flex-wrap">
                     <span
                         class="w-2.5 h-2.5 rounded-full transition-colors duration-300"
                         style="background-color: {targetAssetHex}; box-shadow: 0 0 10px {targetAssetHex}80;"
                     ></span>
-                    <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-white">
-                        Buy {selectedGlobalTargetAsset.ticker}
+                    <h2 class="text-xs md:text-sm font-black uppercase tracking-widest text-[var(--text-primary)]">
+                        {i18n.t('nav.buy')} {selectedGlobalTargetAsset.ticker}
                     </h2>
                 </div>
                 <button
                     type="button"
                     data-testid="close-global-fiat-modal-btn"
                     onclick={() => ui.closeFiatModal()}
-                    class="w-8 h-8 rounded-full bg-[#11161f] border border-white/10 text-neutral-400 hover:text-white flex items-center justify-center cursor-pointer shrink-0"
+                    class="w-8 h-8 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer shrink-0"
                 >
                     ✕
                 </button>
             </div>
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[#18C6A5]/35"
-                style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.10), transparent 65%);"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border border-[var(--border-active)]"
+                style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 65%);"
             >
                 <div class="flex items-center justify-between flex-wrap gap-2">
                     <label
                         for="globalFiatUsdAmount"
-                        class="text-[10px] font-black uppercase tracking-widest text-neutral-400"
+                        class="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]"
                     >
                         {i18n.t('dex.you_pay')}
                     </label>
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                        <span class="text-2xl md:text-3xl font-bold text-neutral-500"
-                            >$</span
+                        <span class="text-2xl md:text-3xl font-bold text-[var(--text-muted)]"
+                            >{i18n.currencySymbol}</span
                         >
                         <input
                             id="globalFiatUsdAmount"
@@ -1888,47 +1915,44 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             min="10"
                             bind:value={globalFiatUsdInput}
                             placeholder="0"
-                            class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-white outline-none tabular-nums"
+                            class="w-full bg-transparent text-3xl md:text-4xl font-bold font-mono text-[var(--text-primary)] outline-none tabular-nums"
                         />
                     </div>
                     <div
-                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[#0a0d12] border border-[#18C6A5]/40"
+                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-active)]"
                     >
-                        <div class="w-6 h-6 rounded-full bg-[#18C6A5]/20 border border-[#18C6A5]/50 text-[#18C6A5] flex items-center justify-center text-[10px] font-black">
-                            $
+                        <div class="w-6 h-6 rounded-full bg-[var(--bg-teal-subtle)] border border-[var(--border-active)] text-[var(--accent-text)] flex items-center justify-center text-[10px] font-black">
+                            {i18n.currencySymbol}
                         </div>
-                        <span class="text-xs font-black text-white tracking-wider">
-                            USD
+                        <span class="text-xs font-black text-[var(--text-primary)] tracking-wider">
+                            {i18n.currency}
                         </span>
                     </div>
                 </div>
-                <div class="flex items-center justify-between flex-wrap gap-2 text-[10px] font-mono text-neutral-400 pt-1 border-t border-white/10">
-                    <span>
-                        </span>
+                <div class="flex items-center justify-between flex-wrap gap-2 text-[10px] font-mono text-[var(--text-muted)] pt-1 border-t border-[var(--border-subtle)]">
+                    <span></span>
                     <span
                         data-testid="global-fiat-fee-breakdown" class:hidden={!(parseFloat(globalFiatUsdInput) > 0)}
-                        class="text-[#18C6A5] font-bold"
+                        class="text-[var(--accent-text)] font-bold"
                     >
-                        Total: ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(
-                            2
-                        )} (Fee: ${globalCostPlusPreview.feeUsd.toFixed(2)})
+                        Total: {i18n.formatFiat(globalCostPlusPreview.totalGrossChargeUsd)} (Fee: {i18n.formatFiat(globalCostPlusPreview.feeUsd)})
                     </span>
                 </div>
             </div>
             <div class="flex items-center justify-center -my-4 z-20 pointer-events-none">
                 <div
-                    class="w-9 h-9 rounded-xl bg-[#0a0d12] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
+                    class="w-9 h-9 rounded-xl bg-[var(--bg-card)] border flex items-center justify-center text-xs font-black shadow-xl transition-colors duration-300"
                     style="border-color: {targetAssetHex}55; color: {targetAssetHex};"
                 >
                     ↓
                 </div>
             </div>
             <div
-                class="tactile-card bg-[#11161f] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border relative transition-all duration-300"
+                class="tactile-card bg-[var(--bg-elevated)] rounded-2xl p-4 md:p-5 flex flex-col gap-3 border relative transition-all duration-300"
                 style="
                     border-color: {targetAssetHex}55;
-                    background-image: radial-gradient(ellipse at bottom right, {targetAssetHex}24, transparent 68%);
-                    box-shadow: inset 0 0 26px -12px {targetAssetHex}28;
+                    background-image: radial-gradient(ellipse at bottom right, {targetAssetHex}20, transparent 68%);
+                    box-shadow: inset 0 0 26px -12px {targetAssetHex}24;
                 "
             >
                 <div class="flex items-center justify-between">
@@ -1938,14 +1962,14 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     >
                         {i18n.t('dex.you_receive')}
                     </span>
-                    <span class="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-400">
-                        {selectedGlobalTargetAsset.assetClass.toUpperCase()} 
+                    <span class="text-[9px] font-mono font-bold uppercase tracking-widest text-[var(--text-muted)]">
+                        {selectedGlobalTargetAsset.assetClass.toUpperCase()}
                     </span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
                     <span
                         data-testid="global-fiat-estimated-output"
-                        class="text-3xl md:text-4xl font-bold font-mono text-white tabular-nums truncate"
+                        class="text-3xl md:text-4xl font-bold font-mono text-[var(--text-primary)] tabular-nums truncate"
                     >
                         {globalCostPlusPreview.estimatedTokens > 0
                             ? globalCostPlusPreview.estimatedTokens.toLocaleString(
@@ -1967,7 +1991,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                         onclick={() =>
                             (showGlobalAssetDropdown =
                                 !showGlobalAssetDropdown)}
-                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[#0a0d12] cursor-pointer transition-all duration-300"
+                        class="tactile-btn shrink-0 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-[var(--bg-card)] cursor-pointer transition-all duration-300"
                         style="border-color: {targetAssetHex}60;"
                     >
                         <div
@@ -1992,7 +2016,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             {/if}
                         </div>
                         <div class="flex flex-col items-start leading-tight">
-                            <span class="text-xs font-black text-white tracking-wider uppercase">
+                            <span class="text-xs font-black text-[var(--text-primary)] tracking-wider uppercase">
                                 {selectedGlobalTargetAsset.ticker}
                             </span>
                             <span
@@ -2004,15 +2028,15 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 )}
                             </span>
                         </div>
-                        <span class="text-[10px] text-neutral-400 ml-0.5"
+                        <span class="text-[10px] text-[var(--text-muted)] ml-0.5"
                             >▾</span
                         >
                     </button>
                 </div>
-                
+
                 {#if showGlobalAssetDropdown}
                     <div
-                        class="absolute top-full right-0 mt-2 w-72 bg-[#0a0d12] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
+                        class="absolute top-full right-0 mt-2 w-72 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-2xl shadow-2xl p-2.5 z-50 flex flex-col gap-1.5 max-h-64 overflow-y-auto"
                     >
                         <input
                             type="text"
@@ -2022,16 +2046,16 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     (e.currentTarget as HTMLInputElement).value
                                 )}
                             placeholder="Search ticker or paste contract..."
-                            class="w-full bg-[#11161f] border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white outline-none"
+                            class="w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-[10px] text-[var(--text-primary)] outline-none"
                         />
                         {#if isDiscoveringGlobalAsset}
                             <span
-                                class="text-[8px] text-[#18C6A5] animate-pulse px-1"
+                                class="text-[8px] text-[var(--accent-text)] animate-pulse px-1"
                             >
                                 Searching...
                             </span>
                         {:else if globalDiscoveryNotice}
-                            <span class="text-[8px] text-[#18C6A5] px-1">
+                            <span class="text-[8px] text-[var(--accent-text)] px-1">
                                 {globalDiscoveryNotice}
                             </span>
                         {/if}
@@ -2049,14 +2073,14 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     }
                                     showGlobalAssetDropdown = false;
                                 }}
-                                class="w-full text-left px-2.5 py-2 rounded-xl hover:bg-[#161d29] flex items-center justify-between text-[10px] cursor-pointer"
+                                class="w-full text-left px-2.5 py-2 rounded-xl hover:bg-[var(--bg-hover)] flex items-center justify-between text-[10px] cursor-pointer"
                             >
                                 <div class="flex items-center gap-2 min-w-0">
                                     <span
                                         class="w-2 h-2 rounded-full shrink-0"
                                         style="background-color: {itemHex};"
                                     ></span>
-                                    <span class="font-bold text-white truncate">
+                                    <span class="font-bold text-[var(--text-primary)] truncate">
                                         {item.ticker} — {item.name}
                                     </span>
                                 </div>
@@ -2075,8 +2099,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     </div>
                 {/if}
             </div>
-            <div class="bg-[#11161f] border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5">
-                <div class="grid grid-cols-2 gap-1.5 bg-[#0a0d12] p-1 rounded-xl border border-white/5"><button type="button" onclick={() => { globalUseColdStorage = false; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!globalUseColdStorage ? 'bg-[#161d29] text-white border border-white/15' : 'text-neutral-400 hover:text-white'}">Wallet</button><button type="button" data-testid="global-dest-cold-storage-btn" onclick={() => { globalUseColdStorage = true; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalUseColdStorage ? 'bg-[#161d29] text-[#18C6A5] border border-[#18C6A5]/40' : 'text-neutral-400 hover:text-white'}">Cold Storage</button></div>{#if globalUseColdStorage}<div class="bg-[#0a0d12] border border-[#18C6A5]/35 rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[#18C6A5]">Cold Storage Destination Wallet</span><input type="text" bind:value={globalColdAddress} placeholder={selectedGlobalTargetAsset.ticker === 'KAS' || selectedGlobalTargetAsset.ticker === 'SILO' ? 'kaspa:q...' : selectedGlobalTargetAsset.ticker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[#11161f] border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white outline-none focus:border-[#18C6A5]/60" /></div>{/if}
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-3.5 flex flex-col gap-2.5">
+                <div class="grid grid-cols-2 gap-1.5 bg-[var(--bg-card)] p-1 rounded-xl border border-[var(--border-subtle)]"><button type="button" onclick={() => { globalUseColdStorage = false; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {!globalUseColdStorage ? 'bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-strong)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">Wallet</button><button type="button" data-testid="global-dest-cold-storage-btn" onclick={() => { globalUseColdStorage = true; globalFiatDeliveryMode = 'L1_KAS'; ui.fiatModalAutoStakeSilo = false; }} class="py-2 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all {globalUseColdStorage ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border border-[var(--border-active)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}">Cold Storage</button></div>{#if globalUseColdStorage}<div class="bg-[var(--bg-card)] border border-[var(--border-active)] rounded-xl p-2.5 flex flex-col gap-1"><span class="text-[8px] font-bold uppercase text-[var(--accent-text)]">Cold Storage Destination Wallet</span><input type="text" bind:value={globalColdAddress} placeholder={selectedGlobalTargetAsset.ticker === 'KAS' || selectedGlobalTargetAsset.ticker === 'SILO' ? 'kaspa:q...' : selectedGlobalTargetAsset.ticker === 'BTC' ? 'bc1q...' : 'Paste external wallet address...'} class="bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[var(--text-primary)] outline-none focus:border-[var(--border-active)]" /></div>{/if}
                 <div class="flex items-center justify-between flex-wrap gap-2 px-0.5 text-[9px]">
                     <div class="flex items-center gap-1.5 flex-wrap">
                         <button
@@ -2090,8 +2114,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
                                 'ach' &&
                             !globalCostPlusPreview.requiresInstitutionalWire
-                                ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
-                                : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                                ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
                         >
                             Bank
                         </button>
@@ -2105,8 +2129,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors disabled:opacity-35 {globalFiatGatewayMethod ===
                                 'card' &&
                             !globalCostPlusPreview.requiresInstitutionalWire
-                                ? 'bg-[#161d29] text-[#18C6A5] border-[#18C6A5]/40'
-                                : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                                ? 'bg-[var(--bg-hover)] text-[var(--accent-text)] border-[var(--border-active)]'
+                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
                         >
                             Card
                         </button>
@@ -2121,8 +2145,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             class="px-2.5 py-1 rounded-lg font-bold uppercase border cursor-pointer transition-colors {globalFiatGatewayMethod ===
                                 'wire' ||
                             globalCostPlusPreview.requiresInstitutionalWire
-                                ? 'bg-[#161d29] text-amber-400 border-amber-500/40'
-                                : 'bg-[#0a0d12] text-neutral-400 border-white/10 hover:text-white'}"
+                                ? 'bg-[var(--bg-hover)] text-amber-500 border-amber-500/40'
+                                : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
                         >
                             Wire
                         </button>
@@ -2133,7 +2157,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 onclick={() =>
                                     (showInlineBankSetup =
                                         !showInlineBankSetup)}
-                                class="font-bold text-[#18C6A5] hover:underline uppercase cursor-pointer"
+                                class="font-bold text-[var(--accent-text)] hover:underline uppercase cursor-pointer"
                             >
                                 {showInlineBankSetup
                                     ? '[Close Bank ✕]'
@@ -2146,7 +2170,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 onclick={() =>
                                     (showInlineBankSetup =
                                         !showInlineBankSetup)}
-                                class="font-bold text-amber-400 hover:underline uppercase cursor-pointer"
+                                class="font-bold text-amber-500 hover:underline uppercase cursor-pointer"
                             >
                                 {showInlineBankSetup
                                     ? '[Hide Bank ▴]'
@@ -2156,60 +2180,57 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                     {/if}
                 </div>
                 {#if inlineBankBanner}
-                    <div class="p-2 rounded-xl bg-[#0a0d12] border border-[#18C6A5]/40 text-[#18C6A5] text-[9px] font-bold text-center">
+                    <div class="p-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-active)] text-[var(--accent-text)] text-[9px] font-bold text-center">
                         {inlineBankBanner}
                     </div>
                 {/if}
                 {#if globalCostPlusPreview.requiresInstitutionalWire || globalFiatGatewayMethod === 'wire' || globalFiatPaymentRail === 'BRIDGE_VIRTUAL_ACCOUNT_WIRE'}
                     <div
                         transition:slide={{ duration: 150 }}
-                        class="bg-[#0a0d12] border border-amber-500/45 rounded-xl p-3 flex flex-col gap-2 text-[9px] font-mono"
+                        class="bg-[var(--bg-card)] border border-amber-500/45 rounded-xl p-3 flex flex-col gap-2 text-[9px] font-mono"
                     >
                         <div class="flex items-center justify-between">
-                            <span class="text-amber-400 font-black uppercase">
+                            <span class="text-amber-500 font-black uppercase">
                                 Wire Instructions
                             </span>
-                            <span class="text-[#18C6A5] font-bold">
-                                
-                            </span>
+                            <span class="text-[var(--accent-text)] font-bold"></span>
                         </div>
                         <div class="grid grid-cols-2 gap-2 text-[8px]">
-                            <div class="bg-[#11161f] p-2 rounded border border-white/5">
-                                <span class="text-neutral-500 block">ABA ROUTING</span>
-                                <span class="text-white font-black select-all">
+                            <div class="bg-[var(--bg-elevated)] p-2 rounded border border-[var(--border-subtle)]">
+                                <span class="text-[var(--text-muted)] block">ABA ROUTING</span>
+                                <span class="text-[var(--text-primary)] font-black select-all">
                                     {MERCURY_COLUMN_WIRE_INSTRUCTIONS.routingNumber}
                                 </span>
                             </div>
-                            <div class="bg-[#11161f] p-2 rounded border border-white/5">
-                                <span class="text-neutral-500 block">ACCOUNT NUMBER</span>
-                                <span class="text-white font-black select-all">
+                            <div class="bg-[var(--bg-elevated)] p-2 rounded border border-[var(--border-subtle)]">
+                                <span class="text-[var(--text-muted)] block">ACCOUNT NUMBER</span>
+                                <span class="text-[var(--text-primary)] font-black select-all">
                                     {MERCURY_COLUMN_WIRE_INSTRUCTIONS.accountNumber}
                                 </span>
                             </div>
                         </div>
-                        <div class="flex items-center justify-between text-[8px] text-neutral-400">
+                        <div class="flex items-center justify-between text-[8px] text-[var(--text-muted)]">
                             <span>{MERCURY_COLUMN_WIRE_INSTRUCTIONS.bankName}</span>
-                            <span class="text-amber-300 font-bold select-all">
+                            <span class="text-amber-500 font-bold select-all">
                                 Memo: {globalWireMemoPreview}
                             </span>
                         </div>
                     </div>
-                {:else if globalFiatGatewayMethod === 'card'}<div class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-neutral-300">Credit / Debit Card</span><span class="text-[8px] font-mono text-neutral-500">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'modal', onState: (st) => { globalCardError = st.error; } }} class="bg-[#11161f] border border-white/10 focus-within:border-[#18C6A5]/60 rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if globalCardError}<span class="text-[8px] font-mono font-bold text-red-400">{globalCardError}</span>{/if}</div>{:else if globalFiatGatewayMethod === 'ach' && (showInlineBankSetup || !savedBankLast4)}
+                {:else if globalFiatGatewayMethod === 'card'}<div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2"><div class="flex items-center justify-between"><span class="text-[9px] font-bold uppercase text-[var(--text-secondary)]">Credit / Debit Card</span><span class="text-[8px] font-mono text-[var(--text-muted)]">VISA • MC • AMEX</span></div><div use:mountStripeCard={{ slot: 'modal', onState: (st) => { globalCardError = st.error; } }} class="bg-[var(--bg-input)] border border-[var(--border-subtle)] focus-within:border-[var(--border-active)] rounded-lg px-3 py-2.5 min-h-[38px]"></div>{#if globalCardError}<span class="text-[8px] font-mono font-bold text-red-400">{globalCardError}</span>{/if}</div>{:else if globalFiatGatewayMethod === 'ach' && (showInlineBankSetup || !savedBankLast4)}
                     <div
                         transition:slide={{ duration: 150 }}
-                        class="bg-[#0a0d12] border border-white/10 rounded-xl p-3 flex flex-col gap-2.5 mt-0.5"
+                        class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-3 flex flex-col gap-2.5 mt-0.5"
                     >
                         <div class="flex items-center justify-between">
-                            <span class="text-[9px] font-bold uppercase text-neutral-300">
+                            <span class="text-[9px] font-bold uppercase text-[var(--text-secondary)]">
                                 Bank Account
                             </span>
-                            
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div class="flex flex-col gap-1">
                                 <label
                                     for="inlineAbaRouting"
-                                    class="text-[8px] font-bold uppercase text-neutral-400"
+                                    class="text-[8px] font-bold uppercase text-[var(--text-muted)]"
                                 >
                                     Routing Number
                                 </label>
@@ -2220,11 +2241,11 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     maxlength="9"
                                     bind:value={inlineRoutingNumber}
                                     placeholder="111000614"
-                                    class="bg-[#11161f] border {inlineAbaTelemetry.isComplete ? (inlineAbaTelemetry.checksumValid ? 'border-[#18C6A5]/60' : 'border-red-500/60') : 'border-white/10'} rounded-lg px-3 py-2 text-xs text-white outline-none"
+                                    class="bg-[var(--bg-input)] border {inlineAbaTelemetry.isComplete ? (inlineAbaTelemetry.checksumValid ? 'border-[var(--border-active)]' : 'border-red-500/60') : 'border-[var(--border-subtle)]'} rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                                 />
                                 {#if inlineAbaTelemetry.cleanDigits.length > 0}
                                     <span
-                                        class="text-[8px] font-bold {inlineAbaTelemetry.isComplete && inlineAbaTelemetry.checksumValid ? 'text-[#18C6A5]' : inlineAbaTelemetry.isComplete ? 'text-red-400' : 'text-neutral-500'}"
+                                        class="text-[8px] font-bold {inlineAbaTelemetry.isComplete && inlineAbaTelemetry.checksumValid ? 'text-[var(--accent-text)]' : inlineAbaTelemetry.isComplete ? 'text-red-400' : 'text-[var(--text-muted)]'}"
                                     >
                                         {inlineAbaTelemetry.isComplete &&
                                         inlineAbaTelemetry.checksumValid
@@ -2238,7 +2259,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             <div class="flex flex-col gap-1">
                                 <label
                                     for="inlineBankAcct"
-                                    class="text-[8px] font-bold uppercase text-neutral-400"
+                                    class="text-[8px] font-bold uppercase text-[var(--text-muted)]"
                                 >
                                     Account Number
                                 </label>
@@ -2248,7 +2269,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     type="password"
                                     bind:value={inlineAccountNumber}
                                     placeholder="Account Number"
-                                    class="bg-[#11161f] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none"
+                                    class="bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                                 />
                             </div>
                         </div>
@@ -2259,7 +2280,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                             disabled={isSavingInlineBankRail ||
                                 !inlineAbaTelemetry.checksumValid ||
                                 inlineAccountNumber.trim().length < 4}
-                            class="tactile-btn w-full py-2 rounded-lg text-[9px] font-black uppercase tracking-widest text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer disabled:opacity-40"
+                            class="tactile-btn w-full py-2 rounded-lg text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)] border-[var(--border-active)] cursor-pointer disabled:opacity-40"
                         >
                             {isSavingInlineBankRail
                                 ? 'Saving Bank Account...'
@@ -2269,7 +2290,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 {/if}
             </div>
             {#if globalFiatError || globalCostPlusPreview.circuitBreakerTripped}
-                <div class="p-3 rounded-xl bg-red-950/30 border border-red-500/45 text-red-400 text-[10px] font-bold text-center">
+                <div class="p-3 rounded-xl bg-[var(--bg-danger-subtle)] border border-red-500/45 text-red-400 text-[10px] font-bold text-center">
                     ⚠ {globalFiatError ||
                         globalCostPlusPreview.circuitBreakerReason}
                 </div>
@@ -2277,10 +2298,10 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
             {#if globalFiatSuccessOrder}
                 <div
                     data-testid="global-fiat-order-receipt"
-                    class="bg-[#11161f] border border-[#18C6A5]/50 rounded-2xl p-4 flex flex-col gap-2.5"
+                    class="bg-[var(--bg-elevated)] border border-[var(--border-active)] rounded-2xl p-4 flex flex-col gap-2.5"
                 >
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span class="text-[10px] font-black uppercase text-[#18C6A5]">
+                        <span class="text-[10px] font-black uppercase text-[var(--accent-text)]">
                             ✓ {globalFiatSuccessOrder.status === 'COMPLETED'
                                 ? `Purchase Completed (${globalFiatSuccessOrder.orderId})`
                                 : `Order ${globalFiatSuccessOrder.orderId} (${globalFiatSuccessOrder.status})`}
@@ -2292,8 +2313,8 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                     data-testid="global-fiat-complete-settlement-btn"
                                     onclick={settleGlobalFiatOrderNow}
                                     disabled={isSettlingGlobalFiat}
-                                    class="tactile-btn px-3 py-1 rounded-lg text-[8px] font-black uppercase text-white border-[#18C6A5] cursor-pointer"
-                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.28), transparent 70%);"
+                                    class="tactile-btn px-3 py-1 rounded-lg text-[8px] font-black uppercase text-[var(--text-primary)] border-[var(--border-active)] cursor-pointer"
+                                    style="background-image: radial-gradient(ellipse at center, rgba(24, 198, 165, 0.24), transparent 70%);"
                                 >
                                     {isSettlingGlobalFiat
                                         ? 'Settling...'
@@ -2307,14 +2328,14 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                         globalFiatSuccessOrder,
                                         globalFiatUsdInput
                                     )}
-                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[#18C6A5] border-[#18C6A5]/40 cursor-pointer"
+                                class="tactile-btn px-2.5 py-1 rounded-lg text-[8px] font-black uppercase text-[var(--accent-text)] border-[var(--border-active)] cursor-pointer"
                             >
                                 Receipt PDF
                             </button>
                         </div>
                     </div>
-                    <div class="text-[10px] text-neutral-300">
-                        Credited <strong class="text-white"
+                    <div class="text-[10px] text-[var(--text-secondary)]">
+                        Credited <strong class="text-[var(--text-primary)]"
                             >{Number(
                                 globalFiatSuccessOrder.deliveredTokens ??
                                     globalFiatSuccessOrder.estimatedTokens ??
@@ -2327,7 +2348,7 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                                 selectedGlobalTargetAsset.ticker}</strong
                         >
                         to your balance (Memo/Ref:
-                        <strong class="text-[#18C6A5] select-all"
+                        <strong class="text-[var(--accent-text)] select-all"
                             >{globalFiatSuccessOrder.wireMemo ||
                                 globalFiatSuccessOrder.txHash ||
                                 globalFiatSuccessOrder.orderId}</strong
@@ -2341,24 +2362,106 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
                 onclick={executeGlobalFiatPurchase}
                 disabled={isSubmittingGlobalFiat ||
                     globalCostPlusPreview.circuitBreakerTripped}
-                class="tactile-btn w-full py-4 rounded-2xl text-white text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 transition-all duration-300"
+                class="tactile-btn w-full py-4 rounded-2xl text-[var(--text-primary)] text-xs font-black uppercase tracking-widest cursor-pointer disabled:opacity-40 transition-all duration-300"
                 style="
                     border-color: {targetAssetHex}65;
-                    background-image: radial-gradient(ellipse at center, {targetAssetHex}28, transparent 70%);
+                    background-image: radial-gradient(ellipse at center, {targetAssetHex}24, transparent 70%);
                 "
             >
                 {#if isSubmittingGlobalFiat}
                     Purchasing {selectedGlobalTargetAsset.ticker}...
                 {:else}
-                    Buy {selectedGlobalTargetAsset.ticker} (~{globalCostPlusPreview.estimatedTokens.toLocaleString(
+                    {i18n.t('nav.buy')} {selectedGlobalTargetAsset.ticker} (~{globalCostPlusPreview.estimatedTokens.toLocaleString(
                         undefined,
                         { maximumFractionDigits: 4 }
                     )}
-                    {selectedGlobalTargetAsset.ticker} • Total ${globalCostPlusPreview.totalGrossChargeUsd.toFixed(
-                        2
-                    )} USD) →
+                    {selectedGlobalTargetAsset.ticker} • {i18n.formatFiat(globalCostPlusPreview.totalGrossChargeUsd)}) →
                 {/if}
             </button>
+        </div>
+    </div>
+{/if}
+
+{#if ui.showLocaleCurrencyModal}
+    <div
+        data-testid="locale-currency-modal"
+        class="fixed inset-0 z-[9996] flex items-center justify-center p-4 bg-[var(--bg-overlay)] font-mono"
+        transition:fade={{ duration: 120 }}
+    >
+        <button
+            type="button"
+            aria-label="Close Language and Currency Selector"
+            onclick={() => (ui.showLocaleCurrencyModal = false)}
+            class="fixed inset-0 w-full h-full bg-transparent border-none cursor-default"
+        ></button>
+        <div
+            role="dialog"
+            aria-label="Language and Currency Selector"
+            class="relative z-10 w-full max-w-[460px] bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-2xl"
+        >
+            <div class="flex items-center justify-between pb-2.5 border-b border-[var(--border-subtle)]">
+                <span class="text-xs font-black uppercase tracking-widest text-[var(--text-primary)]">
+                    {i18n.locale} · {i18n.currency}
+                </span>
+                <button
+                    type="button"
+                    data-testid="close-locale-currency-modal-btn"
+                    onclick={() => (ui.showLocaleCurrencyModal = false)}
+                    class="px-2.5 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[10px] font-black text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                    {i18n.t('modal.close')}
+                </button>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)] px-1">
+                        {i18n.t('modal.language')}
+                    </span>
+                    <div class="flex flex-col gap-1">
+                        {#each SUPPORTED_LOCALES as loc (loc.code)}
+                            <button
+                                type="button"
+                                data-testid="select-locale-{loc.code}"
+                                onclick={() => {
+                                    settingsStore.setLocale(loc.code);
+                                }}
+                                class="w-full text-left px-2.5 py-1.5 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-between whitespace-nowrap {i18n.locale === loc.code
+                                    ? 'bg-[var(--bg-hover)] border-[var(--border-active)] text-[var(--accent-text)]'
+                                    : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+                            >
+                                <span class="truncate">{loc.nativeName}</span>
+                                {#if i18n.locale === loc.code}
+                                    <span class="text-[10px] font-black">✓</span>
+                                {/if}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <span class="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)] px-1">
+                        {i18n.t('modal.currency')}
+                    </span>
+                    <div class="flex flex-col gap-1">
+                        {#each SUPPORTED_CURRENCIES as cur (cur.code)}
+                            <button
+                                type="button"
+                                data-testid="select-currency-{cur.code}"
+                                onclick={() => {
+                                    settingsStore.setCurrency(cur.code);
+                                }}
+                                class="w-full text-left px-2.5 py-1.5 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-between whitespace-nowrap {i18n.currency === cur.code
+                                    ? 'bg-[var(--bg-hover)] border-[var(--border-active)] text-[var(--accent-text)]'
+                                    : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+                            >
+                                <span>{cur.code} {cur.symbol}</span>
+                                {#if i18n.currency === cur.code}
+                                    <span class="text-[10px] font-black">✓</span>
+                                {/if}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 {/if}
@@ -2371,9 +2474,9 @@ import MobileBottomDock from '$lib/components/MobileBottomDock.svelte';
 
 <style>
     .app-wrapper.dormant {
-        background-color: var(--bg-app);
+        background-color: var(--bg-canvas);
     }
     .app-wrapper.glow-active {
-        background-color: var(--bg-app);
+        background-color: var(--bg-canvas);
     }
 </style>

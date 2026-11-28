@@ -4,6 +4,7 @@
     import { ui } from '$lib/stores/ui.svelte';
     import { identity } from '$lib/stores/identity.svelte';
     import { operations } from '$lib/stores/operations.svelte';
+    import { safeFiniteNumber } from '$lib/crypto/atomicMath';
     import type { Worker } from '$lib/stores/type';
     import {
         STRATUM_HOST,
@@ -224,7 +225,7 @@ let mobileFleetExpanded = $state(false);
     class="flex flex-col gap-3.5 lg:col-span-3 xl:col-span-2 relative {activeWorkerMenu !== null ? 'z-[70]' : 'z-20'}"
     data-tour="workers-panel"
 >
-    <div class="tactile-card bg-[#0a0d12] border border-white/10 rounded-2xl p-4 shadow-inner {ui.isTutorialActive ? 'flex' : 'hidden lg:flex'} flex-col gap-3"
+    <div class="tactile-card bg-[var(--bg-card)] border border-white/10 rounded-2xl p-4 shadow-inner {ui.isTutorialActive ? 'flex' : 'hidden lg:flex'} flex-col gap-3"
         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.08), transparent 65%);"
     >
         <div class="flex items-center justify-between">
@@ -236,10 +237,10 @@ let mobileFleetExpanded = $state(false);
             ></span>
         </div>
         <div class="flex items-baseline gap-1.5 whitespace-nowrap">
-            <span class="text-2xl xl:text-3xl font-mono font-light text-white leading-none tabular-nums">
-                {displayHashrate.toFixed(2)}
+            <span class="text-2xl xl:text-3xl font-mono font-light text-[var(--text-primary)] leading-none tabular-nums">
+                {safeFiniteNumber(displayHashrate, 0).toFixed(2)}
             </span>
-            <span class="text-xs text-[#18C6A5] font-mono font-bold uppercase">
+            <span class="text-xs text-[var(--accent-text)] font-mono font-bold uppercase">
                 TH/s
             </span>
         </div>
@@ -253,11 +254,11 @@ let mobileFleetExpanded = $state(false);
         </div>
     </div>
 
-    <div data-testid="mobile-worker-pills-bar" class="lg:hidden flex items-center gap-2 overflow-x-auto hide-scrollbar py-0.5"><button type="button" onclick={() => (mobileFleetExpanded = !mobileFleetExpanded)} class="tactile-btn mobile-touch-target shrink-0 px-3 py-2 rounded-xl border-[#18C6A5]/40 text-[#18C6A5] text-[10px] font-mono font-black uppercase flex items-center gap-1.5"><span>Miners ({displayedWorkers.filter((w) => w.isOnline && w.hashRate > 0).length}/{displayedWorkers.length})</span><span>{mobileFleetExpanded ? '▴' : '▾'}</span></button>{#each displayedWorkers as pillW (pillW.id)}<button type="button" onclick={() => { mobileFleetExpanded = true; }} class="shrink-0 px-3 py-2 rounded-xl bg-[#0a0d12] border border-white/10 flex items-center gap-2 text-[10px] font-mono"><span class="w-2 h-2 rounded-full {pillW.isOnline && pillW.hashRate > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-600'}"></span><span class="font-bold text-white">{pillW.name}</span><span class="text-[#18C6A5] tabular-nums">{pillW.hashRate.toFixed(2)}T</span></button>{/each}</div><div class="grid grid-cols-1 gap-2.5"><button type="button" onclick={createManualWorker} disabled={!identity.isWalletConnected || identity.isWatchOnly} class="tactile-btn mobile-touch-target w-full text-white text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Miner</button></div>
+    <div data-testid="mobile-worker-pills-bar" class="lg:hidden flex items-center gap-2 overflow-x-auto hide-scrollbar py-0.5"><button type="button" onclick={() => (mobileFleetExpanded = !mobileFleetExpanded)} class="tactile-btn mobile-touch-target shrink-0 px-3 py-2 rounded-xl border-[var(--border-active)] text-[var(--accent-text)] text-[10px] font-mono font-black uppercase flex items-center gap-1.5"><span>Miners ({displayedWorkers.filter((w) => w.isOnline && safeFiniteNumber(w?.hashRate, 0) > 0).length}/{displayedWorkers.length})</span><span>{mobileFleetExpanded ? '▴' : '▾'}</span></button>{#each displayedWorkers as pillW (pillW.id)}<button type="button" onclick={() => { mobileFleetExpanded = true; }} class="shrink-0 px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] flex items-center gap-2 text-[10px] font-mono"><span class="w-2 h-2 rounded-full {pillW.isOnline && safeFiniteNumber(pillW?.hashRate, 0) > 0 ? 'bg-[#18C6A5] animate-pulse' : 'bg-neutral-500'}"></span><span class="font-bold text-[var(--text-primary)]">{pillW.name}</span><span class="text-[var(--accent-text)] tabular-nums">{safeFiniteNumber(pillW?.hashRate, 0).toFixed(2)}T</span></button>{/each}</div><div class="grid grid-cols-1 gap-2.5"><button type="button" onclick={createManualWorker} disabled={!identity.isWalletConnected || identity.isWatchOnly} class="tactile-btn mobile-touch-target w-full text-[var(--text-primary)] text-[10px] lg:text-[11px] font-bold uppercase tracking-widest py-3 lg:py-3.5 px-2 rounded-2xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Miner</button></div>
 
     <div class="{mobileFleetExpanded || ui.isTutorialActive || activeWorkerMenu !== null || displayedWorkers.length === 0 ? 'flex' : 'hidden lg:flex'} flex-col gap-2.5 mt-1 lg:mt-2">
         {#if displayedWorkers.length === 0}
-            <div class="flex-1 border border-dashed border-white/10 rounded-2xl flex items-center justify-center bg-[#0a0d12] p-6 text-center pointer-events-none min-h-[150px]">
+            <div class="flex-1 border border-dashed border-white/10 rounded-2xl flex items-center justify-center bg-[var(--bg-card)] p-6 text-center pointer-events-none min-h-[150px]">
                 <p class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold leading-relaxed">
                     {#if !identity.isWalletConnected}
                         Log in
@@ -279,12 +280,12 @@ let mobileFleetExpanded = $state(false);
             {@const isWalletCopied = copiedMenuField === `wallet_${worker.id}`}
 
             <div
-                class="tactile-card {shimmerTargetId === `worker_${worker.id}` && !isMenuOpen ? 'shimmer-flash' : ''} {isMenuOpen ? 'z-[100] overflow-visible border-[#18C6A5]/50' : 'z-10 border-white/10'} bg-[#0a0d12] border rounded-2xl p-3.5 flex flex-col gap-2 relative"
+                class="tactile-card {shimmerTargetId === `worker_${worker.id}` && !isMenuOpen ? 'shimmer-flash' : ''} {isMenuOpen ? 'z-[100] overflow-visible border-[#18C6A5]/50' : 'z-10 border-white/10'} bg-[var(--bg-card)] border rounded-2xl p-3.5 flex flex-col gap-2 relative"
                 style="background-image: radial-gradient(ellipse at top right, rgba(24, 198, 165, 0.07), transparent 65%);"
             >
                 {#if workerBadge}
                     <div
-                        class="micro-confirm-badge absolute -top-3 right-3 z-[120] px-2.5 py-0.5 rounded-lg bg-[#11161f] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-wider shadow-xl"
+                        class="micro-confirm-badge absolute -top-3 right-3 z-[120] px-2.5 py-0.5 rounded-lg bg-[var(--bg-elevated)] border border-[#18C6A5]/60 text-[#18C6A5] text-[9px] font-mono font-black uppercase tracking-wider shadow-xl"
                     >
                         {workerBadge.label}
                     </div>
@@ -304,7 +305,7 @@ let mobileFleetExpanded = $state(false);
                         </div>
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <span
-                                class="text-[8px] font-mono text-[#18C6A5]/90 bg-[#11161f] border border-white/10 px-2 py-0.5 rounded-md uppercase tracking-wider select-none"
+                                class="text-[8px] font-mono text-[#18C6A5]/90 bg-[var(--bg-elevated)] border border-white/10 px-2 py-0.5 rounded-md uppercase tracking-wider select-none"
                             >
                                 {formatHardwareName(worker)}
                             </span>
@@ -324,7 +325,7 @@ let mobileFleetExpanded = $state(false);
                                 minerTypeSearch = '';
                             }
                         }}
-                        class="mobile-touch-target flex items-center justify-center text-neutral-300 hover:text-white cursor-pointer p-2 lg:p-1.5 rounded-lg bg-[#11161f] hover:bg-[#161d29] border border-white/10 hover:border-white/25 transition-colors shrink-0"
+                        class="mobile-touch-target flex items-center justify-center text-neutral-300 hover:text-white cursor-pointer p-2 lg:p-1.5 rounded-lg bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-white/10 hover:border-white/25 transition-colors shrink-0"
                         title="Worker Options"
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -339,7 +340,7 @@ let mobileFleetExpanded = $state(false);
                         onkeydown={(e) => e.stopPropagation()}
                         role="menu"
                         tabindex="-1"
-                        class="absolute right-0 top-12 lg:right-auto lg:left-[calc(100%+12px)] lg:top-0 w-[min(330px,calc(100vw-2.5rem))] sm:w-[370px] bg-[#11161f] border border-white/20 rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.95)] p-2.5 z-[110] flex flex-col gap-1.5"
+                        class="absolute right-0 top-12 lg:right-auto lg:left-[calc(100%+12px)] lg:top-0 w-[min(330px,calc(100vw-2.5rem))] sm:w-[370px] bg-[var(--bg-elevated)] border border-white/20 rounded-2xl shadow-2xl p-2.5 z-[110] flex flex-col gap-1.5"
                         style="background-image: radial-gradient(ellipse at top left, rgba(24, 198, 165, 0.12), transparent 70%);"
                     >
                         <button
@@ -360,7 +361,7 @@ let mobileFleetExpanded = $state(false);
                                         : worker.id;
                                 minerTypeSearch = '';
                             }}
-                            class="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer flex items-center justify-between border {isMinerPickerOpen ? 'border-[#18C6A5]/50 bg-[#0a0d12]/80' : 'border-white/5 bg-[#0a0d12]/40'}"
+                            class="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer flex items-center justify-between border {isMinerPickerOpen ? 'border-[#18C6A5]/50 bg-[var(--bg-card)]' : 'border-white/5 bg-[var(--bg-card)]'}"
                         >
                             <div class="flex flex-col gap-0.5 pointer-events-none">
                                 <span class="text-[11px] uppercase tracking-widest font-black text-white">
@@ -374,7 +375,7 @@ let mobileFleetExpanded = $state(false);
                                 </span>
                             </div>
                             <div class="flex items-center gap-2 pointer-events-none">
-                                <span class="px-2 py-0.5 rounded-lg bg-[#0a0d12] border border-amber-500/40 text-[10px] font-mono font-bold text-amber-400">
+                                <span class="px-2 py-0.5 rounded-lg bg-[var(--bg-card)] border border-amber-500/40 text-[10px] font-mono font-bold text-amber-400">
                                     :{portTelemetry.port}
                                 </span>
                                 <span class="text-xs text-white font-bold">
@@ -385,13 +386,13 @@ let mobileFleetExpanded = $state(false);
                         {#if isMinerPickerOpen}
                             <div
                                 transition:slide={{ duration: 150 }}
-                                class="bg-[#0a0d12] border border-white/15 rounded-xl p-2 flex flex-col gap-1.5 my-0.5"
+                                class="bg-[var(--bg-card)] border border-white/15 rounded-xl p-2 flex flex-col gap-1.5 my-0.5"
                             >
                                 <input
                                     type="text"
                                     bind:value={minerTypeSearch}
                                     placeholder="Search KS0, KS5, KS7, Goldshell..."
-                                    class="w-full bg-[#11161f] border border-white/15 focus:border-[#18C6A5]/60 rounded-lg px-3 py-1.5 text-[11px] font-mono text-white outline-none"
+                                    class="w-full bg-[var(--bg-elevated)] border border-white/15 focus:border-[#18C6A5]/60 rounded-lg px-3 py-1.5 text-[11px] font-mono text-white outline-none"
                                 />
                                 <div class="flex flex-col gap-1 max-h-[230px] overflow-y-auto hide-scrollbar pr-0.5">
                                     {#each filteredMinerCatalog as spec (spec.id)}
@@ -402,7 +403,7 @@ let mobileFleetExpanded = $state(false);
                                                 e.stopPropagation();
                                                 selectWorkerMinerType(worker, spec);
                                             }}
-                                            class="w-full text-left px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-between border {isSelected ? 'bg-[#161d29] border-[#18C6A5]/50' : 'hover:bg-[#11161f] border-white/5'}"
+                                            class="w-full text-left px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-between border {isSelected ? 'bg-[var(--bg-hover)] border-[#18C6A5]/50' : 'hover:bg-[var(--bg-elevated)] border-white/5'}"
                                         >
                                             <div class="flex flex-col pointer-events-none">
                                                 <span class="text-[11px] font-bold text-white">
@@ -431,7 +432,7 @@ let mobileFleetExpanded = $state(false);
                                 e.stopPropagation();
                                 copyWorkerStratumOnly(worker);
                             }}
-                            class="w-full text-left px-3.5 py-2.5 rounded-xl bg-[#0a0d12]/60 hover:bg-white/10 border {isStratumCopied ? 'border-[#18C6A5]' : 'border-white/5 hover:border-[#18C6A5]/40'} transition-colors cursor-pointer flex flex-col gap-1 group"
+                            class="w-full text-left px-3.5 py-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-white/10 border {isStratumCopied ? 'border-[#18C6A5]' : 'border-white/5 hover:border-[#18C6A5]/40'} transition-colors cursor-pointer flex flex-col gap-1 group"
                             title="Click to copy Stratum URL into your miner dashboard"
                         >
                             <div class="flex items-center justify-between pointer-events-none">
@@ -452,7 +453,7 @@ let mobileFleetExpanded = $state(false);
                                 e.stopPropagation();
                                 copyWorkerIdentityOnly(worker);
                             }}
-                            class="w-full text-left px-3.5 py-2.5 rounded-xl bg-[#0a0d12]/60 hover:bg-white/10 border {isWalletCopied ? 'border-blue-400' : 'border-white/5 hover:border-blue-400/40'} transition-colors cursor-pointer flex flex-col gap-1 group"
+                            class="w-full text-left px-3.5 py-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-white/10 border {isWalletCopied ? 'border-blue-400' : 'border-white/5 hover:border-blue-400/40'} transition-colors cursor-pointer flex flex-col gap-1 group"
                             title="Click to copy full kaspa:address.worker into your miner dashboard"
                         >
                             <div class="flex items-center justify-between pointer-events-none">
@@ -471,7 +472,7 @@ let mobileFleetExpanded = $state(false);
                         <button
                             type="button"
                             onclick={() => deleteWorkerAction(worker.id)}
-                            class="w-full text-left px-3.5 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors cursor-pointer"
+                            class="w-full text-left px-3.5 py-2 rounded-xl text-[10px] uppercase tracking-widest font-bold text-red-400 hover:text-red-300 hover:bg-[var(--bg-danger-subtle)] transition-colors cursor-pointer"
                         >
                             Remove
                         </button>
@@ -481,8 +482,8 @@ let mobileFleetExpanded = $state(false);
                 <div data-testid="worker-metrics-row" class="grid grid-cols-[auto_auto_minmax(0,1fr)] items-end justify-between gap-2.5 border-t border-white/10 pt-2.5 mt-0.5">
 	<div data-testid="worker-col-hashrate" class="flex flex-col min-w-0 shrink-0">
 		<span class="text-[8px] uppercase tracking-wider text-neutral-400 font-bold font-mono whitespace-nowrap">Hashrate</span>
-		<span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {worker.hashRate > 0 ? 'text-white' : 'text-neutral-500'}">
-			{worker.hashRate.toFixed(2)} <span class="text-[9px] text-neutral-400 font-normal">TH/s</span>
+		<span class="text-[11px] font-mono font-black whitespace-nowrap tabular-nums {safeFiniteNumber(worker?.hashRate, 0) > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}">
+			{safeFiniteNumber(worker?.hashRate, 0).toFixed(2)} <span class="text-[9px] text-[var(--text-muted)] font-normal">TH/s</span>
 		</span>
 	</div>
 	<div data-testid="worker-col-blocks" class="flex flex-col items-center min-w-0 shrink-0 px-1" title="{(worker.blocksFound || 0).toLocaleString()} blocks">
