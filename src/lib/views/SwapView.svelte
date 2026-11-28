@@ -34,6 +34,11 @@
         formatAtomicToDecimal,
         parseKasDecimalToSompi
     } from '$lib/crypto/atomicMath';
+    import {
+        readStoredSiloUtxoLocks,
+        getCombinedLockedSiloAtomic,
+        resolveSiloFeeTierBps
+    } from '$lib/crypto/siloTokenomics';
     import type { PairFeeRateBps, Sector, SettlementConfig } from '$lib/stores/type';
     import {
         bpsToPctNumber,
@@ -251,6 +256,15 @@
     );
 
     let isActiveMiner = $derived((operations.workers || []).some((w) => w.isOnline && w.hashRate > 0));
+    let localLockedSiloVersion = $state(0);
+    let activeSiloUtxoFeeTier = $derived.by(() => {
+        void localLockedSiloVersion;
+        const localLocks = readStoredSiloUtxoLocks();
+        const localAtomic = getCombinedLockedSiloAtomic(localLocks);
+        const serverSiloWhole = BigInt(Math.floor(Number(siloStakingTelemetry.combinedEligibleStaked || 0)));
+        const combinedAtomic = localAtomic + serverSiloWhole * 100_000_000n;
+        return resolveSiloFeeTierBps(combinedAtomic);
+    });
     let swapQuote = $derived.by(() => {
         const parsedIn = Math.max(0, parseFloat(payAmount) || 0);
         if (paySpotUsd <= 0 || receiveSpotUsd <= 0 || treasury.livePricingUnavailable) {
@@ -262,8 +276,9 @@
             const q = computeOnrampCostPlusQuote({ assetTicker: receiveTicker, grossUsd: parsedIn, spotPriceUsd: receiveSpotUsd, wholesaleFloorActive: isActiveMiner, bundledKasOrSilo: receiveTicker === 'KAS' || receiveTicker === DEFAULT_ECOSYSTEM_TICKER });
             return { grossUsd: q.grossUsd, protocolFeeUsd: q.perenniaFeeUsd, networkGasUsd: q.stripeGatewayFeeUsd, feeUsd: q.feeUsd, netUsd: q.guestNetUsd, estimatedOut: q.estimatedTokens, exchangeRate: rateRatio, feeRateDecimal: q.tierBps / 10000, isDarkPoolPair: true, livePricingUnavailable: false };
         }
+        const effectiveCap = Math.min(siloStakingTelemetry.feeRateCap, activeSiloUtxoFeeTier.feeBps / 10_000);
         return {
-            ...calculateDirectionalSwapQuote({ payTicker, receiveTicker, payAmount: parsedIn, paySpotUsd, receiveSpotUsd, isActiveMiner, siloFeeCap: siloStakingTelemetry.feeRateCap, hasStakedSilo: Number(siloStakingTelemetry.combinedEligibleStaked || 0) > 0 }),
+            ...calculateDirectionalSwapQuote({ payTicker, receiveTicker, payAmount: parsedIn, paySpotUsd, receiveSpotUsd, isActiveMiner, siloFeeCap: effectiveCap, hasStakedSilo: activeSiloUtxoFeeTier.feeBps < 50 }),
             livePricingUnavailable: false
         };
     });
@@ -1752,14 +1767,14 @@
     <span class="text-neutral-300 font-bold shrink-0 flex items-center gap-1.5">Fee <span data-testid="dex-active-fee-pct" class="text-[#18C6A5]">{(activeFeeRateDecimal * 100).toFixed(2)}%</span> ({i18n.formatFiat(swapQuote.feeUsd)}) <span class="text-[10px] text-neutral-500">{showSwapQuoteDetails ? '▴' : '▾'}</span></span>
   </button>
   {#if showSwapQuoteDetails}
-  <div class="pt-2 border-t border-white/10 flex flex-col gap-1.5 text-[11px] text-neutral-400">
-    <div class="flex justify-between"><span>Max Slippage</span><span class="text-white font-bold">{slippagePct.toFixed(1)}%</span></div>
-    
+  <div class="pt-2 border-t border-[var(--border-subtle)] flex flex-col gap-1.5 text-[11px] text-[var(--text-muted)]">
+    <div class="flex justify-between"><span>Max Slippage</span><span class="text-[var(--text-primary)] font-bold">{slippagePct.toFixed(1)}%</span></div>
+    <div class="flex justify-between"><span>SILO Lock Tier</span><span data-testid="swap-silo-fee-tier-badge" class="text-[var(--accent-text)] font-bold">{activeSiloUtxoFeeTier.tierLabel}</span></div>
   </div>
   {/if}
 </div>
 {:else}
-<div class="sr-only"><span data-testid="dex-oracle-rate-readout">1 {payToken.ticker} = {formatOracleRate(swapQuote.exchangeRate)} {receiveToken.ticker}</span><span data-testid="dex-active-fee-pct">{(activeFeeRateDecimal * 100).toFixed(2)}%</span></div>
+<div class="sr-only"><span data-testid="dex-oracle-rate-readout">1 {payToken.ticker} = {formatOracleRate(swapQuote.exchangeRate)} {receiveToken.ticker}</span><span data-testid="dex-active-fee-pct">{(activeFeeRateDecimal * 100).toFixed(2)}%</span><span data-testid="swap-silo-fee-tier-badge">{activeSiloUtxoFeeTier.tierLabel}</span></div>
 {/if}
 
             <!-- EXECUTE SWAP CTA BUTTON -->

@@ -13,6 +13,15 @@
     import { MASTER_ADMIN_ADDRESS } from '$lib/stores/kaspaStore.svelte';
     import { resolveSovereignAddressForChain } from '$lib/crypto/honeycomb';
     import {
+        SILO_ATOMIC_UNIT,
+        getCombinedLockedSiloAtomic,
+        readStoredSiloUtxoLocks,
+        resolveSiloFeeTierBps,
+        saveStoredSiloUtxoLocks,
+        type SiloUtxoLockPointer
+    } from '$lib/crypto/siloTokenomics';
+    import { parseDecimalToAtomic } from '$lib/crypto/atomicMath';
+    import {
         hydrateSectorTargetAssets,
         resolveTargetNetworkForAsset
     } from '$lib/components/operations/operationsHelpers';
@@ -442,6 +451,81 @@
     );
 
     let clearingHoldOrders = $state<any[]>([]);
+    let siloLockOutpointInput = $state('');
+    let siloLockAmountInput = $state('10000');
+    let siloLocksList = $state<SiloUtxoLockPointer[]>(readStoredSiloUtxoLocks());
+    let isRegisteringSiloLock = $state(false);
+    let siloLockFeedback = $state<string | null>(null);
+    let activeSiloUtxoTier = $derived(
+        resolveSiloFeeTierBps(getCombinedLockedSiloAtomic(siloLocksList))
+    );
+
+    async function registerNonCustodialSiloLock() {
+        siloLockFeedback = null;
+        if (!identity.activeAddress) {
+            ui.showWalletModal = true;
+            return;
+        }
+        const outpoint = siloLockOutpointInput.trim().toLowerCase();
+        if (!/^[a-f0-9]{64}:\d+$/.test(outpoint)) {
+            siloLockFeedback = 'Enter valid unspent txid:vout (64-hex txid : output index).';
+            return;
+        }
+        let amountAtomic = 0n;
+        try {
+            amountAtomic = parseDecimalToAtomic(siloLockAmountInput.trim(), 8, 'strict');
+        } catch {
+            amountAtomic = 0n;
+        }
+        if (amountAtomic <= 0n) {
+            siloLockFeedback = 'Enter valid SILO quantity greater than 0.';
+            return;
+        }
+        isRegisteringSiloLock = true;
+        try {
+            const tier = resolveSiloFeeTierBps(amountAtomic);
+            const res = await fetch('/api/state/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'REGISTER_VAULT_LOCK',
+                    payload: {
+                        walletAddress: identity.activeAddress,
+                        vaultKind: 'SILO_UTXO_LOCK',
+                        targetAsset: 'SILO',
+                        targetNetwork: 'KAS',
+                        destinationAddress: identity.activeAddress,
+                        outpoint,
+                        lockedSiloAtomic: amountAtomic.toString(),
+                        kcc20TokenTicker: 'SILO',
+                        thresholdSompi: amountAtomic.toString(),
+                        feeBps: tier.feeBps
+                    }
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.success === false) {
+                throw new Error(data.error || 'Unable to register non-custodial SILO lock.');
+            }
+            const nextLocks = [
+                ...siloLocksList.filter((l) => l.outpoint !== outpoint),
+                {
+                    outpoint,
+                    amountAtomic: amountAtomic.toString(),
+                    registeredAt: new Date().toISOString(),
+                    feeBps: tier.feeBps
+                }
+            ];
+            siloLocksList = nextLocks;
+            saveStoredSiloUtxoLocks(nextLocks);
+            siloLockOutpointInput = '';
+            siloLockFeedback = `Locked ${outpoint.slice(0, 12)}... (${tier.tierLabel})`;
+        } catch (err: any) {
+            siloLockFeedback = err?.message || 'Unable to register SILO lock.';
+        } finally {
+            isRegisteringSiloLock = false;
+        }
+    }
     let clearingHoldBannerMsg = $derived.by(() => {
         if (!Array.isArray(clearingHoldOrders) || clearingHoldOrders.length === 0) return null;
         const active = clearingHoldOrders.find((o) => String(o.clearingHoldStatus || '').toUpperCase() === 'CLEARING');
@@ -2885,6 +2969,52 @@
                         <span class="px-2 py-0.5 rounded bg-[var(--bg-card)] border border-amber-500/40 text-[8px] font-black uppercase">CLEARING</span>
                     </div>
                 {/if}
+
+                <!-- Non-Custodial SILO UTXO Fee-Tier Lock Card -->
+                <div
+                    data-testid="wallet-silo-utxo-lock-card"
+                    class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl p-3 flex flex-col gap-2 text-[10px] font-mono"
+                >
+                    <div class="flex items-center justify-between flex-wrap gap-2">
+                        <span class="font-black uppercase tracking-wider text-[var(--text-primary)]">
+                            LOCK SILO (UTXO FEE TIER)
+                        </span>
+                        <span
+                            data-testid="wallet-silo-active-tier"
+                            class="px-2 py-0.5 rounded-md bg-[var(--bg-card)] border border-[var(--border-active)] text-[var(--accent-text)] font-black"
+                        >
+                            {activeSiloUtxoTier.tierLabel} · {siloLocksList.length} UTXO(s)
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <input
+                            type="text"
+                            data-testid="silo-lock-outpoint-input"
+                            bind:value={siloLockOutpointInput}
+                            placeholder="Unspent txid:vout (64 hex chars : index)"
+                            class="sm:col-span-6 bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[var(--border-active)] rounded-xl px-3 py-1.5 text-[10px] text-[var(--text-primary)] outline-none"
+                        />
+                        <input
+                            type="text"
+                            data-testid="silo-lock-amount-input"
+                            bind:value={siloLockAmountInput}
+                            placeholder="SILO amount (10000 / 100000 / 1000000)"
+                            class="sm:col-span-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] focus:border-[var(--border-active)] rounded-xl px-3 py-1.5 text-[10px] text-[var(--text-primary)] outline-none tabular-nums"
+                        />
+                        <button
+                            type="button"
+                            data-testid="silo-lock-register-btn"
+                            disabled={isRegisteringSiloLock}
+                            onclick={registerNonCustodialSiloLock}
+                            class="sm:col-span-3 tactile-btn py-1.5 px-3 rounded-xl border border-[var(--border-active)] text-[var(--accent-text)] text-[10px] font-black uppercase cursor-pointer disabled:opacity-40"
+                        >
+                            {isRegisteringSiloLock ? '...' : 'LOCK SILO'}
+                        </button>
+                    </div>
+                    {#if siloLockFeedback}
+                        <span class="text-[9px] font-bold text-[var(--accent-text)]">{siloLockFeedback}</span>
+                    {/if}
+                </div>
 
                 <div class="grid grid-cols-3 gap-2 sm:gap-3 border-t border-[var(--border-subtle)] pt-4">
                     <div class="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 min-w-0">
