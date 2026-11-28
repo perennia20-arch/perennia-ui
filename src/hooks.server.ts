@@ -1,6 +1,7 @@
 import { json, type Handle } from '@sveltejs/kit';
 import { chronos } from '$lib/server/chronos';
 import { redis } from '$lib/server/redis';
+import { isWalletMasterAdmin } from '$lib/server/kms';
 import { env } from '$env/dynamic/private';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
@@ -252,6 +253,41 @@ export const handle: Handle = async ({ event, resolve }) => {
             .catch(() => null);
         if (validInvite) {
             isAuthorized = true;
+        }
+    }
+
+    if (pathname === '/forge' || pathname.startsWith('/forge/')) {
+        const forgeCookie = event.cookies.get('perennia_forge_session') || '';
+        const isFounderWallet = isWalletMasterAdmin(event.locals.walletAddress || null);
+        let verifiedSession = false;
+        if (!isFounderWallet && forgeCookie) {
+            const rustBase = (
+                env.RUST_BACKEND_URL ||
+                (env.UBUNTU_NODE_IP ? `http://${env.UBUNTU_NODE_IP}:8002` : 'http://127.0.0.1:8002')
+            )
+                .trim()
+                .replace(/\/+$/, '');
+            verifiedSession = await fetch(`${rustBase}/v1/forge/overview`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-forge-session': forgeCookie
+                },
+                body: '{}',
+                signal: AbortSignal.timeout(5_000)
+            })
+                .then((r) => r.ok)
+                .catch(() => false);
+        }
+        if (!isFounderWallet && !verifiedSession) {
+            return new Response('Not Found', {
+                status: 404,
+                headers: {
+                    'Cache-Control': 'no-store, no-cache, must-revalidate',
+                    'X-Robots-Tag': 'noindex, nofollow, noarchive',
+                    'X-Content-Type-Options': 'nosniff'
+                }
+            });
         }
     }
 

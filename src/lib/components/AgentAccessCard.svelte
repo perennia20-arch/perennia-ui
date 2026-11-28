@@ -183,6 +183,12 @@
         return cents === '00' ? wholeStr : `${wholeStr}.${cents}`;
     }
 
+    function formatCompactMandateFiat(raw: string | undefined): string {
+        const clean = /^\d+$/.test(String(raw ?? '').trim()) ? String(raw).trim() : '0';
+        const isWhole = BigInt(clean) % 1_000_000n === 0n;
+        return i18n.formatFiatFromUsdMicros(clean, { decimals: isWhole ? 0 : 2 });
+    }
+
     function toggleScope(scope: AgentScope) {
         errorMsg = null;
         if (selectedScopes.includes(scope)) {
@@ -497,7 +503,7 @@
                         </button>
                     </div>
                     <div class="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
-                        <span class="truncate text-[var(--text-muted)]">3. BOT API URL &amp; KEY ({`${readyMandate.token.slice(0, 10)}••••`})</span>
+                        <span class="truncate text-[var(--text-muted)]">3. BOT API URL &amp; KEY (••••{readyMandate.token.slice(-6)})</span>
                         <div class="flex items-center gap-1 shrink-0">
                             <button
                                 type="button"
@@ -714,7 +720,7 @@
                             data-testid="agent-key-summary-{k.keyId}"
                             class="text-[9px] font-bold text-[var(--text-secondary)] uppercase truncate tabular-nums min-w-0"
                         >
-                            {k.label.toUpperCase()} · {i18n.formatFiatFromUsdMicros(k.spent24hUsdMicros)}/{i18n.formatFiatFromUsdMicros(resolveDisplayCapMicros(k))} · {resolveRowScopes(k).join(' · ')} · {k.whitelistedAssets.join(', ')}
+                            {k.label.toUpperCase()} · {formatCompactMandateFiat(k.spent24hUsdMicros)}/{formatCompactMandateFiat(resolveDisplayCapMicros(k))} · {resolveRowScopes(k).join(' · ')} · {k.whitelistedAssets.join(', ')}
                         </span>
 
                         <button
